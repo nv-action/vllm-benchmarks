@@ -293,8 +293,8 @@ main() {
   run_latency_tests $QUICK_BENCHMARK_ROOT/tests/latency-tests.json
   run_throughput_tests $QUICK_BENCHMARK_ROOT/tests/throughput-tests.json
 
-  cd ../es-om || exit 1
-  send_to_es   $COMMIT_ID $COMMIT_TITLE
+  # cd ../es-om || exit 1
+  # send_to_es   $COMMIT_ID $COMMIT_TITLE
 
   END_TIME=$(date +%s)
   ELAPSED_TIME=$((END_TIME - START_TIME))
