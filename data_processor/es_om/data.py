@@ -69,7 +69,7 @@ def get_project_root() -> Path:
     return current_path
 
 
-def read_from_json(folder_path: Union[str, Path]):
+def read_from_json(folder_path: Union[str, Path]) -> dict:
      json_data_list = {}
      for file_name in os.listdir(folder_path):
         if file_name.endswith('json'):

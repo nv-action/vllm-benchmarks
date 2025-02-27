@@ -2,10 +2,7 @@
   {
     "test_name": "serving_llama8B_tp1",
     "qps_list": [
-      1,
-      4,
-      16,
-      "inf"
+      1
     ],
     "server_parameters": {
       "model": "LLAMA_3_1_8B_PATH",

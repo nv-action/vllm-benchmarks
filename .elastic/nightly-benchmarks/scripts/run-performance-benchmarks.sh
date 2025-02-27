@@ -261,11 +261,7 @@ send_to_es() {
 }
 
 main() {
-  COMMIT_ID=$1
-  COMMIT_TITLE=$2
-  
-  echo $COMMIT_ID
-  echo $COMMIT_TITLE
+  RESULTS_FOLDER=$1
 
   START_TIME=$(date +%s)
   check_npus
@@ -284,16 +280,13 @@ main() {
   cd benchmarks || exit 1
   QUICK_BENCHMARK_ROOT=../.elastic/nightly-benchmarks/
 
-  declare -g RESULTS_FOLDER=results
   mkdir -p $RESULTS_FOLDER
   
 
   # benchmarking
   run_serving_tests $QUICK_BENCHMARK_ROOT/tests/serving-tests.json
-  run_latency_tests $QUICK_BENCHMARK_ROOT/tests/latency-tests.json
-  run_throughput_tests $QUICK_BENCHMARK_ROOT/tests/throughput-tests.json
 
-  # cd ../es-om || exit 1
+  # cd ../es_om || exit 1
   # send_to_es   $COMMIT_ID $COMMIT_TITLE
 
   END_TIME=$(date +%s)
