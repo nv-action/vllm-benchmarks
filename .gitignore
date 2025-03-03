@@ -199,6 +199,3 @@ kernel_meta/
 
 # benchmark results
 /benchmarks/results
-
-# test
-demo.py
