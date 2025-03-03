@@ -192,9 +192,6 @@ run_serving_tests() {
     client_params=$(echo "$params" | jq -r '.client_parameters')
     server_args=$(json2args "$server_params")
     client_args=$(json2args "$client_params")
-    qps_list=$(echo "$params" | jq -r '.qps_list')
-    qps_list=$(echo "$qps_list" | jq -r '.[] | @sh')
-    echo "Running over qps list $qps_list"
 
     # check if server model and client model is aligned
     server_model=$(echo "$server_params" | jq -r '.model')
@@ -223,22 +220,15 @@ run_serving_tests() {
       echo "vllm failed to start within the timeout period."
     fi
 
-    # iterate over different QPS
-    for qps in $qps_list; do
-      # remove the surrounding single quote from qps
-      if [[ "$qps" == *"inf"* ]]; then
-        echo "qps was $qps"
-        qps="inf"
-        echo "now qps is $qps"
-      fi
+    for i in {1..10}; do
 
-      new_test_name=$test_name"_qps_"$qps
+      new_test_name=$test_name"_"$i
 
       client_command="python3 benchmark_serving.py \
         --save-result \
         --result-dir $RESULTS_FOLDER \
         --result-filename ${new_test_name}.json \
-        --request-rate $qps \
+        --request-rate 1 \
         $client_args"
 
       echo "Running test case $test_name with qps $qps"
