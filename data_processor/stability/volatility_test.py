@@ -1,12 +1,17 @@
+from ast import parse
 import subprocess
 import os
 from typing import Union
 from pathlib import Path
+import argparse
 
 from data_processor.es_om import data
 from data_processor.stability.utils import get_git_root, calculate_volatility_metrics, get_dataframe
 
 PROJECT_ROOT = get_git_root()
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--res_path", type=str, required=True)
 
 
 def collect_data(file_path: Union[str, Path], res_map: dict):

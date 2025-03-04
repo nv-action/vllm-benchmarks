@@ -1,7 +1,13 @@
 import subprocess
+import json
+import os
+from typing import Union, List, Dict
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+from data_processor.stability.common import FullDataServing
 
 def get_git_root():
     try:
@@ -49,3 +55,17 @@ def calculate_volatility_metrics(data_dict):
 
 def get_dataframe(data_map: dict):
     return pd.DataFrame(data_map).T
+
+
+
+def read_from_json(file_path: Union[Path, str]):
+    with open(file_path, 'r') as f:
+        data = json.load(f)
+    return data
+
+
+res_folder = '/root/wl/oldfiles/vllm-project/vllm-benchmarks/benchmarks/tem_res/serving_llama8B_tp1_1.json'
+
+if __name__ == '__main__':
+    data = read_from_json(res_folder)
+    print(data.get(FullDataServing.MEAN_TTFT_MS, None))

@@ -220,7 +220,7 @@ run_serving_tests() {
       echo "vllm failed to start within the timeout period."
     fi
 
-    for i in {1..10}; do
+    for i in {1..2}; do
 
       new_test_name=$test_name"_"$i
 
@@ -231,7 +231,7 @@ run_serving_tests() {
         --request-rate 1 \
         $client_args"
 
-      echo "Running test case $test_name with qps $qps"
+      echo "Running test case $test_name in circle $i"
       echo "Client command: $client_command"
 
       bash -c "$client_command"
@@ -251,8 +251,6 @@ send_to_es() {
 }
 
 main() {
-  RESULTS_FOLDER=$1
-
   START_TIME=$(date +%s)
   check_npus
 
@@ -270,6 +268,7 @@ main() {
   cd benchmarks || exit 1
   QUICK_BENCHMARK_ROOT=../.elastic/nightly-benchmarks/
 
+  declare -g RESULTS_FOLDER=results
   mkdir -p $RESULTS_FOLDER
   
 
