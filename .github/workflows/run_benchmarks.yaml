@@ -47,8 +47,8 @@ jobs:
 
       - name: Check env var
         run: |
-          echo ${SHAREGPT_PATH}
-          echo ${LLAMA_3_1_8B_PATH}
+          ls "${SHAREGPT_PATH}"
+          ls "${LLAMA_3_1_8B_PATH}"
           echo ${RESULTS_FOLDER}
           echo $ES_OM_DOMAIN
           echo $ES_OM_AUTHORIZATION
@@ -78,14 +78,12 @@ jobs:
         with:
           repository: vllm-project/vllm
           path: ./
-          ref: f61528d46d4f2e2b180a861ece4ca7311606882f
 
       - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v4
         with:
           repository: vllm-project/vllm-ascend
           path: ./vllm-ascend
-          fetch-depth: 0
 
       - name: Install vllm-project/vllm from source
         run: |
