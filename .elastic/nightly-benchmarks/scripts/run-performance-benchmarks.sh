@@ -276,8 +276,6 @@ main() {
   # benchmarking
   run_serving_tests $QUICK_BENCHMARK_ROOT/tests/serving-tests.json
 
-  # cd ../es_om || exit 1
-  # send_to_es   $COMMIT_ID $COMMIT_TITLE
   cd ..
   python -m data_processor.stability.send_data --res_folder "$RESULTS_FOLDER" --commit_id $COMMIT_ID
 

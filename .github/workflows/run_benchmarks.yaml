@@ -19,7 +19,7 @@ defaults:
 jobs:
   test:
     name: run benchmarks (self-host)
-    runs-on: ascend-arcch64  # actionlint-ignore: runner-label
+    runs-on: self-hosted  # actionlint-ignore: runner-label
 
     container:
       image: quay.io/ascend/cann:8.0.0-910b-ubuntu22.04-py3.10
