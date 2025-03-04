@@ -27,7 +27,7 @@ jobs:
         - /usr/local/dcmi:/usr/local/dcmi
         - /usr/local/bin/npu-smi:/usr/local/bin/npu-smi
         - /usr/local/Ascend/driver/lib64/:/usr/local/Ascend/driver/lib64/
-        - /home/perf-runner/actions-runner/_work/cache:/github/home/.cache/
+        - /home/perf-runner/action-runner/_work/cache:/github/home/.cache/
       options: >-
         --device /dev/davinci6
         --device /dev/davinci_manager
