@@ -111,6 +111,7 @@ jobs:
         with:
           repository: nv-action/vllm-benchmarks
           path: ./vllm-benchmarks
+          ref: analysis
       
       - name: Install benchmark dependencies
         working-directory: ./vllm-benchmarks
