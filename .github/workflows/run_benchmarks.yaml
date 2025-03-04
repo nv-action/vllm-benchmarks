@@ -123,5 +123,3 @@ jobs:
         run: |
           commit_id=$(git -C ../vllm-ascend rev-parse HEAD)
           bash .elastic/nightly-benchmarks/scripts/run-performance-benchmarks.sh "$commit_id"
-      
-          
