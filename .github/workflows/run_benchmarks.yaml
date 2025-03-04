@@ -3,7 +3,7 @@ name: 'benchmarks'
 on:
   push:
     branches:
-      - 'analysis'
+      - 'main'
     paths:
       - '.github/workflows/run_benchmarks.yaml'
       - '!docs/**'
@@ -27,7 +27,7 @@ jobs:
         - /usr/local/dcmi:/usr/local/dcmi
         - /usr/local/bin/npu-smi:/usr/local/bin/npu-smi
         - /usr/local/Ascend/driver/lib64/:/usr/local/Ascend/driver/lib64/
-        - /home/wl/actions-runner/_work/cache:/github/home/.cache/
+        - /home/perf-runner/action-runner/_work/cache:/github/home/.cache/
       options: >-
         --device /dev/davinci6
         --device /dev/davinci_manager
@@ -55,7 +55,7 @@ jobs:
 
       - name: Config mirrors
         run: |
-          sed -i 's|ports.ubuntu.com|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list
+          # sed -i 's|ports.ubuntu.com|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list
           pip config set global.index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
 
       - name: Install system dependencies
@@ -63,23 +63,23 @@ jobs:
           apt-get update -y
           apt-get -y install git jq wget curl lsof
 
-      # - name: Setup proxy
-      #   run: |
-      #     nohup /github/home/.cache/clash/clash \
-      #     -d ./clash -d /github/home/.cache/clash > /dev/null 2>&1 &
+      - name: Setup proxy
+        run: |
+          nohup /github/home/.cache/clash/clash \
+          -d ./clash -d /github/home/.cache/clash > /github/home/.cache/clash/clash.log 2>&1 &
 
-      #     # wait for clash up
-      #     sleep 5
+          # wait for clash up
+          sleep 5
           
-      #     git config --global http.proxy "http://127.0.0.1:7890"
-      #     git config --global https.proxy "http://127.0.0.1:7890" 
+          git config --global http.proxy "http://127.0.0.1:7890"
+          git config --global https.proxy "http://127.0.0.1:7890" 
 
       - name: Checkout vllm-project/vllm repo
         uses: actions/checkout@v4
         with:
           repository: vllm-project/vllm
           path: ./
-          ref: f61528d46d4f2e2b180a861ece4ca7311606882f
+          
 
       - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v4
@@ -97,11 +97,11 @@ jobs:
         run: |
           pip install -e .
 
-      - name: Install torch-npu
+      - name: Install pta
         run: |
           mkdir pta
           cd pta
-          wget https://pytorch-package.obs.cn-north-4.myhuaweicloud.com/pta/Daily/v2.5.1/dev20250226.4/pytorch_v2.5.1_py310.tar.gz
+          wget https://pytorch-package.obs.cn-north-4.myhuaweicloud.com/pta/Daily/v2.5.1/20250226.4/pytorch_v2.5.1_py310.tar.gz
           tar -xvf pytorch_v2.5.1_py310.tar.gz
           pip install ./torch_npu-2.5.1.dev20250226-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
           cd ..
@@ -118,10 +118,57 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      - name: Run benchmark iteration
-        working-directory: ./vllm-benchmarks
+      - name: Collect pr info from vllm-project/vllm-ascend
+        working-directory: ./vllm-ascend
         run: |
-          commit_id=$(git -C ../vllm-ascend rev-parse HEAD)
-          bash .elastic/nightly-benchmarks/scripts/run-performance-benchmarks.sh "$commit_id"
-      
+          git log --pretty=format:"%H %s" -- '**/*.py' ':!docs/*' ':!tests/*' ':!examples/*' > commit_log.txt
+          cat commit_log.txt
           
+          commit_id_cur=$(curl -k -X POST "${{ secrets.ES_OM_DOMAIN }}/vllm_benchmark_throughput/_search" \
+          -H "Content-Type: application/x-ndjson" \
+          -H "Authorization: ${{ secrets.ES_OM_AUTHORIZATION }}" \
+          -d '{
+            "_source": false,
+            "size": 10000,
+            "query": {
+              "match_all": {}
+            },
+            "sort": [
+              {
+                "created_at": {
+                  "order": "desc"
+                }
+              }
+            ]
+          }' | jq -r '.hits.hits[]._id')
+
+          grep -vFf <(echo "$commit_id_cur") commit_log.txt > filtered_commit_log.txt
+
+          if [ -s filtered_commit_log.txt ]; then
+            echo "Filtered commit log is not empty."
+            cat filtered_commit_log.txt
+            exit 0  # 'success'
+          else
+            echo "Filtered commit log is empty!"
+            exit 78  # "skipped"
+          fi
+
+      - name: Run benchmark iteration
+        working-directory: ./vllm-ascend
+        run: |
+          while IFS= read -r line || [[ -n "$line" ]]; do
+            commit_id=$(echo "$line" | awk '{print $1}')
+            commit_title=$(echo "$line" | cut -d ' ' -f2-)
+            commit_time=$(git show -s --format=%cd $commit_hash --date=iso-strict)
+            commit_time_no_tz=$(echo "$commit_time" | sed 's/[+-][0-9][0-9]:[0-9][0-9]$//')
+
+            git checkout $commit_id
+            git log --oneline -n 1
+            echo "commit_id: $commit_id"
+            echo "commit_title: $commit_title"
+            echo "commit_time: $commit_time_no_tz"
+            echo "------------------------"
+            cd ../vllm-benchmarks
+            bash .elastic/nightly-benchmarks/scripts/run-performance-benchmarks.sh "$commit_id" "$commit_title" "$commit_time_no_tz"
+            cd -
+          done < filtered_commit_log.txt
