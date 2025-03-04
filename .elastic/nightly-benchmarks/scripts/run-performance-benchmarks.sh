@@ -220,7 +220,7 @@ run_serving_tests() {
       echo "vllm failed to start within the timeout period."
     fi
 
-    for i in {1..2}; do
+    for i in {1..10}; do
 
       new_test_name=$test_name"_"$i
 
@@ -251,6 +251,7 @@ send_to_es() {
 }
 
 main() {
+  COMMIT_ID=$1
   START_TIME=$(date +%s)
   check_npus
 
@@ -268,8 +269,8 @@ main() {
   cd benchmarks || exit 1
   QUICK_BENCHMARK_ROOT=../.elastic/nightly-benchmarks/
 
-  declare -g RESULTS_FOLDER=results
-  mkdir -p $RESULTS_FOLDER
+  mkdir -p results
+  declare -g RESULTS_FOLDER=$(realpath ./results)
   
 
   # benchmarking
@@ -277,6 +278,10 @@ main() {
 
   # cd ../es_om || exit 1
   # send_to_es   $COMMIT_ID $COMMIT_TITLE
+  cd ..
+  python -m data_processor.stability.send_data --res_folder "$RESULTS_FOLDER" --commit_id $COMMIT_ID
+
+  rm -fr $RESULTS_FOLDER
 
   END_TIME=$(date +%s)
   ELAPSED_TIME=$((END_TIME - START_TIME))

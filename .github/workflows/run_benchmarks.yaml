@@ -3,7 +3,7 @@ name: 'benchmarks'
 on:
   push:
     branches:
-      - 'dev'
+      - 'analysis'
     paths:
       - '.github/workflows/run_benchmarks.yaml'
       - '!docs/**'
@@ -107,10 +107,10 @@ jobs:
           cd ..
           rm -rf pta
 
-      - name: Checkout cosdt/vllm-benchmarks repo
+      - name: Checkout nv-action/vllm-benchmarks repo
         uses: actions/checkout@v4
         with:
-          repository: cosdt/vllm-benchmarks
+          repository: nv-action/vllm-benchmarks
           path: ./vllm-benchmarks
       
       - name: Install benchmark dependencies
@@ -121,6 +121,7 @@ jobs:
       - name: Run benchmark iteration
         working-directory: ./vllm-benchmarks
         run: |
-          python data_processor/stability/demo.py
+          commit_id=$(git -C ../vllm-ascend rev-parse HEAD)
+          bash .elastic/nightly-benchmarks/scripts/run-performance-benchmarks.sh "$commit_id"
       
           
