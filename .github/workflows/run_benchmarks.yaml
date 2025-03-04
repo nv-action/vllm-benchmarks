@@ -3,7 +3,7 @@ name: 'benchmarks'
 on:
   push:
     branches:
-      - 'main'
+      - 'analysis'
     paths:
       - '.github/workflows/run_benchmarks.yaml'
       - '!docs/**'
