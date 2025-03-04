@@ -44,6 +44,7 @@ def calculate_volatility_metrics(data_dict):
         cv = std_dev / np.mean(values) if np.mean(values) != 0 else 0
         
         volatility_metrics[key] = {
+            'name': key,
             'variance': float(variance),
             'std_dev': float(std_dev),
             'range': float(data_range),

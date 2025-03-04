@@ -17,5 +17,4 @@ if __name__ == '__main__':
     full_data = read_from_json(args.res_folder)
     volatility = calculate_volatility_metrics(full_data)
     commit_id = args.commit_id
-    volatility['commit_id'] = commit_id
     handler.add_single_data(commit_id, volatility)
