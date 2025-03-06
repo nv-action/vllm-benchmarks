@@ -66,8 +66,8 @@ jobs:
 
       - name: Setup proxy
         run: |
-          nohup /github/home/.cache/clash/clash \ 
-          -d ./clash -d /github/home/.cache/clash > /github/home/.cache/clash/clash.log 2>&1 &
+          nohup /github/home/.cache/clash/clash \
+          -d ./clash -d /github/home/.cache/clash > /dev/null 2>&1 &
 
           # wait for clash up
           sleep 5
