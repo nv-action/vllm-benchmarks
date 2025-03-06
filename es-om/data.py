@@ -20,6 +20,7 @@ class BaseDataEntry:
     test_name: str
     tp: int
     created_at: Union[str, None]
+    model_name: Union[str, None]
 
     def __post_init__(self):
         if not self.created_at:
@@ -93,7 +94,7 @@ def data_prc(folder_path: Union[str, Path], commit_id, commit_title, created_at=
     json_data = read_from_json(folder_path)
     res_instance = {'vllm_benchmark_serving': [], "vllm_benchmark_latency":[], "vllm_benchmark_throughput":[]}
     for test_name, data in json_data.items():
-        test_prefix = str.split(test_name, '_')[0]
+        test_prefix, model_name = str.split(test_name, '_')[:2]
         tp = extract_tp_value(test_name)
         match test_prefix:
             case 'serving':
@@ -101,6 +102,7 @@ def data_prc(folder_path: Union[str, Path], commit_id, commit_title, created_at=
                     commit_id=commit_id,
                     commit_title=commit_title,
                     test_name=test_name,
+                    model_name=model_name,
                     tp=tp,
                     created_at=created_at,
                     request_rate=data['request_rate'],
@@ -119,6 +121,7 @@ def data_prc(folder_path: Union[str, Path], commit_id, commit_title, created_at=
                     commit_id=commit_id,
                     commit_title=commit_title,
                     test_name=test_name,
+                    model_name=model_name,
                     tp=tp,
                     created_at=created_at,
                     mean_latency=convert_s_ms(data['avg_latency']),
@@ -130,6 +133,7 @@ def data_prc(folder_path: Union[str, Path], commit_id, commit_title, created_at=
                     commit_id=commit_id,
                     commit_title=commit_title,
                     test_name=test_name,
+                    model_name=model_name,
                     created_at=created_at,
                     tp=tp,
                     requests_per_second=data['requests_per_second'],

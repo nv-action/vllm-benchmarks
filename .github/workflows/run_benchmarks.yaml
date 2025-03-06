@@ -3,7 +3,7 @@ name: 'benchmarks'
 on:
   push:
     branches:
-      - 'main'
+      - 'dev'
     paths:
       - '.github/workflows/run_benchmarks.yaml'
       - '!docs/**'
@@ -39,6 +39,7 @@ jobs:
         LLAMA_3_1_8B_PATH: /github/home/.cache/models/Meta-Llama-3-8B-Instruct
         ES_OM_DOMAIN: ${{ secrets.ES_OM_DOMAIN }}
         ES_OM_AUTHORIZATION: ${{ secrets.ES_OM_AUTHORIZATION }}
+        QWEN_2_5_PATH: /github/home/.cache/models/Qwen2.5-VL-7B-Instruct
     steps:
       - name: Check npu and CANN info
         run: |
@@ -65,7 +66,7 @@ jobs:
 
       - name: Setup proxy
         run: |
-          nohup /github/home/.cache/clash/clash \
+          nohup /github/home/.cache/clash/clash \ 
           -d ./clash -d /github/home/.cache/clash > /github/home/.cache/clash/clash.log 2>&1 &
 
           # wait for clash up

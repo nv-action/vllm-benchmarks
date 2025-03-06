@@ -1,14 +1,9 @@
 from handler import DataHandler
 from common import VLLM_SCHEMA
+from itertools import islice
 
 
-data_handler = DataHandler()
-for schema in VLLM_SCHEMA:
-    res = data_handler.search_data_from_vllm(schema, source=True)
-    print(schema)
-    res = res['hits']['hits']
-    for r in res:
-        print(r['_id'])
-        print(r['_source'].get('created_at', None))
-        print(r['_source'].get('commit_title', None))
-    print()
+test_name = 'serving_llama8B_tp1_qps_4'
+prefix, model_name = islice(test_name.split('_'), 2)
+print(prefix)
+print(model_name)
