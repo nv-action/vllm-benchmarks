@@ -64,16 +64,16 @@ jobs:
           apt-get update -y
           apt-get -y install git jq wget curl lsof
 
-      # - name: Setup proxy
-      #   run: |
-      #     nohup /github/home/.cache/clash/clash \ 
-      #     -d ./clash -d /github/home/.cache/clash > /github/home/.cache/clash/clash.log 2>&1 &
+      - name: Setup proxy
+        run: |
+          nohup /github/home/.cache/clash/clash \ 
+          -d ./clash -d /github/home/.cache/clash > /github/home/.cache/clash/clash.log 2>&1 &
 
-      #     # wait for clash up
-      #     sleep 5
+          # wait for clash up
+          sleep 5
           
-      #     git config --global http.proxy "http://127.0.0.1:7890"
-      #     git config --global https.proxy "http://127.0.0.1:7890" 
+          git config --global http.proxy "http://127.0.0.1:7890"
+          git config --global https.proxy "http://127.0.0.1:7890" 
 
       - name: Checkout vllm-project/vllm repo
         uses: actions/checkout@v4
