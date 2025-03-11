@@ -7,6 +7,8 @@ on:
     paths:
       - '.github/workflows/run_benchmarks.yaml'
       - '!docs/**'
+  schedule:
+    - cron: '0 13 * * *'  
 
 
 # Bash shells do not use ~/.profile or ~/.bashrc so these shells need to be explicitly
