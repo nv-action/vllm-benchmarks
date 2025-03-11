@@ -92,6 +92,8 @@ jobs:
       - name: Install vllm-project/vllm-ascend
         working-directory: ./vllm-ascend
         run: |
+          git checkout faf8cd89cb9a853bd8a3c16b8d7321e2da4a2342
+          git log
           pip install -e .
 
       - name: Install pta
