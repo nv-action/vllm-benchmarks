@@ -1,12 +1,6 @@
 name: 'benchmarks'
 
 on:
-  push:
-    branches:
-      - 'analysis'
-    paths:
-      - '.github/workflows/run_benchmarks.yaml'
-      - '!docs/**'
   schedule:
     - cron: '0 13 * * *'  
 
