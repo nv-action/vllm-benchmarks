@@ -291,7 +291,6 @@ main() {
   run_latency_tests $QUICK_BENCHMARK_ROOT/tests/latency-tests.json
   run_throughput_tests $QUICK_BENCHMARK_ROOT/tests/throughput-tests.json
 
-  send_to_es   $COMMIT_ID "$COMMIT_TITLE" "$COMMIT_TIME"
 
   rm -rf $RESULTS_FOLDER
 

@@ -99,53 +99,16 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      - name: Collect pr info from vllm-project/vllm-ascend
-        working-directory: ./vllm-ascend
-        run: |
-          git log --pretty=format:"%H %s" -- '**/*.py' ':!docs/*' ':!tests/*' ':!examples/*' > commit_log.txt
-          cat commit_log.txt
-          
-          commit_id_cur=$(curl -k -X POST "${{ secrets.ES_OM_DOMAIN }}/vllm_benchmark_throughput/_search" \
-          -H "Content-Type: application/x-ndjson" \
-          -H "Authorization: ${{ secrets.ES_OM_AUTHORIZATION }}" \
-          -d '{
-            "_source": false,
-            "size": 10000,
-            "query": {
-              "match_all": {}
-            },
-            "sort": [
-              {
-                "created_at": {
-                  "order": "desc"
-                }
-              }
-            ]
-          }' | jq -r '.hits.hits[]._id' | cut -d'_' -f1)
-
-          grep -vFf <(echo "$commit_id_cur") commit_log.txt > filtered_commit_log.txt
-
-          if [ -s filtered_commit_log.txt ]; then
-            echo "Filtered commit log is not empty."
-            cat filtered_commit_log.txt
-            exit 0  # 'success'
-          else
-            echo "Filtered commit log is empty!"
-            exit 78  # "skipped"
-          fi
-
       - name: Run benchmark iteration
         working-directory: ./vllm-ascend
         run: |
-          while IFS= read -r line || [[ -n "$line" ]]; do
-            commit_id=$(echo "$line" | awk '{print $1}')
-            commit_title=$(echo "$line" | cut -d ' ' -f2-)
+            commit_id="s213safda"
+            commit_title="test"
             commit_time=$(git show -s --format=%cd $commit_hash --date=iso-strict)
             commit_time_no_tz=$(echo "$commit_time" | sed 's/[+-][0-9][0-9]:[0-9][0-9]$//')
 
             git checkout $commit_id
             git log --oneline -n 1
-            pip install -e .
             echo "commit_id: $commit_id"
             echo "commit_title: $commit_title"
             echo "commit_time: $commit_time_no_tz"
@@ -153,4 +116,3 @@ jobs:
             cd ../vllm-benchmarks
             bash .elastic/nightly-benchmarks/scripts/run-performance-benchmarks.sh "$commit_id" "$commit_title" "$commit_time_no_tz"
             cd -
-          done < filtered_commit_log.txt
