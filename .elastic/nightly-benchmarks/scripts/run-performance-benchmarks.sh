@@ -19,7 +19,7 @@ check_npus() {
 ensure_sharegpt_downloaded() {
   local FILE=$SHAREGPT_PATH
   if [ ! -f "$FILE" ]; then
-    wget https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/resolve/main/$FILE
+    wget https://hf-mirror.com/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/tree/main/$FILE
   else
     echo "$FILE already exists."
   fi

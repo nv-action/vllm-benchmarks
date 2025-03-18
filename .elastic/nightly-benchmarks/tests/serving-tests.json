@@ -19,7 +19,7 @@
       "model": "meta-llama/Llama-3.1-8B-Instruct",
       "backend": "vllm",
       "dataset_name": "sharegpt",
-      "dataset_path": "SHAREGPT_PATH",
+      "dataset_path": "./ShareGPT_V3_unfiltered_cleaned_split.json",
       "num_prompts": 200
     }
   }
