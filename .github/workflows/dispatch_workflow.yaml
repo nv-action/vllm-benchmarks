@@ -1,8 +1,8 @@
-name: 'vLLM-ascend ci suitcase'
+name: 'vLLM-ascend benchmark suite'
 
 on:
-  schedule:
-    - cron: '0 12 * * *'
+  # schedule:
+  #   - cron: '0 12 * * *'
   # repository_dispatch:
   #   types: 
 
@@ -27,20 +27,6 @@ on:
           - ascendai/cann:8.0.0-910b-ubuntu22.04-py3.10
         default: 'ascendai/cann:8.0.0-910b-ubuntu22.04-py3.10'
         description: 'The docker image which will be loaded'
-      device:
-        required: true
-        type: choice
-        options:
-          - /dev/davinci1
-          - /dev/davinci2
-          - /dev/davinci3
-          - /dev/davinci4
-          - /dev/davinci5
-          - /dev/davinci6
-          - /dev/davinci7
-          - /dev/davinci8
-        default: '/dev/davinci5'
-        description: 'The device selected to run on'
 
 # Only cancel the previous runs when triggered by a pull_request event
 #
@@ -61,13 +47,11 @@ jobs:
     outputs:
       runner: ${{ steps.set-env.outputs.runner }}
       image: ${{ steps.set-env.outputs.image }}
-      device: ${{ steps.set-env.outputs.device }}
     steps:
       - name: Set environment params
         id: set-env
         run: |
           echo "runner=${{ github.event.inputs.runner || 'linux-arm64-npu-1' }}" >> $GITHUB_OUTPUT
-          echo "device=${{ github.event.inputs.device || '/dev/davinci5' }}" >> $GITHUB_OUTPUT
           echo "image=${{ github.event.inputs.image || 'ascendai/cann:latest' }}" >> $GITHUB_OUTPUT
 
   benchmark:
@@ -78,4 +62,3 @@ jobs:
     with:
       runner: ${{ needs.prepare.outputs.runner }}
       image: ${{ needs.prepare.outputs.image }}
-      device: ${{ needs.prepare.outputs.device }}
