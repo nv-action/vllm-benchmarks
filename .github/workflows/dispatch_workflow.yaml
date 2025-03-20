@@ -8,7 +8,7 @@ on:
   push:
     branches:
       - "*"
-      
+
   workflow_dispatch:
     inputs:
       runner:
@@ -75,6 +75,7 @@ jobs:
     with:
       runner: ${{ needs.prepare.outputs.runner }}
       image: ${{ needs.prepare.outputs.image }}
+      model: ${{ needs.prepare.outputs.model }}
 
   benchmark-multi:
     name: Run benchmarks multiple
