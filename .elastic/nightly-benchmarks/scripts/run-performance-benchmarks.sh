@@ -178,6 +178,70 @@ run_throughput_tests() {
   done
 }
 
+run_accuracy_tests() {
+  # run accuracy tests using `benchmark_accuracy.py`
+  # $1: a json file specifying accuracy test cases
+
+  local accuracy_test_file
+  accuracy_test_file=$1
+
+  # Iterate over accuracy tests
+  jq -c '.[]' "$accuracy_test_file" | while read -r params; do
+    # get the test name, and append the NPU type back to it.
+    test_name=$(echo "$params" | jq -r '.test_name')
+    if [[ ! "$test_name" =~ ^accuracy_ ]]; then
+      echo "In accuracy-test.json, test_name must start with \"accuracy_\"."
+      exit 1
+    fi
+
+    # if TEST_SELECTOR is set, only run the test cases that match the selector
+    if [[ -n "$TEST_SELECTOR" ]] && [[ ! "$test_name" =~ $TEST_SELECTOR ]]; then
+      echo "Skip test case $test_name."
+      continue
+    fi
+
+    # get arguments
+    accuracy_params=$(echo "$params" | jq -r '.accuracy_parameters')
+    accuracy_args=$(json2args "$accuracy_params")
+
+    opencompass_params=$(echo "$params" | jq -r '.opencompass_parameters')
+    opencompass_args=$(json2args "$opencompass_params")
+
+    accuracy_command="python3 \
+      -m vllm.entrypoints.openai.api_server \
+      $accuracy_args"
+
+    # run the server
+    echo "Running test case $test_name"
+    echo "Accuracy command: $server_command"
+    bash -c "$accuracy_command" &
+    server_pid=$!
+
+    # wait until the server is alive
+    if wait_for_server; then
+      echo ""
+      echo "vllm server is up and running."
+    else
+      echo ""
+      echo "vllm failed to start within the timeout period."
+    fi
+
+
+    accuracy_command="python3 benchmark_accuracy.py \
+      --output-json $RESULTS_FOLDER/${test_name}.json \
+      $opencompass_args"
+
+    echo "Running test case $test_name"
+    echo "Accuracy command: $accuracy_command"
+
+    # run the benchmark
+    eval "$accuracy_command"
+
+    kill_npu_processes
+
+  done
+}
+
 run_serving_tests() {
   # run serving tests using `benchmark_serving.py`
   # $1: a json file specifying serving test cases
@@ -298,11 +362,12 @@ main() {
   declare -g RESULTS_FOLDER=results
   mkdir -p $RESULTS_FOLDER
   
-  ensure_sharegpt_downloaded
+
   # benchmarking
-  run_serving_tests $QUICK_BENCHMARK_ROOT/tests/serving-tests.json
-  run_latency_tests $QUICK_BENCHMARK_ROOT/tests/latency-tests.json
-  run_throughput_tests $QUICK_BENCHMARK_ROOT/tests/throughput-tests.json
+  # run_serving_tests $QUICK_BENCHMARK_ROOT/tests/serving-tests.json
+  # run_latency_tests $QUICK_BENCHMARK_ROOT/tests/latency-tests.json
+  # run_throughput_tests $QUICK_BENCHMARK_ROOT/tests/throughput-tests.json
+  run_accuracy_tests $QUICK_BENCHMARK_ROOT/tests/accuracy-tests.json
 
   send_to_es   $COMMIT_ID "$COMMIT_TITLE" "$COMMIT_TIME"
 

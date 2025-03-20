@@ -1,0 +1,141 @@
+name: 'single_npu_test'
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        required: true
+        type: choice
+        options:
+          - linux-arm64-npu-1
+        default: 'linux-arm64-npu-1'
+        description: 'The runner selected to run on'
+      image:
+        required: true
+        type: choice
+        options:
+          - ascendai/cann:8.0.0-910b-ubuntu22.04-py3.10
+        default: 'ascendai/cann:8.0.0-910b-ubuntu22.04-py3.10'
+        description: 'The docker image which will be loaded'
+  # workflow_call:
+  #   inputs:
+  #     runner:
+  #       required: true
+  #       type: string
+  #       description: 'The runner selected to run on'
+  #     image:
+  #       required: true
+  #       type: string
+  #       description: 'The docker image which will be loaded'
+
+# Bash shells do not use ~/.profile or ~/.bashrc so these shells need to be explicitly
+# declared as "shell: bash -el {0}" on steps that need to be properly activated.
+# It's used to activate ascend-toolkit environment variables.
+defaults:
+  run:
+    shell: bash -el {0}
+
+jobs:
+  benchmark:
+    name: run benchmarks for torch_npu
+    runs-on: ${{ github.event.inputs.runner || 'linux-arm64-npu-1' }}
+    timeout-minutes: 720 
+    container:
+      image: ${{ github.event.inputs.image }}
+      env:
+        HF_ENDPOINT: https://hf-mirror.com
+        HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        DATASET_SOURCE: ModelScope
+        ES_OM_DOMAIN: ${{ secrets.ES_OM_DOMAIN }}
+        ES_OM_AUTHORIZATION: ${{ secrets.ES_OM_AUTHORIZATION }}
+    steps:
+      - name: Show NPU info
+        run: |
+          npu-smi info
+      - name: Check env
+        run: |
+          echo "hf_endpoint: $HF_ENDPOINT"
+          echo "hf_token: $HF_TOKEN"
+          echo "hf: ${{ secrets.HF_TOKEN }}"
+                  
+      - name: Config mirrors
+        run: |
+          sed -i 's|ports.ubuntu.com|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list
+          pip config set global.index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
+
+      - name: Install system dependencies
+        run: |
+          apt-get update -y
+          apt-get -y install git jq wget curl lsof
+
+      # See: https://github.com/actions/checkout/issues/363#issuecomment-1915075699
+      # See: https://github.com/hunshcn/gh-proxy/issues/28#issuecomment-773769630
+      - name: Config git
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://gh-proxy.test.osinfra.cn/https://github.com/".insteadOf https://github.com/
+
+      - name: Checkout vllm-project/vllm repo
+        uses: actions/checkout@v4
+        with:
+          repository: vllm-project/vllm
+          path: ./
+          
+      - name: Checkout vllm-project/vllm-ascend repo
+        uses: actions/checkout@v4
+        with:
+          repository: vllm-project/vllm-ascend
+          path: ./vllm-ascend
+          fetch-depth: 0
+
+      - name: Checkout open-compass/opencompass repo
+        uses: actions/checkout@v4
+        with:
+          repository: open-compass/opencompass
+          path: ./opencompass
+          fetch-depth: 0
+
+      - name: Install vllm-project/vllm from source
+        run: |
+          VLLM_TARGET_DEVICE=empty pip install -e .
+
+      - name: Install vllm-project/vllm-ascend
+        working-directory: ./vllm-ascend
+        run: |
+          pip install -e .
+      
+      - name: Install development tools
+        run: |
+          apt-get update && apt-get install -y build-essential cmake g++
+
+      - name: Install open-compass/opencompass
+        working-directory: ./opencompass
+        run: |
+          pip install -U opencompass
+
+      - name: Download pta
+        working-directory: ./vllm-ascend
+        run: |
+          bash pta_install.sh
+
+      - name: Checkout nv-action/vllm-benchmarks repo
+        uses: actions/checkout@v4
+        with:
+          repository: nv-action/vllm-benchmarks
+          fetch-depth: 0
+          path: ./vllm-benchmarks
+      
+      - name: Install benchmark dependencies
+        working-directory: ./vllm-benchmarks
+        run: |
+          pip install -r requirements.txt
+
+      - name: Copy file to opencompass directory
+        run: |
+          cp ./vllm-benchmarks/opencompass/*.py ./opencompass/opencompass/configs
+          pip install datasets==2.18.0
+
+      - name: Run benchmark iteration
+        working-directory: ./vllm-benchmarks
+        run: |
+          bash .elastic/nightly-benchmarks/scripts/run-performance-benchmarks.sh dsafas ssaf fasfas

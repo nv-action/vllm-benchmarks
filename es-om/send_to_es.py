@@ -3,7 +3,7 @@ from typing import Union, Dict, List
 import os
 
 from handler import DataHandler
-from data import data_prc, ServingDataEntry, LatencyDataEntry, ThroughputDataEntry
+from data import data_prc, ServingDataEntry, LatencyDataEntry, ThroughputDataEntry, AccuracyDataEntry
 
 parser = argparse.ArgumentParser(description='add commit msg to es')
 
@@ -12,7 +12,7 @@ parser.add_argument('--commit_title', type=str, required=True)
 parser.add_argument('--commit_time', type=str, required=True)
 
 
-def send_data(data_instance: Dict[str, List[Union[ServingDataEntry, LatencyDataEntry, ThroughputDataEntry]]]):
+def send_data(data_instance: Dict[str, List[Union[ServingDataEntry, LatencyDataEntry, ThroughputDataEntry, AccuracyDataEntry]]]):
     datahandler =  DataHandler()
     for index_name, data_list in data_instance.items():
         datahandler.index_name = index_name

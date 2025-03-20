@@ -1,1 +1,1 @@
-VLLM_SCHEMA = ['vllm_benchmark_serving', 'vllm_benchmark_latency', 'vllm_benchmark_throughput']
+VLLM_SCHEMA = ['vllm_benchmark_serving', 'vllm_benchmark_latency', 'vllm_benchmark_throughput', 'vllm_benchmark_accuracy']
