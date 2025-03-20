@@ -1,0 +1,19 @@
+[
+  {
+    "test_name": "accuracy_llama8B_tp1",
+    "accuracy_parameters": {
+      "model": "meta-llama/Llama-3.1-8B-Instruct",
+      "max-model-len": 16384, 
+      "tensor_parallel_size": 1,
+      "swap_space": 16,
+      "disable_log_stats": "",
+      "disable_log_requests": "",
+      "load_format": "dummy"
+    },
+    "opencompass_parameters": {
+      "config_file": "opencompass/configs/Llama_3.1_8B_Instruct_config.py",
+      "output_path": "/__w/vllm-benchmarks/vllm-benchmarks/opencompass/outputs/default/"
+    }
+  }
+]
+

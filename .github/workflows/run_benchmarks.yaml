@@ -62,6 +62,7 @@ jobs:
         ES_OM_DOMAIN: ${{ secrets.ES_OM_DOMAIN }}
         ES_OM_AUTHORIZATION: ${{ secrets.ES_OM_AUTHORIZATION }}
         QWEN_2_5_PATH: /github/home/.cache/models/Qwen2.5-VL-7B-Instruct
+        DATASET_SOURCE: ModelScope
     steps:
       - name: Check npu and CANN info
         run: |
@@ -75,6 +76,7 @@ jobs:
           echo ${RESULTS_FOLDER}
           echo $ES_OM_DOMAIN
           echo $ES_OM_AUTHORIZATION
+          echo $DATASET_SOURCE
 
       - name: Config mirrors
         run: |
@@ -110,6 +112,17 @@ jobs:
           path: ./vllm-ascend
           fetch-depth: 0
 
+      - name: Checkout open-compass/opencompass repo
+        uses: actions/checkout@v4
+        with:
+          repository: open-compass/opencompass
+          path: ./opencompass
+          fetch-depth: 0
+
+      - name: Copy file to opencompass directory
+        run: |
+          cp /opencompass/*.py ./opencompass/opencompass/configs
+
       - name: Install vllm-project/vllm from source
         run: |
           VLLM_TARGET_DEVICE=empty pip install -e .
@@ -118,6 +131,11 @@ jobs:
         working-directory: ./vllm-ascend
         run: |
           pip install -e .
+       
+      - name: Install open-compass/opencompass
+        working-directory: ./opencompass
+        run: |
+          pip install -U opencompass
 
       - name: Install pta
         run: |
