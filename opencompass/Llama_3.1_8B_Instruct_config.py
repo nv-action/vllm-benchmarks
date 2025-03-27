@@ -30,5 +30,7 @@ models = [
 with read_base():
     from opencompass.configs.datasets.ceval.ceval_gen import ceval_datasets
     from opencompass.configs.datasets.gsm8k.gsm8k_gen import gsm8k_datasets
+    from opencompass.configs.datasets.mmlu.mmlu_gen import mmlu_datasets
 
-datasets = ceval_datasets + gsm8k_datasets
+
+datasets = ceval_datasets + gsm8k_datasets + mmlu_datasets

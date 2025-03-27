@@ -1,19 +1,18 @@
 [
-  {
-    "test_name": "accuracy_llama8B_tp1",
+   {
+    "test_name": "accuracy_qwen7B_tp1",
     "accuracy_parameters": {
-      "model": "meta-llama/Llama-3.1-8B-Instruct",
-      "max-model-len": 16384, 
+      "model": "Qwen/Qwen2.5-7B-Instruct",
       "tensor_parallel_size": 1,
       "swap_space": 16,
       "disable_log_stats": "",
       "disable_log_requests": "",
-      "load_format": "dummy"
+      "max-model-len": 16384
     },
     "opencompass_parameters": {
-      "config_file": "opencompass/configs/Llama_3.1_8B_Instruct_config.py",
+      "model": "Qwen/Qwen2.5-7B-Instruct",
+      "config_file": "opencompass/configs/Qwen_2_7B_Instruct_config.py",
       "output_path": "/__w/vllm-benchmarks/vllm-benchmarks/opencompass/outputs/default/"
     }
   }
 ]
-

@@ -42,9 +42,13 @@ def main(args: argparse.Namespace):
     # vllm_process = start_vllm_backend(args.model, args.port, args.max_model_len)
     run_opencompass_accuracy(args.config_file)
     subdirs = [d for d in os.listdir(args.output_path) if os.path.isdir(os.path.join(args.output_path, d))]
+    print(subdirs)
     subdirs.sort(key=lambda d: os.path.getctime(os.path.join(args.output_path, d)))
+    print(subdirs)
     latest_subdir = subdirs[-1] if subdirs else None
-    result_file = args.output_path + "/" + latest_subdir + "/summary" + "summary" + "_" + latest_subdir + ".csv"
+    print(latest_subdir)
+    result_file = args.output_path + latest_subdir + "/summary/" + "summary" + "_" + latest_subdir + ".csv"
+    print(result_file)
     if not os.path.exists(result_file):
         return
     df = pd.read_csv(result_file)
@@ -53,12 +57,21 @@ def main(args: argparse.Namespace):
     accuracy_columns = [col for col in df.columns if col not in fixed_fields]
     accuracy_column = accuracy_columns[0]
     results = df.set_index("dataset")[accuracy_column].astype(float).to_dict()
+    results["model_name"] = args.model.split("/")[-1]
+    print(results)
+    print(args.output_json)
     with open(args.output_json, "w") as f:
             json.dump(results, f, indent=4)
 
 if __name__ == '__main__':
     parser = FlexibleArgumentParser(
         description='Test the accuracy of the model')
+    parser.add_argument(
+        "--model",
+        type=str,
+        required=True,
+        help="Name of the model.",
+    )
     parser.add_argument('--output-path', type=str)
     parser.add_argument('--config-file', type=str)
     parser.add_argument(
