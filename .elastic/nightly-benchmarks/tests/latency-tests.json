@@ -11,3 +11,21 @@
     }
   }
 ]
+[
+  {
+    "test_name": "accuracy_qwen7B_tp1",
+    "accuracy_parameters": {
+      "model": "Qwen/Qwen2.5-7B-Instruct",
+      "max-model-len": 26240, 
+      "tensor_parallel_size": 1,
+      "swap_space": 16,
+      "disable_log_stats": "",
+      "disable_log_requests": "",
+      "load_format": "dummy"
+    },
+    "opencompass_parameters": {
+      "config_file": "opencompass/configs/Qwen2_7B_config.py",
+      "output_path": "/__w/vllm-benchmarks/vllm-benchmarks/opencompass/outputs/default/"
+    }
+  }
+]

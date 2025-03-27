@@ -39,6 +39,7 @@ jobs:
   benchmark:
     name: run benchmarks for torch_npu
     runs-on: ${{ github.event.inputs.runner || 'linux-arm64-npu-1' }}
+    timeout-minutes: 720
     container:
       image: ${{ github.event.inputs.image }}
       env:
@@ -78,7 +79,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: vllm-project/vllm
-          ref: v0.7.3
           path: ./
           
       - name: Checkout vllm-project/vllm-ascend repo
@@ -86,7 +86,6 @@ jobs:
         with:
           repository: vllm-project/vllm-ascend
           path: ./vllm-ascend
-          ref: v0.7.3rc1
           fetch-depth: 0
 
       - name: Checkout open-compass/opencompass repo
@@ -114,15 +113,10 @@ jobs:
         run: |
           pip install -U opencompass
 
-      - name: Install pta
+      - name: Download pta
+        working-directory: ./vllm-ascend
         run: |
-          mkdir pta
-          cd pta
-          wget https://pytorch-package.obs.cn-north-4.myhuaweicloud.com/pta/Daily/v2.5.1/20250308.3/pytorch_v2.5.1_py310.tar.gz
-          tar -xvf pytorch_v2.5.1_py310.tar.gz
-          pip install ./torch_npu-2.5.1.dev20250308-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
-          cd ..
-          rm -rf pta
+          bash pta_install.sh
 
       - name: Checkout nv-action/vllm-benchmarks repo
         uses: actions/checkout@v4

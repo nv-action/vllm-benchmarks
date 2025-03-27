@@ -371,7 +371,8 @@ main() {
 
   send_to_es   $COMMIT_ID "$COMMIT_TITLE" "$COMMIT_TIME"
 
-  rm -rf $RESULTS_FOLDER
+  # rm -rf $RESULTS_FOLDER
+  sleep 99999
 
   END_TIME=$(date +%s)
   ELAPSED_TIME=$((END_TIME - START_TIME))

@@ -59,9 +59,9 @@ class LatencyDataEntry(BaseDataEntry):
 
 @dataclass
 class AccuracyDataEntry(BaseDataEntry):
-    # ceval_computer_network: float
-    # ceval_perating_system: float
-    # ceval_omputer_architecture: float
+    ceval_computer_network: float
+    ceval_perating_system: float
+    ceval_omputer_architecture: float
     # ceval_ollege_programming: float
     # ceval_ollege_physics: float
     # ceval_ollege_chemistry: float
@@ -154,7 +154,7 @@ def data_prc(folder_path: Union[str, Path], commit_id, commit_title, created_at=
     commit_id = commit_id
     commit_title = commit_title
     json_data = read_from_json(folder_path)
-    res_instance = {'vllm_benchmark_serving': [], "vllm_benchmark_latency":[], "vllm_benchmark_throughput":[], "vllm_benchmark_accuracy":[]}
+    res_instance = {'vllm_benchmark_serving': [], "vllm_benchmark_latency":[], "vllm_benchmark_throughput":[], "vllm_benchmark_accuracy_test":[]}
     for test_name, data in json_data.items():
         test_prefix = str.split(test_name, '_')[0]
         tp = extract_tp_value(test_name)
