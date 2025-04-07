@@ -1,0 +1,115 @@
+name: 'accuracy test'
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'choose a new dev branch'
+        required: true
+      runner:
+        required: true
+        type: choice
+        options:
+          - linux-arm64-npu-1
+        default: 'linux-arm64-npu-1'
+        description: 'The runner selected to run on'
+      image:
+        required: true
+        type: choice
+        options:
+          - ascendai/cann:8.0.0-910b-ubuntu22.04-py3.10
+        default: 'ascendai/cann:8.0.0-910b-ubuntu22.04-py3.10'
+        description: 'The docker image which will be loaded'
+    
+# Bash shells do not use ~/.profile or ~/.bashrc so these shells need to be explicitly
+# declared as "shell: bash -el {0}" on steps that need to be properly activated.
+# It's used to activate ascend-toolkit environment variables.
+defaults:
+  run:
+    shell: bash -el {0}
+
+jobs:
+  test:
+    name: vLLM Ascend accuracy test (self-host)
+    runs-on: ${{ github.event.inputs.runner || 'linux-arm64-npu-1' }}
+    container:
+      image: ${{ github.event.inputs.image }}
+      env:
+        HF_ENDPOINT: https://hf-mirror.com
+        HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        DATASET_SOURCE: ModelScope
+        ES_OM_DOMAIN: ${{ secrets.ES_OM_DOMAIN }}
+        ES_OM_AUTHORIZATION: ${{ secrets.ES_OM_AUTHORIZATION }}
+    steps:
+      - name: Validate branch name
+        id: validate_branch
+        run: |
+          if [[ "${{ github.event.inputs.branch }}" =~ -dev$ ]]; then
+            echo "Branch name is valid."
+          else
+            echo "Error: The selected branch does not end with '-dev'."
+            exit 1
+          fi
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+      - name: Check npu and CANN info
+        run: |
+          npu-smi info
+          cat /usr/local/Ascend/ascend-toolkit/latest/"$(uname -i)"-linux/ascend_toolkit_install.info
+
+      - name: Config mirrors
+        run: |
+          sed -i 's|ports.ubuntu.com|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list
+          pip config set global.index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
+          apt-get update -y
+          apt install git -y
+          git config --global url."https://gh-proxy.test.osinfra.cn/https://github.com/".insteadOf https://github.com/
+
+      - name: Checkout vllm-project/vllm-ascend repo
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          apt-get -y install `cat packages.txt`
+
+      - name: Checkout vllm-project/vllm repo
+        uses: actions/checkout@v4
+        with:
+          repository: vllm-project/vllm
+          path: ./vllm-empty
+
+      - name: Install vllm-project/vllm from source
+        working-directory: ./vllm-empty
+        run: |
+          VLLM_TARGET_DEVICE=empty pip install -e .
+
+      - name: Install vllm-project/vllm-ascend
+        run: |
+          pip uninstall -y numpy
+          pip install -r requirements-dev.txt
+          pip install -e .
+
+      - name: Install pta
+        run: |
+          if [ ! -d /root/.cache/pta ]; then
+            mkdir -p /root/.cache/pta
+          fi
+
+          if [ ! -f /root/.cache/pta/torch_npu-2.5.1.dev20250320-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl ]; then
+            cd /root/.cache/pta
+            rm -rf pytorch_v2.5.1_py310*
+            wget https://pytorch-package.obs.cn-north-4.myhuaweicloud.com/pta/Daily/v2.5.1/20250320.3/pytorch_v2.5.1_py310.tar.gz
+            tar -zxvf pytorch_v2.5.1_py310.tar.gz
+          fi
+
+          pip install /root/.cache/pta/torch_npu-2.5.1.dev20250320-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
+
+      - name: Run vllm-project/vllm-ascend accuracy test for V0 Engine
+        working-directory: accuracy
+        env:
+          VLLM_USE_V1: 0
+          HF_ENDPOINT: https://hf-mirror.com
+        run: |
+          python ./run-accuracy.py --output ./result/accuracy.json
