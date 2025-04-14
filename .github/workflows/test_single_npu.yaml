@@ -157,7 +157,7 @@ jobs:
       - name: Copy gsm8k yaml to lm-eval directory
         run: |
           pip install ray
-          pip install datasets==2.16.0 transformers==4.50.3 huggingface-hub==0.29.3
+          # pip install datasets==2.16.0 transformers==4.50.3 huggingface-hub==0.29.3
           cp ./vllm-benchmarks/accuracy/gsm8k.yaml ./lm-eval/lm_eval/tasks/gsm8k   
 
       - name: Run vllm-project/vllm-ascend Qwen/Qwen2.5-VL-7B-Instruct accuracy test for V0 Engine
