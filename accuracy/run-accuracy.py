@@ -26,12 +26,11 @@ import lm_eval
 import torch
 
 UNIMODAL_MODEL_NAME = ["Qwen/Qwen2.5-7B-Instruct", "meta-llama/Llama-3.1-8B-Instruct"]
-# UNIMODAL_TASK = ["ceval-valid", "mmlu", "gsm8k"]
-UNIMODAL_TASK = ["ceval-valid"]
+UNIMODAL_TASK = ["ceval-valid", "mmlu", "gsm8k"]
 MULTIMODAL_NAME = ["Qwen/Qwen2.5-VL-7B-Instruct"]
-# MULTIMODAL_TASK = ["mmmu_val"]
-MULTIMODAL_TASK = ["mmmu_accounting"]
+MULTIMODAL_TASK = ["mmmu_val"]
 
+batch_size_dict = {"ceval-valid": 1, "mmlu": 1, "gsm8k": "auto", "mmmu_val": 1}
 
 def run_accuracy_unimodal(queue, model, dataset):
     try:
@@ -42,7 +41,7 @@ def run_accuracy_unimodal(queue, model, dataset):
             tasks=dataset,
             apply_chat_template=True,
             fewshot_as_multiturn=True,
-            batch_size="auto",
+            batch_size=batch_size_dict[dataset],
             num_fewshot=5,
         )
         print(f"Success: {model} on {dataset}")
@@ -66,7 +65,7 @@ def run_accuracy_multimodal(queue, model, dataset):
             tasks=dataset,
             apply_chat_template=True,
             fewshot_as_multiturn=True,
-            batch_size=1,
+            batch_size=batch_size_dict[dataset],
         )
         print(f"Success: {model} on {dataset}")
         measured_value = results["results"]
@@ -110,12 +109,14 @@ def generate_md(model_name, tasks_list, vllm_ascend_version, datasets):
             task_name = alias.strip()
             indent = len(alias) - len(alias.lstrip(" "))
             version = 1 if indent >= 2 else 2
-
-            metric_key = None
-            for k in stats:
-                if "," in k and not k.startswith("acc_stderr"):
-                    metric_key = k
-                    break
+            if "exact_match,flexible-extract" in stats:
+                metric_key = "exact_match,flexible-extract"
+            else:
+                metric_key = None
+                for k in stats:
+                    if "," in k and not k.startswith("acc_stderr"):
+                        metric_key = k
+                        break
             if metric_key is None:
                 continue
             metric, flt = metric_key.split(",", 1)

@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       branch:
-        description: 'choose a new dev branch'
+        description: 'choose a dev branch to pr'
         required: true
 jobs:
   download:
@@ -16,19 +16,19 @@ jobs:
       - name: Validate branch name
         id: validate_branch
         run: |
-          if [[ "${{ github.event.inputs.branch }}" =~ -dev$ ]]; then
+          if [[ "${{ github.ref_name }}" =~ -dev$ ]]; then
             echo "Branch name is valid."
           else
             echo "Error: The selected branch does not end with '-dev'."
             exit 1
           fi
-          SANITIZED_BRANCH_NAME="${{ github.event.inputs.branch }}"
+          SANITIZED_BRANCH_NAME="${{ github.ref_name }}"
           echo "SANITIZED_BRANCH_NAME=${SANITIZED_BRANCH_NAME}" >> $GITHUB_ENV
 
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.branch }}
+          ref: ${{ github.ref_name }}
 
       - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v4
@@ -48,7 +48,7 @@ jobs:
         run: |
           ARTIFACT_JSON=$(gh api repos/${{ github.repository }}/actions/artifacts)
           RUN_ID=$(echo "$ARTIFACT_JSON" | \
-            jq -r '[.artifacts[] | select(.name=="Qwen2.5-VL-7B-Instruct-accuracy-reports")] | sort_by(.created_at) | last | .workflow_run.id')
+            jq -r '[.artifacts[] | select(.name=="${{ github.ref_name }}-Qwen2.5-VL-7B-Instruct-accuracy-reports")] | sort_by(.created_at) | last | .workflow_run.id')
           echo "runid=$RUN_ID" >> $GITHUB_OUTPUT
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -58,7 +58,7 @@ jobs:
         run: |
           ARTIFACT_JSON=$(gh api repos/${{ github.repository }}/actions/artifacts)
           RUN_ID=$(echo "$ARTIFACT_JSON" | \
-            jq -r '[.artifacts[] | select(.name=="Qwen2.5-7B-Instruct-accuracy-reports")] | sort_by(.created_at) | last | .workflow_run.id')
+            jq -r '[.artifacts[] | select(.name=="${{ github.ref_name }}-Qwen2.5-7B-Instruct-accuracy-reports")] | sort_by(.created_at) | last | .workflow_run.id')
           echo "runid=$RUN_ID" >> $GITHUB_OUTPUT
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -68,7 +68,7 @@ jobs:
         run: |
           ARTIFACT_JSON=$(gh api repos/${{ github.repository }}/actions/artifacts)
           RUN_ID=$(echo "$ARTIFACT_JSON" | \
-            jq -r '[.artifacts[] | select(.name=="Llama-3.1-8B-Instruct-accuracy-reports")] | sort_by(.created_at) | last | .workflow_run.id')
+            jq -r '[.artifacts[] | select(.name=="${{ github.ref_name }}-Llama-3.1-8B-Instruct-accuracy-reports")] | sort_by(.created_at) | last | .workflow_run.id')
           echo "runid=$RUN_ID" >> $GITHUB_OUTPUT
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -76,7 +76,7 @@ jobs:
       - name: Download Qwen/Qwen2.5-VL-7B-Instruct Artifact
         uses: actions/download-artifact@v4
         with:
-          name: Qwen2.5-VL-7B-Instruct-accuracy-reports
+          name: ${{ github.ref_name }}-Qwen2.5-VL-7B-Instruct-accuracy-reports
           path: ./accuracy/result
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: nv-action/vllm-benchmarks 
@@ -85,7 +85,7 @@ jobs:
       - name: Download Qwen/Qwen2.5-7B-Instruct Artifact
         uses: actions/download-artifact@v4
         with:
-          name: Qwen2.5-7B-Instruct-accuracy-reports
+          name: ${{ github.ref_name }}-Qwen2.5-7B-Instruct-accuracy-reports
           path: ./accuracy/result
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: nv-action/vllm-benchmarks 
@@ -94,7 +94,7 @@ jobs:
       - name: Download meta-llama/Llama-3.1-8B-Instruct Artifact
         uses: actions/download-artifact@v4
         with:
-          name: Llama-3.1-8B-Instruct-accuracy-reports
+          name: ${{ github.ref_name }}-Llama-3.1-8B-Instruct-accuracy-reports
           path: ./accuracy/result
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: nv-action/vllm-benchmarks 
