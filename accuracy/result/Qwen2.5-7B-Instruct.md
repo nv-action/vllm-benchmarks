@@ -1,1 +1,55 @@
-
+|                 Tasks                 |Version|Filter|n-shot|Metric|   |Value |   |Stderr|
+|---------------------------------------|------:|------|-----:|------|---|-----:|---|-----:|
+| ceval-valid                           |      2 | none   | 0      | acc_norm |↑  | 0.7325 |±  | 0.0112|
+| - ceval-valid_accountant              |      2 | none   | 0      | acc    |↑  | 0.8163 |±  | 0.0559|
+| - ceval-valid_advanced_mathematics    |      2 | none   | 0      | acc    |↑  | 0.2632 |±  | 0.1038|
+| - ceval-valid_art_studies             |      2 | none   | 0      | acc    |↑  | 0.7879 |±  | 0.0723|
+| - ceval-valid_basic_medicine          |      2 | none   | 0      | acc    |↑  | 0.9474 |±  | 0.0526|
+| - ceval-valid_business_administration |      2 | none   | 0      | acc    |↑  | 0.7576 |±  | 0.0758|
+| - ceval-valid_chinese_language_and_literature |      2 | none   | 0      | acc    |↑  | 0.6522 |±  | 0.1015|
+| - ceval-valid_civil_servant           |      2 | none   | 0      | acc    |↑  | 0.6596 |±  | 0.0699|
+| - ceval-valid_clinical_medicine       |      2 | none   | 0      | acc    |↑  | 0.6818 |±  | 0.1016|
+| - ceval-valid_college_chemistry       |      2 | none   | 0      | acc    |↑  | 0.4583 |±  | 0.1039|
+| - ceval-valid_college_economics       |      2 | none   | 0      | acc    |↑  | 0.6364 |±  | 0.0655|
+| - ceval-valid_college_physics         |      2 | none   | 0      | acc    |↑  | 0.4737 |±  | 0.1177|
+| - ceval-valid_college_programming     |      2 | none   | 0      | acc    |↑  | 0.8649 |±  | 0.0570|
+| - ceval-valid_computer_architecture   |      2 | none   | 0      | acc    |↑  | 0.6667 |±  | 0.1054|
+| - ceval-valid_computer_network        |      2 | none   | 0      | acc    |↑  | 0.6316 |±  | 0.1137|
+| - ceval-valid_discrete_mathematics    |      2 | none   | 0      | acc    |↑  | 0.3750 |±  | 0.1250|
+| - ceval-valid_education_science       |      2 | none   | 0      | acc    |↑  | 0.8276 |±  | 0.0714|
+| - ceval-valid_electrical_engineer     |      2 | none   | 0      | acc    |↑  | 0.5405 |±  | 0.0831|
+| - ceval-valid_environmental_impact_assessment_engineer |      2 | none   | 0      | acc    |↑  | 0.6774 |±  | 0.0853|
+| - ceval-valid_fire_engineer           |      2 | none   | 0      | acc    |↑  | 0.6129 |±  | 0.0889|
+| - ceval-valid_high_school_biology     |      2 | none   | 0      | acc    |↑  | 0.8421 |±  | 0.0859|
+| - ceval-valid_high_school_chemistry   |      2 | none   | 0      | acc    |↑  | 0.5789 |±  | 0.1164|
+| - ceval-valid_high_school_chinese     |      2 | none   | 0      | acc    |↑  | 0.7895 |±  | 0.0961|
+| - ceval-valid_high_school_geography   |      2 | none   | 0      | acc    |↑  | 0.7368 |±  | 0.1038|
+| - ceval-valid_high_school_history     |      2 | none   | 0      | acc    |↑  | 0.8500 |±  | 0.0819|
+| - ceval-valid_high_school_mathematics |      2 | none   | 0      | acc    |↑  | 0.2222 |±  | 0.1008|
+| - ceval-valid_high_school_physics     |      2 | none   | 0      | acc    |↑  | 0.8421 |±  | 0.0859|
+| - ceval-valid_high_school_politics    |      2 | none   | 0      | acc    |↑  | 0.7895 |±  | 0.0961|
+| - ceval-valid_ideological_and_moral_cultivation |      2 | none   | 0      | acc    |↑  | 0.9474 |±  | 0.0526|
+| - ceval-valid_law                     |      2 | none   | 0      | acc    |↑  | 0.5833 |±  | 0.1028|
+| - ceval-valid_legal_professional      |      2 | none   | 0      | acc    |↑  | 0.6522 |±  | 0.1015|
+| - ceval-valid_logic                   |      2 | none   | 0      | acc    |↑  | 0.5000 |±  | 0.1091|
+| - ceval-valid_mao_zedong_thought      |      2 | none   | 0      | acc    |↑  | 0.9583 |±  | 0.0417|
+| - ceval-valid_marxism                 |      2 | none   | 0      | acc    |↑  | 0.9474 |±  | 0.0526|
+| - ceval-valid_metrology_engineer      |      2 | none   | 0      | acc    |↑  | 0.7917 |±  | 0.0847|
+| - ceval-valid_middle_school_biology   |      2 | none   | 0      | acc    |↑  | 0.9524 |±  | 0.0476|
+| - ceval-valid_middle_school_chemistry |      2 | none   | 0      | acc    |↑  | 0.9500 |±  | 0.0500|
+| - ceval-valid_middle_school_geography |      2 | none   | 0      | acc    |↑  | 0.8333 |±  | 0.1124|
+| - ceval-valid_middle_school_history   |      2 | none   | 0      | acc    |↑  | 0.9091 |±  | 0.0627|
+| - ceval-valid_middle_school_mathematics |      2 | none   | 0      | acc    |↑  | 0.2632 |±  | 0.1038|
+| - ceval-valid_middle_school_physics   |      2 | none   | 0      | acc    |↑  | 0.9474 |±  | 0.0526|
+| - ceval-valid_middle_school_politics  |      2 | none   | 0      | acc    |↑  | 1.0000 |±  | 0.0000|
+| - ceval-valid_modern_chinese_history  |      2 | none   | 0      | acc    |↑  | 0.9130 |±  | 0.0601|
+| - ceval-valid_operating_system        |      2 | none   | 0      | acc    |↑  | 0.7368 |±  | 0.1038|
+| - ceval-valid_physician               |      2 | none   | 0      | acc    |↑  | 0.7551 |±  | 0.0621|
+| - ceval-valid_plant_protection        |      2 | none   | 0      | acc    |↑  | 0.8182 |±  | 0.0842|
+| - ceval-valid_probability_and_statistics |      2 | none   | 0      | acc    |↑  | 0.1667 |±  | 0.0904|
+| - ceval-valid_professional_tour_guide |      2 | none   | 0      | acc    |↑  | 0.8966 |±  | 0.0576|
+| - ceval-valid_sports_science          |      2 | none   | 0      | acc    |↑  | 0.8421 |±  | 0.0859|
+| - ceval-valid_tax_accountant          |      2 | none   | 0      | acc    |↑  | 0.8776 |±  | 0.0473|
+| - ceval-valid_teacher_qualification   |      2 | none   | 0      | acc    |↑  | 0.8636 |±  | 0.0523|
+| - ceval-valid_urban_and_rural_planner |      2 | none   | 0      | acc    |↑  | 0.7391 |±  | 0.0655|
+| - ceval-valid_veterinary_medicine     |      2 | none   | 0      | acc    |↑  | 0.8261 |±  | 0.0808|
