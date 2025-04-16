@@ -34,7 +34,7 @@ batch_size_dict = {"ceval-valid": 1, "mmlu": 1, "gsm8k": "auto", "mmmu_val": 1}
 
 def run_accuracy_unimodal(queue, model, dataset):
     try:
-        model_args = f"pretrained={model},max_model_len=4096,dtype=auto,tensor_parallel_size=1,gpu_memory_utilization=0.6"
+        model_args = f"pretrained={model},max_model_len=4096,dtype=auto,tensor_parallel_size=1,gpu_memory_utilization=0.7"
         results = lm_eval.simple_evaluate(
             model="vllm",
             model_args=model_args,
