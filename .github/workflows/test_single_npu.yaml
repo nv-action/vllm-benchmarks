@@ -170,8 +170,6 @@ jobs:
         working-directory: ./accuracy
         env:
           VLLM_USE_V1: 0
-          PYTORCH_NPU_ALLOC_CONF: max_split_size_mb:256
-          GIT_DISCOVERY_ACROSS_FILESYSTEM: 1
         run: |
           python ./run_accuracy.py \
             --model ${{ matrix.model_name }} \
