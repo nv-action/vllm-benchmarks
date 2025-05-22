@@ -26,7 +26,7 @@ MODEL_RUN_INFO = {
      "lm_eval --model vllm --modlel_args $MODEL_ARGS --tasks {datasets} \ \n"
      "--apply_chat_template --fewshot_as_multiturn --num_fewshot 5 --batch_size 1"
      ),
-    "LLM-Research/Meta-Llama-3.1-8B-Instruct":
+    "meta-llama/Llama-3.1-8B-Instruct":
     ("export MODEL_AEGS='{model}, max_model_len=4096,dtype=auto,tensor_parallel_size=2,gpu_memory_utilization=0.6'\n"
      "lm_eval --model vllm --modlel_args $MODEL_ARGS --tasks {datasets} \ \n"
      "--apply_chat_template --fewshot_as_multiturn --num_fewshot 5 --batch_size 1"

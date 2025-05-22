@@ -8,7 +8,11 @@ on:
         required: true
         type: string
       vllm-ascend-version:
-        description: 'what vllm-ascend version to accuracy test?'
+        description: 'what vllm-ascend branch or version or pr to accuracy test?'
+        required: true
+        type: string
+      vllm-ascend-release-version:
+        description: 'what vllm-ascend version to release?'
         required: true
         type: string
       models:
@@ -62,6 +66,7 @@ jobs:
         run: |
           npu-smi info
           cat /usr/local/Ascend/ascend-toolkit/latest/"$(uname -i)"-linux/ascend_toolkit_install.info
+
       - name: Config mirrors
         run: |
           sed -i 's|ports.ubuntu.com|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list
@@ -74,6 +79,7 @@ jobs:
         run: |
           apt-get -y install `cat packages.txt`
           apt-get -y install gcc g++ cmake libnuma-dev
+
       - name: Checkout vllm-project/vllm repo
         uses: actions/checkout@v4
         with:
@@ -100,19 +106,9 @@ jobs:
           pip install -r requirements-dev.txt
           pip install -e .
           
-      - name: Checkout EleutherAI/lm-evaluation-harness repo
-        uses: actions/checkout@v4
-        with:
-          repository: EleutherAI/lm-evaluation-harness
-          path: ./lm-eval
-          fetch-depth: 0
-
       - name: Install EleutherAI/lm-evaluation-harness
-        working-directory: ./lm-eval
-        run: |
-            pip install -e .
-            pip install ray datasets==2.16.0
-          
+        run: pip install lm-eval ray datasets==2.16.0
+
       - name: Collect version info
         run: |
           for dir in /usr/local/Ascend/ascend-toolkit/*; do
@@ -141,6 +137,7 @@ jobs:
           echo "Torch: ${{ env.TORCH_VERSION }}"
           echo "vLLM: ${{ env.VLLM_VERSION }}"
           mkdir -p ./accuracy/V0
+
       - name: Run Accuracy Test for V0
         working-directory: ./accuracy
         env:
@@ -150,11 +147,12 @@ jobs:
           python ./run_accuracy.py \
             --model ${{ matrix.model_name }} \
             --output ./V0/${{ matrix.output_file }}.md \
-            --vllm_ascend_version ${{ github.event.inputs.vllm-ascend-version }} \
+            --vllm_ascend_version ${{ github.event.inputs.vllm-ascend-release-version }} \
             --cann_version ${{ env.CANN_VERSION }} \
             --torch_npu_version ${{ env.TORCH_NPU_VERSION }} \
             --torch_version ${{ env.TORCH_VERSION }} \
             --vllm_version ${{ env.VLLM_VERSION }}
+
       - name: Upload Report for V0
         uses: actions/upload-artifact@v4
         with:
