@@ -13,12 +13,13 @@ UNIMODAL_MODEL_NAME = [
     "Qwen/Qwen3-8B-Base"
 ]
 # UNIMODAL_TASK = ["ceval-valid", "mmlu", "gsm8k"]
-UNIMODAL_TASK = ["ceval-valid_computer_network"]
+UNIMODAL_TASK = ["ceval-valid_accountant"]
 MULTIMODAL_NAME = ["Qwen/Qwen2.5-VL-7B-Instruct"]
-MULTIMODAL_TASK = ["mmmu_val"]
+# MULTIMODAL_TASK = ["mmmu_val"]
+MULTIMODAL_TASK = ["mmmu_architecture_and_engineering"]
 
 # batch_size_dict = {"ceval-valid": 1, "mmlu": 1, "gsm8k": "auto", "mmmu_val": 1}
-batch_size_dict = {"ceval-valid_computer_network": 1, "mmlu": 1, "gsm8k": "auto", "mmmu_val": 1}
+batch_size_dict = {"ceval-valid_accountant": 1, "mmlu": 1, "gsm8k": "auto", "mmmu_val": 1, "mmmu_architecture_and_engineering": 1}
 
 MODEL_RUN_INFO = {
     "Qwen/Qwen2.5-7B-Instruct":
@@ -26,7 +27,7 @@ MODEL_RUN_INFO = {
      "lm_eval --model vllm --modlel_args $MODEL_ARGS --tasks {datasets} \ \n"
      "--apply_chat_template --fewshot_as_multiturn --num_fewshot 5 --batch_size 1"
      ),
-    "LLM-Research/Meta-Llama-3.1-8B-Instruct":
+    "meta-llama/Llama-3.1-8B-Instruct":
     ("export MODEL_AEGS='{model}, max_model_len=4096,dtype=auto,tensor_parallel_size=2,gpu_memory_utilization=0.6'\n"
      "lm_eval --model vllm --modlel_args $MODEL_ARGS --tasks {datasets} \ \n"
      "--apply_chat_template --fewshot_as_multiturn --num_fewshot 5 --batch_size 1"
@@ -69,7 +70,7 @@ def run_accuracy_unimodal(queue, model, dataset):
 
 def run_accuracy_multimodal(queue, model, dataset):
     try:
-        model_args = f"pretrained={model},max_model_len=8192,dtype=auto,tensor_parallel_size=2,max_images=2,gpu_memory_utilization=0.8"
+        model_args = f"pretrained={model},max_model_len=8192,dtype=auto,tensor_parallel_size=4,max_images=2"
         results = lm_eval.simple_evaluate(
             model="vllm-vlm",
             model_args=model_args,
