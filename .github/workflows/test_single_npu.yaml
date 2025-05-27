@@ -168,7 +168,7 @@ jobs:
           VLLM_USE_V1: 0
           PYTORCH_NPU_ALLOC_CONF: max_split_size_mb:256
         run: |
-          sleep 9999
+          sleep 99999
           python ./run_accuracy.py \
             --model ${{ matrix.model_name }} \
             --output ./V0/${{ matrix.output_file }}.md \
