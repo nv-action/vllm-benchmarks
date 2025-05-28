@@ -61,6 +61,7 @@ jobs:
   model_tests:
     name: Model Test - ${{ matrix.model_name }}
     runs-on: 'linux-arm64-npu-4'
+    timeout-minutes: 600
     strategy:
       matrix:
         include: ${{ fromJSON(
