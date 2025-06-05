@@ -1,4 +1,4 @@
-# 🎯 Qwen3-8B-Base Accuracy Test
+# 🎯 Qwen2.5-7B-Instruct Accuracy Test
   <div>
     <strong>vLLM version:</strong> vLLM: 0.1.dev1, vLLM Ascend: main <br>
   </div>
@@ -15,7 +15,7 @@
       <strong>Command</strong>: 
 
   ```bash
-  export MODEL_ARGS='pretrained=Qwen/Qwen3-8B-Base, max_model_len=4096,dtype=auto,tensor_parallel_size=2,gpu_memory_utilization=0.6'
+  export MODEL_ARGS='pretrained=Qwen/Qwen2.5-7B-Instruct, max_model_len=4096,dtype=auto,tensor_parallel_size=2,gpu_memory_utilization=0.6'
 lm_eval --model vllm --modlel_args $MODEL_ARGS --tasks ceval-valid,gsm8k \ 
 --apply_chat_template --fewshot_as_multiturn --num_fewshot 5 --batch_size 1
   ```
@@ -24,14 +24,14 @@ lm_eval --model vllm --modlel_args $MODEL_ARGS --tasks ceval-valid,gsm8k \
   
 | Task                  | Filter | n-shot | Metric   | Value   | Stderr |
 |-----------------------|-------:|-------:|----------|--------:|-------:|
-| ceval-valid                           | none   | 5      | acc_norm | ↑ 0.2303 | ± 0.0115 |
-| gsm8k                                 | flexible-extract | 5      | exact_match | ↑ 0.8309 | ± 0.0103 |
+| ceval-valid                           | none   | 5      | acc    | ↑ 0.2303 | ± 0.0115 |
+| gsm8k                                 | flexible-extract | 5      | exact_match | ↑ 0.7233 | ± 0.0123 |
 <details>
 <summary>ceval-valid details</summary>
 
 | Task                  | Filter | n-shot | Metric   | Value   | Stderr |
 |-----------------------|-------:|-------:|----------|--------:|-------:|
-| ceval-valid                           | none   | 5      | acc_norm | ↑ 0.2303 | ± 0.0115 |
+| ceval-valid                           | none   | 5      | acc    | ↑ 0.2303 | ± 0.0115 |
 | - ceval-valid_accountant              | none   | 5      | acc    | ↑ 0.2245 | ± 0.0602 |
 | - ceval-valid_advanced_mathematics    | none   | 5      | acc    | ↑ 0.3158 | ± 0.1096 |
 | - ceval-valid_art_studies             | none   | 5      | acc    | ↑ 0.4545 | ± 0.0880 |
@@ -90,5 +90,5 @@ lm_eval --model vllm --modlel_args $MODEL_ARGS --tasks ceval-valid,gsm8k \
 
 | Task                  | Filter | n-shot | Metric   | Value   | Stderr |
 |-----------------------|-------:|-------:|----------|--------:|-------:|
-| gsm8k                                 | flexible-extract | 5      | exact_match | ↑ 0.8309 | ± 0.0103 |
+| gsm8k                                 | flexible-extract | 5      | exact_match | ↑ 0.7233 | ± 0.0123 |
 </details>
