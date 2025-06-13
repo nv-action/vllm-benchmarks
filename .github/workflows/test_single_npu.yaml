@@ -84,6 +84,7 @@ jobs:
         HF_ENDPOINT: https://hf-mirror.com
         HF_TOKEN: ${{ secrets.HF_TOKEN }}
         DATASET_SOURCE: ModelScope
+    timeout-minutes: 600
 
     steps:
       - name: Checkout repository
