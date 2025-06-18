@@ -11,6 +11,13 @@ on:
           - v0.9.0rc2
           - v0.9.0-dev
           - v0.7.3-dev
+      benchmark-branch:
+        description: 'benchmark-branch:'
+        required: true
+        type: choice
+        options:
+          - main
+          - accuarcy-test-dev-2
       models:  
         description: 'models (choose "all" for all models):'
         required: true
@@ -25,6 +32,8 @@ on:
 jobs:
   download_reports:
     runs-on: ubuntu-latest
+    env:
+      UPSTREAM_REPO: nv-action/vllm-benchmarks
     strategy:
       matrix:
         model: ${{ fromJSON(
@@ -61,14 +70,10 @@ jobs:
       - name: Query artifact run id
         id: get_run_id
         run: |
-          # 1. 定义上游仓库名称
-          UPSTREAM_REPO="nv-action/vllm-benchmarks"  # 替换为实际的上游仓库名称
-          
           ARTIFACT_PATTERN="${{ github.event.inputs.vllm-ascend-branch }}-${{ steps.get_basename.outputs.model_base_name }}-V${{ matrix.version }}-report"
           echo "Querying artifacts with pattern: $ARTIFACT_PATTERN"
           
-          # 2. 修改为查询上游仓库的artifacts
-          ARTIFACT_JSON=$(gh api --paginate /repos/$UPSTREAM_REPO/actions/artifacts || echo "{}")
+          ARTIFACT_JSON=$(gh api --paginate /repos/${{ env.UPSTREAM_REPO }}/actions/artifacts || echo "{}")
           
           RUN_ID=$(echo "$ARTIFACT_JSON" | \
             jq -s -r --arg pattern "$ARTIFACT_PATTERN" \
@@ -82,7 +87,6 @@ jobs:
             echo "runid=$RUN_ID" >> $GITHUB_OUTPUT
           fi
         env:
-          # 3. 使用有上游仓库访问权限的PAT
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
 
       - name: Download Artifact
@@ -91,10 +95,8 @@ jobs:
         with:
           name: ${{ github.event.inputs.vllm-ascend-branch }}-${{ steps.get_basename.outputs.model_base_name }}-V${{ matrix.version }}-report
           path: ./accuracy/accuracy_report_bak
-          # 4. 使用有上游仓库访问权限的PAT
           github-token: ${{ secrets.PAT_TOKEN }}
-          # 5. 指定上游仓库
-          repository: nv-action/vllm-benchmarks  # 替换为实际的上游仓库名称
+          repository: ${{ env.UPSTREAM_REPO }} 
           run-id: ${{ steps.get_run_id.outputs.runid }}
           
       - name: Upload reports artifact
@@ -107,11 +109,31 @@ jobs:
   create_pr:
     runs-on: ubuntu-latest
     needs: download_reports
+    env:
+      UPSTREAM_REPO: nv-action/vllm-benchmarks
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           ref: main
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/${{ env.UPSTREAM_REPO }}.git
+          git fetch upstream
+          git remote -v
+
+      - name: Set Git user info dynamically
+        run: |
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+
+      - name: Create or switch to branch
+        run: |
+          TIMESTAMP=$(date +%Y%m%d%H%M%S)
+          BRANCH_NAME="auto-pr/accuracy-report-${TIMESTAMP}"
+          echo "BRANCH_NAME=${BRANCH_NAME}" >> $GITHUB_ENV
+          git checkout -B "${BRANCH_NAME}" upstream/${{ github.event.inputs.benchmark-branch }}
 
       - name: Setup workspace
         run: mkdir -p ./accuracy/accuracy_report
@@ -149,6 +171,18 @@ jobs:
             fi
           done
 
+      - name: Delete failed reports
+        run: |
+          for report in ./accuracy/accuracy_report/*.md; do
+            [[ "$(basename "$report")" == "index.md" ]] && continue
+            first_line=$(head -n 1 "$report")
+            echo "Checking $report: $first_line"
+            if [[ "$first_line" == *"❌"* ]]; then
+              echo "❌ failure detected in $report, deleting..."
+              rm "$report"
+            fi
+          done
+
       - name: Update accuracy_report/index.md
         run: |
           REPORT_DIR="./accuracy/accuracy_report"
@@ -170,39 +204,24 @@ jobs:
 
             echo ":::"
           } > "$INDEX_MD"
-           
-      - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v7
+
+      - name: push accuracy report
+        run: |
+          git add ./accuracy/accuracy_report/*.md
+          git commit -s -m "[Doc] Update accuracy reports for ${{ github.event.inputs.vllm-ascend-branch }}"
+          git push -f origin "${{ env.BRANCH_NAME }}"
+
+      - name: Create PR in upstream via API
+        uses: actions/github-script@v6
         with:
-          # 关键修改1：使用具有上游仓库权限的token
-          token: ${{ secrets.PAT_TOKEN }}  # 替换为上游仓库的PAT
-          
-          # 关键修改2：指定目标仓库
-          base-repository: nv-action/vllm-benchmarks  # 格式: owner/repo-name
-          
-          # 关键修改3：设置目标分支
-          base: main  # 上游仓库的目标分支
-          
-          # 分支设置在fork仓库操作
-          branch: auto-pr/accuracy-report
-          
-          commit-message: |
-            "Update accuracy reports for ${{ github.event.inputs.vllm-ascend-branch }}"
-            Signed-off-by: vllm-ascend-ci <vllmcibot@gmail.com>
-          
-          add-paths: |
-            ./accuracy/accuracy_report/*.md
-          
-          title: "[Doc] Update accuracy reports for ${{ github.event.inputs.vllm-ascend-branch }}"
-          body: |
-            The accuracy results running on Ascend NPU have changed, updating reports for:
-            ${{ 
-              github.event.inputs.models == 'all' 
-                && 'All models (Qwen2.5-7B-Instruct, Qwen2.5-VL-7B-Instruct, Qwen3-8B-Base)' 
-                || github.event.inputs.models 
-            }}
-            
-            - [Workflow run][1]
-            
-            [1]: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          signoff: true
+          github-token: ${{ secrets.PAT_TOKEN }}
+          script: |
+            const pr = await github.rest.pulls.create({
+              owner: 'nv-action',
+              repo: 'vllm-benchmarks',
+              head: `${{ github.actor }}:${{ env.BRANCH_NAME }}`,
+              base: '${{ github.event.inputs.benchmark-branch }}',
+              title: `[Doc] Update accuracy reports for ${{ github.event.inputs.vllm-ascend-branch }}`,
+              body: `This PR updates accuracy reports for branch \`${{ github.event.inputs.vllm-ascend-branch }}\`.`
+            });
+            core.info(`Created PR #${pr.data.number}`);
