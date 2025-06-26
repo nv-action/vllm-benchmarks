@@ -47,4 +47,4 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    main(args.config_file, args.config_file_new)
+    main(args.base_config, args.new_config)
