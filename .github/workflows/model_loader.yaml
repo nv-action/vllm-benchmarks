@@ -18,16 +18,24 @@
 name: Download New ModelScope Models
 
 on:
-  pull_request:
-    paths:
-      - ci_model_list.json
-
   workflow_dispatch:
     inputs:
-      model:
+      runner:
         required: true
-        type: string
-        description: 'Model name to be downloaded'
+        type: choice
+        options:
+          - acci-linux-arm64-npu-4
+          - linux-arm64-npu-1
+        default: 'linux-arm64-npu-1'
+        description: 'The runner selected to run on'
+      image:
+        required: true
+        type: choice
+        options:
+          - m.daocloud.io/quay.io/ascend/cann:8.1.rc1-910b-ubuntu22.04-py3.10
+        default: 'm.daocloud.io/quay.io/ascend/cann:8.1.rc1-910b-ubuntu22.04-py3.10'
+        description: 'The docker image which will be loaded'
+
 
 # Bash shells do not use ~/.profile or ~/.bashrc so these shells need to be explicitly
 # declared as "shell: bash -el {0}" on steps that need to be properly activated.
@@ -37,19 +45,22 @@ defaults:
     shell: bash -el {0}
 
 jobs:
-  download-models:
-    name: download models from modelscope
-    runs-on: linux-arm64-npu-0
+  test:
+    name: Test weight load
+    runs-on: ${{ inputs.runner }}
     container:
-      image:  m.daocloud.io/quay.io/ascend/cann:8.1.rc1-910b-ubuntu22.04-py3.10
+      image: ${{ inputs.image }}
       env:
         HF_ENDPOINT: https://hf-mirror.com
-        MS_TOKEN: ${{ secrets.MS_TOKEN }}
+        # VLLM_USE_MODELSCOPE: true
         HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        BASE_REF: ${{ github.event.pull_request.base.ref || 'main' }}
-        BASE_CONFIG: ci_model_list.json
-        NEW_CONFIG: ci_model_list_new.json
+        ES_OM_DOMAIN: ${{ secrets.ES_OM_DOMAIN }}
+        ES_OM_AUTHORIZATION: ${{ secrets.ES_OM_AUTHORIZATION }}
     steps:
+      - name: Check npu and CANN info
+        run: |
+          npu-smi info
+          cat /usr/local/Ascend/ascend-toolkit/latest/"$(uname -i)"-linux/ascend_toolkit_install.info
       - name: Config mirrors
         run: |
           sed -i 's|ports.ubuntu.com|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list
@@ -57,33 +68,40 @@ jobs:
           apt-get update -y
           apt install git -y
           git config --global url."https://gh-proxy.test.osinfra.cn/https://github.com/".insteadOf https://github.com/
- 
-      - name: Install dependencies
+      - name: Install system dependencies
         run: |
-          pip install modelscope
+          apt-get -y install `cat packages.txt`
+          apt-get -y install gcc g++ cmake libnuma-dev
 
-      - name: Download via workflow_dispatch
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          echo "Triggered by dispatch, downloading ${{ inputs.model }}"
-          modelscope download ${{ inputs.model }}
-
+      - name: Checkout vllm-project/vllm repo
+        uses: actions/checkout@v4
+        with:
+          repository: vllm-project/vllm
+          path: ./
+          
       - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v4
+        with:
+          repository: Potabk/vllm-ascend
+          path: ./vllm-ascend
+          fetch-depth: 0
 
-      - name: Fetch base branch
+      - name: Install vllm-project/vllm from source
         run: |
-          git fetch origin $BASE_REF
-
-      - name: Get current model config
+          VLLM_TARGET_DEVICE=empty pip install -e .
+      - name: Install vllm-project/vllm-ascend
+        working-directory: ./vllm-ascend
+        env:
+          PIP_EXTRA_INDEX_URL: https://mirrors.huaweicloud.com/ascend/repos/pypi
         run: |
-          cp ci_model_list.json $NEW_CONFIG
-          git show origin/$BASE_REF:ci_model_list.json \
-            > $BASE_CONFIG || echo '{"models":[]}' > $BASE_CONFIG
-
-      - name: Download via config file detection
-        if: github.event_name == 'pull_request'
+          pip install -r requirements-dev.txt
+          pip install -e .
+          
+      - name: Run vllm-project/vllm-ascend test for V1 Engine
+        working-directory: ./vllm-ascend
+        env:
+          VLLM_USE_V1: 1
+          VLLM_WORKER_MULTIPROC_METHOD: spawn
+          HF_ENDPOINT: https://hf-mirror.com
         run: |
-          python .github/workflows/scripts/download_new_models.py \
-          --base-config $BASE_CONFIG \
-          --new-config $NEW_CONFIG
+         pytest -sv tests/e2e/multicard/test_offline_inference_distributed.py::test_models_distributed_QwQ
