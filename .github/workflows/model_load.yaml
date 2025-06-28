@@ -1,4 +1,4 @@
-name: 'test weight load'
+name: 'download models'
 
 on:
   workflow_dispatch:
