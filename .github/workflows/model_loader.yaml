@@ -82,7 +82,7 @@ jobs:
       - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v4
         with:
-          repository: Potabk/vllm-ascend
+          repository: vllm-project/vllm-ascend
           path: ./vllm-ascend
           fetch-depth: 0
 
