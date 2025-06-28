@@ -1,4 +1,4 @@
-name: 'multi_npu_test'
+name: 'test weight load'
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ on:
         required: true
         type: choice
         options:
-          - linux-arm64-npu-4
+          - acci-linux-arm64-npu-4
           - linux-arm64-npu-1
         default: 'linux-arm64-npu-1'
         description: 'The runner selected to run on'
@@ -15,8 +15,8 @@ on:
         required: true
         type: choice
         options:
-          - ascendai/cann:8.0.0-910b-ubuntu22.04-py3.10
-        default: 'ascendai/cann:8.0.0-910b-ubuntu22.04-py3.10'
+          - m.daocloud.io/quay.io/ascend/cann:8.1.rc1-910b-ubuntu22.04-py3.10
+        default: 'm.daocloud.io/quay.io/ascend/cann:8.1.rc1-910b-ubuntu22.04-py3.10'
         description: 'The docker image which will be loaded'
 
 
@@ -29,7 +29,7 @@ defaults:
 
 jobs:
   test:
-    name: run benchmarks
+    name: Test weight load
     runs-on: ${{ inputs.runner }}
     container:
       image: ${{ inputs.image }}
@@ -44,21 +44,17 @@ jobs:
         run: |
           npu-smi info
           cat /usr/local/Ascend/ascend-toolkit/latest/"$(uname -i)"-linux/ascend_toolkit_install.info
-
       - name: Config mirrors
         run: |
-          # sed -i 's|ports.ubuntu.com|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list
+          sed -i 's|ports.ubuntu.com|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list
           pip config set global.index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
-
+          apt-get update -y
+          apt install git -y
+          git config --global url."https://gh-proxy.test.osinfra.cn/https://github.com/".insteadOf https://github.com/
       - name: Install system dependencies
         run: |
-          apt-get update -y
-          apt-get -y install git jq wget curl lsof
-
-      - name: Config git
-        run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git config --global url."https://gh-proxy.test.osinfra.cn/https://github.com/".insteadOf https://github.com/
+          apt-get -y install `cat packages.txt`
+          apt-get -y install gcc g++ cmake libnuma-dev
 
       - name: Checkout vllm-project/vllm repo
         uses: actions/checkout@v4
@@ -69,91 +65,26 @@ jobs:
       - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v4
         with:
-          repository: vllm-project/vllm-ascend
+          repository: Potabk/vllm-ascend
           path: ./vllm-ascend
           fetch-depth: 0
 
       - name: Install vllm-project/vllm from source
         run: |
           VLLM_TARGET_DEVICE=empty pip install -e .
-
       - name: Install vllm-project/vllm-ascend
         working-directory: ./vllm-ascend
+        env:
+          PIP_EXTRA_INDEX_URL: https://mirrors.huaweicloud.com/ascend/repos/pypi
         run: |
+          pip install -r requirements-dev.txt
           pip install -e .
-
-      - name: Install development tools 
-        run: | 
-          apt-get install -y build-essential cmake g++
-
-      - name: Download pta
-        working-directory: ./vllm-ascend
-        run: |
-          bash pta_install.sh
-
-      - name: Checkout nv-action/vllm-benchmarks repo
-        uses: actions/checkout@v4
-        with:
-          repository: nv-action/vllm-benchmarks
-          path: ./vllm-benchmarks
-      
-      - name: Install benchmark dependencies
-        working-directory: ./vllm-benchmarks
-        run: |
-          pip install -r requirements.txt
-      
-      - name: Collect pr info from vllm-project/vllm-ascend
-        working-directory: ./vllm-ascend
-        run: |
-          git log --pretty=format:"%H %s" -- '**/*.py' ':!docs/*' ':!tests/*' ':!examples/*' > commit_log.txt
-          cat commit_log.txt
           
-          commit_id_cur=$(curl -k -X POST "${{ secrets.ES_OM_DOMAIN }}/vllm_benchmark_throughput/_search" \
-          -H "Content-Type: application/x-ndjson" \
-          -H "Authorization: ${{ secrets.ES_OM_AUTHORIZATION }}" \
-          -d '{
-            "_source": false,
-            "size": 10000,
-            "query": {
-              "match_all": {}
-            },
-            "sort": [
-              {
-                "created_at": {
-                  "order": "desc"
-                }
-              }
-            ]
-          }' | jq -r '.hits.hits[]._id' | cut -d'_' -f1)
-
-          grep -vFf <(echo "$commit_id_cur") commit_log.txt > filtered_commit_log.txt
-
-          if [ -s filtered_commit_log.txt ]; then
-            echo "Filtered commit log is not empty."
-            cat filtered_commit_log.txt
-            exit 0  # 'success'
-          else
-            echo "Filtered commit log is empty!"
-            exit 78  # "skipped"
-          fi
-
-      - name: Run benchmark iteration
+      - name: Run vllm-project/vllm-ascend test for V1 Engine
         working-directory: ./vllm-ascend
+        env:
+          VLLM_USE_V1: 1
+          VLLM_WORKER_MULTIPROC_METHOD: spawn
+          HF_ENDPOINT: https://hf-mirror.com
         run: |
-          while IFS= read -r line || [[ -n "$line" ]]; do
-            commit_id=$(echo "$line" | awk '{print $1}')
-            commit_title=$(echo "$line" | cut -d ' ' -f2-)
-            commit_time=$(git show -s --format=%cd $commit_hash --date=iso-strict)
-            commit_time_no_tz=$(echo "$commit_time" | sed 's/[+-][0-9][0-9]:[0-9][0-9]$//')
-
-            git checkout $commit_id
-            git log --oneline -n 1
-            pip install -e .
-            echo "commit_id: $commit_id"
-            echo "commit_title: $commit_title"
-            echo "commit_time: $commit_time_no_tz"
-            echo "------------------------"
-            cd ../vllm-benchmarks
-            bash .elastic/nightly-benchmarks/scripts/run-performance-benchmarks.sh "$commit_id" "$commit_title" "$commit_time_no_tz"
-            cd -
-          done < filtered_commit_log.txt
+         pytest -sv tests/e2e/multicard/test_offline_inference_distributed.py::test_models_distributed_QwQ
