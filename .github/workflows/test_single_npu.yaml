@@ -231,6 +231,7 @@ jobs:
           echo "markdown_name=$markdown_name"
           echo "markdown_name=$markdown_name" >> $GITHUB_OUTPUT
           mkdir -p ./accuracy
+          sleep 99999
           python ./run_accuracy.py \
             --model "${{ matrix.model_name }}" \
             --output "${markdown_name}.md" \
