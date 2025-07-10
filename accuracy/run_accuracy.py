@@ -20,12 +20,19 @@ import argparse
 import gc
 import json
 import multiprocessing
+import os
 import sys
 import time
 from multiprocessing import Queue
 
 import lm_eval
 import torch
+
+os.environ["GIT_DISCOVERY_ACROSS_FILESYSTEM"] = "1"
+try:
+    torch.serialization._use_new_zipfile_serialization = True
+except (AttributeError, TypeError):
+    pass
 
 # URLs for version information in Markdown report
 VLLM_URL = "https://github.com/vllm-project/vllm/commit/"
