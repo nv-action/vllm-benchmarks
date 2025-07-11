@@ -61,6 +61,7 @@ jobs:
       ${{
       (contains(github.event.pull_request.labels.*.name, 'accuracy-test') ||
       contains(github.event.pull_request.labels.*.name, 'vl-accuracy-test') ||
+      contains(github.event.pull_request.labels.*.name, 'moe-accuracy-test') ||
       contains(github.event.pull_request.labels.*.name, 'dense-accuracy-test')) &&
       contains(github.event.pull_request.labels.*.name, 'ready-for-test') ||
       github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
@@ -72,7 +73,6 @@ jobs:
       }}
     strategy:
       matrix:
-        vllm_use_version: [1]
         # the accuracy test will run:
         # 1. workflow_dispatch with models input
         #   - all: Qwen/Qwen3-30B-A3B, Qwen/Qwen2.5-VL-7B-Instruct, Qwen/Qwen3-8B-Base
@@ -104,7 +104,7 @@ jobs:
          ) }}
 
       fail-fast: false
-    name: ${{ matrix.model_name }} accuracy V${{ matrix.vllm_use_version }}
+    name: ${{ matrix.model_name }} accuracy
     container:
       image: m.daocloud.io/quay.io/ascend/cann:8.1.rc1-910b-ubuntu22.04-py3.10
       env:
@@ -148,6 +148,26 @@ jobs:
       - name: Install vllm-project/vllm from source
         working-directory: ./vllm-empty
         run: VLLM_TARGET_DEVICE=empty pip install -e .
+
+      - name: Resolve vllm-ascend version
+        run: |
+          VERSION_INPUT="${{ github.event.inputs.vllm-ascend-version }}"
+          
+          if [[ "$VERSION_INPUT" == "main" ]]; then
+            TAGS=$(git ls-remote --tags --sort=-v:refname https://github.com/vllm-project/vllm-ascend "v*" | cut -f2 | sed 's|refs/tags/||')
+            LATEST_TAG=$(echo "$TAGS" | head -n1)
+            if [[ -z "$LATEST_TAG" ]]; then
+              echo "No tags found, using 'main'"
+              RESOLVED_VERSION="main"
+            else
+              echo "Resolved to tag: $LATEST_TAG"
+              RESOLVED_VERSION="$LATEST_TAG"
+            fi
+          else
+            RESOLVED_VERSION="$VERSION_INPUT"
+          fi
+
+          echo "GHA_VLLM_ASCEND_VERSION=$RESOLVED_VERSION" >> $GITHUB_ENV
 
       - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v4
@@ -200,7 +220,6 @@ jobs:
             pip show torch | grep "Version:" | awk '{print "GHA_TORCH_VERSION="$2}'
             pip show torch_npu | grep "Version:" | awk '{print "GHA_TORCH_NPU_VERSION="$2}'
             pip show vllm | grep "Version:" | awk '{print "GHA_VLLM_VERSION="$2}' | sed 's/+.*//'
-            echo "GHA_VLLM_ASCEND_VERSION=${{ github.event.inputs.vllm-ascend-version || github.ref }}"
           } >> "$GITHUB_ENV"
       
       - name: Print versions
@@ -210,18 +229,19 @@ jobs:
           echo "Torch: ${{ env.GHA_TORCH_VERSION }}"
           echo "vLLM: ${{ env.GHA_VLLM_VERSION }}"
           echo "vLLM Ascend: ${{ env.GHA_VLLM_ASCEND_VERSION }}"
-      - name: Run Accuracy Test for V${{ matrix.vllm_use_version }}
+
+      - name: Run Accuracy Test
         id: report
         working-directory: ./accuracy
         env:
           PYTORCH_NPU_ALLOC_CONF: max_split_size_mb:256
-          VLLM_USE_V1: ${{ matrix.vllm_use_version }}
         run: |
           model_base_name=$(basename ${{ matrix.model_name }})
-          markdown_name="${model_base_name}-V${{ matrix.vllm_use_version }}"
+          markdown_name="${model_base_name}"
           echo "markdown_name=$markdown_name"
           echo "markdown_name=$markdown_name" >> $GITHUB_OUTPUT
           mkdir -p ./accuracy
+          sleep 99999
           python ./run_accuracy.py \
             --model "${{ matrix.model_name }}" \
             --output "${markdown_name}.md" \
@@ -232,7 +252,7 @@ jobs:
             --vllm_version "${{ env.GHA_VLLM_VERSION }}" \
             --vllm_commit "${{ env.VLLM_COMMIT }}" \
             --vllm_ascend_commit "${{ env.VLLM_ASCEND_COMMIT }}" \
-            --vllm_use_v1 "$VLLM_USE_V1"
+
       - name: Generate step summary
         if: ${{ always() }}
         run: |
@@ -247,7 +267,8 @@ jobs:
           else
             echo "contains_fail=false" >> $GITHUB_OUTPUT
           fi
-      - name: Upload Report for V${{ matrix.vllm_use_version }}
+
+      - name: Upload Report 
         if: ${{ github.event_name == 'workflow_dispatch' && steps.check_report.outputs.contains_fail == 'false' }}
         uses: actions/upload-artifact@v4
         with:
@@ -317,7 +338,7 @@ jobs:
           {
             echo "# Accuracy Report"
             echo ""
-            echo "::: {toctree}"
+            echo ":::{toctree}"
             echo ":caption: Accuracy Report"
             echo ":maxdepth: 1"
             
@@ -334,7 +355,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.PAT_PR_TOKEN }}
         run: |
           git add ./accuracy/accuracy_report/*.md
-          git commit -s -m "[Doc] Update accuracy reports for ${{ github.event.inputs.vllm-ascend-branch }}"
+          git commit -s -m "[Doc] Update accuracy reports for ${{ github.event.inputs.vllm-ascend-version }}"
           git push -f origin "${{ env.BRANCH_NAME }}"
       - name: Create PR in upstream via API
         uses: actions/github-script@v6
@@ -346,11 +367,11 @@ jobs:
               repo: 'vllm-benchmarks',
               head: `${{ github.actor }}:${{ env.BRANCH_NAME }}`,
               base: '${{ github.event.inputs.benchmark-branch }}',
-              title: `[Doc] Update accuracy reports for ${{ github.event.inputs.vllm-ascend-branch }}`,
+              title: `[Doc] Update accuracy reports for ${{ github.event.inputs.vllm-ascend-version }}`,
               body: `The accuracy results running on NPU Altlas A2 have changed, updating reports for:
             ${{ 
               github.event.inputs.models == 'all' 
-                && 'All models (Qwen2.5-7B-Instruct, Qwen2.5-VL-7B-Instruct, Qwen3-8B-Base)' 
+                && 'All models (Qwen/Qwen3-30B-A3B, Qwen2.5-VL-7B-Instruct, Qwen3-8B-Base)' 
                 || github.event.inputs.models 
             }}
             
