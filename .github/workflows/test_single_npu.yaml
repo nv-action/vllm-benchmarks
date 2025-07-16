@@ -22,6 +22,7 @@ on:
         type: choice
         options:
           - main
+          - latest-release
           - v0.9.1-dev
           - v0.7.3-dev
       benchmark-branch:
@@ -151,22 +152,15 @@ jobs:
 
       - name: Resolve vllm-ascend version
         run: |
-          VERSION_INPUT="${{ github.event.inputs.vllm-ascend-version }}"
+          VERSION_INPUT="${{ github.event.inputs.vllm-ascend-version }}"       
           
-          if [[ "$VERSION_INPUT" == "main" ]]; then
+          if [[ "$VERSION_INPUT" == "latest-release" ]]; then
             TAGS=$(git ls-remote --tags --sort=-v:refname https://github.com/vllm-project/vllm-ascend "v*" | cut -f2 | sed 's|refs/tags/||')
             LATEST_TAG=$(echo "$TAGS" | head -n1)
-            if [[ -z "$LATEST_TAG" ]]; then
-              echo "No tags found, using 'main'"
-              RESOLVED_VERSION="main"
-            else
-              echo "Resolved to tag: $LATEST_TAG"
               RESOLVED_VERSION="$LATEST_TAG"
-            fi
           else
             RESOLVED_VERSION="$VERSION_INPUT"
           fi
-
           echo "GHA_VLLM_ASCEND_VERSION=$RESOLVED_VERSION" >> $GITHUB_ENV
 
       - name: Checkout vllm-project/vllm-ascend repo
