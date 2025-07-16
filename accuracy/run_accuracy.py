@@ -33,8 +33,7 @@ VLLM_ASCEND_URL = "https://github.com/vllm-project/vllm-ascend/commit/"
 
 # Model and task configurations
 UNIMODAL_MODEL_NAME = ["Qwen/Qwen3-8B-Base", "Qwen/Qwen3-30B-A3B"]
-# UNIMODAL_TASK = ["ceval-valid", "gsm8k"]
-UNIMODAL_TASK = ["gsm8k"]
+UNIMODAL_TASK = ["ceval-valid", "gsm8k"]
 MULTIMODAL_NAME = ["Qwen/Qwen2.5-VL-7B-Instruct"]
 MULTIMODAL_TASK = ["mmmu_val"]
 
