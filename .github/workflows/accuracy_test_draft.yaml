@@ -90,6 +90,8 @@ jobs:
         uses: actions/github-script@v6
         with:
           script: |
+            const { execSync } = require('child_process');
+            execSync('npm install js-yaml', { stdio: 'inherit' });
             const yaml = require('js-yaml');
             const fs = require('fs');
             const config = yaml.load(fs.readFileSync('./benchmarks/accuracy/config.yaml', 'utf8'));
