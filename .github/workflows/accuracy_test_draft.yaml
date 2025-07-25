@@ -129,15 +129,15 @@ jobs:
         #   - vl-accuracy-test: vl-accuracy-test in accuracy/config.yaml
         #   - moe-accuracy-test: moe-accuracy-test in accuracy/config.yaml
         model_name: ${{ fromJSON(
-          (github.event_name == 'schedule' && steps.parse-config.outputs.schedule_models) ||
+          (github.event_name == 'schedule' && needs.parse-config.outputs.schedule_models) ||
           (github.event_name == 'workflow_dispatch' && (
-            (github.event.inputs.models == 'all' && steps.parse-config.outputs.all_models) ||
+            (github.event.inputs.models == 'all' && needs.parse-config.outputs.all_models) ||
             (format('["{0}"]', github.event.inputs.models))
           )) ||
-          contains(github.event.pull_request.labels.*.name, 'accuracy-test') && steps.parse-config.outputs.accuracy_test ||
-          contains(github.event.pull_request.labels.*.name, 'dense-accuracy-test') && steps.parse-config.outputs.dense_accuracy_test ||
-          contains(github.event.pull_request.labels.*.name, 'vl-accuracy-test') && steps.parse-config.outputs.vl_accuracy_test ||
-          contains(github.event.pull_request.labels.*.name, 'moe-accuracy-test') && steps.parse-config.outputs.moe_accuracy_test
+          contains(github.event.pull_request.labels.*.name, 'accuracy-test') && needs.parse-config.outputs.accuracy_test ||
+          contains(github.event.pull_request.labels.*.name, 'dense-accuracy-test') && needs.parse-config.outputs.dense_accuracy_test ||
+          contains(github.event.pull_request.labels.*.name, 'vl-accuracy-test') && needs.parse-config.outputs.vl_accuracy_test ||
+          contains(github.event.pull_request.labels.*.name, 'moe-accuracy-test') && needs.parse-config.outputs.moe_accuracy_test
           ) }}
       fail-fast: false
 
