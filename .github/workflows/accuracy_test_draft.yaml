@@ -101,6 +101,11 @@ jobs:
             core.setOutput('dense_accuracy_test', JSON.stringify(config.label['dense-accuracy-test']));
             core.setOutput('vl_accuracy_test', JSON.stringify(config.label['vl-accuracy-test']));
             core.setOutput('moe_accuracy_test', JSON.stringify(config.label['moe-accuracy-test']));
+            console.log('all models:', JSON.stringify(config['manual-input'].all));
+            console.log('accuracy_test', JSON.stringify(config.label['accuracy-test']));
+            console.log('dense_accuracy_test', JSON.stringify(config.label['dense-accuracy-test']));
+            console.log('vl_accuracy_test', JSON.stringify(config.label['vl-accuracy-test']));
+            console.log('moe_accuracy_test', JSON.stringify(config.label['moe-accuracy-test']));
 
   accuracy_tests:
     # test will be triggered when tag '*-accuracy-test' & 'ready-for-test' or workflow_dispatch job
@@ -284,7 +289,7 @@ jobs:
           echo "markdown_name=$markdown_name"
           echo "markdown_name=$markdown_name" >> $GITHUB_OUTPUT
           mkdir -p ./accuracy
-          python ./benchmarks/accuracy/test_accuracy_and_report.py \
+          python accuracy/test_accuracy_and_report.py \
           --model=${markdown_name} \
           --output "./accuracy/${markdown_name}.md" \
           --vllm_ascend_version "${{ env.GHA_VLLM_ASCEND_VERSION || github.ref }}" \
