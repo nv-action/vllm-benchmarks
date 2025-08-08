@@ -56,22 +56,87 @@ jobs:
           sudo apt-get install -y jq
           pip install yq
     
+      # - name: Set mappings
+      #   run: |
+      #     mappings_json='{}'
+          
+      #     for config_file in tests/e2e/singlecard/models/configs/*.yaml; do
+      #       echo "Processing config file: $config_file"
+      #       full_model_name=$(yq '.model_name' "$config_file")
+      #       model_name=$(echo "$full_model_name" | awk -F'/' '{print $NF}')
+      #       runner=$(yq '.runner' "$config_file")
+      #       mappings_json=$(echo "$mappings_json" | jq --arg key "$model_name" --arg value "$runner" '. + {($key): $value}')
+      #     done
+          
+      #     echo "Generated mappings:"
+      #     echo "$mappings_json"
+      #     echo "MAPPINGS_JSON=$mappings_json" >> $GITHUB_ENV
+
       - name: Set mappings
         run: |
           mappings_json='{}'
           
           for config_file in tests/e2e/singlecard/models/configs/*.yaml; do
             echo "Processing config file: $config_file"
-            full_model_name=$(yq '.model_name' "$config_file")
+            full_model_name=$(yq -r '.model_name' "$config_file" | tr -d '"')
             model_name=$(echo "$full_model_name" | awk -F'/' '{print $NF}')
-            runner=$(yq '.runner' "$config_file")
+            runner=$(yq -r '.runner' "$config_file" | tr -d '"')
+            
+            echo "Raw model_name: $full_model_name"
+            echo "Extracted model_name: $model_name"
+            echo "Runner: $runner"
+            
             mappings_json=$(echo "$mappings_json" | jq --arg key "$model_name" --arg value "$runner" '. + {($key): $value}')
           done
-          
+
+          compact_json=$(echo "$mappings_json" | jq -c .) 
+
           echo "Generated mappings:"
           echo "$mappings_json"
-          echo "MAPPINGS_JSON=$mappings_json" >> $GITHUB_ENV
-        
+          echo "MAPPINGS_JSON=$compact_json" >> $GITHUB_ENV
+
+      # - name: Prepare matrix
+      #   id: set_matrix
+      #   shell: bash
+      #   run: |
+      #     set -e
+      #     event="${GITHUB_EVENT_NAME}"
+      #     matrix="[]"
+    
+      #     if [[ "$event" == "schedule" ]]; then
+      #       matrix=$(echo "$MAPPINGS_JSON" | jq '[to_entries[] | {model_name: .key, runner: .value}]')
+      #     else
+      #       base="${GITHUB_BASE_REF}"
+      #       head="${GITHUB_HEAD_REF}"
+      #       if [[ -z "$base" || -z "$head" ]]; then
+      #         echo "Base or head ref not found, skipping diff."
+      #       else
+      #         changed_files=$(git diff --diff-filter=AM --name-only "origin/$base...origin/$head" || true)
+      #         run_all=false
+      #         for f in $changed_files; do
+      #           if [[ "$f" != tests/e2e/singlecard/models/configs/*.yaml ]]; then
+      #             echo "Non-config file changed: $f, will run all models"
+      #             run_all=true
+      #             break
+      #           fi
+      #         done
+      #         if [[ "$run_all" == "true" ]]; then
+      #           matrix=$(echo "$MAPPINGS_JSON" | jq '[to_entries[] | {model_name: .key, runner: .value}]')
+      #         else
+      #           for f in $changed_files; do
+      #             if [[ "$f" == tests/e2e/singlecard/models/configs/*.yaml ]]; then
+      #               name=$(basename "$f" .yaml)
+      #               runner=$(echo "$MAPPINGS_JSON" | jq -r --arg key "$name" '.[$key] // empty')
+      #               if [[ -n "$runner" ]]; then
+      #                 matrix=$(echo "$matrix" | jq --arg model "$name" --arg runner "$runner" '. + [{"model_name":$model, "runner":$runner}]')
+      #               fi
+      #             fi
+      #           done
+      #       fi
+      #     fi
+    
+      #     echo "matrix=$(echo "$matrix" | jq -c)" >> $GITHUB_OUTPUT
+      
       - name: Prepare matrix
         id: set_matrix
         shell: bash
@@ -79,17 +144,20 @@ jobs:
           set -e
           event="${GITHUB_EVENT_NAME}"
           matrix="[]"
-    
+          
           if [[ "$event" == "schedule" ]]; then
             matrix=$(echo "$MAPPINGS_JSON" | jq '[to_entries[] | {model_name: .key, runner: .value}]')
           else
             base="${GITHUB_BASE_REF}"
             head="${GITHUB_HEAD_REF}"
+            
             if [[ -z "$base" || -z "$head" ]]; then
               echo "Base or head ref not found, skipping diff."
+              matrix="[]"
             else
               changed_files=$(git diff --diff-filter=AM --name-only "origin/$base...origin/$head" || true)
               run_all=false
+              
               for f in $changed_files; do
                 if [[ "$f" != tests/e2e/singlecard/models/configs/*.yaml ]]; then
                   echo "Non-config file changed: $f, will run all models"
@@ -97,6 +165,7 @@ jobs:
                   break
                 fi
               done
+              
               if [[ "$run_all" == "true" ]]; then
                 matrix=$(echo "$MAPPINGS_JSON" | jq '[to_entries[] | {model_name: .key, runner: .value}]')
               else
@@ -104,15 +173,18 @@ jobs:
                   if [[ "$f" == tests/e2e/singlecard/models/configs/*.yaml ]]; then
                     name=$(basename "$f" .yaml)
                     runner=$(echo "$MAPPINGS_JSON" | jq -r --arg key "$name" '.[$key] // empty')
+                    
                     if [[ -n "$runner" ]]; then
                       matrix=$(echo "$matrix" | jq --arg model "$name" --arg runner "$runner" '. + [{"model_name":$model, "runner":$runner}]')
                     fi
                   fi
                 done
+              fi
             fi
           fi
-    
-          echo "matrix=$(echo "$matrix" | jq -c)" >> $GITHUB_OUTPUT
+          
+          compact_matrix=$(echo "$matrix" | jq -c .)
+          echo "matrix=$compact_matrix" >> $GITHUB_OUTPUT
 
   accuracy_tests:
     needs: prepare_matrix
