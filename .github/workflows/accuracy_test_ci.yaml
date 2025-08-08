@@ -29,8 +29,8 @@ on:
     paths:
       - '.github/workflows/accuracy_test_ci.yml'
       - 'tests/e2e/singlecard/models/**'
-  schedule:
-    - cron: '0 */6 * * *'
+  # schedule:
+  #   - cron: '0 */6 * * *'
 
 # Bash shells do not use ~/.profile or ~/.bashrc so these shells need to be explicitly
 # declared as "shell: bash -el {0}" on steps that need to be properly activated.
