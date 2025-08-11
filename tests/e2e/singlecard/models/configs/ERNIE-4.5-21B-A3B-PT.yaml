@@ -1,0 +1,10 @@
+model_name: "PaddlePaddle/ERNIE-4.5-21B-A3B-PT"
+runner: "linux-aarch64-a2-2"
+tasks:
+- name: "gsm8k"
+  metrics:
+  - name: "exact_match,strict-match"
+    value: 0.83
+  - name: "exact_match,flexible-extract"
+    value: 0.72
+num_fewshot: 5

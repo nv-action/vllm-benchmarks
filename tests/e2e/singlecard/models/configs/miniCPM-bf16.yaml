@@ -1,0 +1,11 @@
+model_name: "OpenBMB/miniCPM-bf16"
+runner: "linux-aarch64-a2-1"
+tasks:
+- name: "gsm8k"
+  metrics:
+  - name: "exact_match,strict-match"
+    value: 0.53
+  - name: "exact_match,flexible-extract"
+    value: 0.53
+num_fewshot: 5
+max_model_len: 2048
