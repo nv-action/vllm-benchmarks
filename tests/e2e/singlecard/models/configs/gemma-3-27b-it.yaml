@@ -1,0 +1,13 @@
+model_name: "LLM-Research/gemma-3-27b-it"
+runner: "linux-aarch64-a2-2"
+tasks:
+- name: "gsm8k_cot"
+  metrics:
+  - name: "exact_match,strict-match"
+    value: 0.42
+  - name: "exact_match,flexible-extract"
+    value: 0.75
+gpu_memory_utilization: 0.8
+num_fewshot: 5
+max_model_len: 4096
+tensor_parallel_size: 2
