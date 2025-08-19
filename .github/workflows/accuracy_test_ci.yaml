@@ -188,6 +188,7 @@ jobs:
         with:
           repository: vllm-project/vllm-ascend
           path: ./vllm-ascend
+          ref: v0.10.0rc1
 
       - name: Install vllm-project/vllm-ascend
         working-directory: ./vllm-ascend
