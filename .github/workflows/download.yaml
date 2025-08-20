@@ -1,4 +1,4 @@
-name: 'download models'
+name: 'download models from ms'
 
 on:
   workflow_dispatch:
@@ -7,6 +7,14 @@ on:
         required: true
         type: string
         description: 'Model name to be downloaded'
+      site:
+        required: false
+        type: choice
+        options:
+          - ms
+          - hf
+        default: 'ms'
+        description: 'The site from which the model will be downloaded'
       image:
         required: true
         type: choice
@@ -21,7 +29,7 @@ defaults:
 
 jobs:
   test:
-    name: download models from modelscope
+    name: download models from ms
     runs-on: linux-arm64-npu-0
     container:
       image: ${{ github.event.inputs.image || 'ascendai/cann:8.0.0-910b-ubuntu22.04-py3.10' }}
@@ -30,11 +38,6 @@ jobs:
         HF_TOKEN: ${{ secrets.HF_TOKEN }}
         HF_TOKEN2: ${{ secrets.HF_TOKEN2 }}
         MS_TOKEN: ${{ secrets.MS_TOKEN }}
-        HF_HUB_ETAG_TIMEOUT: 600
-        HF_HUB_DOWNLOAD_TIMEOUT: 600
-        HF_HUB_ENABLE_XET_UPLOAD: 0
-        CURL_CA_BUNDLE: ""
-        HF_HUB_DISABLE_XET: 1
 
     steps:
       - name: Config mirrors
@@ -48,13 +51,13 @@ jobs:
           pip install filelock
 
       - name: Download from modelscope (manual trigger)
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event.inputs.site == 'ms'
         run: |
           echo "Triggered manually: downloading model ${{ inputs.model }}"
           modelscope download --model ${{ inputs.model }}
 
-      - name: Download from modelscope (scheduled trigger)
-        if: github.event_name == 'schedule'
+      - name: Download from hf
+        if: github.event.inputs.site == 'hf'
         run: |
-          echo "Triggered on schedule: downloading model moonshotai/Kimi-K2-Instruct"
-          modelscope download --model moonshotai/Kimi-K2-Instruct
+          echo "Downloading model ${{ inputs.model }} from Hugging Face"
+          hf download ${{ inputs.model }} --local-dir /root/.cache/weights/DeepSeek-V3.1-Base
