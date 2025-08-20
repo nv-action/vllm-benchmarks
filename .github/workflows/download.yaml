@@ -48,7 +48,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install modelscope
-          pip install filelock
+          pip install huggingface_hub
 
       - name: Download from modelscope (manual trigger)
         if: github.event.inputs.site == 'ms'
