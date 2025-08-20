@@ -1,4 +1,4 @@
-name: 'download models from ms'
+name: 'download models'
 
 on:
   workflow_dispatch:
@@ -29,7 +29,7 @@ defaults:
 
 jobs:
   test:
-    name: download models from ms
+    name: download models
     runs-on: linux-arm64-npu-0
     container:
       image: ${{ github.event.inputs.image || 'ascendai/cann:8.0.0-910b-ubuntu22.04-py3.10' }}
