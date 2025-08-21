@@ -235,6 +235,7 @@ jobs:
         env:
           VLLM_WORKER_MULTIPROC_METHOD: spawn
           VLLM_USE_MODELSCOPE: True
+          TRANSFORMERS_OFFLINE: True
           VLLM_VERSION: ${{ env.GHA_VLLM_VERSION }}
           VLLM_COMMIT: ${{ env.VLLM_COMMIT }}
           VLLM_ASCEND_VERSION: ${{ env.GHA_VLLM_ASCEND_VERSION || github.ref }}
