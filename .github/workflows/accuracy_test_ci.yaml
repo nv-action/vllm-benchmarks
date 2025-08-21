@@ -176,6 +176,7 @@ jobs:
         with:
           repository: vllm-project/vllm
           path: ./vllm-empty
+          ref: v0.10.0
 
       - name: Install vllm-project/vllm from source
         working-directory: ./vllm-empty
@@ -187,6 +188,7 @@ jobs:
         with:
           repository: vllm-project/vllm-ascend
           path: ./vllm-ascend
+          ref: v0.10.0rc1
 
       - name: Install vllm-project/vllm-ascend
         working-directory: ./vllm-ascend
