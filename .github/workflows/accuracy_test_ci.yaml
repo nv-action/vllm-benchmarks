@@ -145,7 +145,12 @@ jobs:
       fail-fast: false
     name: ${{ matrix.model_name }} accuracy
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.2.rc1-910b-ubuntu22.04-py3.11
+      image: >-
+        ${{
+          contains(matrix.runner, '310p')
+          && 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.2.rc1-310p-ubuntu22.04-py3.11'
+          ||  'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.2.rc1-910b-ubuntu22.04-py3.11'
+        }}
       env:
         VLLM_USE_MODELSCOPE: True
 
@@ -195,6 +200,11 @@ jobs:
         env:
           PIP_EXTRA_INDEX_URL: https://mirrors.huaweicloud.com/ascend/repos/pypi
         run: |
+          runner="${{ matrix.runner }}"
+          # If runner indicates 310p, set SOC_VERSION and LD_LIBRARY_PATH before install
+          if [[ "$runner" == *310p* ]]; then
+            export SOC_VERSION=ASCEND310P3
+          fi
           pip install -r requirements-dev.txt
           pip install -v -e .
           pip install tensorflow
@@ -252,7 +262,6 @@ jobs:
           mkdir -p ./benchmarks/accuracy
           pytest -sv ./tests/e2e/singlecard/models/test_lm_eval_correctness.py \
           --config ./tests/e2e/singlecard/models/configs/${{ matrix.model_name }}.yaml \
-          --report_output ./benchmarks/accuracy/${model_base_name}.md 
 
       - name: Generate step summary
         if: ${{ always() }}
