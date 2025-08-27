@@ -1,8 +1,0 @@
-model_name: "PaddlePaddle/ERNIE-4.5-0.3B-PT"
-runner: "linux-aarch64-a2-1"
-tasks:
-- name: "ceval-valid"
-  metrics:
-  - name: "acc,none"
-    value: 0.35
-num_fewshot: 5
