@@ -1,1 +1,2 @@
 Qwen3-8B-Base.yaml
+Phi-4-mini-instruct.yaml
