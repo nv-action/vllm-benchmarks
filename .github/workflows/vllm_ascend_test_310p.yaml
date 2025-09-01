@@ -64,7 +64,7 @@ jobs:
       max-parallel: 2
       matrix:
         os: [linux-aarch64-310p-4]
-        vllm_version: [main]
+        vllm_version: [v0.10.1.1]
     name: 310p e2e test
     runs-on: ${{ matrix.os }}
     container:
