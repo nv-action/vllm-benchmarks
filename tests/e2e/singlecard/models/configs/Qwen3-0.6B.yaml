@@ -1,0 +1,12 @@
+model_name: "Qwen/Qwen3-0.6B"
+runner: "linux-aarch64-310p-1"
+hardware: "Atlas 300I Series"
+enforce_eager: true
+dtype: "float16"
+compilation_config: '{"custom_ops":["none","+rms_norm","+rotary_embedding"]}'
+tasks:
+- name: "gsm8k"
+  metrics:
+  - name: "exact_match,flexible-extract"
+    value: 0.43
+num_fewshot: 5
