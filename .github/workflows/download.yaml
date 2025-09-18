@@ -30,7 +30,7 @@ defaults:
 jobs:
   test:
     name: download models
-    runs-on: linux-aarch64-a2-0
+    runs-on: linux-amd64-cpu-0
     container:
       image: ${{ github.event.inputs.image || 'ascendai/cann:8.0.0-910b-ubuntu22.04-py3.10' }}
       env:
