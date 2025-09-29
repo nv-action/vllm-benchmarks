@@ -19,7 +19,7 @@ name: 'ascend test / full'
 on:
   pull_request:
     branches:
-      - 'main'
+      - 'vllm-ascend'
       - '*-dev'
     types: [ labeled, synchronize ]
 
