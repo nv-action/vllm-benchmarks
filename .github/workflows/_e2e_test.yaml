@@ -45,7 +45,6 @@ jobs:
           TOKEN=$(echo -n "x-access-token:${TOKEN_VALUE}" | base64)
           git config --global http.https://gh-proxy.test.osinfra.cn/.extraheader "Authorization: Basic $TOKEN"
 
-
       - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v4
 
