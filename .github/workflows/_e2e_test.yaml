@@ -39,6 +39,11 @@ jobs:
           apt-get update -y
           apt install git -y
 
+      - name: Set PTA
+        run: |
+          TOKEN=`echo -n "x-access-token:${{ secrets.ADMIN_PTA }}" | base64`
+          git config --global http.https://gh-proxy.test.osinfra.cn/.extraheader "AUTHORIZATION: basic $TOKEN"
+
       - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v4
 
@@ -47,10 +52,6 @@ jobs:
           apt-get -y install `cat packages.txt`
           apt-get -y install gcc g++ cmake libnuma-dev
 
-      - name: Set PTA
-        run: |
-          TOKEN=`echo -n "x-access-token:${{ secrets.ADMIN_PTA }}" | base64`
-          git config --global http.https://gh-proxy.test.osinfra.cn/.extraheader "AUTHORIZATION: basic $TOKEN"
       - name: Checkout vllm-project/vllm repo
         uses: actions/checkout@v4
         with:
