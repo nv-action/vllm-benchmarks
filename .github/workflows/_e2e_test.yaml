@@ -41,9 +41,9 @@ jobs:
 
       - name: Set PTA
         run: |
-          git config --global url."https://ghfast.top/https://github.com/".insteadOf "https://github.com/"
-          TOKEN=`echo -n "x-access-token:${{ secrets.ADMIN_PTA }}" | base64`
-          git config --global http.https://gh-proxy.test.osinfra.cn/.extraheader "AUTHORIZATION: basic $TOKEN"
+          TOKEN=$(echo -n "x-access-token:${{ secrets.ADMIN_PTA }}" | base64)
+          git config --global http.https://gh-proxy.test.osinfra.cn/.extraheader "Authorization: Basic $TOKEN"
+
 
       - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v4
@@ -135,9 +135,9 @@ jobs:
 
       - name: Set PTA
         run: |
-          git config --global url."https://ghfast.top/https://github.com/".insteadOf "https://github.com/"
-          TOKEN=`echo -n "x-access-token:${{ secrets.ADMIN_PTA }}" | base64`
-          git config --global http.https://gh-proxy.test.osinfra.cn/.extraheader "AUTHORIZATION: basic $TOKEN"
+          TOKEN=$(echo -n "x-access-token:${{ secrets.ADMIN_PTA }}" | base64)
+          git config --global http.https://gh-proxy.test.osinfra.cn/.extraheader "Authorization: Basic $TOKEN"
+
 
       - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v4
