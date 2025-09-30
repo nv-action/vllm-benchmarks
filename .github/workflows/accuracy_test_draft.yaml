@@ -129,7 +129,7 @@ jobs:
       fail-fast: false
     name: ${{ matrix.model_name }} accuracy
     container:
-      image: m.daocloud.io/quay.io/ascend/cann:8.1.rc1-910b-ubuntu22.04-py3.10
+      image: quay.io/ascend/cann:8.2.rc1-910b-ubuntu22.04-py3.11
       env:
         DATASET_SOURCE: ModelScope
         VLLM_USE_MODELSCOPE: True
