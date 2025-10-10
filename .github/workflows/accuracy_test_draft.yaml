@@ -1,24 +1,3 @@
-#
-# Copyright (c) 2025 Huawei Technologies Co., Ltd. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-# This file is a part of the vllm-ascend project.
-#
-
-# This test will be triggered:
-# 1. PR labeled with: '*accuracy-test' (ONLY 1 label valid) & 'ready-for-test'
-# 2. workflow_dispatch with models input
-# See detail rule in strategy.matrix note
 name: Benchmarks / accuracy-test-draft
 
 on:
@@ -129,7 +108,7 @@ jobs:
       fail-fast: false
     name: ${{ matrix.model_name }} accuracy
     container:
-      image: quay.io/ascend/cann:8.2.rc1-910b-ubuntu22.04-py3.11
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.2.rc1-910b-ubuntu22.04-py3.11
       env:
         DATASET_SOURCE: ModelScope
         VLLM_USE_MODELSCOPE: True
@@ -151,8 +130,9 @@ jobs:
           cat /usr/local/Ascend/ascend-toolkit/latest/"$(uname -i)"-linux/ascend_toolkit_install.info
       - name: Config mirrors
         run: |
-          sed -i 's|ports.ubuntu.com|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list
-          pip config set global.index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
+          sed -Ei 's@(ports|archive).ubuntu.com@cache-service.nginx-pypi-cache.svc.cluster.local:8081@g' /etc/apt/sources.list
+          pip config set global.index-url http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+          pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
           apt-get update -y
           apt install git -y
           git config --global url."https://gh-proxy.test.osinfra.cn/https://github.com/".insteadOf https://github.com/
@@ -189,9 +169,7 @@ jobs:
           else
             RESOLVED_VERSION="$VERSION_INPUT"
           fi
-
           echo "GHA_VLLM_ASCEND_VERSION=$RESOLVED_VERSION" >> $GITHUB_ENV
-
       - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v4
         with:
@@ -252,7 +230,6 @@ jobs:
           echo "Torch: ${{ env.GHA_TORCH_VERSION }}"
           echo "vLLM: ${{ env.GHA_VLLM_VERSION }}"
           echo "vLLM Ascend: ${{ env.GHA_VLLM_ASCEND_VERSION }}"
-
       - name: Run Accuracy Test
         id: report
         working-directory: ./accuracy
@@ -275,7 +252,6 @@ jobs:
             --vllm_version "${{ env.GHA_VLLM_VERSION }}" \
             --vllm_commit "${{ env.VLLM_COMMIT }}" \
             --vllm_ascend_commit "${{ env.VLLM_ASCEND_COMMIT }}" \
-
       - name: Generate step summary
         if: ${{ always() }}
         run: |
@@ -290,7 +266,6 @@ jobs:
           else
             echo "contains_fail=false" >> $GITHUB_OUTPUT
           fi
-
       - name: Upload Report 
         if: ${{ github.event_name == 'workflow_dispatch' && steps.check_report.outputs.contains_fail == 'false' }}
         uses: actions/upload-artifact@v4
