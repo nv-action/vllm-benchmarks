@@ -1,4 +1,4 @@
-name: Benchmarks / accuracy-test-draft
+name: Benchmarks / accuracy-test-new
 
 on:
   pull_request:
