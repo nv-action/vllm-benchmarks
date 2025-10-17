@@ -71,6 +71,10 @@ jobs:
 
       - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v4
+        with:
+          repository: vllm-project/vllm-ascend
+          path: ./vllm-ascend
+          ref: main
 
       - name: Install system dependencies
         run: |
@@ -90,6 +94,7 @@ jobs:
           VLLM_TARGET_DEVICE=empty pip install -e .
 
       - name: Install vllm-project/vllm-ascend
+        working-directory: ./vllm-ascend
         env:
           PIP_EXTRA_INDEX_URL: https://mirrors.huaweicloud.com/ascend/repos/pypi
         run: |
@@ -111,4 +116,5 @@ jobs:
           VLLM_USE_MODELSCOPE: True
         run: |
           # TODO: enable more tests
+          sleep 99999
           pytest -sv ${{ inputs.tests }}
