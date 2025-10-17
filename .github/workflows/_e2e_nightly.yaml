@@ -102,6 +102,7 @@ jobs:
           pip install -v -e .
 
       - name: Checkout aisbench repo and Install aisbench
+        working-directory: ./vllm-ascend
         run: |
           git clone https://gitee.com/aisbench/benchmark.git
           cd benchmark
