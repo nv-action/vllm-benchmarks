@@ -101,15 +101,15 @@ jobs:
           pip install -r requirements-dev.txt
           pip install -v -e .
 
-      - name: Checkout aisbench repo and Install aisbench
-        working-directory: ./vllm-ascend
-        run: |
-          git clone https://gitee.com/aisbench/benchmark.git
-          cd benchmark
-          git checkout v3.0-20250930-master
-          pip3 install -e ./
-          pip3 install -r requirements/api.txt
-          pip3 install -r requirements/extra.txt
+      # - name: Checkout aisbench repo and Install aisbench
+      #   working-directory: ./vllm-ascend
+      #   run: |
+      #     git clone https://gitee.com/aisbench/benchmark.git
+      #     cd benchmark
+      #     git checkout v3.0-20250930-master
+      #     pip3 install -e ./
+      #     pip3 install -r requirements/api.txt
+      #     pip3 install -r requirements/extra.txt
 
       - name: Run vllm-project/vllm-ascend test
         env:
