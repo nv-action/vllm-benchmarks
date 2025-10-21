@@ -70,10 +70,14 @@ jobs:
           apt-get update -y
           apt install git -y
           git config --global url."https://gh-proxy.test.osinfra.cn/https://github.com/".insteadOf https://github.com/
+          
       - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v4
-        path: ./vllm-ascend
-        
+        with:
+          path: ./vllm-ascend
+          repository: vllm-project/vllm-ascend
+          ref: main
+          
       - name: Install system dependencies
         run: |
           apt-get -y install `cat packages.txt`
