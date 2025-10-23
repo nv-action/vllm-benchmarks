@@ -61,7 +61,6 @@ jobs:
     steps:
       - name: Check npu and CANN info
         run: |
-          sleep 99999
           npu-smi info
           cat /usr/local/Ascend/ascend-toolkit/latest/"$(uname -i)"-linux/ascend_toolkit_install.info
       - name: Config mirrors
