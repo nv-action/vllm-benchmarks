@@ -115,4 +115,5 @@ jobs:
           VLLM_WORKER_MULTIPROC_METHOD: spawn
           VLLM_USE_MODELSCOPE: True
         run: |
+          sleep 99999
           pytest -sv tests/test_qwen3_next.py
