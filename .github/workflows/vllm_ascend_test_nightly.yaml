@@ -30,7 +30,7 @@ jobs:
   qwen3-32b-int8:
     strategy:
       matrix:
-        os: [linux-aarch64-a2-4]
+        os: [linux-aarch64-a2-1]
     uses: ./.github/workflows/_e2e_nightly.yaml
     with:
       vllm: v0.11.0
