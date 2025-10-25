@@ -20,8 +20,7 @@ jobs:
   ut:
     name: unit test
     # only trigger unit test after lint passed and the change is e2e and ut related.
-    if: ${{ needs.lint.result == 'success' && (needs.changes.outputs.e2e_tracker == 'true' || needs.changes.outputs.ut_tracker == 'true') }}
-    runs-on: ubuntu-latest
+    runs-on: linux-aarch64-a2-0
     container:
       image: quay.io/ascend/cann:8.2.rc1-910b-ubuntu22.04-py3.11
       env:
@@ -35,6 +34,15 @@ jobs:
         run: |
           apt-get update -y
           apt-get install -y python3-pip git vim wget net-tools gcc g++ cmake libnuma-dev curl gnupg2
+
+      - name: Config mirrors
+        run: |
+          sed -Ei 's@(ports|archive).ubuntu.com@cache-service.nginx-pypi-cache.svc.cluster.local:8081@g' /etc/apt/sources.list
+          pip config set global.index-url http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+          pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
+          apt-get update -y
+          apt install git -y
+          git config --global url."https://gh-proxy.test.osinfra.cn/https://github.com/".insteadOf https://github.com/
 
       - name: Checkout vllm-project/vllm repo
         uses: actions/checkout@v4
@@ -51,6 +59,8 @@ jobs:
 
       - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v4
+        with:
+          repository: vllm-project/vllm-ascend
 
       - name: Install vllm-project/vllm-ascend
         run: |
