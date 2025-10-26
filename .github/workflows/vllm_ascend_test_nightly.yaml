@@ -36,3 +36,4 @@ jobs:
       vllm: v0.11.0
       runner: ${{ matrix.os }}
       tests: tests/e2e/nightly/models/test_qwen3_32b_int8.py
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.2.rc1-910b-ubuntu22.04-py3.11
