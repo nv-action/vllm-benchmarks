@@ -14,7 +14,6 @@
 # limitations under the License.
 # This file is a part of the vllm-ascend project.
 #
-import os
 from typing import Any
 
 import openai
@@ -23,14 +22,10 @@ from vllm.utils import get_open_port
 
 from tests.e2e.conftest import RemoteOpenAIServer
 from tools.aisbench import run_aisbench_cases
+from tools.send_mm_request import send_image_request
 
 MODELS = [
-    "vllm-ascend/Qwen3-32B-W8A8",
-]
-
-MODES = [
-    "aclgraph",
-    "single",
+    "Qwen/Qwen2.5-VL-32B-Instruct",
 ]
 
 TENSOR_PARALLELS = [4]
@@ -43,30 +38,32 @@ api_keyword_args = {
     "max_tokens": 10,
 }
 
-batch_size_dict = {
-    "linux-aarch64-a2-4": 44,
-    "linux-aarch64-a3-4": 46,
-}
-VLLM_CI_RUNNER = os.getenv("VLLM_CI_RUNNER", "linux-aarch64-a2-4")
-performance_batch_size = batch_size_dict.get(VLLM_CI_RUNNER, 1)
-
 aisbench_cases = [{
     "case_type": "accuracy",
-    "dataset_path": "vllm-ascend/aime2024",
-    "request_conf": "vllm_api_general_chat",
-    "dataset_conf": "aime2024/aime2024_gen_0_shot_chat_prompt",
-    "max_out_len": 32768,
-    "batch_size": 32,
-    "baseline": 83.33,
-    "threshold": 17
+    "dataset_path": "vllm-ascend/textvqa-lite",
+    "request_conf": "vllm_api_stream_chat",
+    "dataset_conf": "textvqa/textvqa_gen_base64",
+    "max_out_len": 2048,
+    "batch_size": 128,
+    "baseline": 76,
+    "temperature": 0,
+    "top_k": -1,
+    "top_p": 1,
+    "repetition_penalty": 1,
+    "threshold": 5
 }, {
     "case_type": "performance",
-    "dataset_path": "vllm-ascend/GSM8K-in3500-bs400",
+    "dataset_path": "vllm-ascend/textvqa-perf-1080p",
     "request_conf": "vllm_api_stream_chat",
-    "dataset_conf": "gsm8k/gsm8k_gen_0_shot_cot_str_perf",
-    "num_prompts": 4 * performance_batch_size,
-    "max_out_len": 1500,
-    "batch_size": performance_batch_size,
+    "dataset_conf": "textvqa/textvqa_gen_base64",
+    "num_prompts": 512,
+    "max_out_len": 256,
+    "batch_size": 128,
+    "temperature": 0,
+    "top_k": -1,
+    "top_p": 1,
+    "repetition_penalty": 1,
+    "request_rate": 0,
     "baseline": 1,
     "threshold": 0.97
 }]
@@ -74,27 +71,23 @@ aisbench_cases = [{
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("model", MODELS)
-@pytest.mark.parametrize("mode", MODES)
 @pytest.mark.parametrize("tp_size", TENSOR_PARALLELS)
-async def test_models(model: str, mode: str, tp_size: int) -> None:
+async def test_models(model: str, tp_size: int) -> None:
     port = get_open_port()
     env_dict = {
         "TASK_QUEUE_ENABLE": "1",
-        "OMP_PROC_BIND": "false",
-        "HCCL_OP_EXPANSION_MODE": "AIV",
-        "PAGED_ATTENTION_MASK_LEN": "5500"
+        "VLLM_ASCEND_ENABLE_NZ": "0",
+        "HCCL_OP_EXPANSION_MODE": "AIV"
     }
     server_args = [
-        "--quantization", "ascend", "--no-enable-prefix-caching",
+        "--no-enable-prefix-caching", "--disable-mm-preprocessor-cache",
         "--tensor-parallel-size",
         str(tp_size), "--port",
-        str(port), "--max-model-len", "36864", "--max-num-batched-tokens",
-        "36864", "--block-size", "128", "--trust-remote-code",
-        "--gpu-memory-utilization", "0.9", "--additional-config",
-        '{"enable_weight_nz_layout":true}'
+        str(port), "--max-model-len", "30000", "--max-num-batched-tokens",
+        "40000", "--max-num-seqs", "400", "--trust-remote-code",
+        "--gpu-memory-utilization", "0.8", "--additional-config",
+        '{"ascend_scheduler_config":{"enabled":false}}'
     ]
-    if mode == "single":
-        server_args.append("--enforce-eager")
     request_keyword_args: dict[str, Any] = {
         **api_keyword_args,
     }
@@ -112,7 +105,6 @@ async def test_models(model: str, mode: str, tp_size: int) -> None:
         choices: list[openai.types.CompletionChoice] = batch.choices
         assert choices[0].text, "empty response"
         print(choices)
-        if mode == "single":
-            return
+        send_image_request(model, server)
         # aisbench test
         run_aisbench_cases(model, port, aisbench_cases)
