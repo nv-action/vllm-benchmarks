@@ -137,6 +137,7 @@ jobs:
               -D result_file_path="$result_file_path" \
               --outfile lws.yaml
 
+            sleep 10000
             kubectl apply -f ./lws.yaml
 
         - name: Waiting for pod ready
