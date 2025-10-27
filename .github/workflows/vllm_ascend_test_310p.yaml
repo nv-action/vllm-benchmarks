@@ -26,6 +26,7 @@ on:
   #   - cron:  '0 */6 * * *'
   pull_request:
     types: [ labeled ]
+  workflow_dispatch:
 
 # Bash shells do not use ~/.profile or ~/.bashrc so these shells need to be explicitly
 # declared as "shell: bash -el {0}" on steps that need to be properly activated.
@@ -120,17 +121,11 @@ jobs:
 
   e2e-4-cards:
     # 310p-test will be triggered when tag '310p-test' & 'ready-for-test' or schedule job
-    if: >- 
-      ${{ 
-        (contains(github.event.pull_request.labels.*.name, '310p-test'))  && 
-        contains(github.event.pull_request.labels.*.name, 'ready-for-test') || 
-        github.event_name == 'schedule' || github.event_name == 'push' 
-        }}
     strategy:
       max-parallel: 2
       matrix:
-        os: [linux-aarch64-310p-4]
-        vllm_version: [main, v0.9.2]
+        os: [linux-aarch64-310p-2]
+        vllm_version: [v0.11.0, v0.10.1]
     name: multicard 310p e2e test
     runs-on: ${{ matrix.os }}
     container:
