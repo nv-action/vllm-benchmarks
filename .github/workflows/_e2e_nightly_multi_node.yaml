@@ -64,7 +64,7 @@ jobs:
       image: m.daocloud.io/quay.io/ascend/cann:8.2.rc1-a3-ubuntu22.04-py3.11
       env:
         KUBECONFIG: /tmp/kubeconfig
-        KUBECTL: /root/.cache/.kube/kubectl
+        KUBECTL: /root/.cache/.kube/kb_arm
         NAMESPACE: vllm-project
         LEADER_POD: vllm-0
         RESULT_FILE: /root/.cache/tests/ret/test_result.txt
@@ -82,7 +82,7 @@ jobs:
           run: |
             # Install kubectl
             install -o root -g root -m 0755 $KUBECTL /usr/local/bin/kubectl
-            
+
             # Verify kubectl installation
             kubectl version --client=true
 
