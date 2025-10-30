@@ -56,4 +56,4 @@ jobs:
         env:
           HF_ENDPOINT: https://hf-mirror.com
         run: |
-            hf download --resume-download ${{ inputs.repo_id }}
+            hf download ${{ inputs.repo_id }}
