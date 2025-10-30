@@ -17,7 +17,12 @@
 name: 'download from hf'
 
 on:
-  workflow_dispatch: 
+  workflow_dispatch:
+    inputs:
+        repo_id:
+            description: 'The repo id on huggingface hub'
+            required: true
+            default: 'moonshotai/Kimi-Linear-48B-A3B-Instruct'
 
 # Bash shells do not use ~/.profile or ~/.bashrc so these shells need to be explicitly
 # declared as "shell: bash -el {0}" on steps that need to be properly activated.
@@ -35,7 +40,6 @@ concurrency:
 jobs:
   e2e:
     # only trigger e2e test after lint passed and the change is e2e related with pull request.
-    if: ${{ contains(github.event.pull_request.labels.*.name, 'dist-test') && contains(github.event.pull_request.labels.*.name, 'ready-for-test') || github.event_name == 'workflow_dispatch' }}
     strategy:
       matrix:
         os: [linux-aarch64-a2-0]
@@ -52,4 +56,4 @@ jobs:
         env:
           HF_ENDPOINT: https://hf-mirror.com
         run: |
-            huggingface-cli download moonshotai/Kimi-Linear-48B-A3B-Instruct
+            hf download --resume-download ${{ inputs.repo_id }}
