@@ -1,4 +1,4 @@
-FROM quay.io/ascend/cann:8.2.rc1-a3-ubuntu22.04-py3.11
+FROM quay.nju.edu.cn/ascend/cann:8.2.rc1-a3-ubuntu22.04-py3.11
 
 # ---------------------------------------------------------------------
 # ARG & ENV
@@ -12,12 +12,15 @@ ARG MOONCAKE_BRANCH="pooling_async_memecpy_v1"
 ARG MOONCAKE_COMMIT="8fce1ffab3930fec2a8b8d3be282564dfa1bb186"
 ARG AIS_BENCH_REPO="https://gitee.com/aisbench/benchmark.git"
 ARG AIS_BENCH_TAG="v3.0-20250930-master"
+ARG VLLM_WORKSPACE="/vllm-workspace"
 
 ENV DEBIAN_FRONTEND=noninteractive \
     COMPILE_CUSTOM_KERNELS=${COMPILE_CUSTOM_KERNELS} \
     WORKDIR=/workspace \
     LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages:$LD_LIBRARY_PATH \
-    CPATH=/usr/lib/aarch64-linux-gnu/mpich/include:/usr/lib/aarch64-linux-gnu/openmpi/lib
+    CPATH=/usr/lib/aarch64-linux-gnu/mpich/include:/usr/lib/aarch64-linux-gnu/openmpi/lib \
+    GOROOT=/usr/local/go \
+    PATH=$GOROOT/bin:$PATH
 
 WORKDIR $WORKDIR
 
@@ -36,40 +39,32 @@ RUN apt-get update -y && \
 # ---------------------------------------------------------------------
 RUN pip config set global.index-url ${PIP_INDEX_URL}
 
-# ---------------------------------------------------------------------
-# Install vLLM
-# ---------------------------------------------------------------------
-RUN git clone --depth 1 ${VLLM_REPO} --branch ${VLLM_TAG} /vllm-workspace/vllm && \
-    VLLM_TARGET_DEVICE="empty" python3 -m pip install -v -e /vllm-workspace/vllm/ \
+COPY ./Mooncake /vllm-workspace/Mooncake
+COPY ./benchmark /vllm-workspace/benchmark
+COPY ./vllm /vllm-workspace/vllm
+
+RUN VLLM_TARGET_DEVICE="empty" python3 -m pip install -v -e $VLLM_WORKSPACE/vllm/ \
         --extra-index-url https://download.pytorch.org/whl/cpu/ && \
-    python3 -m pip uninstall -y triton && \
+    python3 -m pip uninstall -y triton
+
+
+RUN pip3 install --no-cache-dir -e $VLLM_WORKSPACE/benchmark -r $VLLM_WORKSPACE/benchmark/requirements/api.txt -r $VLLM_WORKSPACE/benchmark/requirements/extra.txt && \
     python3 -m pip cache purge
 
-# ---------------------------------------------------------------------
-# Install Mooncake
-# ---------------------------------------------------------------------
-RUN git clone -b ${MOONCAKE_BRANCH} --depth 1 ${MOONCAKE_REPO} && \
-    cd Mooncake && \
-    git checkout ${MOONCAKE_COMMIT} && \
-    sed -i 's|https://go.dev/dl/|https://golang.google.cn/dl/|g' dependencies.sh && \
-    bash dependencies.sh -y && \
-    apt-get purge -y mpich libmpich-dev openmpi-bin libopenmpi-dev || true && \
-    apt-get install -y mpich libmpich-dev && \
-    mkdir -p build && cd build && \
-    cmake .. && make -j && make install && \
-    cp mooncake-transfer-engine/src/transport/ascend_transport/hccl_transport/ascend_transport_c/libascend_transport_mem.so \
-        /usr/local/Ascend/ascend-toolkit/latest/python/site-packages/ && \
-    cp mooncake-transfer-engine/src/libtransfer_engine.so \
-        /usr/local/Ascend/ascend-toolkit/latest/python/site-packages/
+RUN apt update \
+     && apt install -y unzip wget cmake git sudo \
+     && pip install pybind11
 
-# ---------------------------------------------------------------------
-# Install ais_bench
-# ---------------------------------------------------------------------
-RUN git clone -b ${AIS_BENCH_TAG} --depth 1 ${AIS_BENCH_REPO} && \
-    cd benchmark && \
-    pip3 install -e . && \
-    pip3 install -r requirements/api.txt && \
-    pip3 install -r requirements/extra.txt
+# Execute installation in the container
+RUN cd ${VLLM_WORKSPACE}/Mooncake && bash dependencies.sh \
+     && apt autoremove -y \
+     && apt clean -y \
+     && rm -rf /tmp/* /var/tmp/* \
+     && find /var/cache/apt/archives /var/lib/apt/lists -not -name lock -type f -delete \
+     && find /var/cache -type f -delete
 
+RUN cd ${VLLM_WORKSPACE}/Mooncake && rm -rf build || true \
+     && mkdir build && cd build \
+     && cmake .. -DSTORE_USE_ETCD=ON && make -j$(nproc) && make install
 
 CMD ["/bin/bash"]

@@ -1,4 +1,4 @@
-name: 'image / Ubuntu / a3'
+name: 'image / nightly / Ubuntu / a3'
 
 on:
   schedule:
@@ -12,10 +12,22 @@ jobs:
     name: nightly image build
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout vllm-project/vllm repo
+      uses: actions/checkout@v4
       with:
-        fetch-depth: 0
-        persist-credentials: false
+        repository: vllm-project/vllm
+        ref: v0.11.0
+        fetch-depth: 1
+
+    - name: Checkout Mooncake repo
+      uses: actions/checkout@v4
+      with:
+        repository: AscendTransport/Mooncake
+        ref: 8fce1ffab3930fec2a8b8d3be282564dfa1bb186
+    
+    - name: Checkout aisbench repo
+      run: |
+          git clone -b v3.0-20250930-master https://gitee.com/aisbench/benchmark.git
 
     - name: Print
       run: |
@@ -26,11 +38,10 @@ jobs:
       uses: docker/metadata-action@v5
       with:
         images: |
-          quay.io/ascend/vllm-ascend
-          with:
-            images: quay.io/ascend/vllm-ascend
-            ref: main
-            tags: type=ref,suffix=nightly-a3
+            quay.io/ascend/vllm-ascend
+        tags: |
+            nightly-a3
+
 
     - name: Free up disk space
       uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
