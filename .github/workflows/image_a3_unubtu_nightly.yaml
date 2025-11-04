@@ -11,23 +11,14 @@ jobs:
   build:
     name: nightly image build
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - dockerfile: Dockerfile.a3
+            tag_suffix: nightly-a3
+          - dockerfile: Dockerfile
+            tag_suffix: nightly-a2
     steps:
-    - name: Checkout vllm-project/vllm repo
-      uses: actions/checkout@v4
-      with:
-        repository: vllm-project/vllm
-        ref: v0.11.0
-        fetch-depth: 1
-
-    - name: Checkout Mooncake repo
-      uses: actions/checkout@v4
-      with:
-        repository: AscendTransport/Mooncake
-        ref: 8fce1ffab3930fec2a8b8d3be282564dfa1bb186
-    
-    - name: Checkout aisbench repo
-      run: |
-          git clone -b v3.0-20250930-master https://gitee.com/aisbench/benchmark.git
 
     - name: Print
       run: |
@@ -40,7 +31,9 @@ jobs:
         images: |
             quay.io/ascend/vllm-ascend
         tags: |
-            nightly-a3
+            ${{ matrix.tag_suffix }}
+        flavor:
+          latest=false
 
 
     - name: Free up disk space
@@ -55,12 +48,6 @@ jobs:
     - name: Build - Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
-    - name: Publish - Login to Quay Container Registry
-      uses: docker/login-action@v3
-      with:
-        registry: quay.io
-        username: ${{ vars.QUAY_USERNAME }}
-        password: ${{ secrets.QUAY_PASSWORD }}
 
     - name: Build and push a3
       uses: docker/build-push-action@v6
@@ -72,7 +59,7 @@ jobs:
               'linux/amd64'
           }}
         context: ./tests/e2e/nightly/multi_node/scripts/
-        file: Dockerfile.a3
+        file: ${{ matrix.dockerfile }}
         # only trigger when tag, branch/main push
         push: ${{ github.repository_owner == 'vllm-project' }}
         labels: ${{ steps.meta.outputs.labels }}
