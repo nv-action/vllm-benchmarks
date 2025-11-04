@@ -20,10 +20,6 @@ SHELL ["/bin/bash", "-c"]
 # ---------------------------------------------------------------------
 RUN pip config set global.index-url ${PIP_INDEX_URL}
 
-COPY ./Mooncake /vllm-workspace/Mooncake
-COPY ./benchmark /vllm-workspace/benchmark
-COPY ./vllm /vllm-workspace/vllm
-COPY ./mooncake_installer.sh ./mooncake_installer.sh
 
 # Install mooncake
 RUN chmod +x ./mooncake_installer.sh && \
@@ -35,13 +31,10 @@ RUN apt-get update -y && \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/*
 
 # Install vLLM
-RUN VLLM_TARGET_DEVICE="empty" pip3 install -v -e $VLLM_WORKSPACE/vllm/ \
+RUN git clone -b $VLLM_TAG --depth 1 https://github.com/vllm-project/vllm.git  $VLLM_WORKSPACE/vllm && \
+    VLLM_TARGET_DEVICE="empty" pip3 install -v -e $VLLM_WORKSPACE/vllm/ \
         --extra-index-url https://download.pytorch.org/whl/cpu/ && \
     pip3 uninstall -y triton
 
-# Install benchmark
-RUN pip3 install --no-cache-dir -e $VLLM_WORKSPACE/benchmark -r $VLLM_WORKSPACE/benchmark/requirements/api.txt -r $VLLM_WORKSPACE/benchmark/requirements/extra.txt && \
-    pip3 install pybind11 && \
-    pip3 cache purge
 
 CMD ["/bin/bash"]
