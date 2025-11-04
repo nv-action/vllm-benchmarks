@@ -82,6 +82,8 @@ install_sys_dependencies() {
 
 install_vllm() {
     echo "====> Install vllm-ascend"
+    export PIP_EXTRA_INDEX_URL=https://mirrors.huaweicloud.com/ascend/repos/pypi
+    pip install -e "$WORKSPACE/vllm-ascend"
     # Install for pytest
     pip install -r "$WORKSPACE/vllm-ascend/requirements-dev.txt"
 }

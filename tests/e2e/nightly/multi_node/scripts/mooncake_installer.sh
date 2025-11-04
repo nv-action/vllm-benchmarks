@@ -12,7 +12,7 @@ NC="\033[0m" # No Color
 branch=${1:-v0.3.7.post2}
 
 repo_url="https://github.com/kvcache-ai/Mooncake"
-repo_name="Mooncake"
+repo_name="/vllm-workspace/Mooncake"
 state_file=".build_state"
 
 echo "[INFO] Branch: $branch"
