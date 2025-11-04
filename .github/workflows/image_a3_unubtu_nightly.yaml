@@ -20,6 +20,10 @@ jobs:
             tag_suffix: nightly-a2
     steps:
 
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        persist-credentials: false
     - name: Print
       run: |
         lscpu
@@ -59,7 +63,6 @@ jobs:
           }}
         context: ./tests/e2e/nightly/multi_node/scripts/
         file: ${{ matrix.dockerfile }}
-        # only trigger when tag, branch/main push
         push: false
         labels: ${{ steps.meta.outputs.labels }}
         tags: ${{ steps.meta.outputs.tags }}
