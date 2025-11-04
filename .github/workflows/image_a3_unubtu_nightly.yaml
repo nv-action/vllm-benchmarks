@@ -48,7 +48,7 @@ jobs:
       uses: docker/setup-buildx-action@v3
 
 
-    - name: Build and push a3
+    - name: Build
       uses: docker/build-push-action@v6
       with:
         platforms: >-
@@ -60,7 +60,7 @@ jobs:
         context: ./tests/e2e/nightly/multi_node/scripts/
         file: ${{ matrix.dockerfile }}
         # only trigger when tag, branch/main push
-        push: ${{ github.repository_owner == 'vllm-project' }}
+        push: false
         labels: ${{ steps.meta.outputs.labels }}
         tags: ${{ steps.meta.outputs.tags }}
         build-args: |
