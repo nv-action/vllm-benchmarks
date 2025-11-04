@@ -7,12 +7,12 @@ ARG PIP_INDEX_URL="https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
 ARG COMPILE_CUSTOM_KERNELS=1
 ARG VLLM_WORKSPACE="/vllm-workspace"
 ARG MOONCAKE_TAG="v0.3.7.post2"
+ARG VLLM_TAG="v0.11.0"
 
 ENV DEBIAN_FRONTEND=noninteractive \
-    COMPILE_CUSTOM_KERNELS=${COMPILE_CUSTOM_KERNELS} \
-    WORKDIR=workspace
+    COMPILE_CUSTOM_KERNELS=${COMPILE_CUSTOM_KERNELS}
 
-WORKDIR $WORKDIR
+WORKDIR /workspace
 
 SHELL ["/bin/bash", "-c"]
 # ---------------------------------------------------------------------
@@ -20,6 +20,7 @@ SHELL ["/bin/bash", "-c"]
 # ---------------------------------------------------------------------
 RUN pip config set global.index-url ${PIP_INDEX_URL}
 
+COPY ./mooncake_installer.sh ./mooncake_installer.sh
 
 # Install mooncake
 RUN chmod +x ./mooncake_installer.sh && \
