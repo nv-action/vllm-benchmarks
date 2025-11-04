@@ -127,7 +127,7 @@ download_go() {
 
 install_ais_bench() {
     local AIS_BENCH="$SRC_DIR/vllm-ascend/benchmark"
-    git clone https://gitee.com/aisbench/benchmark.git $AIS_BENCH
+    git clone -b v3.0-20250930-master --depth 1 https://gitee.com/aisbench/benchmark.git $AIS_BENCH
     cd $AIS_BENCH
     git checkout v3.0-20250930-master
     pip3 install -e ./
