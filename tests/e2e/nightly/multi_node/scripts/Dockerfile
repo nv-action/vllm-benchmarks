@@ -1,4 +1,4 @@
-FROM quay.io/ascend/cann:8.3.rc1-ubuntu22.04-py3.11
+FROM quay.io/ascend/cann:8.3.rc1-910b-ubuntu22.04-py3.11
 
 # ---------------------------------------------------------------------
 # ARG & ENV
