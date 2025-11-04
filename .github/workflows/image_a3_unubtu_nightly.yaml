@@ -14,9 +14,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - dockerfile: Dockerfile.a3
+          - dockerfile: tests/e2e/nightly/multi_node/scripts/Dockerfile.a3
             tag_suffix: nightly-a3
-          - dockerfile: Dockerfile
+          - dockerfile: tests/e2e/nightly/multi_node/scripts/Dockerfile
             tag_suffix: nightly-a2
     steps:
 
@@ -55,12 +55,7 @@ jobs:
     - name: Build
       uses: docker/build-push-action@v6
       with:
-        platforms: >-
-          ${{
-              github.repository_owner == 'vllm-project' &&
-              'linux/amd64,linux/arm64' ||
-              'linux/amd64'
-          }}
+        platforms: linux/arm64
         context: ./tests/e2e/nightly/multi_node/scripts/
         file: ${{ matrix.dockerfile }}
         push: false
