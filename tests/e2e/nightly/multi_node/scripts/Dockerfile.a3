@@ -1,16 +1,14 @@
-FROM quay.io/ascend/cann:8.3.rc1-a3-ubuntu22.04-py3.11
+FROM quay.io/ascend/vllm-ascend:main-a3
 
 # ---------------------------------------------------------------------
 # ARG & ENV
 # ---------------------------------------------------------------------
 ARG PIP_INDEX_URL="https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
-ARG COMPILE_CUSTOM_KERNELS=1
 ARG VLLM_WORKSPACE="/vllm-workspace"
 ARG MOONCAKE_TAG="v0.3.7.post2"
-ARG VLLM_TAG="v0.11.0"
+ARG AIS_BENCH_TAG="v3.0-20250930-master"
 
-ENV DEBIAN_FRONTEND=noninteractive \
-    COMPILE_CUSTOM_KERNELS=${COMPILE_CUSTOM_KERNELS}
+ENV DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /workspace
 
@@ -22,20 +20,15 @@ RUN pip config set global.index-url ${PIP_INDEX_URL}
 
 COPY ./mooncake_installer.sh ./mooncake_installer.sh
 
-# Install mooncake
+# Build mooncake
 RUN chmod +x ./mooncake_installer.sh && \
     ./mooncake_installer.sh ${MOONCAKE_TAG}
 
-RUN apt-get update -y && \
-    apt-get install -y --no-install-recommends \
-    git vim wget net-tools gcc g++ cmake && \
-    rm -rf /var/lib/apt/lists/* /var/cache/apt/*
-
-# Install vLLM
-RUN git clone -b $VLLM_TAG --depth 1 https://github.com/vllm-project/vllm.git  $VLLM_WORKSPACE/vllm && \
-    VLLM_TARGET_DEVICE="empty" pip3 install -v -e $VLLM_WORKSPACE/vllm/ \
-        --extra-index-url https://download.pytorch.org/whl/cpu/ && \
-    pip3 uninstall -y triton
-
+# Install aisbench
+RUN git clone -b ${AIS_BENCH_TAG} --depth 1 https://gitee.com/aisbench/benchmark.git ${VLLM_WORKSPACE}/benchmark && \
+    pip3 install --no-cache-dir \
+    -e ${VLLM_WORKSPACE}/benchmark \
+    -r ${VLLM_WORKSPACE}/benchmark/requirements/api.txt \
+    -r ${VLLM_WORKSPACE}/benchmark/requirements/extra.txt
 
 CMD ["/bin/bash"]

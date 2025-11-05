@@ -12,6 +12,7 @@ NC="\033[0m" # No Color
 LOG_DIR="/root/.cache/tests/logs"
 OVERWRITE_LOGS=true
 export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages:$LD_LIBRARY_PATH
+export BENCHMARK_HOME=${WORKSPACE}/benchmark
 
 # Function to print section headers
 print_section() {
@@ -65,6 +66,13 @@ checkout_src() {
     # vllm-ascend
     if [ ! -d "$WORKSPACE/vllm-ascend" ]; then
         git clone --depth 1 -b $VLLM_ASCEND_VERSION $VLLM_ASCEND_REMOTE_URL "$WORKSPACE/vllm-ascend"
+    else
+        echo "vllm-ascend source code already exists, updating to the specified version."
+        cd "$WORKSPACE/vllm-ascend"
+        git remote add new_origin $VLLM_ASCEND_REMOTE_URL || true
+        git fetch new_origin $VLLM_ASCEND_VERSION
+        git checkout -b $VLLM_ASCEND_VERSION new_origin/$VLLM_ASCEND_VERSION
+        cd -
     fi
 }
 
