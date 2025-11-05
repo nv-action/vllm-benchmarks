@@ -16,7 +16,8 @@ SHELL ["/bin/bash", "-c"]
 # ---------------------------------------------------------------------
 # Setup pip
 # ---------------------------------------------------------------------
-RUN pip config set global.index-url ${PIP_INDEX_URL}
+RUN pip config set global.index-url ${PIP_INDEX_URL} && \
+    git config --global url."https://ghfast.top/https://github.com/".insteadOf "https://github.com/"
 
 COPY ./mooncake_installer.sh ./mooncake_installer.sh
 
