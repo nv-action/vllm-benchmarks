@@ -32,7 +32,7 @@ BENCHMARK_HOME = os.getenv("BENCHMARK_HOME", os.path.abspath("."))
 DATASET_CONF_DIR = os.path.join(BENCHMARK_HOME, "ais_bench", "benchmark",
                                 "configs", "datasets")
 REQUEST_CONF_DIR = os.path.join(BENCHMARK_HOME, "ais_bench", "benchmark",
-                                "configs", "requests")
+                                "configs", "models", "vllm_api")
 DATASET_DIR = os.path.join(BENCHMARK_HOME, "ais_bench", "benchmark",
                            "datasets")
 
