@@ -96,16 +96,6 @@ install_vllm() {
     pip install -r "$WORKSPACE/vllm-ascend/requirements-dev.txt"
 }
 
-install_ais_bench() {
-    local AIS_BENCH="$WORKSPACE/vllm-ascend/benchmark"
-    git clone -b v3.0-20250930-master --depth 1 https://gitee.com/aisbench/benchmark.git $AIS_BENCH
-    cd $AIS_BENCH
-    git checkout v3.0-20250930-master
-    pip3 install -e ./
-    pip3 install -r requirements/api.txt
-    pip3 install -r requirements/extra.txt
-    cd -
-}
 
 kill_npu_processes() {
   pgrep python3 | xargs -r kill -9
@@ -140,7 +130,6 @@ main() {
     checkout_src
     install_sys_dependencies
     install_vllm
-    install_ais_bench
     # to speed up mooncake build process, install Go here
     cd "$WORKSPACE/vllm-ascend"
     run_tests_with_log
