@@ -1,0 +1,47 @@
+name: 'image / nightly / Ubuntu / test'
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # daily at 08:00 UTC+8
+  workflow_dispatch:
+
+jobs:
+  build-and-sync:
+    runs-on: 'linux-arm64-cpu-static'
+    strategy:
+      matrix:
+        include:
+          - dockerfile: tests/e2e/nightly/multi_node/scripts/Dockerfile.a3
+            tag_suffix: nightly-a3
+          - dockerfile: tests/e2e/nightly/multi_node/scripts/Dockerfile
+            tag_suffix: nightly-a2
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Login to Huawei SWR
+      - name: Login to Huawei Cloud SWR
+        run: |
+          docker login -u "${{ secrets.HW_USERNAME }}" -p "${{ secrets.HW_TOKEN }}" swr.cn-southwest-2.myhuaweicloud.com
+
+      - name: Build image
+        id: build-image
+        run: |
+            IMAGE_TAG="swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.tag_suffix }}"
+            docker build \
+            --platform linux/arm64 \
+            -f ${{ matrix.dockerfile }} \
+            --build-arg CANN_VERSION="8.3.rc1" \
+            --build-arg UBUNTU_VERSION="22.04" \
+            --build-arg PYTHON_VERSION="3.11" \
+            -t $IMAGE_TAG \
+            ./tests/e2e/nightly/multi_node/scripts/
+
+            echo "image-tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+    #   - name: Push to SWR
+    #     run: |
+    #         docker push ${{ steps.build-image.outputs.image-tag }}
