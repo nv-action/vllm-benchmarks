@@ -1,4 +1,4 @@
-name: 'image / nightly / Ubuntu / a3'
+name: 'image / nightly / Ubuntu'
 
 on:
   schedule:
