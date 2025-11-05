@@ -19,19 +19,28 @@ FROM quay.io/ascend/cann:8.3.rc1-910b-ubuntu22.04-py3.11
 
 ARG PIP_INDEX_URL="https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
 ARG COMPILE_CUSTOM_KERNELS=1
+ARG VLLM_WORKSPACE="/vllm-workspace"
+ARG MOONCAKE_TAG="v0.3.7.post2"
+ARG AIS_BENCH_TAG="v3.0-20250930-master"
 
 # Define environments
 ENV DEBIAN_FRONTEND=noninteractive
 ENV COMPILE_CUSTOM_KERNELS=${COMPILE_CUSTOM_KERNELS}
+
+WORKDIR /workspace
+
+COPY . ${VLLM_WORKSPACE}/vllm-ascend/
+
+# Build mooncake
+RUN chmod +x ${VLLM_WORKSPACE}/vllm-ascend/tools/mooncake_installer.sh && \
+    ${VLLM_WORKSPACE}/vllm-ascend/tools/mooncake_installer.sh ${MOONCAKE_TAG}
 
 RUN apt-get update -y && \
     apt-get install -y python3-pip git vim wget net-tools gcc g++ cmake libnuma-dev && \
     rm -rf /var/cache/apt/* && \
     rm -rf /var/lib/apt/lists/*
 
-WORKDIR /workspace
 
-COPY . /vllm-workspace/vllm-ascend/
 
 RUN pip config set global.index-url ${PIP_INDEX_URL}
 
