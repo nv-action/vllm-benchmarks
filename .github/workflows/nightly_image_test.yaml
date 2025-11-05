@@ -30,7 +30,7 @@ jobs:
       - name: Build image
         id: build-image
         run: |
-            IMAGE_TAG="swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.tag_suffix }}"
+            IMAGE_TAG="swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:${{ matrix.tag_suffix }}"
             docker build \
             --network host \
             --platform linux/arm64 \
