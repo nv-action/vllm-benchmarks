@@ -33,8 +33,7 @@ DATASET_CONF_DIR = os.path.join(BENCHMARK_HOME, "ais_bench", "benchmark",
                                 "configs", "datasets")
 REQUEST_CONF_DIR = os.path.join(BENCHMARK_HOME, "ais_bench", "benchmark",
                                 "configs", "models", "vllm_api")
-DATASET_DIR = os.path.join(BENCHMARK_HOME, "ais_bench", "benchmark",
-                           "datasets")
+DATASET_DIR = os.path.join(BENCHMARK_HOME, "ais_bench", "datasets")
 
 
 class AisbenchRunner:
