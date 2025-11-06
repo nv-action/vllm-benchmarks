@@ -56,6 +56,7 @@ if ! is_done "deps"; then
   cd "$repo_name"
   echo "[STEP]Installing dependencies..."
   sed -i 's|https://go.dev/dl/|https://golang.google.cn/dl/|g' dependencies.sh
+  sed -i '/option(USE_ASCEND_DIRECT/s/OFF)/ON)/' mooncake-common/common.cmake
   bash dependencies.sh -y
   cd ..
   mark_done "deps"
