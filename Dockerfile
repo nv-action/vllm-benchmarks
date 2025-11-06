@@ -33,6 +33,7 @@ COPY . ${VLLM_WORKSPACE}/vllm-ascend/
 
 # Install Mooncake dependencies
 RUN git clone --depth 1 --branch ${MOONCAKE_TAG} https://github.com/kvcache-ai/Mooncake /vllm-workspace/Mooncake && \
+    cd /vllm-workspace/Mooncake && \
     sed -i 's|https://go.dev/dl/|https://golang.google.cn/dl/|g' dependencies.sh && \
     sed -i '/option(USE_ASCEND_DIRECT/s/OFF)/ON)/' mooncake-common/common.cmake && \
     bash dependencies.sh -y
