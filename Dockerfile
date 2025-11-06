@@ -15,7 +15,7 @@
 # This file is a part of the vllm-ascend project.
 #
 
-FROM quay.io/ascend/cann:8.3.rc1-910b-ubuntu22.04-py3.11
+FROM quay.io/ascend/cann:8.3.rc1-910b-ubuntu22.04-py3.11 AS builder
 
 ARG PIP_INDEX_URL="https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
 ARG COMPILE_CUSTOM_KERNELS=1
@@ -31,9 +31,28 @@ WORKDIR /workspace
 
 COPY . ${VLLM_WORKSPACE}/vllm-ascend/
 
-# Build mooncake
-RUN chmod +x ${VLLM_WORKSPACE}/vllm-ascend/tools/mooncake_installer.sh && \
-    ${VLLM_WORKSPACE}/vllm-ascend/tools/mooncake_installer.sh ${MOONCAKE_TAG}
+# Install Mooncake dependencies
+RUN git clone --depth 1 --branch ${MOONCAKE_TAG} https://github.com/kvcache-ai/Mooncake /vllm-workspace/Mooncake && \
+    sed -i 's|https://go.dev/dl/|https://golang.google.cn/dl/|g' dependencies.sh && \
+    sed -i '/option(USE_ASCEND_DIRECT/s/OFF)/ON)/' mooncake-common/common.cmake && \
+    bash dependencies.sh -y
+
+RUN cd /vllm-workspace/Mooncake && \
+    apt-get update -y && \
+    apt purge -y mpich libmpich-dev openmpi-bin libopenmpi-dev || true && \
+    apt install -y mpich libmpich-dev && \
+    export CPATH=/usr/lib/aarch64-linux-gnu/mpich/include/:${CPATH:-} && \
+    export CPATH=/usr/lib/aarch64-linux-gnu/openmpi/lib:${CPATH:-} && \
+    source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
+    source /usr/local/Ascend/nnal/atb/set_env.sh && \
+    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/Ascend/ascend-toolkit/latest/`uname -i`-linux/devlib && \
+    mkdir build && cd build && \
+    cmake .. && \
+    make -j && \
+    make install
+
+# # Build mooncake
+# RUN ${VLLM_WORKSPACE}/vllm-ascend/tools/mooncake_installer.sh ${MOONCAKE_TAG}
 
 RUN apt-get update -y && \
     apt-get install -y python3-pip git vim wget net-tools gcc g++ cmake libnuma-dev && \
