@@ -29,6 +29,11 @@ WORKDIR /workspace
 
 COPY . /vllm-workspace/vllm-ascend/
 
+RUN yum update -y && \
+    yum install -y python3-pip git vim wget net-tools gcc gcc-c++ make cmake numactl-devel && \
+    yum clean all && \
+    rm -rf /var/cache/yum/*
+
 # Build Mooncake
 RUN git clone --depth 1 --branch ${MOONCAKE_TAG} https://github.com/kvcache-ai/Mooncake /vllm-workspace/Mooncake && \
     cp /vllm-workspace/vllm-ascend/tools/mooncake_installer.sh /vllm-workspace/Mooncake/ && \
@@ -38,11 +43,10 @@ RUN git clone --depth 1 --branch ${MOONCAKE_TAG} https://github.com/kvcache-ai/M
     export CPLUS_INCLUDE_PATH=$CPLUS_INCLUDE_PATH:/usr/include/c++/12:/usr/include/c++/12/`uname -i`-openEuler-linux && \
     cd /vllm-workspace/Mooncake && bash mooncake_installer.sh -y && \
     mkdir -p build && cd build && cmake .. -DUSE_ASCEND_DIRECT=ON && \
-    make -j2 && make install
-
-RUN yum update -y && \
-    yum install -y python3-pip git vim wget net-tools gcc gcc-c++ make cmake numactl-devel && \
-    rm -rf /var/cache/yum
+    make -j2 && make install && \
+    rm -fr /vllm-workspace/Mooncake/build && \
+    yum clean all && \
+    rm -rf /var/cache/yum/*
 
 # Install vLLM
 ARG VLLM_REPO=https://github.com/vllm-project/vllm.git
