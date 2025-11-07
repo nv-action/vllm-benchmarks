@@ -38,7 +38,7 @@ RUN git clone --depth 1 --branch ${MOONCAKE_TAG} https://github.com/kvcache-ai/M
     make -j2 && make install
 
 RUN yum update -y && \
-    yum install -y python3-pip git vim wget net-tools gcc gcc-c++ make cmake numactl-devel && \
+    yum install -y git vim wget net-tools gcc gcc-c++ make cmake numactl-devel && \
     rm -rf /var/cache/yum
 
 # Install vLLM
