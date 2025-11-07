@@ -1,5 +1,8 @@
 #!/bin/bash
-# Copyright 2024 KVCache.AI
+
+#
+# Copyright (c) 2025 Huawei Technologies Co., Ltd. All Rights Reserved.
+# Copyright 2023 The vLLM team.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,6 +15,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# This file is a part of the vllm-ascend project.
+# Adapted from https://github.com/kvcache-ai/Mooncake/blob/main/dependencies.sh
+#
 
 # Color definitions
 GREEN="\033[0;32m"
@@ -24,6 +30,20 @@ NC="\033[0m" # No Color
 REPO_ROOT=`pwd`
 GITHUB_PROXY=${GITHUB_PROXY:-"https://github.com"}
 GOVER=1.23.8
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+TARGET_DIR="$SCRIPT_DIR/../../.."
+
+# Define a function to handle the git clone operation
+clone_repo_if_not_exists() {
+    local repo_dir=$1
+    local repo_url=$2
+
+    if [ ! -d "$repo_dir" ]; then
+        git clone "$repo_url"
+    else
+        echo "Directory $repo_dir already exists, skipping clone."
+    fi
+}
 
 # Function to print section headers
 print_section() {
@@ -257,7 +277,7 @@ install_go() {
     fi
     # Download Go
     echo "Downloading Go $GOVER..."
-    wget -q --show-progress https://go.dev/dl/go$GOVER.linux-$ARCH.tar.gz
+    wget -q --show-progress https://golang.google.cn/dl/go$GOVER.linux-$ARCH.tar.gz
     check_success "Failed to download Go $GOVER"
 
     # Install Go
