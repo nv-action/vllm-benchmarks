@@ -24,6 +24,20 @@ NC="\033[0m" # No Color
 REPO_ROOT=`pwd`
 GITHUB_PROXY=${GITHUB_PROXY:-"https://github.com"}
 GOVER=1.23.8
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+TARGET_DIR="$SCRIPT_DIR/../../.."
+
+# Define a function to handle the git clone operation
+clone_repo_if_not_exists() {
+    local repo_dir=$1
+    local repo_url=$2
+
+    if [ ! -d "$repo_dir" ]; then
+        git clone "$repo_url"
+    else
+        echo "Directory $repo_dir already exists, skipping clone."
+    fi
+}
 
 # Function to print section headers
 print_section() {
