@@ -30,6 +30,7 @@ RUN pip config set global.index-url ${PIP_INDEX_URL}
 
 WORKDIR /workspace
 
+# Install Mooncake dependencies
 RUN git clone --depth 1 --branch ${MOONCAKE_TAG} https://github.com/kvcache-ai/Mooncake /vllm-workspace/Mooncake && \
     cp /vllm-workspace/vllm-ascend/tools/mooncake_installer.sh /vllm-workspace/Mooncake/ && \
     cd /vllm-workspace/Mooncake && bash mooncake_installer.sh -y && \

@@ -1,113 +1,308 @@
 #!/bin/bash
+# Copyright 2024 KVCache.AI
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-set -e
-set -o pipefail
-
+# Color definitions
 GREEN="\033[0;32m"
 BLUE="\033[0;34m"
 YELLOW="\033[0;33m"
 RED="\033[0;31m"
 NC="\033[0m" # No Color
 
-branch=${1:-v0.3.7.post2}
+# Configuration
+REPO_ROOT=`pwd`
+GITHUB_PROXY=${GITHUB_PROXY:-"https://github.com"}
+GOVER=1.23.8
 
-repo_url="https://github.com/kvcache-ai/Mooncake"
-repo_name="/vllm-workspace/Mooncake"
-state_file=".build_state"
+# Function to print section headers
+print_section() {
+    echo -e "\n${BLUE}=== $1 ===${NC}"
+}
 
-echo "[INFO] Branch: $branch"
-echo "-------------------------------------------"
+# Function to print success messages
+print_success() {
+    echo -e "${GREEN}✓ $1${NC}"
+}
 
+# Function to print error messages and exit
+print_error() {
+    echo -e "${RED}✗ ERROR: $1${NC}"
+    exit 1
+}
 
-mark_done() { echo "$1" >> "$state_file"; }
-is_done() { grep -Fxq "$1" "$state_file" 2>/dev/null; }
-
-if ! is_done "clone"; then
-  echo "[STEP] Clone repository..."
-  if [ -d "$repo_name" ]; then
-    echo "[WARN] Directory $repo_name already exists, skipping clone."
-  else
-    git clone --branch "$branch" --depth 1 "$repo_url" "$repo_name"
-  fi
-  mark_done "clone"
-else
-  echo "[SKIP] Clone step already done."
-fi
-
-init_ascend_env() {
-    cann_in_sys_path=/usr/local/Ascend/ascend-toolkit; \
-    cann_in_user_path=$HOME/Ascend/ascend-toolkit; \
-    uname_m=$(uname -m) && \
-    if [ -f "${cann_in_sys_path}/set_env.sh" ]; then \
-        source ${cann_in_sys_path}/set_env.sh; \
-        export LD_LIBRARY_PATH=${cann_in_sys_path}/latest/lib64:${cann_in_sys_path}/latest/${uname_m}-linux/devlib:${LD_LIBRARY_PATH} ; \
-    elif [ -f "${cann_in_user_path}/set_env.sh" ]; then \
-        source "$HOME/Ascend/ascend-toolkit/set_env.sh"; \
-        export LD_LIBRARY_PATH=${cann_in_user_path}/latest/lib64:${cann_in_user_path}/latest/${uname_m}-linux/devlib:${LD_LIBRARY_PATH}; \ 
-    else \
-        echo "No Ascend Toolkit found"; \
-        exit 1; \
+# Function to check command success
+check_success() {
+    if [ $? -ne 0 ]; then
+        print_error "$1"
     fi
 }
 
-init_ascend_env
+if [ $(id -u) -ne 0 ]; then
+	print_error "Require root permission, try sudo ./dependencies.sh"
+fi
 
-if ! is_done "deps"; then
-  cd "$repo_name"
-  echo "[STEP]Installing dependencies..."
-  sed -i 's|https://go.dev/dl/|https://golang.google.cn/dl/|g' dependencies.sh
-  sed -i '/option(USE_ASCEND_DIRECT/s/OFF)/ON)/' mooncake-common/common.cmake
-  bash dependencies.sh -y
-  cd ..
-  mark_done "deps"
-else
-  echo "[SKIP] Dependencies already installed."
+# Parse command line arguments
+SKIP_CONFIRM=false
+for arg in "$@"; do
+    case $arg in
+        -y|--yes)
+            SKIP_CONFIRM=true
+            ;;
+        -h|--help)
+            echo -e "${YELLOW}Mooncake Dependencies Installer${NC}"
+            echo -e "Usage: ./dependencies.sh [OPTIONS]"
+            echo -e "\nOptions:"
+            echo -e "  -y, --yes    Skip confirmation and install all dependencies"
+            echo -e "  -h, --help   Show this help message and exit"
+            exit 0
+            ;;
+    esac
+done
+
+# Print welcome message
+echo -e "${YELLOW}Mooncake Dependencies Installer${NC}"
+echo -e "This script will install all required dependencies for Mooncake."
+echo -e "The following components will be installed:"
+echo -e "  - System packages (build tools, libraries)"
+echo -e "  - yalantinglibs"
+echo -e "  - Git submodules"
+echo -e "  - Go $GOVER"
+echo
+
+# Ask for confirmation unless -y flag is used
+if [ "$SKIP_CONFIRM" = false ]; then
+    read -p "Do you want to continue? [Y/n] " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]] && [[ ! $REPLY = "" ]]; then
+        echo -e "${YELLOW}Installation cancelled.${NC}"
+        exit 0
+    fi
 fi
 
 
-if ! is_done "mpi"; then
-  echo "[STEP] Install MPI..."
-  apt purge -y mpich libmpich-dev openmpi-bin libopenmpi-dev || true
-  apt install -y mpich libmpich-dev
-  export CPATH=/usr/lib/aarch64-linux-gnu/mpich/include/:${CPATH:-}
-  export CPATH=/usr/lib/aarch64-linux-gnu/openmpi/lib:${CPATH:-}
-  mark_done "mpi"
-else
-  echo "[SKIP] MPI installation already done."
-fi
+# Update package lists
+print_section "Updating package lists"
+check_success "Failed to update package lists"
 
+# Install system packages
+print_section "Installing system packages"
+echo -e "${YELLOW}This may take a few minutes...${NC}"
 
-if ! is_done "build"; then
-  echo "[STEP] Compile and install..."
-  cd "$repo_name"
-
-  if [ -d "build" ]; then
-    echo "[INFO] Removing existing build directory..."
+# System detection and dependency installation
+if command -v apt-get &> /dev/null; then
+    echo "Detected apt-get. Using Debian-based package manager."
+    apt-get update
+    apt-get install -y build-essential \
+            cmake \
+            git \
+            wget \
+            libibverbs-dev \
+            libgoogle-glog-dev \
+            libgtest-dev \
+            libjsoncpp-dev \
+            libunwind-dev \
+            libnuma-dev \
+            libpython3-dev \
+            libboost-all-dev \
+            libssl-dev \
+            libgrpc-dev \
+            libgrpc++-dev \
+            libprotobuf-dev \
+            libyaml-cpp-dev \
+            protobuf-compiler-grpc \
+            libcurl4-openssl-dev \
+            libhiredis-dev \
+            pkg-config \
+            patchelf \
+            mpich \
+            libmpich-dev
+    apt purge -y openmpi-bin libopenmpi-dev || true
+elif command -v yum &> /dev/null; then
+    echo "Detected yum. Using Red Hat-based package manager."
+    yum makecache
+    yum install -y cmake \
+            gflags-devel \
+            glog-devel \
+            libibverbs-devel \
+            numactl-devel \
+            gtest \
+            gtest-devel \
+            boost-devel \
+            openssl-devel \
+            hiredis-devel \
+            libcurl-devel \
+            jsoncpp-devel \
+            mpich \
+            mpich-devel
+    # Install yaml-cpp
+    cd "$TARGET_DIR"
+    clone_repo_if_not_exists "yaml-cpp" https://github.com/jbeder/yaml-cpp.git
+    cd yaml-cpp || exit
     rm -rf build
-  fi
-
-  mkdir build && cd build
-  cmake .. || { echo "[ERROR] cmake failed."; exit 1; }
-  make -j || { echo "[ERROR] make failed."; exit 1; }
-  make install || { echo "[ERROR] make install failed."; exit 1; }
-  mark_done "build"
+    mkdir -p build && cd build
+    cmake ..
+    make -j$(nproc)
+    make install
+    cd ../..
 else
-  echo "[SKIP] Build already done."
+    echo "Unsupported package manager. Please install the dependencies manually."
+    exit 1
 fi
 
+check_success "Failed to install system packages"
+print_success "System packages installed successfully"
 
-if ! grep -q "export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages:$LD_LIBRARY_PATH" ~/.bashrc; then
-    echo -e "${YELLOW}Adding LD_LIBRARY_PATH to your PATH in ~/.bashrc${NC}"
-    echo 'export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages:$LD_LIBRARY_PATH' >> ~/.bashrc
-    echo -e "${YELLOW}Please run 'source ~/.bashrc' or start a new terminal${NC}"
+# Install yalantinglibs
+print_section "Installing yalantinglibs"
+
+# Check if thirdparties directory exists
+if [ ! -d "${REPO_ROOT}/thirdparties" ]; then
+    mkdir -p "${REPO_ROOT}/thirdparties"
+    check_success "Failed to create thirdparties directory"
 fi
-export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages:$LD_LIBRARY_PATH
 
+# Change to thirdparties directory
+cd "${REPO_ROOT}/thirdparties"
+check_success "Failed to change to thirdparties directory"
 
-echo "=========================================="
-echo -e "${GREEN}[SUCCESS] Mooncake build completed!"
-echo "You can rerun this script anytime — it will resume from the last step."
-echo "=========================================="
+# Check if yalantinglibs is already installed
+if [ -d "yalantinglibs" ]; then
+    echo -e "${YELLOW}yalantinglibs directory already exists. Removing for fresh install...${NC}"
+    rm -rf yalantinglibs
+    check_success "Failed to remove existing yalantinglibs directory"
+fi
 
-echo "Example startup command:"
-echo "mooncake_master --eviction_high_watermark_ratio 0.8 --eviction_ratio 0.05 --port 50088"
+# Clone yalantinglibs
+echo "Cloning yalantinglibs from ${GITHUB_PROXY}/alibaba/yalantinglibs.git"
+git clone ${GITHUB_PROXY}/alibaba/yalantinglibs.git
+check_success "Failed to clone yalantinglibs"
+
+# Build and install yalantinglibs
+cd yalantinglibs
+check_success "Failed to change to yalantinglibs directory"
+
+# Checkout version 0.5.5
+echo "Checking out yalantinglibs version 0.5.5..."
+git checkout 0.5.5
+check_success "Failed to checkout yalantinglibs version 0.5.5"
+
+mkdir -p build
+check_success "Failed to create build directory"
+
+cd build
+check_success "Failed to change to build directory"
+
+echo "Configuring yalantinglibs..."
+cmake .. -DBUILD_EXAMPLES=OFF -DBUILD_BENCHMARK=OFF -DBUILD_UNIT_TESTS=OFF
+check_success "Failed to configure yalantinglibs"
+
+echo "Building yalantinglibs (using $(nproc) cores)..."
+cmake --build . -j$(nproc)
+check_success "Failed to build yalantinglibs"
+
+echo "Installing yalantinglibs..."
+cmake --install .
+check_success "Failed to install yalantinglibs"
+
+print_success "yalantinglibs installed successfully"
+
+# Initialize and update git submodules
+print_section "Initializing Git Submodules"
+
+# Check if .gitmodules exists
+if [ -f "${REPO_ROOT}/.gitmodules" ]; then
+    # Check if submodules are already initialized by looking for the .git directory in the first submodule
+    FIRST_SUBMODULE=$(grep "path" ${REPO_ROOT}/.gitmodules | head -1 | awk '{print $3}')
+
+    echo "Enter repository root: ${REPO_ROOT}"
+    cd "${REPO_ROOT}"
+    check_success "Failed to change to repository root directory"
+
+    if [ -d "${REPO_ROOT}/${FIRST_SUBMODULE}/.git" ] || [ -f "${REPO_ROOT}/${FIRST_SUBMODULE}/.git" ]; then
+        echo -e "${YELLOW}Git submodules already initialized. Skipping...${NC}"
+    else
+        echo "Initializing git submodules..."
+        git submodule update --init
+        check_success "Failed to initialize git submodules"
+
+        print_success "Git submodules initialized and updated successfully"
+    fi
+else
+    echo -e "${YELLOW}No .gitmodules file found. Skipping...${NC}"
+    exit 1
+fi
+
+print_section "Installing Go $GOVER"
+
+install_go() {
+    ARCH=$(uname -m)
+    if [ "$ARCH" = "aarch64" ]; then
+        ARCH="arm64"
+    elif [ "$ARCH" = "x86_64" ]; then
+        ARCH="amd64"
+    else
+        echo "Unsupported architecture: $ARCH"
+        exit 1
+    fi
+    # Download Go
+    echo "Downloading Go $GOVER..."
+    wget -q --show-progress https://golang.google.cn/dl/go$GOVER.linux-$ARCH.tar.gz
+    check_success "Failed to download Go $GOVER"
+
+    # Install Go
+    echo "Installing Go $GOVER..."
+    tar -C /usr/local -xzf go$GOVER.linux-$ARCH.tar.gz
+    check_success "Failed to install Go $GOVER"
+
+    # Clean up downloaded file
+    rm -f go$GOVER.linux-$ARCH.tar.gz
+    check_success "Failed to clean up Go installation file"
+
+    print_success "Go $GOVER installed successfully"
+}
+
+# Check if Go is already installed
+if command -v go &> /dev/null; then
+    GO_VERSION=$(go version | awk '{print $3}')
+    if [[ "$GO_VERSION" == "go$GOVER" ]]; then
+        echo -e "${YELLOW}Go $GOVER is already installed. Skipping...${NC}"
+    else
+        echo -e "${YELLOW}Found Go $GO_VERSION. Will install Go $GOVER...${NC}"
+        install_go
+    fi
+else
+    install_go
+fi
+
+# Add Go to PATH if not already there
+if ! grep -q "export PATH=\$PATH:/usr/local/go/bin" ~/.bashrc; then
+    echo -e "${YELLOW}Adding Go to your PATH in ~/.bashrc${NC}"
+    echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
+    echo -e "${YELLOW}Please run 'source ~/.bashrc' or start a new terminal to use Go${NC}"
+fi
+
+# Return to the repository root
+cd "${REPO_ROOT}"
+
+# Print summary
+print_section "Installation Complete"
+echo -e "${GREEN}All dependencies have been successfully installed!${NC}"
+echo -e "The following components were installed:"
+echo -e "  ${GREEN}✓${NC} System packages"
+echo -e "  ${GREEN}✓${NC} yalantinglibs"
+echo -e "  ${GREEN}✓${NC} Git submodules"
+echo -e "  ${GREEN}✓${NC} Go $GOVER"
+echo
+echo -e "You can now build and run Mooncake."
+echo -e "${YELLOW}Note: You may need to restart your terminal or run 'source ~/.bashrc' to use Go.${NC}"

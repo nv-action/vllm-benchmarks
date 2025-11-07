@@ -33,24 +33,11 @@ COPY . ${VLLM_WORKSPACE}/vllm-ascend/
 
 # Install Mooncake dependencies
 RUN git clone --depth 1 --branch ${MOONCAKE_TAG} https://github.com/kvcache-ai/Mooncake /vllm-workspace/Mooncake && \
-    cd /vllm-workspace/Mooncake && \
-    sed -i 's|https://go.dev/dl/|https://golang.google.cn/dl/|g' dependencies.sh && \
-    sed -i '/option(USE_ASCEND_DIRECT/s/OFF)/ON)/' mooncake-common/common.cmake && \
-    bash dependencies.sh -y
-
-RUN cd /vllm-workspace/Mooncake && \
-    apt-get update -y && \
-    apt purge -y mpich libmpich-dev openmpi-bin libopenmpi-dev || true && \
-    apt install -y mpich libmpich-dev && \
-    export CPATH=/usr/lib/aarch64-linux-gnu/mpich/include/:${CPATH:-} && \
-    export CPATH=/usr/lib/aarch64-linux-gnu/openmpi/lib:${CPATH:-} && \
-    source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
-    source /usr/local/Ascend/nnal/atb/set_env.sh && \
-    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/Ascend/ascend-toolkit/latest/`uname -i`-linux/devlib && \
-    mkdir build && cd build && \
-    cmake .. && \
-    make -j && \
-    make install
+    cp /vllm-workspace/vllm-ascend/tools/mooncake_installer.sh /vllm-workspace/Mooncake/ && \
+    cd /vllm-workspace/Mooncake && bash mooncake_installer.sh -y && \
+    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/Ascend/ascend-toolkit/latest/`uname -i`-linux/lib64 && \
+    mkdir -p build && cd build && cmake .. -DUSE_ASCEND_DIRECT=ON && \
+    make -j2 && make install
 
 # # Build mooncake
 # RUN ${VLLM_WORKSPACE}/vllm-ascend/tools/mooncake_installer.sh ${MOONCAKE_TAG}
