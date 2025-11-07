@@ -89,7 +89,7 @@ jobs:
           }}
         # use the current repo path as the build context, ensure .git is contained
         context: .
-        file: Dockerfile.a3
+        file: Dockerfile
         # only trigger when tag, branch/main push
         push: true
         labels: ${{ steps.meta.outputs.labels }}

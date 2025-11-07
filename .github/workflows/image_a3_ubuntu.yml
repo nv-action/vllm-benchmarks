@@ -1,4 +1,4 @@
-name: 'image / Ubuntu / a3'
+name: 'image / Ubuntu / a3 / workflow_dispatch'
 # This is a docker build check and publish job:
 # 1. PR Triggered docker image build check
 #   - is for image build check
@@ -9,40 +9,10 @@ name: 'image / Ubuntu / a3'
 #   - commits are merge into main/*-dev  ==> vllm-ascend:main / vllm-ascend:*-dev
 # 3. tags push trigger image publish
 #   - is for final release image
-#   - Publish when tag with v* (pep440 version)  ===>  vllm-ascend:v1.2.3-a3|vllm-ascend:v1.2.3rc1-a3
+#   - Publish when tag with v* (pep440 version)  ===>  vllm-ascend:v1.2.3 / vllm-ascend:v1.2.3rc1
 on:
-  pull_request:
-    branches:
-      - 'main'
-      - '*-dev'
-    paths:
-      - '.github/workflows/image_a3_ubuntu.yml'
-      - 'Dockerfile.a3'
-      - 'vllm_ascend/**'
-      - 'setup.py'
-      - 'pyproject.toml'
-      - 'requirements.txt'
-      - 'cmake/**'
-      - 'CMakeLists.txt'
-      - 'csrc/**'
-    types: [ labeled ]
-  push:
-    # Publish image when tagging, the Dockerfile in tag will be build as tag image
-    branches:
-      - 'main'
-      - '*-dev'
-    tags:
-      - 'v*'
-    paths:
-      - '.github/workflows/image_a3_ubuntu.yml'
-      - 'Dockerfile.a3'
-      - 'vllm_ascend/**'
-      - 'setup.py'
-      - 'pyproject.toml'
-      - 'requirements.txt'
-      - 'cmake/**'
-      - 'CMakeLists.txt'
-      - 'csrc/**'
+  workflow_dispatch:
+    
 
 # only cancel in-progress runs of the same workflow
 concurrency:
@@ -56,7 +26,6 @@ jobs:
     # Only arm64 build on openEuler arm64, only amd64 build on Ubuntu amd64
     # Push event or PR with both 'ready' and 'ready-for-test' labels
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' || (contains(github.event.pull_request.labels.*.name, 'ready') && contains(github.event.pull_request.labels.*.name, 'ready-for-test')) }}
     steps:
     - uses: actions/checkout@v4
       with:
@@ -66,28 +35,29 @@ jobs:
     - name: Print
       run: |
         lscpu
+
     - name: Docker meta
       id: meta
       uses: docker/metadata-action@v5
       with:
         # TODO(yikun): add more hub image and a note on release policy for container image
         images: |
-          quay.io/ascend/vllm-ascend
+          quay.io/wangli12345/vllm-ascend
         # Note for test case
         # https://github.com/marketplace/actions/docker-metadata-action#typeref
         # 1. branch job pulish per main/*-dev branch commits
-        # 2. main and dev pull_request is build only, so the tag pr-N-a3 is fine
+        # 2. main and dev pull_request is build only, so the tag pr-N is fine
         # 3. only pep440 matched tag will be published:
-        #    - v0.7.1 --> v0.7.1-a3
-        #    - pre/post/dev: v0.7.1rc1-a3/v0.7.1rc1-a3/v0.7.1rc1.dev1-a3/v0.7.1.post1-a3, no latest
+        #    - v0.7.1 --> v0.7.1, latest
+        #    - pre/post/dev: v0.7.1rc1/v0.7.1rc1/v0.7.1rc1.dev1/v0.7.1.post1, no latest
         #      which follow the rule from vLLM with prefix v
         # TODO(yikun): the post release might be considered as latest release
         tags: |
-          type=ref,event=branch,suffix=-a3
-          type=ref,event=pr,suffix=-a3
-          type=pep440,pattern={{raw}},suffix=-a3
+            type=ref,event=branch
+            type=ref,event=pr
+            type=pep440,pattern={{raw}}, subffix=-a3-ubuntu
         flavor:
-          latest=false
+          latest=true
 
     - name: Free up disk space
       uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
@@ -101,15 +71,14 @@ jobs:
     - name: Build - Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
-    - name: Publish - Login to Quay Container Registry
-      if: ${{ github.event_name == 'push' && github.repository_owner == 'vllm-project' }}
-      uses: docker/login-action@v3
-      with:
-        registry: quay.io
-        username: ${{ vars.QUAY_USERNAME }}
-        password: ${{ secrets.QUAY_PASSWORD }}
+    # - name: Publish - Login to Quay Container Registry
+    #   uses: docker/login-action@v3
+    #   with:
+    #     registry: quay.io
+    #     username: ${{ vars.QUAY_USERNAME }}
+    #     password: ${{ secrets.QUAY_PASSWORD }}
 
-    - name: Build and push a3
+    - name: Build and push 910b
       uses: docker/build-push-action@v6
       with:
         platforms: >-
@@ -122,10 +91,9 @@ jobs:
         context: .
         file: Dockerfile.a3
         # only trigger when tag, branch/main push
-        push: ${{ github.event_name == 'push' && github.repository_owner == 'vllm-project' }}
+        push: true
         labels: ${{ steps.meta.outputs.labels }}
         tags: ${{ steps.meta.outputs.tags }}
         build-args: |
           PIP_INDEX_URL=https://pypi.org/simple
         provenance: false
-
