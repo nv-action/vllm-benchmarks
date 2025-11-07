@@ -53,9 +53,7 @@ jobs:
         #      which follow the rule from vLLM with prefix v
         # TODO(yikun): the post release might be considered as latest release
         tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=pep440,pattern={{raw}}
+            a2-ubuntu
         flavor:
           latest=true
 
