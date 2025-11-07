@@ -11,7 +11,6 @@ NC="\033[0m" # No Color
 # Configuration
 LOG_DIR="/root/.cache/tests/logs"
 OVERWRITE_LOGS=true
-SRC_DIR="$WORKSPACE/source_code"
 export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages:$LD_LIBRARY_PATH
 
 # Function to print section headers
@@ -62,16 +61,10 @@ check_and_config() {
 
 checkout_src() {
     echo "====> Checkout source code"
-    mkdir -p "$SRC_DIR"
 
     # vllm-ascend
-    if [ ! -d "$SRC_DIR/vllm-ascend" ]; then
-        git clone --depth 1 -b $VLLM_ASCEND_VERSION $VLLM_ASCEND_REMOTE_URL "$SRC_DIR/vllm-ascend"
-    fi
-
-    # vllm
-    if [ ! -d "$SRC_DIR/vllm" ]; then
-        git clone -b $VLLM_VERSION https://github.com/vllm-project/vllm.git "$SRC_DIR/vllm"
+    if [ ! -d "$WORKSPACE/vllm-ascend" ]; then
+        git clone --depth 1 -b $VLLM_ASCEND_VERSION $VLLM_ASCEND_REMOTE_URL "$WORKSPACE/vllm-ascend"
     fi
 }
 
@@ -82,22 +75,19 @@ install_sys_dependencies() {
     DEP_LIST=()
     while IFS= read -r line; do
         [[ -n "$line" && ! "$line" =~ ^# ]] && DEP_LIST+=("$line")
-    done < "$SRC_DIR/vllm-ascend/packages.txt"
+    done < "$WORKSPACE/vllm-ascend/packages.txt"
 
     apt-get install -y "${DEP_LIST[@]}" gcc g++ cmake libnuma-dev iproute2
 }
 
 install_vllm() {
-    echo "====> Install vllm and vllm-ascend"
-    VLLM_TARGET_DEVICE=empty pip install -e "$SRC_DIR/vllm"
-    pip install -e "$SRC_DIR/vllm-ascend"
-    pip install modelscope
+    echo "====> Install vllm-ascend"
     # Install for pytest
-    pip install -r "$SRC_DIR/vllm-ascend/requirements-dev.txt"
+    pip install -r "$WORKSPACE/vllm-ascend/requirements-dev.txt"
 }
 
 install_ais_bench() {
-    local AIS_BENCH="$SRC_DIR/vllm-ascend/benchmark"
+    local AIS_BENCH="$WORKSPACE/vllm-ascend/benchmark"
     git clone -b v3.0-20250930-master --depth 1 https://gitee.com/aisbench/benchmark.git $AIS_BENCH
     cd $AIS_BENCH
     git checkout v3.0-20250930-master
@@ -141,9 +131,8 @@ main() {
     install_sys_dependencies
     install_vllm
     install_ais_bench
-    cd "$WORKSPACE/source_code"
-    . $SRC_DIR/vllm-ascend/tests/e2e/nightly/multi_node/scripts/build_mooncake.sh
-    cd "$WORKSPACE/source_code/vllm-ascend"
+    # to speed up mooncake build process, install Go here
+    cd "$WORKSPACE/vllm-ascend"
     run_tests_with_log
 }
 

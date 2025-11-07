@@ -3,13 +3,10 @@ name: 'image / nightly / Ubuntu / a3'
 on:
   schedule:
     - cron: '0 0 * * *'  # daily at 08:00 UTC+8
-  workflow_dispatch: 
-# This is the docker image build workflow for nightly CI, no PR trigger, no tag/branch push trigger.
-# With Mooncake ais_bench and a fixed version of vLLM(v0.11.0) Integrated.
-jobs:
+  workflow_dispatch:
 
-  build:
-    name: nightly image build
+jobs:
+  build-and-sync:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -18,50 +15,84 @@ jobs:
             tag_suffix: nightly-a3
           - dockerfile: tests/e2e/nightly/multi_node/scripts/Dockerfile
             tag_suffix: nightly-a2
+
     steps:
+      # Checkout source
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-        persist-credentials: false
-    - name: Print
-      run: |
-        lscpu
+      # Print CPU info
+      - name: Print CPU
+        run: lscpu
 
-    - name: Docker meta
-      id: meta
-      uses: docker/metadata-action@v5
-      with:
-        images: |
+      # Set up QEMU for cross-arch build
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      # Set up Docker Buildx
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Metadata generation for tags & labels
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
             quay.io/ascend/vllm-ascend
-        tags: |
+          tags: |
             ${{ matrix.tag_suffix }}
-        flavor:
-          latest=false
+          flavor:
+            latest=false
 
-    - name: Free up disk space
-      uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
-      with:
-        tool-cache: true
-        docker-images: false
+      # Free disk space
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be
+        with:
+          tool-cache: true
+          docker-images: false
 
-    - name: Build - Set up QEMU
-      uses: docker/setup-qemu-action@v3
+      # Login to Quay.io once
+      - name: Login to Quay
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: ${{ vars.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
 
-    - name: Build - Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      # Build and push arm64 image
+      - name: Build and Push Image
+        uses: docker/build-push-action@v6
+        with:
+          platforms: linux/arm64
+          context: ./tests/e2e/nightly/multi_node/scripts/
+          file: ${{ matrix.dockerfile }}
+          push: true
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            PIP_INDEX_URL=https://pypi.org/simple
+          provenance: false
 
+      # Install skopeo
+      - name: Install skopeo
+        run: |
+          sudo apt update
+          sudo apt install -y skopeo
 
-    - name: Build
-      uses: docker/build-push-action@v6
-      with:
-        platforms: linux/arm64
-        context: ./tests/e2e/nightly/multi_node/scripts/
-        file: ${{ matrix.dockerfile }}
-        push: false
-        labels: ${{ steps.meta.outputs.labels }}
-        tags: ${{ steps.meta.outputs.tags }}
-        build-args: |
-          PIP_INDEX_URL=https://pypi.org/simple
-        provenance: false
+      # Login to Huawei SWR
+      - name: Login to Huawei Cloud SWR
+        run: |
+          echo "${{ secrets.HW_TOKEN }}" | skopeo login \
+            --username "${{ secrets.HW_USERNAME }}" \
+            --password-stdin \
+            swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci
 
+      # Sync image to SWR
+      - name: Sync image to SWR
+        run: |
+          skopeo copy --all \
+          docker://quay.io/ascend/vllm-ascend:${{ steps.meta.outputs.tags }} \
+          docker://swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ steps.meta.outputs.tags }}
