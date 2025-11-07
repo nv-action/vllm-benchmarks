@@ -19,9 +19,7 @@ FROM quay.io/ascend/cann:8.3.rc1-910b-ubuntu22.04-py3.11 AS builder
 
 ARG PIP_INDEX_URL="https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
 ARG COMPILE_CUSTOM_KERNELS=1
-ARG VLLM_WORKSPACE="/vllm-workspace"
 ARG MOONCAKE_TAG="v0.3.7.post2"
-ARG AIS_BENCH_TAG="v3.0-20250930-master"
 
 # Define environments
 ENV DEBIAN_FRONTEND=noninteractive
@@ -29,7 +27,7 @@ ENV COMPILE_CUSTOM_KERNELS=${COMPILE_CUSTOM_KERNELS}
 
 WORKDIR /workspace
 
-COPY . ${VLLM_WORKSPACE}/vllm-ascend/
+COPY . /vllm-workspace/vllm-ascend/
 
 # Install Mooncake dependencies
 RUN git clone --depth 1 --branch ${MOONCAKE_TAG} https://github.com/kvcache-ai/Mooncake /vllm-workspace/Mooncake && \
@@ -38,9 +36,6 @@ RUN git clone --depth 1 --branch ${MOONCAKE_TAG} https://github.com/kvcache-ai/M
     export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/Ascend/ascend-toolkit/latest/`uname -i`-linux/lib64 && \
     mkdir -p build && cd build && cmake .. -DUSE_ASCEND_DIRECT=ON && \
     make -j2 && make install
-
-# # Build mooncake
-# RUN ${VLLM_WORKSPACE}/vllm-ascend/tools/mooncake_installer.sh ${MOONCAKE_TAG}
 
 RUN apt-get update -y && \
     apt-get install -y python3-pip git vim wget net-tools gcc g++ cmake libnuma-dev && \
