@@ -42,7 +42,7 @@ jobs:
       with:
         # TODO(yikun): add more hub image and a note on release policy for container image
         images: |
-          quay.io/ascend/vllm-ascend
+          quay.io/wangli12345/vllm-ascend
         # Note for test case
         # https://github.com/marketplace/actions/docker-metadata-action#typeref
         # 1. branch job pulish per main/*-dev branch commits
@@ -89,9 +89,9 @@ jobs:
           }}
         # use the current repo path as the build context, ensure .git is contained
         context: .
-        file: Dockerfile
+        file: Dockerfile.a3
         # only trigger when tag, branch/main push
-        push: false
+        push: true
         labels: ${{ steps.meta.outputs.labels }}
         tags: ${{ steps.meta.outputs.tags }}
         build-args: |
