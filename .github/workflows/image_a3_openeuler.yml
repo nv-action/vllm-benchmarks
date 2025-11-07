@@ -1,4 +1,4 @@
-name: 'image / Ubuntu / a3 / workflow_dispatch'
+name: 'image / Ubuntu / a3-euler / workflow_dispatch'
 # This is a docker build check and publish job:
 # 1. PR Triggered docker image build check
 #   - is for image build check
