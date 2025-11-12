@@ -2,7 +2,7 @@ name: 'image / nightly / Ubuntu / test'
 
 on:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '0 */4 * * *'
   pull_request:
     paths:
       - 'tools/Dockerfile'
@@ -17,10 +17,15 @@ on:
       image-tag:
         description: 'The built image tag'
         value: ${{ jobs.build-and-sync.outputs.image-tag }}
+  workflow_dispatch:
 
 jobs:
   build-and-sync:
     runs-on: ubuntu-22.04-arm
+
+    strategy:
+      matrix:
+        target: ${{ fromJson(github.event_name == 'workflow_dispatch' && '["a2","a3"]' || format('["{0}"]', inputs.target || github.event.inputs.target || 'a3')) }}
 
     outputs:
       image-tag: ${{ steps.build-image.outputs.image-tag }}
@@ -28,11 +33,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up build target
-        id: set-target
+      - name: Show build target
         run: |
-          TARGET="${{ inputs.target || github.event.inputs.target || 'a3' }}"
-          echo "target=$TARGET" >> $GITHUB_OUTPUT
+          echo "Building target: ${{ matrix.target }}"
 
       - name: Login to Huawei Cloud SWR
         run: |
@@ -41,7 +44,7 @@ jobs:
       - name: Build image
         id: build-image
         run: |
-          TARGET="${{ steps.set-target.outputs.target }}"
+          TARGET="${{ matrix.target }}"
           IMAGE_TAG="swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-${TARGET}"
 
           echo "Building image: $IMAGE_TAG"
@@ -56,7 +59,8 @@ jobs:
 
           echo "image-tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
 
-      # - name: Push image to SWR
-      #   if: always()
-      #   run: |
-      #     docker push ${{ steps.build-image.outputs.image-tag }}
+      # To avoid pushing images from forks, only push when the repository owner is 'vllm-project'
+      - name: Push image to SWR
+        if: ${{ github.repository_owner == 'vllm-project'}}
+        run: |
+          docker push ${{ steps.build-image.outputs.image-tag }}
