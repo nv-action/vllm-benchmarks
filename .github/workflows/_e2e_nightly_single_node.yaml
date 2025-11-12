@@ -64,6 +64,6 @@ jobs:
           VLLM_WORKER_MULTIPROC_METHOD: spawn
           VLLM_USE_MODELSCOPE: True
           VLLM_CI_RUNNER: ${{ inputs.runner }}
-          BENCHMARK_HOME: /vllm-workspace/benchmark
+          BENCHMARK_HOME: /vllm-workspace/vllm-ascend/benchmark
         run: |
           pytest -sv ${{ inputs.tests }}
