@@ -60,43 +60,6 @@ check_and_config() {
     export PIP_EXTRA_INDEX_URL=https://mirrors.huaweicloud.com/ascend/repos/pypi
 }
 
-checkout_src() {
-    echo "====> Checkout source code"
-
-    # vllm-ascend
-    if [ ! -d "$WORKSPACE/vllm-ascend" ]; then
-        git clone --depth 1 -b $VLLM_ASCEND_VERSION $VLLM_ASCEND_REMOTE_URL "$WORKSPACE/vllm-ascend"
-    else
-        echo "vllm-ascend source code already exists, updating to the specified version."
-        cd "$WORKSPACE/vllm-ascend"
-        git remote add new_origin $VLLM_ASCEND_REMOTE_URL || true
-        git fetch new_origin $VLLM_ASCEND_VERSION
-        git checkout -b $VLLM_ASCEND_VERSION new_origin/$VLLM_ASCEND_VERSION
-        cd -
-    fi
-}
-
-install_sys_dependencies() {
-    echo "====> Install system dependencies"
-    apt-get update -y
-
-    DEP_LIST=()
-    while IFS= read -r line; do
-        [[ -n "$line" && ! "$line" =~ ^# ]] && DEP_LIST+=("$line")
-    done < "$WORKSPACE/vllm-ascend/packages.txt"
-
-    apt-get install -y "${DEP_LIST[@]}" gcc g++ cmake libnuma-dev iproute2
-}
-
-install_vllm() {
-    echo "====> Install vllm-ascend"
-    export PIP_EXTRA_INDEX_URL=https://mirrors.huaweicloud.com/ascend/repos/pypi
-    pip install -e "$WORKSPACE/vllm-ascend"
-    # Install for pytest
-    pip install -r "$WORKSPACE/vllm-ascend/requirements-dev.txt"
-}
-
-
 kill_npu_processes() {
   pgrep python3 | xargs -r kill -9
   pgrep VLLM | xargs -r kill -9
@@ -127,9 +90,6 @@ run_tests_with_log() {
 main() {
     check_npu_info
     check_and_config
-    checkout_src
-    install_sys_dependencies
-    install_vllm
     # to speed up mooncake build process, install Go here
     cd "$WORKSPACE/vllm-ascend"
     run_tests_with_log

@@ -15,7 +15,7 @@ spec:
       spec:
         containers:
           - name: vllm-leader
-            image: {{ image | default("swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:nightly-a3") }}
+            image: {{ image | default("swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-a3") }}
             env:
               - name: CONFIG_YAML_PATH
                 value: {{ config_file_path | default("DeepSeek-V3.yaml") }}
@@ -73,7 +73,7 @@ spec:
       spec:
         containers:
           - name: vllm-worker
-            image: {{ image | default("swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:nightly-a3") }}
+            image: {{ image | default("swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-a3") }}
             env:
               - name: CONFIG_YAML_PATH
                 value: {{ config_file_path | default("DeepSeek-V3.yaml") }}
