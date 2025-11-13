@@ -1,8 +1,8 @@
 name: 'image / nightly / Ubuntu / test'
 
 on:
-  schedule:
-    - cron: '0 */4 * * *'
+  # schedule:
+  #   - cron: '0 */4 * * *'
   pull_request:
     paths:
       - 'tools/Dockerfile'
@@ -25,7 +25,7 @@ jobs:
 
     strategy:
       matrix:
-        target: ${{ fromJson(github.event_name == 'workflow_dispatch' && '["a2","a3"]' || format('["{0}"]', inputs.target || github.event.inputs.target || 'a3')) }}
+        target: ${{ fromJson(github.event_name == 'workflow_dispatch' && '["a2","a3"]' || format('["{0}"]', inputs.target || 'a3')) }}
 
     outputs:
       image-tag: ${{ steps.build-image.outputs.image-tag }}
