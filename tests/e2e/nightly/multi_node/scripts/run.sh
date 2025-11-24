@@ -128,9 +128,10 @@ run_tests_with_log() {
     set +e
     kill_npu_processes
     BASENAME=$(basename "$CONFIG_YAML_PATH" .yaml)
+    LOG_DIR="${RESULT_FILE_PATH}/${BASENAME}"
+    mkdir -p ${LOG_DIR}
     # each worker should have log file
-    LOG_FILE="${RESULT_FILE_PATH}/${BASENAME}_worker_${LWS_WORKER_INDEX}.log"
-    mkdir -p ${RESULT_FILE_PATH}
+    LOG_FILE="${LOG_DIR}/worker_${LWS_WORKER_INDEX}.log"
     pytest -sv tests/e2e/nightly/multi_node/test_multi_node.py 2>&1 | tee $LOG_FILE
     ret=${PIPESTATUS[0]}
     set -e
@@ -139,7 +140,7 @@ run_tests_with_log() {
             print_success "All tests passed!"
         else
             print_failure "Some tests failed!"
-            mv LOG_FILE error_${LOG_FILE}
+            mv $LOG_FILE $(basename "$LOG_FILE" .log)_failed.log
         fi
     fi
 }

@@ -20,6 +20,7 @@
 import contextlib
 import gc
 import json
+import logging
 import os
 import shlex
 import subprocess
@@ -75,6 +76,7 @@ _PromptMultiModalInput = Union[List[_M], List[List[_M]]]
 PromptImageInput = _PromptMultiModalInput[Image.Image]
 PromptAudioInput = _PromptMultiModalInput[Tuple[np.ndarray, int]]
 PromptVideoInput = _PromptMultiModalInput[np.ndarray]
+logger = logging.getLogger(__name__)
 
 _TEST_DIR = os.path.dirname(__file__)
 
@@ -215,14 +217,20 @@ class RemoteOpenAIServer:
                 continue
 
             url_health = f"http://{node_info.ip}:{node_info.server_port}/health"
-            self._wait_for_server(url=url_health, timeout=timeout)
+            self._wait_for_server(url=url_health,
+                                  timeout=timeout,
+                                  node_ip=node_info.ip)
 
         # Wait for proxy ready
         master_node = self.nodes_info[0]
         url_proxy = f"http://{master_node.ip}:{proxy_port}/healthcheck"
         self._wait_for_server(url=url_proxy, timeout=timeout)
 
-    def _wait_for_server(self, *, url: str, timeout: float):
+    def _wait_for_server(self,
+                         *,
+                         url: str,
+                         timeout: float,
+                         node_ip: Optional[str] = None):
         # run health check
         start = time.time()
         client = requests
@@ -239,6 +247,10 @@ class RemoteOpenAIServer:
                 if result is not None and result != 0:
                     raise RuntimeError("Server exited unexpectedly.") from None
 
+                if node_ip:
+                    # for multi-node test, print which node is waiting for debug
+                    logger.info(
+                        f"Waiting for server at {node_ip} to be ready...")
                 time.sleep(5)
                 if time.time() - start > timeout:
                     raise RuntimeError(
