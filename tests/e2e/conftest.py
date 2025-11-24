@@ -171,8 +171,8 @@ class RemoteOpenAIServer:
             self._wait_for_server_pd(proxy_port=proxy_port,
                                      timeout=max_wait_seconds)
         else:
-            self._wait_for_server(url=self.url_for("health"),
-                                  timeout=max_wait_seconds)
+            self._wait_for_multiple_servers(
+                [self.host, self.url_for("health")], timeout=max_wait_seconds)
 
     def __enter__(self):
         return self
@@ -212,49 +212,72 @@ class RemoteOpenAIServer:
     def _wait_for_server_pd(self, proxy_port: int, timeout: float):
         # Wait for all api_server nodes ready
         assert self.nodes_info is not None, "cluster info must be provided"
-        for node_info in self.nodes_info:
-            if node_info.headless:
-                continue
 
-            url_health = f"http://{node_info.ip}:{node_info.server_port}/health"
-            self._wait_for_server(url=url_health,
-                                  timeout=timeout,
-                                  node_ip=node_info.ip)
+        def url_health(ip: str, port: int) -> str:
+            return f"http://{ip}:{port}/health"
+
+        targets = [(node_info.ip,
+                    url_health(node_info.ip, node_info.server_port))
+                   for node_info in self.nodes_info if not node_info.headless]
 
         # Wait for proxy ready
         master_node = self.nodes_info[0]
         url_proxy = f"http://{master_node.ip}:{proxy_port}/healthcheck"
-        self._wait_for_server(url=url_proxy, timeout=timeout)
+        targets.append((master_node.ip, url_proxy))
 
-    def _wait_for_server(self,
-                         *,
-                         url: str,
-                         timeout: float,
-                         node_ip: Optional[str] = None):
-        # run health check
+        self._wait_for_multiple_servers(targets=targets, timeout=timeout)
+
+    def _wait_for_multiple_servers(self, targets, timeout: float):
+        """
+        targets: List[(node_ip, url)]
+        """
         start = time.time()
         client = requests
-        while True:
-            try:
-                if client.get(url).status_code == 200:
-                    break
-            except Exception:
-                # this exception can only be raised by requests.get,
-                # which means the server is not ready yet.
-                # the stack trace is not useful, so we suppress it
-                # by using `raise from None`.
-                result = self._poll()
-                if result is not None and result != 0:
-                    raise RuntimeError("Server exited unexpectedly.") from None
 
-                if node_ip:
-                    # for multi-node test, print which node is waiting for debug
-                    logger.info(
-                        f"Waiting for server at {node_ip} to be ready...")
-                time.sleep(5)
-                if time.time() - start > timeout:
-                    raise RuntimeError(
-                        "Server failed to start in time.") from None
+        # track readiness
+        ready = {node_ip: False for node_ip, _ in targets}
+
+        # polling loop
+        while True:
+            all_ready = True
+
+            for node_ip, url in targets:
+                if ready[node_ip]:
+                    continue  # already ready
+
+                try:
+                    resp = client.get(url)
+                    if resp.status_code == 200:
+                        ready[node_ip] = True
+                        logger.info(f"[READY] Node {node_ip} is ready.")
+                    else:
+                        all_ready = False
+                        logger.info(
+                            f"[WAIT] Node {node_ip}: HTTP {resp.status_code}")
+                except Exception:
+                    all_ready = False
+                    logger.info(f"[WAIT] Node {node_ip}: connection failed")
+
+                    # underlying process died?
+                    result = self._poll()
+                    if result is not None and result != 0:
+                        raise RuntimeError(
+                            f"Server at {node_ip} exited unexpectedly."
+                        ) from None
+
+            # if all nodes ready, exit
+            if all_ready:
+                logger.info("All nodes are ready.")
+                break
+
+            # check timeout
+            if time.time() - start > timeout:
+                not_ready_nodes = [n for n, ok in ready.items() if not ok]
+                raise RuntimeError(
+                    f"Timeout: these nodes did not become ready: {not_ready_nodes}"
+                ) from None
+
+            time.sleep(5)
 
     @property
     def url_root(self) -> str:
