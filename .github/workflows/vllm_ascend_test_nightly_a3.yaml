@@ -76,7 +76,7 @@ jobs:
     uses: ./.github/workflows/_e2e_nightly_multi_node.yaml
     with:
       soc_version: a3
-      runner: linux-arm64-npu-0
+      runner: linux-aarch64-a3-2
       image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-a3'
       replicas: 1
       size: ${{ matrix.test_config.size }}
