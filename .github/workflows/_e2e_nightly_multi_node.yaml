@@ -260,6 +260,21 @@ jobs:
               fi
             done
 
+        # - name: Determine if test passed
+        #   run: |
+        #     if [ -f "$RESULT_FILE" ]; then
+        #       if grep -q "TEST_PASS" "$RESULT_FILE"; then
+        #         echo "Test passed."
+        #         exit 0
+        #       else
+        #         echo "Test failed: TEST_PASS not found in result file."
+        #         exit 1
+        #       fi
+        #     else
+        #       echo "Result file not found: $RESULT_FILE"
+        #       exit 1
+        #     fi
+
         - name: Post process
           if: always()
           run: |
