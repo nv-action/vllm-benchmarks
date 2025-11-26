@@ -177,12 +177,7 @@ class RemoteOpenAIServer:
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        self.proc.terminate()
-        try:
-            self.proc.wait(8)
-        except subprocess.TimeoutExpired:
-            # force kill if needed
-            self.proc.kill()
+        self._terminate_server()
 
     def _poll(self) -> Optional[int]:
         """Subclasses override this method to customize process polling"""
@@ -207,6 +202,7 @@ class RemoteOpenAIServer:
         finally:
             if isinstance(client, httpx.Client):
                 client.close()
+            self._terminate_server()
 
     def _wait_for_server_pd(self, timeout: float):
         # Wait for all api_server nodes ready
@@ -253,10 +249,10 @@ class RemoteOpenAIServer:
                     else:
                         all_ready = False
                         logger.info(
-                            f"[WAIT] url {url}: HTTP {resp.status_code}")
+                            f"[WAIT] {url}: HTTP {resp.status_code}")
                 except Exception:
                     all_ready = False
-                    logger.info(f"[WAIT] url {url}: connection failed")
+                    logger.info(f"[WAIT] {url}: connection failed")
 
                     # underlying process died?
                     result = self._poll()
@@ -273,6 +269,8 @@ class RemoteOpenAIServer:
             # check timeout
             if time.time() - start > timeout:
                 not_ready_nodes = [n for n, ok in ready.items() if not ok]
+                logger.error(f"Timeout: these nodes did not become ready: {not_ready_nodes}")
+                self._terminate_server()
                 raise RuntimeError(
                     f"Timeout: these nodes did not become ready: {not_ready_nodes}"
                 ) from None
@@ -282,6 +280,15 @@ class RemoteOpenAIServer:
     @property
     def url_root(self) -> str:
         return f"http://{self.host}:{self.port}"
+    
+    def _terminate_server(self) -> None:
+        """Subclasses override this method to customize server process termination"""
+        self.proc.terminate()
+        try:
+            self.proc.wait(8)
+        except subprocess.TimeoutExpired:
+            # force kill if needed
+            self.proc.kill()
 
     def url_for(self, *parts: str) -> str:
         return self.url_root + "/" + "/".join(parts)
