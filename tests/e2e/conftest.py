@@ -266,13 +266,11 @@ class RemoteOpenAIServer:
 
             # if all nodes ready, exit
             if all_ready:
-                logger.info("All nodes are ready.")
                 break
 
             # check timeout
             if time.time() - start > timeout:
                 not_ready_nodes = [n for n, ok in ready.items() if not ok]
-                logger.error(f"Timeout: these nodes did not become ready: {not_ready_nodes}")
                 self._terminate_server()
                 raise RuntimeError(
                     f"Timeout: these nodes did not become ready: {not_ready_nodes}"
