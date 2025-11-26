@@ -171,7 +171,7 @@ class RemoteOpenAIServer:
             self._wait_for_server_pd(timeout=max_wait_seconds)
         else:
             self._wait_for_multiple_servers(
-                [self.host, self.url_for("health")], timeout=max_wait_seconds)
+                [(self.host, self.url_for("health"))], timeout=max_wait_seconds)
 
     def __enter__(self):
         return self
