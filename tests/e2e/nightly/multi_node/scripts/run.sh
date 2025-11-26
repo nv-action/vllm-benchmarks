@@ -89,13 +89,6 @@ check_and_config() {
     git config --global url."https://gh-proxy.test.osinfra.cn/https://github.com/".insteadOf "https://github.com/"
     pip config set global.index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
     export PIP_EXTRA_INDEX_URL=https://mirrors.huaweicloud.com/ascend/repos/pypi
-
-    # NOTE: just for test, should be removed in production env
-    cd "$WORKSPACE/vllm-ascend"
-    git remote add wl https://github.com/Potabk/vllm-ascend.git
-    git fetch wl fix_multi_node
-    git checkout -b fix_multi_node wl/fix_multi_node
-    pip install transformers==4.57.1
 }
 
 install_extra_components() {
@@ -155,7 +148,7 @@ run_tests_with_log() {
         print_failure "Worker $LWS_WORKER_INDEX tests failed!"
         mv "${LOG_FILE}" "${LOG_DIR}/worker_${LWS_WORKER_INDEX}_failed.log"
         # Copy device logs
-        cp -r $HOME/ascend/log/* "${LOG_DIR}/"
+        cp -r $HOME/ascend/log/* "${LOG_DIR}/plogs"
         exit 1
     fi
 }
