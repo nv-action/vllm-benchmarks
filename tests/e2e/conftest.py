@@ -244,8 +244,6 @@ class RemoteOpenAIServer:
             for node_ip, url in targets:
                 if ready[node_ip]:
                     continue  # already ready
-                nodes_ip = [n for n, _ in targets]
-                logger.debug(f"Checking readiness of cluster {nodes_ip}...")
 
                 try:
                     resp = client.get(url)
@@ -255,7 +253,7 @@ class RemoteOpenAIServer:
                     else:
                         all_ready = False
                         logger.info(
-                            f"[WAIT] Node {node_ip}: HTTP {resp.status_code}")
+                            f"[WAIT] url {url}: HTTP {resp.status_code}")
                 except Exception:
                     all_ready = False
                     logger.info(f"[WAIT] Node {node_ip}: connection failed")
