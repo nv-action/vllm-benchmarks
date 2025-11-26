@@ -168,8 +168,7 @@ class RemoteOpenAIServer:
         max_wait_seconds = max_wait_seconds or 1800
         if self.disaggregated_prefill:
             assert proxy_port is not None, "for disaggregated_prefill, proxy port must be provided"
-            self._wait_for_server_pd(proxy_port=proxy_port,
-                                     timeout=max_wait_seconds)
+            self._wait_for_server_pd(timeout=max_wait_seconds)
         else:
             self._wait_for_multiple_servers(
                 [self.host, self.url_for("health")], timeout=max_wait_seconds)
@@ -209,9 +208,10 @@ class RemoteOpenAIServer:
             if isinstance(client, httpx.Client):
                 client.close()
 
-    def _wait_for_server_pd(self, proxy_port: int, timeout: float):
+    def _wait_for_server_pd(self, timeout: float):
         # Wait for all api_server nodes ready
         assert self.nodes_info is not None, "cluster info must be provided"
+        proxy_port = self.proxy_port
 
         def url_health(ip: str, port: int) -> str:
             return f"http://{ip}:{port}/health"

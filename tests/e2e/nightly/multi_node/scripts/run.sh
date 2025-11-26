@@ -134,23 +134,26 @@ kill_npu_processes() {
 run_tests_with_log() {
     set +e
     kill_npu_processes
+
     BASENAME=$(basename "$CONFIG_YAML_PATH" .yaml)
     LOG_DIR="${RESULT_FILE_PATH}/${BASENAME}"
-    mkdir -p ${LOG_DIR}
-    # each worker should have log file
+    mkdir -p "${LOG_DIR}"
+
     LOG_FILE="${LOG_DIR}/worker_${LWS_WORKER_INDEX}.log"
-    pytest -sv tests/e2e/nightly/multi_node/test_multi_node.py 2>&1 | tee $LOG_FILE
+
+    pytest -sv tests/e2e/nightly/multi_node/test_multi_node.py 2>&1 | tee "${LOG_FILE}"
     ret=${PIPESTATUS[0]}
+
     set -e
-    if [ "$LWS_WORKER_INDEX" -eq 0 ]; then
-        if [ $ret -eq 0 ]; then
-            print_success "All tests passed!"
-        else
-            print_failure "Some tests failed!"
-            mv $LOG_FILE $(basename "$LOG_FILE" .log)_failed.log
-        fi
+
+    if [ $ret -eq 0 ]; then
+        print_success "Worker $LWS_WORKER_INDEX tests passed!"
+    else
+        print_failure "Worker $LWS_WORKER_INDEX tests failed!"
+        mv "${LOG_FILE}" "${LOG_DIR}/worker_${LWS_WORKER_INDEX}_failed.log"
     fi
 }
+
 
 main() {
     check_npu_info
