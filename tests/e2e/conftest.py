@@ -219,8 +219,11 @@ class RemoteOpenAIServer:
         # Wait for proxy ready
         master_node = self.nodes_info[0]
         url_proxy = f"http://{master_node.ip}:{proxy_port}/healthcheck"
-        targets.append((master_node.ip, url_proxy))
+        
+        # Wait for master node proxy first
+        self._wait_for_multiple_servers([(master_node.ip, url_proxy)], timeout=timeout)
 
+        # Then wait for all api_server nodes
         self._wait_for_multiple_servers(targets=targets, timeout=timeout)
 
     def _wait_for_multiple_servers(self, targets, timeout: float):
