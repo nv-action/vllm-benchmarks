@@ -256,7 +256,7 @@ class RemoteOpenAIServer:
                             f"[WAIT] url {url}: HTTP {resp.status_code}")
                 except Exception:
                     all_ready = False
-                    logger.info(f"[WAIT] Node {url}: connection failed")
+                    logger.info(f"[WAIT] url {url}: connection failed")
 
                     # underlying process died?
                     result = self._poll()
