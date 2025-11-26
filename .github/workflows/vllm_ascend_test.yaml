@@ -15,16 +15,11 @@
 # # This file is a part of the vllm-ascend project.
 # #
 
-# name: 'ascend test'
+name: 'ascend test'
 
-# on:
-#   push:
-#     branches:
-#       - 'main'
-#   pull_request:
-#     branches:
-#       - 'main'
-#       - '*-dev'
+on:
+  workflow_dispatch:
+    
 # # Bash shells do not use ~/.profile or ~/.bashrc so these shells need to be explicitly
 # # declared as "shell: bash -el {0}" on steps that need to be properly activated.
 # # It's used to activate ascend-toolkit environment variables.
@@ -34,11 +29,11 @@
 
 # # only cancel in-progress runs of the same workflow
 # # and ignore the lint / 1 card / 4 cards test type
-# concurrency:
-#   group: ${{ github.workflow }}-${{ github.ref }}
-#   cancel-in-progress: true
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
-# jobs:
+jobs:
 #   lint:
 #     uses: ./.github/workflows/pre-commit.yml
 #     with:
@@ -69,70 +64,71 @@
 #             ut_tracker:
 #               - 'tests/ut/**'
 
-#   ut:
-#     needs: [lint, changes]
-#     name: unit test
-#     # only trigger unit test after lint passed and the change is e2e and ut related.
-#     if: ${{ needs.lint.result == 'success' && (needs.changes.outputs.e2e_tracker == 'true' || needs.changes.outputs.ut_tracker == 'true') }}
-#     runs-on: ubuntu-latest
-#     container:
-#       # fixme: vllm-ascend install failed with 8.3.rc1 on github action
-#       image: quay.io/ascend/cann:8.2.rc1-910b-ubuntu22.04-py3.11
-#       env:
-#         VLLM_LOGGING_LEVEL: ERROR
-#         VLLM_USE_MODELSCOPE: True
-#     strategy:
-#       matrix:
-#         vllm_version: [2918c1b49c88c29783c86f78d2c4221cb9622379, v0.11.0]
-#     steps:
-#       - name: Install packages
-#         run: |
-#           apt-get update -y
-#           apt-get install -y python3-pip git vim wget net-tools gcc g++ cmake libnuma-dev curl gnupg2
+  ut:
+    #needs: [lint, changes]
+    name: unit test
+    # only trigger unit test after lint passed and the change is e2e and ut related.
+    #if: ${{ needs.lint.result == 'success' && (needs.changes.outputs.e2e_tracker == 'true' || needs.changes.outputs.ut_tracker == 'true') }}
+    runs-on: ubuntu-latest
+    container:
+      # fixme: vllm-ascend install failed with 8.3.rc1 on github action
+      image: quay.io/ascend/cann:8.3.rc1-910b-ubuntu22.04-py3.11
+      env:
+        VLLM_LOGGING_LEVEL: ERROR
+        VLLM_USE_MODELSCOPE: True
+    strategy:
+      matrix:
+        vllm_version: [v0.11.2]
+    steps:
+      - name: Install packages
+        run: |
+          apt-get update -y
+          apt-get install -y python3-pip git vim wget net-tools gcc g++ cmake libnuma-dev curl gnupg2
 
-#       - name: Checkout vllm-project/vllm repo
-#         uses: actions/checkout@v4
-#         with:
-#           repository: vllm-project/vllm
-#           ref: ${{ matrix.vllm_version }}
-#           path: ./vllm-empty
+      - name: Checkout vllm-project/vllm repo
+        uses: actions/checkout@v4
+        with:
+          repository: vllm-project/vllm
+          ref: ${{ matrix.vllm_version }}
+          path: ./vllm-empty
 
-#       - name: Install vllm-project/vllm from source
-#         working-directory: ./vllm-empty
-#         run: |
-#           VLLM_TARGET_DEVICE=empty python3 -m pip install . --extra-index https://download.pytorch.org/whl/cpu/
-#           python3 -m pip uninstall -y triton
+      - name: Install vllm-project/vllm from source
+        working-directory: ./vllm-empty
+        run: |
+          VLLM_TARGET_DEVICE=empty python3 -m pip install . --extra-index https://download.pytorch.org/whl/cpu/
+          python3 -m pip uninstall -y triton
 
-#       - name: Checkout vllm-project/vllm-ascend repo
-#         uses: actions/checkout@v4
+      - name: Checkout vllm-project/vllm-ascend repo
+        uses: actions/checkout@v4
 
-#       - name: Install vllm-project/vllm-ascend
-#         run: |
-#           export PIP_EXTRA_INDEX_URL=https://mirrors.huaweicloud.com/ascend/repos/pypi
-#           export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/Ascend/ascend-toolkit/latest/x86_64-linux/devlib
-#           python3 -m pip install -r requirements-dev.txt --extra-index https://download.pytorch.org/whl/cpu/
-#           python3 -m pip install -v . --extra-index https://download.pytorch.org/whl/cpu/
+      - name: Install vllm-project/vllm-ascend
+        run: |
+          export PIP_EXTRA_INDEX_URL=https://mirrors.huaweicloud.com/ascend/repos/pypi
+          export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/Ascend/ascend-toolkit/latest/x86_64-linux/devlib
+          python3 -m pip install -r requirements-dev.txt --extra-index https://download.pytorch.org/whl/cpu/
+          python3 -m pip install -v . --extra-index https://download.pytorch.org/whl/cpu/
 
-#       - name: Run unit test
-#         env:
-#           VLLM_WORKER_MULTIPROC_METHOD: spawn
-#           TORCH_DEVICE_BACKEND_AUTOLOAD: 0
-#         run: |
-#           export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/Ascend/ascend-toolkit/latest/x86_64-linux/devlib
-#           pytest -sv --cov --cov-report=xml:unittests-coverage.xml tests/ut \
-#             --ignore tests/ut/torchair/models/test_torchair_deepseek_mtp.py \
-#             --ignore tests/ut/torchair/models/test_torchair_deepseek_v2.py
+      - name: Run unit test
+        env:
+          VLLM_WORKER_MULTIPROC_METHOD: spawn
+          TORCH_DEVICE_BACKEND_AUTOLOAD: 0
+        run: |
+          sleep 10000
+          export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/Ascend/ascend-toolkit/latest/x86_64-linux/devlib
+          pytest -sv --cov --cov-report=xml:unittests-coverage.xml tests/ut \
+            --ignore tests/ut/torchair/models/test_torchair_deepseek_mtp.py \
+            --ignore tests/ut/torchair/models/test_torchair_deepseek_v2.py
 
-#       - name: Upload coverage to Codecov
-#         # only upload coverage when commits merged
-#         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-#         uses: codecov/codecov-action@v5
-#         env:
-#           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-#         with:
-#           flags: unittests
-#           name: vllm-ascend
-#           verbose: true
+      - name: Upload coverage to Codecov
+        # only upload coverage when commits merged
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: codecov/codecov-action@v5
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        with:
+          flags: unittests
+          name: vllm-ascend
+          verbose: true
 
 #   e2e-light:
 #     name: e2e-light

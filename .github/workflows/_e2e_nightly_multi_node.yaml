@@ -260,20 +260,33 @@ jobs:
               fi
             done
 
-        # - name: Determine if test passed
-        #   run: |
-        #     if [ -f "$RESULT_FILE" ]; then
-        #       if grep -q "TEST_PASS" "$RESULT_FILE"; then
-        #         echo "Test passed."
-        #         exit 0
-        #       else
-        #         echo "Test failed: TEST_PASS not found in result file."
-        #         exit 1
-        #       fi
-        #     else
-        #       echo "Result file not found: $RESULT_FILE"
-        #       exit 1
-        #     fi
+        - name: Determine if test passed
+          id: determine_passed
+          run: |
+            RESULT_FILE_PATH="$RESULT_FILE"/ret_"${{ inputs.soc_version }}"
+            config_file_name=$(basename "${{ inputs.config_file_path }}" .yaml)
+            RESULT_FILE_PATH="${RESULT_FILE_PATH}_${config_file_name}"
+
+            echo "RESULT_FILE_PATH=$RESULT_FILE_PATH" >> $GITHUB_ENV
+
+            if [ -d "$RESULT_FILE_PATH/plogs" ]; then
+              echo "fail=true" >> $GITHUB_ENV
+              echo "Test failed: plogs directory found."
+              exit 1
+            else
+              echo "fail=false" >> $GITHUB_ENV
+              echo "Test passed: No plogs directory found."
+            fi
+
+        - name: Upload Report
+          if: failure()
+          uses: actions/upload-artifact@v5
+          with:
+            name: logs
+            path: ${{ env.RESULT_FILE_PATH }}
+            if-no-files-found: warn
+            retention-days: 3
+            overwrite: true
 
         - name: Post process
           if: always()

@@ -21,7 +21,6 @@ print_section() {
 
 print_failure() {
     echo -e "${RED}${FAIL_TAG} ✗ ERROR: $1${NC}"
-    exit 1
 }
 
 # Function to print success messages
@@ -137,6 +136,10 @@ run_tests_with_log() {
 
     BASENAME=$(basename "$CONFIG_YAML_PATH" .yaml)
     LOG_DIR="${RESULT_FILE_PATH}/${BASENAME}"
+    # Clear logs before running tests
+    rm -fr ${LOG_DIR}/*
+    rm -fr $HOME/ascend/log/*
+
     mkdir -p "${LOG_DIR}"
 
     LOG_FILE="${LOG_DIR}/worker_${LWS_WORKER_INDEX}.log"
@@ -151,6 +154,9 @@ run_tests_with_log() {
     else
         print_failure "Worker $LWS_WORKER_INDEX tests failed!"
         mv "${LOG_FILE}" "${LOG_DIR}/worker_${LWS_WORKER_INDEX}_failed.log"
+        # Copy device logs
+        cp -r $HOME/ascend/log/* "${LOG_DIR}/"
+        exit 1
     fi
 }
 
