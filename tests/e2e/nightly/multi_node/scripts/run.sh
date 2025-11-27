@@ -21,6 +21,7 @@ print_section() {
 
 print_failure() {
     echo -e "${RED}${FAIL_TAG} ✗ ERROR: $1${NC}"
+    exit 1
 }
 
 # Function to print success messages
@@ -145,11 +146,10 @@ run_tests_with_log() {
     if [ $ret -eq 0 ]; then
         print_success "Worker $LWS_WORKER_INDEX tests passed!"
     else
-        print_failure "Worker $LWS_WORKER_INDEX tests failed!"
         mv "${LOG_FILE}" "${LOG_DIR}/worker_${LWS_WORKER_INDEX}_failed.log"
         # Copy device logs
-        cp -r $HOME/ascend/log/* "${LOG_DIR}/plogs"
-        exit 1
+        mkdir -p "${LOG_DIR}/plogs" && cp -r $HOME/ascend/log/* "${LOG_DIR}/plogs/worker_${LWS_WORKER_INDEX}_plog/"
+        print_failure "Worker $LWS_WORKER_INDEX tests failed!"
     fi
 }
 

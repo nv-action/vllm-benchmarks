@@ -8,6 +8,9 @@ spec:
   leaderWorkerTemplate:
     size: {{ size | default(2) }}
     restartPolicy: None
+    template:
+      spec:
+        restartPolicy: Never
     leaderTemplate:
       metadata:
         labels:
