@@ -1,0 +1,220 @@
+# This is a docker build check and publish job:
+# 1. PR Triggered docker image build check
+#   - is for image build check
+#   - Enable on main/*-dev branch
+#   - push: ${{ github.event_name != 'pull_request' }} ==> false
+# 2. branches push trigger image publish
+#   - is for branch/dev/nightly image
+#   - commits are merge into main/*-dev  ==> vllm-ascend:main / vllm-ascend:*-dev
+# 3. tags push trigger image publish
+#   - is for final release image
+#   - Publish when tag with v* (pep440 version)  ===>  vllm-ascend:v1.2.3 / vllm-ascend:v1.2.3rc1
+name: Image
+on:
+  workflow_dispatch: 
+
+# only cancel in-progress runs of the same workflow
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  only-build:
+    name: build ${{ inputs.cann_tag }} (${{ matrix.arch }})
+    if: ${{ !inputs.publish }} 
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: linux-x86_64
+          - arch: aarch64
+            runner: ubuntu-22.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        id: build
+        with: 
+          platforms: ${{ matrix.arch }}
+          file: ${{ github.workspace }}/cann/${{ inputs.cann_tag }}/Dockerfile
+          context: ${{ github.workspace }}/cann/${{ inputs.cann_tag }}
+          outputs: type=image
+          provenance: false
+
+  build-push-digest:
+    name: build ${{ inputs.cann_tag }} (${{ matrix.arch }})
+    if: ${{ inputs.publish }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: linux-x86_64
+          - arch: aarch64
+            runner: ubuntu-22.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Quay
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_TOKEN }}
+          ecr: false
+          logout: false
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Build and push by digest
+        uses: docker/build-push-action@v6
+        id: build
+        with: 
+          platforms: ${{ matrix.arch }}
+          tags: |
+            docker.io/ascendai/cann
+            quay.io/ascend/cann
+          file: ${{ github.workspace }}/cann/${{ inputs.cann_tag }}/Dockerfile
+          context: ${{ github.workspace }}/cann/${{ inputs.cann_tag }}
+          outputs: type=image,push-by-digest=true,name-canonical=true,push=true
+          provenance: false
+
+      - name: Export digest
+        run: |
+          mkdir -p ${{ runner.temp }}/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ inputs.cann_tag }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+  
+  push-image:
+    runs-on: ubuntu-latest
+    needs: build-push-digest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-${{ inputs.cann_tag }}-*
+          merge-multiple: true
+
+      - name: Login to Quay
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_TOKEN }}
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Prepare tags
+        id: prepare-tags
+        run: |
+          BASE_TAGS=$(jq -r --arg cann_tag "${{ inputs.cann_tag }}" \
+            '.versions[] | select(.path == "cann/" + $cann_tag) | .tags[]' \
+            cann_publish_version.json)
+          registries=(
+            "docker.io/ascendai/cann"
+            "quay.io/ascend/cann"
+          )
+          first=true
+          TAGS_JSON="["
+          for registry in "${registries[@]}"; do
+            for tag in $(echo "$BASE_TAGS" | tr ',' ' '); do
+              if [ "$first" != true ]; then
+                TAGS_JSON+=","
+              fi
+              TAGS_JSON+="\"${registry}:${tag}\""
+              first=false
+            done
+          done
+          TAGS_JSON+="]"
+          echo "tags=${TAGS_JSON}" >> $GITHUB_OUTPUT
+
+      - name: Create manifest list and push
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          TAGS: ${{ steps.prepare-tags.outputs.tags }}
+        run: |
+          readarray -t TAGS_ARRAY <<< "$(echo "$TAGS" | jq -r '.[]')"
+
+          for TAG in "${TAGS_ARRAY[@]}"; do
+            if [[ "$TAG" == *"quay.io/ascend/cann"* ]]; then
+              docker buildx imagetools create -t "$TAG" \
+                $(printf 'quay.io/ascend/cann@sha256:%s ' *)
+            elif [[ "$TAG" == *"docker.io/ascendai/cann"* ]]; then
+              docker buildx imagetools create -t "$TAG" \
+                $(printf 'docker.io/ascendai/cann@sha256:%s ' *)
+            else
+              echo "Error: Unknown registry in TAG: $TAG"
+              exit 1
+            fi
+          done
+
+  sync-image:
+    runs-on: ubuntu-latest
+    needs: push-image
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install skopeo
+        run: |
+          sudo apt update
+          sudo apt install -y skopeo
+
+      - name: Login to Huawei Cloud SWR
+        run: |
+          echo "${{ secrets.HW_TOKEN }}" | skopeo login \
+            --username "${{ secrets.HW_USERNAME }}" \
+            --password-stdin \
+            swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci
+
+      - name: Login to AscendHub
+        run: |
+          echo "${{ secrets.ASCENDHUB_TOKEN }}" | skopeo login \
+            --username "${{ secrets.ASCENDHUB_USERNAME }}" \
+            --password-stdin \
+            swr.cn-east-3.myhuaweicloud.com/ascendhub-test
+
+      - name: Sync image
+        run: |
+          skopeo copy --all \
+          docker://quay.io/ascend/cann:${{ inputs.cann_tag }} \
+          docker://swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ inputs.cann_tag }}
+
+          skopeo copy --all \
+          docker://quay.io/ascend/cann:${{ inputs.cann_tag }} \
+          docker://swr.cn-east-3.myhuaweicloud.com/ascendhub-test/cann:${{ inputs.cann_tag }}

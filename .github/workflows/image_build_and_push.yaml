@@ -11,19 +11,57 @@
 #   - Publish when tag with v* (pep440 version)  ===>  vllm-ascend:v1.2.3 / vllm-ascend:v1.2.3rc1
 name: Image
 on:
-  workflow_dispatch: 
+  pull_request:
+    branches:
+      - 'main'
+      - '*-dev'
+    paths:
+      - '.github/workflows/image_build_and_push.yml'
+      - 'Dockerfile*'
+      - 'vllm_ascend/**'
+      - 'setup.py'
+      - 'pyproject.toml'
+      - 'requirements.txt'
+      - 'cmake/**'
+      - 'CMakeLists.txt'
+      - 'csrc/**'
+    types: [ labeled ]
+  push:
+    # Publish image when tagging, the Dockerfile in tag will be build as tag image
+    branches:
+      - 'main'
+      - '*-dev'
+    tags:
+      - 'v*'
+    paths:
+      - '.github/workflows/image_build_and_push.yaml'
+      - 'Dockerfile'
+      - 'vllm_ascend/**'
+      - 'setup.py'
+      - 'pyproject.toml'
+      - 'requirements.txt'
+      - 'cmake/**'
+      - 'CMakeLists.txt'
+      - 'csrc/**'
 
 # only cancel in-progress runs of the same workflow
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  a2_ubuntu:
+  build-push-digest:
     name: A2 Ubuntu Image Build and Push
-    # Only arm64 build on openEuler arm64, only amd64 build on Ubuntu amd64
     # Push event or PR with both 'ready' and 'ready-for-test' labels
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-22.04-arm
+    if: ${{ github.event_name == 'push' }}
     steps:
     - uses: actions/checkout@v6.0.1
       with:
@@ -46,7 +84,10 @@ jobs:
         #    - pre/post/dev: v0.7.1rc1/v0.7.1rc1/v0.7.1rc1.dev1/v0.7.1.post1, no latest
         #      which follow the rule from vLLM with prefix v
         # TODO(yikun): the post release might be considered as latest release
-        tags: test
+        tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=pep440,pattern={{raw}}
         flavor:
           latest=true
 
@@ -56,28 +97,116 @@ jobs:
         tool-cache: true
         docker-images: false
 
-    - name: Build - Set up QEMU
-      uses: docker/setup-qemu-action@v3
-
-    - name: Build - Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+    # - name: Publish - Login to Quay Container Registry
+    #   if: ${{ github.event_name == 'push' && github.repository_owner == 'vllm-project' }}
+    #   uses: docker/login-action@v3
+    #   with:
+    #     registry: quay.io
+    #     username: ${{ vars.QUAY_USERNAME }}
+    #     password: ${{ secrets.QUAY_PASSWORD }}
 
     - name: Build and push A2
       uses: docker/build-push-action@v6
+      id: build
       with:
-        platforms: >-
-          ${{
-              github.event_name == 'push' && github.repository_owner == 'vllm-project' &&
-              'linux/amd64,linux/arm64' ||
-              'linux/amd64'
-          }}
+        platforms: ${{ matrix.arch }}
         # use the current repo path as the build context, ensure .git is contained
         context: .
         file: Dockerfile
         # only trigger when tag, branch/main push
-        push: false
+        push: ${{ github.event_name == 'push' && github.repository_owner == 'vllm-project' }}
         labels: ${{ steps.meta.outputs.labels }}
         tags: ${{ steps.meta.outputs.tags }}
         build-args: |
           PIP_INDEX_URL=https://pypi.org/simple
         provenance: false
+
+    - name: Export digest
+      run: |
+        mkdir -p ${{ runner.temp }}/digests
+        digest="${{ steps.build.outputs.digest }}"
+        touch "${{ runner.temp }}/digests/${digest#sha256:}"
+
+    - name: Upload digest
+      uses: actions/upload-artifact@v4
+      with:
+        name: digests-${{ steps.meta.outputs.tags }}-${{ matrix.arch }}
+        path: ${{ runner.temp }}/digests/*
+        if-no-files-found: error
+        retention-days: 1
+
+
+  push-image:
+    runs-on: ubuntu-latest
+    needs: build-push-digest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-${{ inputs.cann_tag }}-*
+          merge-multiple: true
+
+      - name: Login to Quay
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_TOKEN }}
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Prepare tags
+        id: prepare-tags
+        run: |
+          BASE_TAGS=$(jq -r --arg cann_tag "${{ inputs.cann_tag }}" \
+            '.versions[] | select(.path == "cann/" + $cann_tag) | .tags[]' \
+            cann_publish_version.json)
+          registries=(
+            "docker.io/ascendai/cann"
+            "quay.io/ascend/cann"
+          )
+          first=true
+          TAGS_JSON="["
+          for registry in "${registries[@]}"; do
+            for tag in $(echo "$BASE_TAGS" | tr ',' ' '); do
+              if [ "$first" != true ]; then
+                TAGS_JSON+=","
+              fi
+              TAGS_JSON+="\"${registry}:${tag}\""
+              first=false
+            done
+          done
+          TAGS_JSON+="]"
+          echo "tags=${TAGS_JSON}" >> $GITHUB_OUTPUT
+
+      - name: Create manifest list and push
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          TAGS: ${{ steps.prepare-tags.outputs.tags }}
+        run: |
+          readarray -t TAGS_ARRAY <<< "$(echo "$TAGS" | jq -r '.[]')"
+
+          for TAG in "${TAGS_ARRAY[@]}"; do
+            if [[ "$TAG" == *"quay.io/ascend/cann"* ]]; then
+              docker buildx imagetools create -t "$TAG" \
+                $(printf 'quay.io/ascend/cann@sha256:%s ' *)
+            elif [[ "$TAG" == *"docker.io/ascendai/cann"* ]]; then
+              docker buildx imagetools create -t "$TAG" \
+                $(printf 'docker.io/ascendai/cann@sha256:%s ' *)
+            else
+              echo "Error: Unknown registry in TAG: $TAG"
+              exit 1
+            fi
+          done
