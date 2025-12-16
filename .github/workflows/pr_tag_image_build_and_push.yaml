@@ -45,6 +45,7 @@ on:
       - 'CMakeLists.txt'
       - 'csrc/**'
 
+  workflow_dispatch: 
 # only cancel in-progress runs of the same workflow
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
