@@ -1,4 +1,4 @@
-name: Image
+name: Image_oncall
 on:
   workflow_call:
     inputs:
@@ -44,7 +44,7 @@ jobs:
       with:
         # TODO(yikun): add more hub image and a note on release policy for container image
         images: |
-          quay.io/ascend/vllm-ascend
+          quay.io/wangli12345/vllm-dev
         # Note for test case
         # https://github.com/marketplace/actions/docker-metadata-action#typeref
         # 1. branch job pulish per main/*-dev branch commits
@@ -68,7 +68,7 @@ jobs:
         docker-images: false
 
     - name: Publish - Login to Quay Container Registry
-      if: ${{ github.event_name == 'push' && github.repository_owner == 'vllm-project' }}
+      #if: ${{ github.event_name == 'push' && github.repository_owner == 'vllm-project' }}
       uses: docker/login-action@v3
       with:
         registry: quay.io
@@ -85,7 +85,7 @@ jobs:
         file: ${{ inputs.dockerfile || 'Dockerfile' }}
         # only trigger when tag, branch/main push
         push: ${{ github.event_name == 'push' && github.repository_owner == 'vllm-project' }}
-        tags: quay.io/ascend/vllm-ascend
+        tags: ${{ steps.meta.outputs.tags }}
         outputs: type=image,push-by-digest=true,name-canonical=true,push=true
         build-args: |
           PIP_INDEX_URL=https://pypi.org/simple
@@ -108,7 +108,7 @@ jobs:
   merge-image:
     runs-on: ubuntu-latest
     needs: build-push-digest
-    if: ${{ github.event_name == 'push' && github.repository_owner == 'vllm-project' }}
+    #if: ${{ github.event_name == 'push' && github.repository_owner == 'vllm-project' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -120,13 +120,22 @@ jobs:
           pattern: digests-${{ inputs.suffix }}-*
           merge-multiple: true
 
+      - name: Prepare suffix
+        id: suffix
+        run: |
+          if [ -n "${{ inputs.suffix }}" ]; then
+            echo "SUFFIX=-${{ inputs.suffix }}" >> $GITHUB_ENV
+          else
+            echo "SUFFIX=" >> $GITHUB_ENV
+          fi
+
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v5
         with:
           # TODO(yikun): add more hub image and a note on release policy for container image
           images: |
-            quay.io/ascend/vllm-ascend
+            quay.io/wangli12345/vllm-dev
           # Note for test case
           # https://github.com/marketplace/actions/docker-metadata-action#typeref
           # 1. branch job pulish per main/*-dev branch commits
@@ -137,9 +146,9 @@ jobs:
           #      which follow the rule from vLLM with prefix v
           # TODO(yikun): the post release might be considered as latest release
           tags: |
-            type=ref,event=branch,suffix=-${{ inputs.suffix }}
-            type=ref,event=pr,suffix=-${{ inputs.suffix }}
-            type=pep440,pattern={{raw}},suffix=-${{ inputs.suffix }}
+            type=ref,event=branch,suffix=${{ env.SUFFIX }}
+            type=ref,event=pr,suffix=${{ env.SUFFIX }}
+            type=pep440,pattern={{raw}},suffix=${{ env.SUFFIX }}
           flavor:
             latest=false
 
@@ -155,16 +164,13 @@ jobs:
 
       - name: Merge and push multi-arch image
         env:
-          IMAGE: quay.io/ascend/vllm-ascend
+          IMAGE: quay.io/wangli12345/vllm-dev
           TAGS: ${{ steps.meta.outputs.tags }}
         run: |
           DIGESTS=$(printf "$IMAGE@sha256:%s " $(ls ${{ runner.temp }}/digests))
 
           echo "Digests: $DIGESTS"
-          echo "Tags: $TAGS"
-
-          for tag in $TAGS; do
-            docker buildx imagetools create \
-              -t "$tag" \
-              $DIGESTS
-          done
+          echo "Current tags: $TAGS"
+          docker buildx imagetools create \
+            -t TAGS \
+            $DIGESTS
