@@ -47,29 +47,6 @@ jobs:
           echo "SUFFIX=" >> $GITHUB_ENV
         fi
 
-    - name: Docker meta
-      id: meta
-      uses: docker/metadata-action@v5
-      with:
-        # TODO(yikun): add more hub image and a note on release policy for container image
-        images: |
-          quay.io/wangli12345/vllm-dev
-        # Note for test case
-        # https://github.com/marketplace/actions/docker-metadata-action#typeref
-        # 1. branch job pulish per main/*-dev branch commits
-        # 2. main and dev pull_request is build only, so the tag pr-N-openeuler is fine
-        # 3. only pep440 matched tag will be published:
-        #    - v0.7.1 --> v0.7.1-openeuler
-        #    - pre/post/dev: v0.7.1rc1-openeuler/v0.7.1rc1-openeuler/v0.7.1rc1.dev1-openeuler/v0.7.1.post1-openeuler, no latest
-        #      which follow the rule from vLLM with prefix v
-        # TODO(yikun): the post release might be considered as latest release
-        tags: |
-          type=ref,event=branch,suffix=${{ env.SUFFIX }}
-          type=ref,event=pr,suffix=${{ env.SUFFIX }}
-          type=pep440,pattern={{raw}},suffix=${{ env.SUFFIX }}
-        flavor:
-          latest=false
-
     - name: Free up disk space
       uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
       with:
@@ -101,7 +78,7 @@ jobs:
         file: ${{ inputs.dockerfile || 'Dockerfile' }}
         # only trigger when tag, branch/main push
         push: ${{ github.event_name == 'push' && github.repository_owner == 'vllm-project' }}
-        #tags: ${{ steps.meta.outputs.tags }}
+        tags: quay.io/wangli12345/vllm-dev
         outputs: type=image,push-by-digest=true,name-canonical=true,push=true
         build-args: |
           PIP_INDEX_URL=https://pypi.org/simple
