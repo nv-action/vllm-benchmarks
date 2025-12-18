@@ -101,7 +101,7 @@ jobs:
         file: ${{ inputs.dockerfile || 'Dockerfile' }}
         # only trigger when tag, branch/main push
         push: ${{ github.event_name == 'push' && github.repository_owner == 'vllm-project' }}
-        tags: ${{ steps.meta.outputs.tags }}
+        #tags: ${{ steps.meta.outputs.tags }}
         outputs: type=image,push-by-digest=true,name-canonical=true,push=true
         build-args: |
           PIP_INDEX_URL=https://pypi.org/simple
