@@ -1,0 +1,37 @@
+name: sync image to swr
+on:
+    workflow_dispatch:
+        inputs:
+          tag:
+            description: 'The tag of the image to sync'
+            required: true
+            default: 'nightly-cpu'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sync-image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install skopeo
+        run: |
+          sudo apt update
+          sudo apt install -y skopeo
+
+      - name: Login to Huawei Cloud SWR
+        run: |
+          echo "${{ secrets.HW_TOKEN }}" | skopeo login \
+            --username "${{ secrets.HW_USERNAME }}" \
+            --password-stdin \
+            swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci
+
+      - name: Sync image
+        run: |
+          skopeo copy --all \
+          docker://quay.io/wangli12345/hello-world:nightly-cpu \
+          docker://swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ inputs.tag }}
