@@ -1,5 +1,7 @@
 FROM ascendai/python:3.11-ubuntu22.04
 
+ARG TARGETARCH
+
 RUN apt-get update -y && apt-get install curl git gcc g++ cmake libnuma-dev jq -y
 
 # Install kubectl
