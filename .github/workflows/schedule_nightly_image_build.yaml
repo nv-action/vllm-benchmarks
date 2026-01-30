@@ -56,6 +56,6 @@ jobs:
 
       # To avoid pushing images from forks, only push when the repository owner is 'vllm-project'
       - name: Push image to SWR
-        if: ${{ github.repository_owner == 'vllm-project' && steps.login-swr.conclusion == 'success' }}
+        #if: ${{ github.repository_owner == 'vllm-project' && steps.login-swr.conclusion == 'success' }}
         run: |
           docker push ${{ steps.build-image.outputs.image-tag }}
