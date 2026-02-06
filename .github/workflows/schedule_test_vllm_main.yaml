@@ -1,6 +1,9 @@
 name: vLLM Main Schedule Test (Direct PR)
 
 on:
+  push:
+    branches:
+      - zsl_test_1
   schedule:
     - cron: '0 2,8,14,20 * * *'
   workflow_dispatch:
