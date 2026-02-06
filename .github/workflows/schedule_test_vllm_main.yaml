@@ -31,7 +31,7 @@ jobs:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-910b-ubuntu22.04-py3.11
       contains_310: false
       type: light
-      collect_test_stats: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '0 20 * * *' }}
+      collect_test_stats: false
 
   update-config:
     name: Update config.yaml (Direct PR)
