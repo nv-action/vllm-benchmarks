@@ -1,0 +1,154 @@
+#
+# Copyright (c) 2025 Huawei Technologies Co., Ltd. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# This file is a part of the vllm-ascend project.
+#
+
+name: Auto Translate
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/source/**'
+  workflow_dispatch:
+
+concurrency:
+  group: translation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  translate:
+    runs-on: linux-amd64-cpu-8-hk
+    timeout-minutes: 30
+    
+    permissions:
+      contents: write
+      pull-requests: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install Anthropic SDK
+        run: |
+          pip install --no-cache-dir anthropic
+      
+      - name: Setup documentation environment
+        working-directory: ./docs
+        run: |
+          python -m venv ./.venv
+          source .venv/bin/activate
+          pip install -r requirements-docs.txt
+      
+      - name: Build docs and extract PO files
+        working-directory: ./docs
+        run: |
+          source .venv/bin/activate
+          make clean
+          make html
+          sphinx-build -b gettext source _build/gettext
+          sphinx-intl update -p _build/gettext -l zh_CN
+      
+      - name: Detect changed PO files
+        id: detect_changes
+        run: |
+          echo "🔍 Detecting changed PO files..."
+          
+          changed_files=$(git diff --name-only --diff-filter=ACMUX || true)
+          po_files=$(echo "$changed_files" | grep '\.po$' || true)
+          
+          if [ -z "$po_files" ]; then
+            echo "✅ No PO files changed"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "files_count=0" >> $GITHUB_OUTPUT
+            echo "files=" >> $GITHUB_OUTPUT
+          else
+            echo "✅ Found changed PO files:"
+            echo "$po_files" | sed 's/^/   • /'
+            
+            file_count=$(echo "$po_files" | grep -c '.')
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "files_count=$file_count" >> $GITHUB_OUTPUT
+            
+            files_csv=$(echo "$po_files" | tr '\n' ',' | sed 's/,$//')
+            echo "files=$files_csv" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Run PO File Manager - Translation
+        id: translate
+        if: steps.detect_changes.outputs.has_changes == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PO_DIR: docs/locale/zh_CN/LC_MESSAGES
+          OUTPUT_JSON: /tmp/translation_results.json
+        run: |
+          echo "🚀 Starting PO File Translation..."
+          echo "📊 Files to process: ${{ steps.detect_changes.outputs.files_count }}"
+          echo "📋 Files: ${{ steps.detect_changes.outputs.files }}"
+          
+          python scripts/po_translation_manager.py \
+            --translate \
+            # --files "${{ steps.detect_changes.outputs.files }}" \
+            --files "docs/locale/zh_CN/LC_MESSAGES/installation.po,docs/locale/zh_CN/LC_MESSAGES/tutorials/310p.po" \
+            --po-dir "$PO_DIR" \
+            --output-json "$OUTPUT_JSON"
+      
+      - name: Check for translation errors
+        if: steps.detect_changes.outputs.has_changes == 'true' && steps.translate.outcome == 'failure'
+        run: |
+          echo "❌ Translation failed!"
+          echo "Please check the logs above for details."
+          exit 1
+      
+      - name: Commit and push changes
+        if: steps.detect_changes.outputs.has_changes == 'true' && steps.translate.outcome == 'success'
+        run: |
+          git config user.name "Translation Bot"
+          git config user.email "bot@anthropic.com"
+          
+          # 检查是否有变更
+          if git diff --quiet; then
+            echo "✅ No changes to commit"
+          else
+            echo "📝 Committing translation changes..."
+            git add docs/locale/zh_CN/LC_MESSAGES/*.po
+            git commit -m "chore: update translations for documentation [skip ci]"
+            git push
+            echo "✅ Changes pushed successfully"
+          fi
+      
+      - name: Create summary
+        if: always()
+        run: |
+          echo "## 📊 Translation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Item | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Changed PO files | ${{ steps.detect_changes.outputs.files_count }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Detection Status | ✅ Completed |" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.detect_changes.outputs.has_changes }}" == "true" ]; then
+            echo "| Translation Status | ${{ steps.translate.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Translation Status | ⏭️ Skipped (no changes) |" >> $GITHUB_STEP_SUMMARY
+          fi
