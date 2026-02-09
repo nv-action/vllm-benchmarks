@@ -1,0 +1,237 @@
+
+name: Auto Translate
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/source/**'
+  workflow_dispatch:
+
+concurrency:
+  group: translation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  translate:
+    runs-on: linux-amd64-cpu-8-hk
+    timeout-minutes: 999
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    env:
+      UPSTREAM_REPO: nv-action/vllm-benchmarks
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.1
+        with:
+          repository: MrZ20/vllm-benchmarks
+          token: ${{ secrets.PAT_TOKEN }}
+          ref: main
+      
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/${{ env.UPSTREAM_REPO }}.git
+          git fetch upstream
+          git remote -v
+
+      - name: Set Git user info dynamically
+        run: |
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+
+      - name: Create or switch to branch
+        run: |
+          TIMESTAMP=$(date +%Y%m%d%H%M%S)
+          BRANCH_NAME="auto-pr/accuracy-report-${TIMESTAMP}"
+          echo "BRANCH_NAME=${BRANCH_NAME}" >> $GITHUB_ENV
+          git checkout -B "${BRANCH_NAME}" upstream/main
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Setup documentation environment
+        working-directory: ./docs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make
+          pip install -r requirements-docs.txt
+          make clean
+          make html
+          sphinx-build -b gettext source _build/gettext
+          sphinx-intl update -p _build/gettext -l zh_CN 
+
+      - name: Detect changed PO files
+        id: detect_changes
+        working-directory: ${{ github.workspace }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+          echo "🔍 Detecting changed PO files..."
+
+          # Detect both modified tracked files and new untracked files
+          tracked_changes=$(git diff --name-only --diff-filter=ACMUX || true)
+          untracked_files=$(git ls-files --others --exclude-standard || true)
+          changed_files=$(printf "%s\n%s" "$tracked_changes" "$untracked_files")
+          po_files=$(echo "$changed_files" | grep '\.po$' || true)
+          
+          if [ -z "$po_files" ]; then
+            echo "✅ No PO files changed"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "files_count=0" >> $GITHUB_OUTPUT
+            echo "files=" >> $GITHUB_OUTPUT
+          else
+            echo "✅ Found changed PO files:"
+            echo "$po_files" | sed 's/^/   • /'
+            
+            file_count=$(echo "$po_files" | grep -c '.')
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "files_count=$file_count" >> $GITHUB_OUTPUT
+            
+            files_csv=$(echo "$po_files" | tr '\n' ',' | sed 's/,$//')
+            echo "files=$files_csv" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Run PO File Manager - Translation
+        id: translate
+        if: steps.detect_changes.outputs.has_changes == 'true'
+        working-directory: ${{ github.workspace }}
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          PO_DIR: docs/source/locale/zh_CN/LC_MESSAGES
+          OUTPUT_JSON: /tmp/translation_results.json
+        run: |
+          echo "🚀 Starting PO File Translation..."
+          echo "📊 Files to process: ${{ steps.detect_changes.outputs.files_count }}"
+          echo "📋 Files: ${{ steps.detect_changes.outputs.files }}"
+          
+          python .github/workflows/scripts/po_translation_manager.py \
+            --files "${{ steps.detect_changes.outputs.files }}" \
+            --output-json "$OUTPUT_JSON"
+      
+      - name: Process translation results
+        if: steps.detect_changes.outputs.has_changes == 'true'
+        id: process_results
+        working-directory: ${{ github.workspace }}
+        run: |
+          if [ ! -f /tmp/translation_results.json ]; then
+            echo "❌ No translation results found"
+            exit 1
+          fi
+
+          echo "📋 Translation Results:"
+          cat /tmp/translation_results.json
+
+          success_files=$(python3 -c "
+          import json, os
+          print('DEBUG: Current working directory:', os.getcwd(), file=os.sys.stderr)
+          with open('/tmp/translation_results.json', 'r') as f:
+              data = json.load(f)
+              for file_path in data.get('success_files', []):
+                  exists = os.path.exists(file_path)
+                  print(f'DEBUG: Checking {file_path}: exists={exists}', file=os.sys.stderr)
+                  if exists:
+                      print(file_path)
+          ")
+
+          echo "🔍 Checking file status..."
+
+          if [ -n "$success_files" ]; then
+            echo "✅ Successfully translated files:"
+            translated_count=0
+            file_list=""
+            while IFS= read -r file; do
+              if [ -n "$file" ] && [ -f "$file" ]; then
+                echo "  • $file"
+                git add "$file" || true
+                translated_count=$((translated_count + 1))
+                # Add to file list for PR body (use HTML code tags to avoid backtick issues)
+                file_list="${file_list}- <code>${file}</code>"$'\n'
+              fi
+            done <<< "$success_files"
+            echo "📊 Total successfully translated: $translated_count"
+
+            if [ $translated_count -eq 0 ]; then
+              echo "⚠️  No files were successfully added"
+              exit 1
+            fi
+
+            # Export file info for PR creation
+            echo "file_list<<EOF" >> $GITHUB_OUTPUT
+            echo "$file_list" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+            echo "file_count=$translated_count" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️  No files were successfully translated"
+            exit 1
+          fi
+
+
+      - name: Commit only successfully translated files
+        if: steps.detect_changes.outputs.has_changes == 'true'
+        working-directory: ${{ github.workspace }}
+        run: |
+          if git diff --cached --quiet; then
+            echo "⚠️  No files to commit - no translation succeeded"
+            echo "All translation attempts failed or no changes to commit"
+            exit 1
+          else
+            echo "📝 Committing successfully translated files..."
+            staged_files_count=$(git diff --cached --name-only | wc -l)
+            commit_message="[Doc] Auto-translate updated files
+            
+          Successfully translated $staged_files_count file(s):"
+                      
+                      staged_files=$(git diff --cached --name-only)
+                      while IFS= read -r file; do
+                        commit_message="$commit_message
+          • $(basename "$file")"
+                      done <<< "$staged_files"
+                      
+                      git commit -s -m "$commit_message"
+                      echo "✅ Commit successful"
+                    fi
+      
+      - name: Push to fork
+        if: steps.detect_changes.outputs.has_changes == 'true'
+        working-directory: ${{ github.workspace }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          git push -f origin "${{ env.BRANCH_NAME }}"
+          echo "✅ Pushed to fork"
+
+      - name: Create PR in upstream via API
+        if: steps.detect_changes.outputs.has_changes == 'true'
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.PAT_TOKEN }}
+          script: |
+            try {
+              const fileList = `${{ steps.process_results.outputs.file_list }}`;
+              const fileCount = `${{ steps.process_results.outputs.file_count }}`;
+
+              const prBody = '## Auto-Translation Summary\n\n' +
+                'Successfully translated **' + fileCount + '** file(s):\n\n' +
+                fileList + '\n\n' +
+                '---\n\n' +
+                '- [Workflow run][1]\n\n' +
+                '[1]: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}';
+
+              const pr = await github.rest.pulls.create({
+                owner: 'nv-action',
+                repo: 'vllm-benchmarks',
+                head: `MrZ20:${{ env.BRANCH_NAME }}`,
+                base: 'main',
+                title: `[Doc] Translated Doc files`,
+                body: prBody
+              });
+              core.info(`Created PR #${pr.data.number}`);
+            } catch (error) {
+              if (error.message.includes('A pull request already exists')) {
+                core.warning('PR already exists');
+              } else {
+                throw error;
+              }
+            }
