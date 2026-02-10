@@ -1,0 +1,105 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2025, vllm-ascend team
+# This file is distributed under the same license as the vllm-ascend
+# package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: vllm-ascend \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-02-10 09:26+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: zh_CN\n"
+"Language-Team: zh_CN <LL@li.org>\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../source/tutorials/310p.md:1
+msgid "Atlas 300I"
+msgstr ""
+
+#: ../../source/tutorials/310p.md:4
+msgid ""
+"This Atlas 300I series is currently experimental. In future versions, "
+"there may be behavioral changes related to model coverage and performance"
+" improvement."
+msgstr ""
+
+#: ../../source/tutorials/310p.md:5
+msgid ""
+"Currently, the 310I series only supports eager mode and the float16 data "
+"type."
+msgstr ""
+
+#: ../../source/tutorials/310p.md:8
+msgid "Run vLLM on Atlas 300I Series"
+msgstr ""
+
+#: ../../source/tutorials/310p.md:10
+msgid "Run docker container:"
+msgstr ""
+
+#: ../../source/tutorials/310p.md:40
+msgid "Set up environment variables:"
+msgstr ""
+
+#: ../../source/tutorials/310p.md:50
+msgid "Online Inference on NPU"
+msgstr ""
+
+#: ../../source/tutorials/310p.md:52
+msgid ""
+"Run the following script to start the vLLM server on NPU (Qwen3-0.6B:1 "
+"card, Qwen2.5-7B-Instruct:2 cards, Pangu-Pro-MoE-72B: 8 cards):"
+msgstr ""
+
+#: ../../source/tutorials/310p.md
+msgid "Qwen3-0.6B"
+msgstr ""
+
+#: ../../source/tutorials/310p.md:62 ../../source/tutorials/310p.md:92
+#: ../../source/tutorials/310p.md:122
+msgid "Run the following command to start the vLLM server:"
+msgstr ""
+
+#: ../../source/tutorials/310p.md:73 ../../source/tutorials/310p.md:103
+#: ../../source/tutorials/310p.md:133
+msgid "Once your server is started, you can query the model with input prompts"
+msgstr ""
+
+#: ../../source/tutorials/310p.md
+msgid "Qwen2.5-7B-Instruct"
+msgstr ""
+
+#: ../../source/tutorials/310p.md
+msgid "Qwen2.5-VL-3B-Instruct"
+msgstr ""
+
+#: ../../source/tutorials/310p.md:149
+msgid "If you run this script successfully, you can see the results."
+msgstr ""
+
+#: ../../source/tutorials/310p.md:151
+msgid "Offline Inference"
+msgstr ""
+
+#: ../../source/tutorials/310p.md:153
+msgid ""
+"Run the following script (`example.py`) to execute offline inference on "
+"NPU:"
+msgstr ""
+
+#: ../../source/tutorials/310p.md:289
+msgid "Run script:"
+msgstr ""
+
+#: ../../source/tutorials/310p.md:295
+msgid "If you run this script successfully, you can see the info shown below:"
+msgstr ""
+
