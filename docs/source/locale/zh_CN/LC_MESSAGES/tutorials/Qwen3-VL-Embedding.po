@@ -1,0 +1,169 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2025, vllm-ascend team
+# This file is distributed under the same license as the vllm-ascend
+# package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: vllm-ascend \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-02-10 07:57+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: zh_CN\n"
+"Language-Team: zh_CN <LL@li.org>\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../source/tutorials/Qwen3-VL-Embedding.md:1
+msgid "Qwen3-VL-Embedding"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-Embedding.md:3
+msgid "Introduction"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-Embedding.md:5
+msgid ""
+"The Qwen3-VL-Embedding and Qwen3-VL-Reranker model series are the latest "
+"additions to the Qwen family, built upon the recently open-sourced and "
+"powerful Qwen3-VL foundation model. Specifically designed for multimodal "
+"information retrieval and cross-modal understanding, this suite accepts "
+"diverse inputs including text, images, screenshots, and videos, as well "
+"as inputs containing a mixture of these modalities. This guide describes "
+"how to run the model with vLLM Ascend."
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-Embedding.md:7
+msgid "Supported Features"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-Embedding.md:9
+msgid ""
+"Refer to [supported "
+"features](../user_guide/support_matrix/supported_models.md) to get the "
+"model's supported feature matrix."
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-Embedding.md:11
+msgid "Environment Preparation"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-Embedding.md:13
+msgid "Model Weight"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-Embedding.md:15
+msgid ""
+"`Qwen3-VL-Embedding-8B` [Download model "
+"weight](https://www.modelscope.cn/models/Qwen/Qwen3-VL-Embedding-8B)"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-Embedding.md:16
+msgid ""
+"`Qwen3-VL-Embedding-2B` [Download model "
+"weight](https://www.modelscope.cn/models/Qwen/Qwen3-VL-Embedding-2B)"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-Embedding.md:18
+msgid ""
+"It is recommended to download the model weight to the shared directory of"
+" multiple nodes, such as `/root/.cache/`"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-Embedding.md:20
+msgid "Installation"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-Embedding.md:22
+msgid ""
+"You can use our official docker image to run `Qwen3-VL-Embedding` series "
+"models."
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-Embedding.md:24
+msgid ""
+"Start the docker image on your node, refer to [using "
+"docker](../installation.md#set-up-using-docker)."
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-Embedding.md:26
+msgid ""
+"If you don't want to use the docker image as above, you can also build "
+"all from source:"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-Embedding.md:28
+msgid ""
+"Install `vllm-ascend` from source, refer to "
+"[installation](../installation.md)."
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-Embedding.md:30
+msgid "Deployment"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-Embedding.md:32
+msgid ""
+"Using the Qwen3-VL-Embedding-8B model as an example, first run the docker"
+" container with the following command:"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-Embedding.md:34
+msgid "Online Inference"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-Embedding.md:40
+msgid "Once your server is started, you can query the model with input prompts."
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-Embedding.md:51
+msgid "Offline Inference"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-Embedding.md:86
+msgid "If you run this script successfully, you can see the info shown below:"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-Embedding.md:96
+msgid "For more examples, refer to the vLLM official examples:"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-Embedding.md:98
+msgid ""
+"[Offline Vision Embedding Example](https://github.com/vllm-"
+"project/vllm/blob/main/examples/pooling/embed/vision_embedding_offline.py)"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-Embedding.md:99
+msgid ""
+"[Online Vision Embedding Example](https://github.com/vllm-"
+"project/vllm/blob/main/examples/pooling/embed/vision_embedding_online.py)"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-Embedding.md:101
+msgid "Performance"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-Embedding.md:103
+msgid ""
+"Run performance of `Qwen3-VL-Embedding-8B` as an example. Refer to [vllm "
+"benchmark](https://docs.vllm.ai/en/latest/benchmarking/cli/) for more "
+"details."
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-Embedding.md:106
+msgid "Take the `serve` as an example. Run the code as follows."
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-Embedding.md:112
+msgid ""
+"After about several minutes, you can get the performance evaluation "
+"result. With this tutorial, the performance result is:"
+msgstr ""
+

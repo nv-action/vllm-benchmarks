@@ -1,0 +1,198 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2025, vllm-ascend team
+# This file is distributed under the same license as the vllm-ascend
+# package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: vllm-ascend \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-02-10 07:57+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: zh_CN\n"
+"Language-Team: zh_CN <LL@li.org>\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:1
+msgid "Qwen3-VL-30B-A3B-Instruct"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:3
+msgid "Introduction"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:5
+msgid ""
+"The Qwen-VL (Vision-Language) series from Alibaba Cloud comprises a "
+"family of powerful Large Vision-Language Models (LVLMs) designed for "
+"comprehensive multimodal understanding. They accept images, text, and "
+"bounding boxes as input, and output text and detection boxes, enabling "
+"advanced functions like image detection, multi-modal dialogue, and multi-"
+"image reasoning."
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:7
+msgid ""
+"This document will show the main verification steps of the `Qwen3-VL-30B-"
+"A3B-Instruct`."
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:9
+msgid "Supported Features"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:11
+msgid ""
+"Refer to [supported "
+"features](../user_guide/support_matrix/supported_models.md) to get the "
+"model's supported feature matrix."
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:12
+msgid ""
+"Refer to [feature guide](../user_guide/feature_guide/index.md) to get the"
+" feature's configuration."
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:14
+msgid "Environment Preparation"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:16
+msgid "Prepare Model Weights"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:18
+msgid ""
+"Running this model requires 1 Atlas 800I A2 (64G × 8) node or 1 Atlas 800"
+" A3 (64G × 16) node."
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:20
+msgid ""
+"Download model weight at [ModelScope "
+"Website](https://modelscope.cn/models/Qwen/Qwen3-VL-30B-A3B-Instruct) or "
+"download by below command:"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:27
+msgid ""
+"It is recommended to download the model weights to the shared directory "
+"of multiple nodes, such as `/root/.cache/`."
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:29
+msgid "Installation"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:31
+msgid "Run docker container:"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:58
+msgid "Setup environment variables:"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:69
+msgid ""
+"`max_split_size_mb` prevents the native allocator from splitting blocks "
+"larger than this size (in MB). This can reduce fragmentation and may "
+"allow some borderline workloads to complete without running out of "
+"memory. You can find more details "
+"[<u>here</u>](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/800alpha003/apiref/envref/envref_07_0061.html)."
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:72
+msgid "Deployment"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:74
+msgid "Online Serving"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md
+msgid "Image Inputs"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:83
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:146
+msgid ""
+"Run the following command inside the container to start the vLLM server "
+"on multi-NPU:"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:95
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:157
+msgid ""
+"vllm-ascend supports Expert Parallelism (EP) via `--enable-expert-"
+"parallel`, which allows experts in MoE models to be deployed on separate "
+"GPUs for better throughput."
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:97
+msgid ""
+"It's highly recommended to specify `--limit-mm-per-prompt.video 0` if "
+"your inference server will only process image inputs since enabling video"
+" inputs consumes more memory reserved for long video embeddings."
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:99
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:159
+msgid ""
+"You can set `--max-model-len` to preserve memory. By default the model's "
+"context length is 262K, but `--max-model-len 128000` is good for most "
+"scenarios."
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:102
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:164
+msgid "If your service start successfully, you can see the info shown below:"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:110
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:172
+msgid "Once your server is started, you can query the model with input prompts:"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:128
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:190
+msgid ""
+"If you query the server successfully, you can see the info shown below "
+"(client):"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:134
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:196
+msgid "Logs of the vllm server:"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md
+msgid "Video Inputs"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:161
+msgid ""
+"Set `--allowed-local-media-path /media` to use your local video that "
+"located at `/media`, since directly download the video during serving can"
+" be extremely slow due to network issues."
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:205
+msgid "Offline Inference"
+msgstr ""
+
+#: ../../source/tutorials/Qwen3-VL-30B-A3B-Instruct.md:207
+msgid ""
+"The usage of offline inference with `Qwen3-VL-30B-A3B-Instruct` is "
+"totally the same as that of `Qwen3-VL-8B-Instruct`, find more details at "
+"[link](https://docs.vllm.ai/projects/ascend/en/latest/tutorials/Qwen-VL-"
+"Dense.html#offline-inference)."
+msgstr ""
+
