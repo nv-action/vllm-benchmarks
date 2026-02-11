@@ -1,4 +1,3 @@
-
 name: Auto Translate
 
 on:
@@ -8,6 +7,12 @@ on:
     paths:
       - 'docs/source/**'
   workflow_dispatch:
+    inputs:
+      target_branch:
+        description: 'Target branch for the upstream PR'
+        required: false
+        default: 'main'
+        type: string
 
 concurrency:
   group: translation-${{ github.ref }}
@@ -16,7 +21,6 @@ concurrency:
 jobs:
   translate:
     runs-on: linux-amd64-cpu-8-hk
-    timeout-minutes: 999
     if: ${{ github.event_name == 'workflow_dispatch' }}
     env:
       UPSTREAM_REPO: nv-action/vllm-benchmarks
@@ -41,10 +45,12 @@ jobs:
 
       - name: Create or switch to branch
         run: |
+          TARGET_BRANCH="${{ inputs.target_branch || 'main' }}"
+          echo "TARGET_BRANCH=${TARGET_BRANCH}" >> $GITHUB_ENV
           TIMESTAMP=$(date +%Y%m%d%H%M%S)
           BRANCH_NAME="auto-pr/accuracy-report-${TIMESTAMP}"
           echo "BRANCH_NAME=${BRANCH_NAME}" >> $GITHUB_ENV
-          git checkout -B "${BRANCH_NAME}" upstream/main
+          git checkout -B "${BRANCH_NAME}" "upstream/${TARGET_BRANCH}"
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -99,14 +105,13 @@ jobs:
         working-directory: ${{ github.workspace }}
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          PO_DIR: docs/source/locale/zh_CN/LC_MESSAGES
           OUTPUT_JSON: /tmp/translation_results.json
         run: |
           echo "🚀 Starting PO File Translation..."
           echo "📊 Files to process: ${{ steps.detect_changes.outputs.files_count }}"
           echo "📋 Files: ${{ steps.detect_changes.outputs.files }}"
           
-          python .github/workflows/scripts/po_translation_manager.py \
+          python .github/workflows/scripts/po_translate.py \
             --files "${{ steps.detect_changes.outputs.files }}" \
             --output-json "$OUTPUT_JSON"
       
@@ -223,7 +228,7 @@ jobs:
                 owner: 'nv-action',
                 repo: 'vllm-benchmarks',
                 head: `MrZ20:${{ env.BRANCH_NAME }}`,
-                base: 'main',
+                base: '${{ env.TARGET_BRANCH }}',
                 title: `[Doc] Translated Doc files`,
                 body: prBody
               });
