@@ -9,7 +9,6 @@ import shutil
 import sys
 import time
 from pathlib import Path
-from typing import Optional
 
 from openai import AsyncOpenAI
 
@@ -41,7 +40,7 @@ class POTranslator:
         self.client = AsyncOpenAI(api_key=api_key, base_url="https://api.deepseek.com")
         self.max_concurrent = max_concurrent
 
-    async def _call_api(self, content: str, chunk_info: str = "") -> Optional[str]:
+    async def _call_api(self, content: str, chunk_info: str = "") -> str | None:
         """Make a single translation API call."""
         prompt = TRANSLATION_PROMPT.format(content=content, chunk_info=chunk_info)
         response = await self.client.chat.completions.create(
@@ -100,7 +99,7 @@ class POTranslator:
         total = (len(lines) + chunk_size - 1) // chunk_size
         sem = asyncio.Semaphore(self.max_concurrent)
 
-        async def do_chunk(idx: int) -> tuple[int, Optional[list[str]], Optional[str]]:
+        async def do_chunk(idx: int) -> tuple[int, list[str] | None, str | None]:
             async with sem:
                 start = idx * chunk_size
                 end = min((idx + 1) * chunk_size, len(lines))
