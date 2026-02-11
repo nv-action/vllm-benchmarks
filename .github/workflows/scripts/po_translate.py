@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+"""PO File Translator - Translate PO files using DeepSeek API with parallel processing."""
+
 import argparse
 import asyncio
 import json
@@ -10,354 +13,158 @@ from typing import Optional
 
 from openai import AsyncOpenAI
 
+SYSTEM_PROMPT = (
+    "You are a professional technical documentation translation expert, "
+    "proficient in English-Chinese technical document translation."
+)
 
-class POTranslator:
-    """PO file translator with parallel processing support"""
+TRANSLATION_PROMPT = """Translate this Sphinx PO file (gettext format) from English to Chinese.
 
-    def __init__(self, api_key: Optional[str] = None, max_concurrent: int = 5):
-        # Initialize DeepSeek async client
-        api_key = api_key or os.getenv("DEEPSEEK_API_KEY")
-        if not api_key:
-            print("❌ DeepSeek API key not found")
-            print("Please set DEEPSEEK_API_KEY environment variable or provide api_key in code")
-            sys.exit(1)
-
-        self.client = AsyncOpenAI(api_key=api_key, base_url="https://api.deepseek.com")
-        self.max_concurrent = max_concurrent  # Max parallel API calls
-        self._semaphore = None
-
-    def _get_semaphore(self):
-        """Lazy initialization of semaphore"""
-        if self._semaphore is None:
-            self._semaphore = asyncio.Semaphore(self.max_concurrent)
-        return self._semaphore
-
-    async def translate_po_file(self, po_path: str) -> bool:
-        """Translate single PO file using DeepSeek AI (async)"""
-        print(f"\n{'=' * 70}")
-        print(f"📝 Processing: {Path(po_path).name}")
-        print(f"{'=' * 70}")
-
-        # Check if file exists
-        po_file = Path(po_path)
-        if not po_file.exists():
-            print(f"❌ File not found: {po_path}")
-            return False
-
-        # Check if it's a PO file
-        if po_file.suffix != ".po":
-            print(f"❌ Not a PO file: {po_path}")
-            return False
-
-        # Create backup
-        backup_path = po_path + ".backup"
-        try:
-            shutil.copy2(po_path, backup_path)
-            print(f"📂 Backup created: {backup_path}")
-        except Exception as e:
-            print(f"⚠️  Failed to create backup: {e}")
-
-        try:
-            with open(po_path, encoding="utf-8") as f:
-                content = f.read()
-        except Exception as e:
-            print(f"❌ Failed to read file: {e}")
-            return False
-
-        file_size = len(content.split("\n"))
-        print(f"📊 File size: {file_size} lines")
-
-        try:
-            # For large files, process in chunks with parallel processing
-            if file_size > 500:
-                success = await self._translate_in_chunks_parallel(po_path, content)
-            else:
-                success = await self._translate_single(po_path, content)
-
-            # Restore from backup if translation failed
-            if not success:
-                print("🔄 Translation failed, restoring from backup...")
-                if os.path.exists(backup_path):
-                    shutil.copy2(backup_path, po_path)
-                    print("✅ File restored to original state")
-
-            # Clean up backup
-            if os.path.exists(backup_path):
-                os.remove(backup_path)
-
-            return success
-
-        except Exception as e:
-            print(f"❌ Error translating {Path(po_path).name}: {str(e)}")
-            # Restore from backup if exists
-            if os.path.exists(backup_path):
-                print("🔄 Restoring from backup due to exception...")
-                shutil.copy2(backup_path, po_path)
-                os.remove(backup_path)
-            return False
-
-    async def _translate_single(self, po_path: str, content: str) -> bool:
-        """Translate entire file at once (async)"""
-        prompt = self._build_translation_prompt(content)
-
-        try:
-            print("🔄 Sending request to DeepSeek API...")
-            response = await self.client.chat.completions.create(
-                model="deepseek-chat",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a professional technical documentation translation expert, "
-                        "proficient in English-Chinese technical document translation.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                max_tokens=8000,
-                temperature=0.3,
-            )
-
-            translated_content = response.choices[0].message.content
-            if translated_content is None:
-                print("❌ Empty response from API")
-                return False
-
-            translated_content = self._clean_response(translated_content)
-
-            with open(po_path, "w", encoding="utf-8") as f:
-                f.write(translated_content)
-
-            print("✅ Translation completed successfully")
-            return True
-        except Exception as e:
-            print(f"❌ Translation failed: {str(e)}")
-            return False
-
-    async def _translate_chunk(
-        self, chunk_idx: int, chunk_lines: list[str], total_chunks: int
-    ) -> tuple[int, Optional[list[str]], Optional[str]]:
-        """Translate a single chunk with semaphore for rate limiting"""
-        async with self._get_semaphore():
-            chunk_content = "\n".join(chunk_lines)
-            prompt = self._build_translation_prompt(chunk_content, chunk_idx + 1, total_chunks)
-
-            try:
-                response = await self.client.chat.completions.create(
-                    model="deepseek-chat",
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": "You are a professional technical documentation translation expert, "
-                            "proficient in English-Chinese technical document translation.",
-                        },
-                        {"role": "user", "content": prompt},
-                    ],
-                    max_tokens=8000,
-                    temperature=0.3,
-                )
-
-                translated_chunk = response.choices[0].message.content
-                if translated_chunk is None:
-                    return (chunk_idx, None, "Empty response")
-
-                translated_chunk = self._clean_response(translated_chunk)
-                return (chunk_idx, translated_chunk.split("\n"), None)
-
-            except Exception as e:
-                return (chunk_idx, None, str(e)[:50])
-
-    async def _translate_in_chunks_parallel(self, po_path: str, content: str) -> bool:
-        """Translate large file in chunks with parallel processing"""
-        lines = content.split("\n")
-        chunk_size = 300  # Increased from 100 for fewer API calls
-        total_chunks = (len(lines) + chunk_size - 1) // chunk_size
-
-        print(f"📦 Large file detected. Processing in {total_chunks} chunks...")
-        print(f"⚡ Using parallel processing with {self.max_concurrent} concurrent requests")
-        print(f"⏱️  Estimated time: ~{(total_chunks / self.max_concurrent) * 3:.0f} seconds")
-
-        # Prepare chunks
-        chunks = []
-        for chunk_idx in range(total_chunks):
-            start = chunk_idx * chunk_size
-            end = min((chunk_idx + 1) * chunk_size, len(lines))
-            chunk_lines = lines[start:end]
-            chunks.append((chunk_idx, chunk_lines))
-
-        # Process all chunks in parallel
-        print("\n🚀 Starting parallel translation...")
-        tasks = [self._translate_chunk(chunk_idx, chunk_lines, total_chunks) for chunk_idx, chunk_lines in chunks]
-
-        # Wait for all chunks to complete
-        results = await asyncio.gather(*tasks)
-
-        # Process results
-        all_translated_lines = [None] * total_chunks
-        failed_chunks = []
-        completed = 0
-
-        for chunk_idx, translated_lines, error in results:
-            if error:
-                print(f"  ❌ Chunk {chunk_idx + 1}/{total_chunks}: {error}")
-                # Use original content as backup
-                start = chunk_idx * chunk_size
-                end = min((chunk_idx + 1) * chunk_size, len(lines))
-                all_translated_lines[chunk_idx] = lines[start:end]
-                failed_chunks.append(chunk_idx + 1)
-            else:
-                print(f"  ✅ Chunk {chunk_idx + 1}/{total_chunks}")
-                all_translated_lines[chunk_idx] = translated_lines
-                completed += 1
-
-        # Only save if all chunks succeeded
-        if failed_chunks:
-            print(f"\n⚠️  Translation failed ({len(failed_chunks)}/{total_chunks} chunks failed)")
-            print(f"   Failed chunks: {', '.join(map(str, failed_chunks))}")
-            return False
-
-        # Flatten the list and save
-        final_lines = []
-        for chunk_lines in all_translated_lines:
-            final_lines.extend(chunk_lines)
-
-        final_content = "\n".join(final_lines)
-        try:
-            with open(po_path, "w", encoding="utf-8") as f:
-                f.write(final_content)
-            print(f"\n✅ Fully translated ({total_chunks} chunks, {completed} successful)")
-            return True
-        except Exception as e:
-            print(f"❌ Failed to write file: {e}")
-            return False
-
-    def _build_translation_prompt(
-        self, content: str, chunk_num: Optional[int] = None, total_chunks: Optional[int] = None
-    ) -> str:
-        """Build translation prompt"""
-        chunk_info = ""
-        if chunk_num and total_chunks:
-            chunk_info = f"\n\n【This is chunk {chunk_num}/{total_chunks}】"
-
-        return f"""You are a professional technical documentation translation expert.
-I need your help translating a Sphinx documentation PO file (gettext format).
-
-【Translation Rules】
-1. Only modify content in msgstr "", keep msgid completely unchanged
-2. Preserve all format markers: %s, %d, {{}}, **, *, `, etc.
-3. Keep code blocks, code references, variable names unchanged (e.g., `code`, `variable`)
-4. For already translated parts (msgstr not empty), supplement and optimize, maintaining consistent style
+Rules:
+1. Only modify msgstr "", keep msgid unchanged
+2. Preserve format markers: %s, %d, {{}}, **, *, `, etc.
+3. Keep code blocks, references, variable names unchanged
+4. For already translated msgstr, optimize while maintaining style
 5. Maintain complete PO file format and structure
 6. Use standard Chinese technical terminology
-7. Use concise, professional Chinese expression
-8. For difficult-to-understand parts, keep original English rather than forcing translation
-9. Remove "#, fuzzy" to ensure display
+7. For difficult parts, keep original English
+8. Remove "#, fuzzy" markers
 
-【Important Notes】
-- Return complete and correctly formatted PO file content
-- Do not add any extra explanations or comments
-- Ensure correct line breaks and escape characters in msgstr
+Return ONLY the complete PO file content, no extra explanations.
 
-【PO File Content】{chunk_info}
+{chunk_info}
+{content}"""
 
-{content}
 
-【Output Requirements】
-Please return the modified complete PO file content, maintaining the same format."""
+class POTranslator:
+    def __init__(self, api_key: str, max_concurrent: int = 5):
+        self.client = AsyncOpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+        self.max_concurrent = max_concurrent
 
-    def _clean_response(self, response: str) -> str:
-        """Clean markdown markers from AI response"""
+    async def _call_api(self, content: str, chunk_info: str = "") -> Optional[str]:
+        """Make a single translation API call."""
+        prompt = TRANSLATION_PROMPT.format(content=content, chunk_info=chunk_info)
+        response = await self.client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=8000,
+            temperature=0.3,
+        )
+        text = response.choices[0].message.content
+        return self._clean_response(text) if text else None
+
+    async def translate_file(self, po_path: str) -> bool:
+        """Translate a single PO file with backup/restore on failure."""
+        path = Path(po_path)
+        if not path.exists() or path.suffix != ".po":
+            print(f"  Skip: {po_path} (not found or not .po)")
+            return False
+
+        backup = po_path + ".bak"
+        shutil.copy2(po_path, backup)
+
+        try:
+            content = path.read_text(encoding="utf-8")
+            lines = content.split("\n")
+            print(f"  {path.name} ({len(lines)} lines)", end=" ", flush=True)
+
+            if len(lines) > 500:
+                success = await self._translate_chunked(po_path, lines)
+            else:
+                result = await self._call_api(content)
+                if result:
+                    Path(po_path).write_text(result, encoding="utf-8")
+                    success = True
+                else:
+                    success = False
+
+            if not success:
+                shutil.copy2(backup, po_path)
+                print("FAILED")
+            else:
+                print("OK")
+            return success
+        except Exception as e:
+            print(f"ERROR: {e}")
+            shutil.copy2(backup, po_path)
+            return False
+        finally:
+            Path(backup).unlink(missing_ok=True)
+
+    async def _translate_chunked(self, po_path: str, lines: list[str]) -> bool:
+        """Translate large file in parallel chunks."""
+        chunk_size = 300
+        total = (len(lines) + chunk_size - 1) // chunk_size
+        sem = asyncio.Semaphore(self.max_concurrent)
+
+        async def do_chunk(idx: int) -> tuple[int, Optional[list[str]], Optional[str]]:
+            async with sem:
+                start = idx * chunk_size
+                end = min((idx + 1) * chunk_size, len(lines))
+                chunk = "\n".join(lines[start:end])
+                info = f"[Chunk {idx + 1}/{total}]"
+                try:
+                    result = await self._call_api(chunk, chunk_info=info)
+                    if result is None:
+                        return (idx, None, "empty response")
+                    return (idx, result.split("\n"), None)
+                except Exception as e:
+                    return (idx, None, str(e)[:50])
+
+        print(f"({total} chunks, {self.max_concurrent} parallel)", end=" ", flush=True)
+        results = await asyncio.gather(*[do_chunk(i) for i in range(total)])
+
+        # Check for failures
+        translated = [None] * total
+        for idx, chunk_lines, error in results:
+            if error:
+                print(f"\n    Chunk {idx + 1} failed: {error}")
+                return False
+            translated[idx] = chunk_lines
+
+        # Write result
+        final = "\n".join(line for chunk in translated for line in chunk)
+        Path(po_path).write_text(final, encoding="utf-8")
+        return True
+
+    @staticmethod
+    def _clean_response(response: str) -> str:
+        """Strip markdown code block wrappers from API response."""
         response = response.strip()
-
-        # Remove markdown code block markers
         if response.startswith("```"):
             lines = response.split("\n")
-            # Remove opening triple backticks and any language marker
-            if lines[0].startswith("```"):
-                lines = lines[1:]
-            # Remove closing triple backticks
+            lines = lines[1:]  # remove opening ```
             while lines and lines[-1].strip() == "```":
-                lines = lines[:-1]
+                lines.pop()
             response = "\n".join(lines).strip()
-
         return response
-
-    def generate_report(self, success_files: list[str]) -> str:
-        """Generate translation report with only success files"""
-        report = []
-        report.append("\n" + "=" * 70)
-        report.append("📊 TRANSLATION REPORT")
-        report.append("=" * 70)
-
-        if success_files:
-            report.append(f"\n✅ Successfully translated: {len(success_files)} file(s)")
-            for file_path in success_files:
-                try:
-                    file_size = Path(file_path).stat().st_size
-                    report.append(f"   • {Path(file_path).name} ({file_size} bytes)")
-                except Exception:
-                    report.append(f"   • {Path(file_path).name}")
-        else:
-            report.append("\n❌ No files were successfully translated")
-
-        report.append("\n" + "=" * 70 + "\n")
-        return "\n".join(report)
 
 
 async def async_main():
-    """Main async function - optimized with parallel processing"""
-    parser = argparse.ArgumentParser(
-        description="PO File Translator - Translate specified PO files using DeepSeek API (Optimized)"
-    )
-
-    parser.add_argument("--files", type=str, required=True, help="Comma-separated list of PO file paths to translate")
-
-    parser.add_argument(
-        "--output-json",
-        type=str,
-        default=os.getenv("OUTPUT_JSON", "/tmp/translation_results.json"),
-        help="Path to save translation results as JSON",
-    )
-
-    parser.add_argument(
-        "--api-key",
-        type=str,
-        default=os.getenv("DEEPSEEK_API_KEY"),
-        help="DeepSeek API key (or set DEEPSEEK_API_KEY environment variable)",
-    )
-
-    parser.add_argument(
-        "--max-concurrent", type=int, default=5, help="Maximum number of concurrent API requests (default: 5)"
-    )
-
+    parser = argparse.ArgumentParser(description="PO File Translator (DeepSeek)")
+    parser.add_argument("--files", required=True, help="Comma-separated PO file paths")
+    parser.add_argument("--output-json", default=os.getenv("OUTPUT_JSON", "/tmp/translation_results.json"))
+    parser.add_argument("--api-key", default=os.getenv("DEEPSEEK_API_KEY"))
+    parser.add_argument("--max-concurrent", type=int, default=5)
     args = parser.parse_args()
 
-    # Parse file list
-    if not args.files:
-        print("❌ No files specified. Use --files to provide comma-separated list of PO files")
-        sys.exit(1)
+    api_key = args.api_key or os.getenv("DEEPSEEK_API_KEY")
+    if not api_key:
+        print("Error: DEEPSEEK_API_KEY not set")
+        return 1
 
-    file_list = [f.strip() for f in args.files.split(",") if f.strip()][1:3]
+    file_list = [f.strip() for f in args.files.split(",") if f.strip()]
+    print(f"Translating {len(file_list)} file(s), max_concurrent={args.max_concurrent}")
 
-    print("🚀 Starting PO File Translator (Optimized with Parallel Processing)")
-    print(f"📋 Files to translate: {len(file_list)}")
-    print(f"⚡ Max concurrent requests: {args.max_concurrent}")
-
-    for i, file_path in enumerate(file_list, 1):
-        print(f"  {i}. {file_path}")
-
-    translator = POTranslator(api_key=args.api_key, max_concurrent=args.max_concurrent)
-
-    print(f"\n🔄 Starting translation of {len(file_list)} file(s)...")
-
+    translator = POTranslator(api_key=api_key, max_concurrent=args.max_concurrent)
     success_files = []
 
-    for file_path in file_list:
-        success = await translator.translate_po_file(file_path)
-        if success:
-            success_files.append(file_path)
-
-    # Generate report
-    report = translator.generate_report(success_files)
-    print(report)
+    for fp in file_list:
+        if await translator.translate_file(fp):
+            success_files.append(fp)
 
     # Save results
     results = {
@@ -366,33 +173,13 @@ async def async_main():
         "total_files": len(file_list),
         "success_count": len(success_files),
     }
+    out = Path(args.output_json)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    _save_results(results, args.output_json)
-
-    if not success_files:
-        print("\n⚠️  No files were successfully translated")
-        return 1
-
-    return 0
-
-
-def main():
-    """Wrapper to run async main"""
-    return asyncio.run(async_main())
-
-
-def _save_results(results: dict, output_path: str) -> None:
-    """Save results to JSON file"""
-    try:
-        output_dir = Path(output_path).parent
-        output_dir.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(results, f, indent=2, ensure_ascii=False)
-        print(f"\n💾 Results saved to: {output_path}")
-        print(f"✅ Successfully translated {len(results['success_files'])} file(s)")
-    except Exception as e:
-        print(f"⚠️  Failed to save results: {e}")
+    print(f"\nResult: {len(success_files)}/{len(file_list)} translated -> {args.output_json}")
+    return 0 if success_files else 1
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(asyncio.run(async_main()))
