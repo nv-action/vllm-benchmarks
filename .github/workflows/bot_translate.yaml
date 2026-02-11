@@ -16,7 +16,6 @@ concurrency:
 jobs:
   translate:
     runs-on: linux-amd64-cpu-8-hk
-    timeout-minutes: 999
     if: ${{ github.event_name == 'workflow_dispatch' }}
     env:
       UPSTREAM_REPO: nv-action/vllm-benchmarks
@@ -99,7 +98,6 @@ jobs:
         working-directory: ${{ github.workspace }}
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          PO_DIR: docs/source/locale/zh_CN/LC_MESSAGES
           OUTPUT_JSON: /tmp/translation_results.json
         run: |
           echo "🚀 Starting PO File Translation..."
