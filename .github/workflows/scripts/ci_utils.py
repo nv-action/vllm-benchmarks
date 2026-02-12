@@ -52,8 +52,25 @@ def run_e2e_files(
         logger.info(f".\n.\n{Colors.HEADER}Begin ({i}/{len(files)}):{Colors.ENDC}\npytest -sv {full_path}\n.\n.\n")
         file_tic = time.perf_counter()
 
+        # Check if mapping generation is enabled
+        enable_mapping = os.environ.get("ENABLE_MAPPING_GEN", "").lower() in ("1", "true")
+
+        # Build pytest command
+        pytest_cmd = ["pytest", "-sv", "--durations=0", "--color=yes", full_path]
+
+        # Append coverage arguments if mapping generation is enabled
+        if enable_mapping:
+            pytest_cmd.extend(
+                [
+                    "--cov=vllm_ascend",
+                    "--cov-context=test",
+                    "--cov-append",
+                    "--cov-report=",
+                ]
+            )
+
         process = subprocess.Popen(
-            ["pytest", "-sv", "--durations=0", "--color=yes", full_path],
+            pytest_cmd,
             stdout=None,
             stderr=None,
             env=os.environ,
