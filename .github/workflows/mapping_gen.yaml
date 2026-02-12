@@ -6,26 +6,26 @@ on:
   workflow_dispatch:
     inputs:
       image:
-        description: 'Docker image URL'
+        description: 'Docker image URL for singlecard'
         required: true
-        default: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-a3-ubuntu22.04-py3.11'
+        default: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-910b-ubuntu22.04-py3.11
   schedule:
     - cron: '0 0 * * *'  # 每日零点
-
-env:
-  VLLM_LOGGING_LEVEL: ERROR
-  VLLM_USE_MODELSCOPE: True
-  HF_HUB_OFFLINE: 1
-  PYTORCH_NPU_ALLOC_CONF: max_split_size_mb:256
-  VLLM_WORKER_MULTIPROC_METHOD: spawn
-  ENABLE_MAPPING_GEN: "1"
 
 jobs:
   generate-mapping-singlecard:
     name: singlecard-mapping
     runs-on: linux-aarch64-a2-1
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [0, 1]
     container:
-      image: ${{ github.event.inputs.image || 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-a3-ubuntu22.04-py3.11' }}
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-910b-ubuntu22.04-py3.11
+      env:
+        VLLM_LOGGING_LEVEL: ERROR
+        VLLM_USE_MODELSCOPE: True
+        HF_HUB_OFFLINE: 1
     steps:
       - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v6
@@ -54,6 +54,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: vllm-project/vllm
+          ref: 9562912cead1f11e8540fb91306c5cbda66f0007
           path: ./vllm-empty
           fetch-depth: 1
 
@@ -71,23 +72,35 @@ jobs:
           pip install -v -e .
 
       - name: Run e2e-full with coverage
+        env:
+          VLLM_WORKER_MULTIPROC_METHOD: spawn
+          PYTORCH_NPU_ALLOC_CONF: max_split_size_mb:256
         run: |
           python3 .github/workflows/scripts/run_suite.py \
             --suite e2e-singlecard \
-            --auto-partition-size 2 \
-            --auto-partition-id 0
+            --auto-partition-id ${{ matrix.part }} \
+            --auto-partition-size 2
 
       - name: Upload coverage data
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
-          name: coverage-singlecard
+          name: coverage-singlecard-${{ matrix.part }}
           path: .coverage.*
 
   generate-mapping-2card:
     name: 2card-mapping
     runs-on: linux-aarch64-a3-2
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [0]
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-a3-ubuntu22.04-py3.11
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-910b-ubuntu22.04-py3.11
+      env:
+        VLLM_LOGGING_LEVEL: ERROR
+        VLLM_USE_MODELSCOPE: True
+        HCCL_BUFFSIZE: 1024
+        HF_HUB_OFFLINE: 1
     steps:
       - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v6
@@ -116,6 +129,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: vllm-project/vllm
+          ref: 9562912cead1f11e8540fb91306c5cbda66f0007
           path: ./vllm-empty
           fetch-depth: 1
 
@@ -133,14 +147,23 @@ jobs:
           pip install -v -e .
 
       - name: Run e2e-2-card-full with coverage
+        env:
+          VLLM_WORKER_MULTIPROC_METHOD: spawn
         run: |
           python3 .github/workflows/scripts/run_suite.py \
             --suite e2e-multicard-2-cards \
-            --auto-partition-size 1 \
-            --auto-partition-id 0
+            --auto-partition-id ${{ matrix.part }} \
+            --auto-partition-size 1
+
+      - name: Run vllm-project/vllm-ascend test (non triton)
+        env:
+          VLLM_WORKER_MULTIPROC_METHOD: spawn
+        run: |
+          python3 -m pip uninstall -y triton-ascend
+          pytest -sv --durations=0 tests/e2e/multicard/2-cards/test_aclgraph_capture_replay.py
 
       - name: Upload coverage data
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: coverage-2card
           path: .coverage.*
@@ -148,8 +171,16 @@ jobs:
   generate-mapping-4card:
     name: 4card-mapping
     runs-on: linux-aarch64-a3-4
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [0]
     container:
       image: m.daocloud.io/quay.io/ascend/cann:8.5.0-a3-ubuntu22.04-py3.11
+      env:
+        VLLM_LOGGING_LEVEL: ERROR
+        VLLM_USE_MODELSCOPE: True
+        HF_HUB_OFFLINE: 1
     steps:
       - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v6
@@ -178,6 +209,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: vllm-project/vllm
+          ref: 9562912cead1f11e8540fb91306c5cbda66f0007
           path: ./vllm-empty
           fetch-depth: 1
 
@@ -195,14 +227,16 @@ jobs:
           pip install -v -e .
 
       - name: Run e2e-4-card-full with coverage
+        env:
+          VLLM_WORKER_MULTIPROC_METHOD: spawn
         run: |
           python3 .github/workflows/scripts/run_suite.py \
             --suite e2e-multicard-4-cards \
-            --auto-partition-size 1 \
-            --auto-partition-id 0
+            --auto-partition-id ${{ matrix.part }} \
+            --auto-partition-size 1
 
       - name: Upload coverage data
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: coverage-4card
           path: .coverage.*
@@ -215,23 +249,30 @@ jobs:
       - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v6
 
+      - name: Install coverage
+        run: |
+          python3 -m pip install -U pip
+          python3 -m pip install -U coverage
+
       - name: Download all coverage data
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
+          pattern: coverage-*
           path: coverage-data
+          merge-multiple: true
 
       - name: Combine coverage data
         run: |
-          # Move all .coverage files to current directory
-          find coverage-data -name ".coverage.*" -exec mv {} . \; 2>/dev/null || true
-          coverage combine
+          ls -la coverage-data/
+          coverage combine coverage-data/.coverage*
+          ls -la .coverage*
 
       - name: Generate mapping
         run: |
           python3 .github/workflows/scripts/gen_mapping.py
 
       - name: Upload mapping artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: test-mapping
           path: mapping_*.json
