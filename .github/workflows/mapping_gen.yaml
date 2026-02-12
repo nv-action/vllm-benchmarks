@@ -12,6 +12,11 @@ on:
   schedule:
     - cron: '0 0 * * *'  # 每日零点
 
+# Container jobs may fall back to /bin/sh if not specified; we need bash features.
+defaults:
+  run:
+    shell: bash
+
 env:
   # Suppress noisy Node.js deprecation warnings from JS-based actions.
   NODE_OPTIONS: --no-deprecation
@@ -88,7 +93,8 @@ jobs:
 
       - name: Stage coverage files to /tmp
         run: |
-          set -euo pipefail
+          set -eu
+          set -o pipefail 2>/dev/null || true
           ls -la .coverage*
           mkdir -p /tmp/vllm-ascend-mapping/coverage/singlecard/part-${{ matrix.part }}
           # Use .coverage* to include both .coverage and .coverage.*
@@ -180,7 +186,8 @@ jobs:
 
       - name: Stage coverage files to /tmp
         run: |
-          set -euo pipefail
+          set -eu
+          set -o pipefail 2>/dev/null || true
           ls -la .coverage*
           mkdir -p /tmp/vllm-ascend-mapping/coverage/2card
           cp -a .coverage* /tmp/vllm-ascend-mapping/coverage/2card/
@@ -263,7 +270,8 @@ jobs:
 
       - name: Stage coverage files to /tmp
         run: |
-          set -euo pipefail
+          set -eu
+          set -o pipefail 2>/dev/null || true
           ls -la .coverage*
           mkdir -p /tmp/vllm-ascend-mapping/coverage/4card
           cp -a .coverage* /tmp/vllm-ascend-mapping/coverage/4card/
@@ -298,7 +306,8 @@ jobs:
 
       - name: Combine coverage data
         run: |
-          set -euo pipefail
+          set -eu
+          set -o pipefail 2>/dev/null || true
           ls -la /tmp/vllm-ascend-mapping/coverage-data/ || true
           mkdir -p /tmp/vllm-ascend-mapping/coverage-flat
           find /tmp/vllm-ascend-mapping/coverage-data -type f -name '.coverage*' -exec cp -a {} /tmp/vllm-ascend-mapping/coverage-flat/ \;
@@ -312,7 +321,8 @@ jobs:
 
       - name: Stage mapping json to /tmp
         run: |
-          set -euo pipefail
+          set -eu
+          set -o pipefail 2>/dev/null || true
           mkdir -p /tmp/vllm-ascend-mapping/output
           cp -a mapping_*.json /tmp/vllm-ascend-mapping/output/
           ls -la /tmp/vllm-ascend-mapping/output/
