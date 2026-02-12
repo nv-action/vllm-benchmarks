@@ -155,7 +155,7 @@ async def async_main():
         print("Error: DEEPSEEK_API_KEY not set")
         return 1
 
-    file_list = [f.strip() for f in args.files.split(",") if f.strip()][2:4]
+    file_list = [f.strip() for f in args.files.split(",") if f.strip()][1:3]
     print(f"Translating {len(file_list)} file(s), max_concurrent={args.max_concurrent}")
 
     translator = POTranslator(api_key=api_key, max_concurrent=args.max_concurrent)
