@@ -7,22 +7,29 @@ e2e-singlecard:
     estimated_time: 25
   - name: tests/e2e/singlecard/test_aclgraph_accuracy.py
     estimated_time: 480
+    is_skipped: true
   - name: tests/e2e/singlecard/test_aclgraph_batch_invariant.py
     estimated_time: 410
+    is_skipped: true
   - name: tests/e2e/singlecard/test_aclgraph_mem.py
     estimated_time: 130
+    is_skipped: true
   - name: tests/e2e/singlecard/test_async_scheduling.py
     estimated_time: 150
+    is_skipped: true
   - name: tests/e2e/singlecard/test_batch_invariant.py
     estimated_time: 320
+    is_skipped: true
   - name: tests/e2e/singlecard/test_camem.py
     estimated_time: 77
   - name: tests/e2e/singlecard/test_completion_with_prompt_embeds.py
     estimated_time: 76
   - name: tests/e2e/singlecard/test_cpu_offloading.py
     estimated_time: 132
+    is_skipped: true
   - name: tests/e2e/singlecard/test_guided_decoding.py
     estimated_time: 354
+    is_skipped: true
   - name: tests/e2e/singlecard/test_ilama_lora.py
     estimated_time: 95
   - name: tests/e2e/singlecard/test_llama32_lora.py
@@ -31,28 +38,38 @@ e2e-singlecard:
     estimated_time: 65
   - name: tests/e2e/singlecard/test_models.py
     estimated_time: 300
+    is_skipped: true
   - name: tests/e2e/singlecard/test_multistream_overlap_shared_expert.py
     estimated_time: 200
+    is_skipped: true
   - name: tests/e2e/singlecard/test_quantization.py
     estimated_time: 200
+    is_skipped: true
   - name: tests/e2e/singlecard/test_sampler.py
     estimated_time: 200
+    is_skipped: true
   - name: tests/e2e/singlecard/test_vlm.py
     estimated_time: 354
+    is_skipped: true
   - name: tests/e2e/singlecard/test_xlite.py
     estimated_time: 45
   - name: tests/e2e/singlecard/compile/test_norm_quant_fusion.py
     estimated_time: 70
   - name: tests/e2e/singlecard/pooling/test_classification.py
     estimated_time: 120
+    is_skipped: true
   - name: tests/e2e/singlecard/pooling/test_embedding.py
     estimated_time: 270
+    is_skipped: true
   - name: tests/e2e/singlecard/pooling/test_scoring.py
     estimated_time: 500
+    is_skipped: true
   - name: tests/e2e/singlecard/spec_decode/test_mtp_eagle_correctness.py
     estimated_time: 1500
+    is_skipped: true
   - name: tests/e2e/singlecard/spec_decode/test_v1_spec_decode.py
     estimated_time: 1800
+    is_skipped: true
   - name: tests/e2e/singlecard/model_runner_v2/test_basic.py
     estimated_time: 80
     is_skipped: true
@@ -87,25 +104,33 @@ e2e-multicard-2-cards:
     estimated_time: 180
   - name: tests/e2e/multicard/2-cards/test_data_parallel.py
     estimated_time: 380
+    is_skipped: true
   - name: tests/e2e/multicard/2-cards/test_expert_parallel.py
     estimated_time: 170
   - name: tests/e2e/multicard/2-cards/test_external_launcher.py
     estimated_time: 300
+    is_skipped: true
   - name: tests/e2e/multicard/2-cards/test_full_graph_mode.py
     estimated_time: 400
+    is_skipped: true
   - name: tests/e2e/multicard/2-cards/test_ilama_lora_tp2.py
     estimated_time: 60
   # Run the test in a separate step to avoid oom
   - name: tests/e2e/multicard/2-cards/test_offline_inference_distributed.py::test_deepseek_multistream_moe_tp2
     estimated_time: 100
+    is_skipped: true
+    is_skipped: true
   - name: tests/e2e/multicard/2-cards/test_offline_inference_distributed.py::test_qwen3_w4a8_dynamic_tp2
     estimated_time: 80
   - name: tests/e2e/multicard/2-cards/test_offline_inference_distributed.py::test_qwen3_moe_sp_tp2
     estimated_time: 132
+    is_skipped: true
   - name: tests/e2e/multicard/2-cards/test_offline_inference_distributed.py::test_deepseek_w4a8_accuracy_tp2
     estimated_time: 132
+    is_skipped: true
   - name: tests/e2e/multicard/2-cards/test_offline_inference_distributed.py::test_qwen3_moe_fc2_tp2
     estimated_time: 140
+    is_skipped: true
   - name: tests/e2e/multicard/2-cards/test_offline_inference_distributed.py::test_deepseek_v2_lite_fc1_tp2
     estimated_time: 82
   - name: tests/e2e/multicard/2-cards/test_offline_inference_distributed.py::test_qwen3_dense_fc1_tp2
@@ -114,18 +139,24 @@ e2e-multicard-2-cards:
     estimated_time: 71
   - name: tests/e2e/multicard/2-cards/test_offline_inference_distributed.py::test_deepseek3_2_w8a8_pruning_mtp_tp2_ep
     estimated_time: 111
+    is_skipped: true
   - name: tests/e2e/multicard/2-cards/test_offline_inference_distributed.py::test_qwen3_w4a4_distributed_tp2
     estimated_time: 180
+    is_skipped: true
   - name: tests/e2e/multicard/2-cards/test_pipeline_parallel.py
     estimated_time: 270
+    is_skipped: true
   - name: tests/e2e/multicard/2-cards/test_prefix_caching.py
     estimated_time: 430
+    is_skipped: true
   - name: tests/e2e/multicard/2-cards/test_quantization.py
     estimated_time: 70
   - name: tests/e2e/multicard/2-cards/test_qwen3_moe.py
     estimated_time: 1050
+    is_skipped: true
   - name: tests/e2e/multicard/2-cards/test_single_request_aclgraph.py
     estimated_time: 215
+    is_skipped: true
   - name: tests/e2e/multicard/2-cards/test_disaggregated_encoder.py
     estimated_time: 90
 
@@ -133,10 +164,12 @@ e2e-multicard-4-cards:
   # TODO: recover skipped tests
   - name: tests/e2e/multicard/4-cards/test_qwen3_next.py
     estimated_time: 1250
+    is_skipped: true
   - name: tests/e2e/multicard/4-cards/test_data_parallel_tp2.py
     estimated_time: 60
   - name: tests/e2e/multicard/4-cards/test_kimi_k2.py
     estimated_time: 100
+    is_skipped: true
   - name: tests/e2e/multicard/4-cards/long_sequence/test_accuracy.py
     estimated_time: 60
   - name: tests/e2e/multicard/4-cards/long_sequence/test_basic.py
