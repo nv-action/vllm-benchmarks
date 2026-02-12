@@ -12,6 +12,10 @@ on:
   schedule:
     - cron: '0 0 * * *'  # 每日零点
 
+env:
+  # Suppress noisy Node.js deprecation warnings from JS-based actions.
+  NODE_OPTIONS: --no-deprecation
+
 jobs:
   generate-mapping-singlecard:
     name: singlecard-mapping
@@ -26,6 +30,7 @@ jobs:
         VLLM_LOGGING_LEVEL: ERROR
         VLLM_USE_MODELSCOPE: True
         HF_HUB_OFFLINE: 1
+        ENABLE_MAPPING_GEN: "1"
     steps:
       - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v6
@@ -81,11 +86,21 @@ jobs:
             --auto-partition-id ${{ matrix.part }} \
             --auto-partition-size 2
 
+      - name: Stage coverage files to /tmp
+        run: |
+          set -euo pipefail
+          ls -la .coverage*
+          mkdir -p /tmp/vllm-ascend-mapping/coverage/singlecard/part-${{ matrix.part }}
+          # Use .coverage* to include both .coverage and .coverage.*
+          cp -a .coverage* /tmp/vllm-ascend-mapping/coverage/singlecard/part-${{ matrix.part }}/
+          ls -la /tmp/vllm-ascend-mapping/coverage/singlecard/part-${{ matrix.part }} || true
+
       - name: Upload coverage data
         uses: actions/upload-artifact@v6
         with:
           name: coverage-singlecard-${{ matrix.part }}
-          path: .coverage.*
+          path: /tmp/vllm-ascend-mapping/coverage/singlecard/part-${{ matrix.part }}/.coverage*
+          retention-days: 7
 
   generate-mapping-2card:
     name: 2card-mapping
@@ -101,6 +116,7 @@ jobs:
         VLLM_USE_MODELSCOPE: True
         HCCL_BUFFSIZE: 1024
         HF_HUB_OFFLINE: 1
+        ENABLE_MAPPING_GEN: "1"
     steps:
       - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v6
@@ -162,11 +178,20 @@ jobs:
           python3 -m pip uninstall -y triton-ascend
           pytest -sv --durations=0 tests/e2e/multicard/2-cards/test_aclgraph_capture_replay.py
 
+      - name: Stage coverage files to /tmp
+        run: |
+          set -euo pipefail
+          ls -la .coverage*
+          mkdir -p /tmp/vllm-ascend-mapping/coverage/2card
+          cp -a .coverage* /tmp/vllm-ascend-mapping/coverage/2card/
+          ls -la /tmp/vllm-ascend-mapping/coverage/2card || true
+
       - name: Upload coverage data
         uses: actions/upload-artifact@v6
         with:
           name: coverage-2card
-          path: .coverage.*
+          path: /tmp/vllm-ascend-mapping/coverage/2card/.coverage*
+          retention-days: 7
 
   generate-mapping-4card:
     name: 4card-mapping
@@ -181,6 +206,7 @@ jobs:
         VLLM_LOGGING_LEVEL: ERROR
         VLLM_USE_MODELSCOPE: True
         HF_HUB_OFFLINE: 1
+        ENABLE_MAPPING_GEN: "1"
     steps:
       - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v6
@@ -235,11 +261,20 @@ jobs:
             --auto-partition-id ${{ matrix.part }} \
             --auto-partition-size 1
 
+      - name: Stage coverage files to /tmp
+        run: |
+          set -euo pipefail
+          ls -la .coverage*
+          mkdir -p /tmp/vllm-ascend-mapping/coverage/4card
+          cp -a .coverage* /tmp/vllm-ascend-mapping/coverage/4card/
+          ls -la /tmp/vllm-ascend-mapping/coverage/4card || true
+
       - name: Upload coverage data
         uses: actions/upload-artifact@v6
         with:
           name: coverage-4card
-          path: .coverage.*
+          path: /tmp/vllm-ascend-mapping/coverage/4card/.coverage*
+          retention-days: 7
 
   merge-mapping:
     needs: [generate-mapping-singlecard, generate-mapping-2card, generate-mapping-4card]
@@ -258,21 +293,33 @@ jobs:
         uses: actions/download-artifact@v6
         with:
           pattern: coverage-*
-          path: coverage-data
+          path: /tmp/vllm-ascend-mapping/coverage-data
           merge-multiple: true
 
       - name: Combine coverage data
         run: |
-          ls -la coverage-data/
-          coverage combine coverage-data/.coverage*
-          ls -la .coverage*
+          set -euo pipefail
+          ls -la /tmp/vllm-ascend-mapping/coverage-data/ || true
+          mkdir -p /tmp/vllm-ascend-mapping/coverage-flat
+          find /tmp/vllm-ascend-mapping/coverage-data -type f -name '.coverage*' -exec cp -a {} /tmp/vllm-ascend-mapping/coverage-flat/ \;
+          ls -la /tmp/vllm-ascend-mapping/coverage-flat/ || true
+          coverage combine /tmp/vllm-ascend-mapping/coverage-flat
+          ls -la .coverage* || true
 
       - name: Generate mapping
         run: |
           python3 .github/workflows/scripts/gen_mapping.py
 
+      - name: Stage mapping json to /tmp
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/vllm-ascend-mapping/output
+          cp -a mapping_*.json /tmp/vllm-ascend-mapping/output/
+          ls -la /tmp/vllm-ascend-mapping/output/
+
       - name: Upload mapping artifact
         uses: actions/upload-artifact@v6
         with:
           name: test-mapping
-          path: mapping_*.json
+          path: /tmp/vllm-ascend-mapping/output/mapping_*.json
+          retention-days: 7
