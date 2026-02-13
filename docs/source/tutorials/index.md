@@ -31,9 +31,11 @@ PaddleOCR-VL.md
 :::{toctree}
 :caption: Features
 :maxdepth: 1
+pd_colocated_mooncake_multi_instance_copy.md
 pd_colocated_mooncake_multi_instance.md
 pd_disaggregation_mooncake_single_node.md
 pd_disaggregation_mooncake_multi_node.md
+long_sequence_context_parallel_multi_node_copy.md
 long_sequence_context_parallel_single_node.md
 long_sequence_context_parallel_multi_node.md
 ray
