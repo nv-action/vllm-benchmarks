@@ -1,0 +1,150 @@
+name: Full Test Time Update
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ['docs/source/**/*.md']
+  push:
+    branches: [main]
+    paths: ['docs/source/**']
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: 'Target branch for the upstream PR'
+        required: false
+        default: 'main'
+        type: string
+
+concurrency:
+  group: translation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-full:
+    uses: ./.github/workflows/_e2e_test.yaml
+    with:
+      vllm: main
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-910b-ubuntu22.04-py3.11
+      contains_310: false
+      type: full
+      collect_test_stats: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '0 20 * * *' }}
+
+  e2e-light:
+    uses: ./.github/workflows/_e2e_test.yaml
+    with:
+      vllm: main
+      runner: linux-aarch64-a2
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-910b-ubuntu22.04-py3.11
+      contains_310: false
+      type: light
+      collect_test_stats: false
+
+  update-config:
+    name: Update config.yaml (Direct PR)
+    needs: [e2e-full, e2e-light]
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '0 20 * * *' }}
+    runs-on: ubuntu-latest
+    env:
+      REPO_OWNER: nv-action
+      REPO_NAME: vllm-benchmarks
+      BASE_BRANCH: main
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
+          ref: ${{ env.BASE_BRANCH }}
+          fetch-depth: 0
+
+      - name: Download stats artifacts
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          path: artifacts
+          pattern: test-stats-*
+          merge-multiple: true
+
+      - name: Set Git user info
+        run: |
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+
+      - name: Create update branch
+        run: |
+          BRANCH_NAME="auto-pr/update-test-times-${{ github.run_id }}"
+          echo "BRANCH_NAME=${BRANCH_NAME}" >> "$GITHUB_ENV"
+          git checkout -b "${BRANCH_NAME}"
+
+      - name: Merge stats into test_stats.json
+        id: merge
+        run: |
+          python3 - <<'PY'
+          import glob
+          import json
+          import os
+
+          merged = []
+          for path in sorted(glob.glob('artifacts/**/test_stats_*.json', recursive=True)):
+              with open(path, 'r', encoding='utf-8') as f:
+                  merged.extend(json.load(f))
+
+          with open('test_stats.json', 'w', encoding='utf-8') as f:
+              json.dump(merged, f, indent=2)
+
+          print(f"Merged {len(merged)} record(s) into test_stats.json")
+
+          out = os.environ.get('GITHUB_OUTPUT')
+          if out:
+              with open(out, 'a', encoding='utf-8') as f:
+                  f.write(f"has_stats={'true' if len(merged) > 0 else 'false'}\n")
+          PY
+
+      - name: Install update dependency (ruamel.yaml)
+        if: ${{ steps.merge.outputs.has_stats == 'true' }}
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install ruamel.yaml
+
+      - name: Update config.yaml from stats
+        if: ${{ steps.merge.outputs.has_stats == 'true' }}
+        run: |
+          python3 .github/workflows/scripts/update_test_times.py \
+            --config .github/workflows/scripts/config.yaml \
+            --stats test_stats.json
+
+      - name: Commit changes
+        if: ${{ steps.merge.outputs.has_stats == 'true' }}
+        id: commit
+        run: |
+          git add .github/workflows/scripts/config.yaml
+          if git diff --cached --quiet; then
+            echo "No config.yaml changes; skipping."
+            echo "HAS_CHANGES=false" >> "$GITHUB_OUTPUT"
+          else
+            git commit -s -m "ci: update e2e test estimated_time"
+            echo "HAS_CHANGES=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push branch
+        if: ${{ steps.commit.outputs.HAS_CHANGES == 'true' }}
+        run: |
+          git push origin "${BRANCH_NAME}"
+
+      - name: Create PR to zsl_test_1
+        if: ${{ steps.commit.outputs.HAS_CHANGES == 'true' }}
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.PAT_TOKEN }}
+          script: |
+            const { REPO_OWNER, REPO_NAME, BASE_BRANCH, BRANCH_NAME } = process.env;
+
+            const pr = await github.rest.pulls.create({
+              owner: REPO_OWNER,
+              repo: REPO_NAME,
+              head: BRANCH_NAME,
+              base: BASE_BRANCH,
+              title: '[CI] update e2e test estimated_time',
+              body: `Automated update of .github/workflows/scripts/config.yaml based on scheduled test durations.\n\n` +
+                `Workflow run: ${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
+            });
+            core.info(`Created PR #${pr.data.number}: ${pr.data.html_url}`);
