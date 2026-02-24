@@ -9,6 +9,8 @@ This script implements a Data-Driven Adaptive Scheduler that:
 """
 
 import argparse
+import difflib
+import io
 import json
 import logging
 import sys
@@ -60,6 +62,12 @@ def save_config(config: dict, config_path: Path, yaml: YAML) -> None:
         yaml.dump(config, f)
 
 
+def dump_config_to_string(config: dict, yaml: YAML) -> str:
+    stream = io.StringIO()
+    yaml.dump(config, stream)
+    return stream.getvalue()
+
+
 def update_test_times(config_path: Path, stats_path: Path, dry_run: bool = False) -> None:
     """
     Update estimated times in config based on actual execution stats.
@@ -71,6 +79,7 @@ def update_test_times(config_path: Path, stats_path: Path, dry_run: bool = False
     """
     stats = load_test_stats(stats_path)
     config, yaml = load_config(config_path)
+    before_config_text = dump_config_to_string(config, yaml)
 
     updates_made = 0
     new_tests_found = []
@@ -146,6 +155,22 @@ def update_test_times(config_path: Path, stats_path: Path, dry_run: bool = False
 
     # Save updated config
     if not dry_run and updates_made > 0:
+        after_config_text = dump_config_to_string(config, yaml)
+        diff_lines = list(
+            difflib.unified_diff(
+                before_config_text.splitlines(),
+                after_config_text.splitlines(),
+                fromfile=str(config_path) + " (before)",
+                tofile=str(config_path) + " (after)",
+                lineterm="",
+            )
+        )
+        if diff_lines:
+            logger.info("=" * 60)
+            logger.info("Config diff")
+            logger.info("=" * 60)
+            for line in diff_lines:
+                logger.info(line)
         save_config(config, config_path, yaml)
         logger.info(f"Config saved to {config_path}")
     elif dry_run:

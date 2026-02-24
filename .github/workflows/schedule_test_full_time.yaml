@@ -2,59 +2,69 @@ name: Full Test Time Update
 
 on:
   pull_request:
-    branches: [main]
-    paths: ['docs/source/**/*.md']
   push:
-    branches: [main]
-    paths: ['docs/source/**']
   workflow_dispatch:
     inputs:
       target_branch:
         description: 'Target branch for the upstream PR'
         required: false
-        default: 'main'
+        default: "main"
         type: string
 
+permissions:
+  contents: write
+  pull-requests: write
+
 concurrency:
-  group: translation-${{ github.event.pull_request.number || github.ref }}
+  group: time_update-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   e2e-full:
+    name: Collect stats (e2e full)
+    strategy:
+      matrix:
+        vllm_version: [9562912cead1f11e8540fb91306c5cbda66f0007]
     uses: ./.github/workflows/_e2e_test.yaml
     with:
-      vllm: main
+      vllm: ${{ matrix.vllm_version }}
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-910b-ubuntu22.04-py3.11
       contains_310: false
       type: full
-      collect_test_stats: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '0 20 * * *' }}
+      collect_test_stats: true
 
   e2e-light:
+    name: Collect stats (e2e light)
+    strategy:
+      matrix:
+        vllm_version: [9562912cead1f11e8540fb91306c5cbda66f0007]
     uses: ./.github/workflows/_e2e_test.yaml
     with:
-      vllm: main
-      runner: linux-aarch64-a2
+      vllm: ${{ matrix.vllm_version }}
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-910b-ubuntu22.04-py3.11
       contains_310: false
       type: light
-      collect_test_stats: false
+      collect_test_stats: true
 
   update-config:
-    name: Update config.yaml (Direct PR)
+    name: Merge stats, update config, create PR
+    if: ${{ always() && (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'auto-pr/update-test-times-')) }}
     needs: [e2e-full, e2e-light]
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '0 20 * * *' }}
     runs-on: ubuntu-latest
     env:
-      REPO_OWNER: nv-action
-      REPO_NAME: vllm-benchmarks
-      BASE_BRANCH: main
+      UPSTREAM_REPO: nv-action/vllm-benchmarks
+      FORK_OWNER: MrZ20
+      TARGET_BRANCH: ${{ github.event.inputs.target_branch || 'main' }}
+      BASE_BRANCH: ${{ github.event.inputs.target_branch || 'main' }}
+      BRANCH_NAME: auto-pr/update-test-times-${{ github.run_id }}
+
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Checkout Fork Repository
+        uses: actions/checkout@v6
         with:
-          token: ${{ secrets.PAT_TOKEN }}
           ref: ${{ env.BASE_BRANCH }}
           fetch-depth: 0
+          token: ${{ secrets.PAT_TOKEN || github.token }}
 
       - name: Download stats artifacts
         uses: actions/download-artifact@v4
@@ -64,87 +74,83 @@ jobs:
           pattern: test-stats-*
           merge-multiple: true
 
-      - name: Set Git user info
-        run: |
-          git config user.name "${{ github.actor }}"
-          git config user.email "${{ github.actor }}@users.noreply.github.com"
-
-      - name: Create update branch
-        run: |
-          BRANCH_NAME="auto-pr/update-test-times-${{ github.run_id }}"
-          echo "BRANCH_NAME=${BRANCH_NAME}" >> "$GITHUB_ENV"
-          git checkout -b "${BRANCH_NAME}"
-
-      - name: Merge stats into test_stats.json
+      - name: Merge all stats JSON
         id: merge
         run: |
           python3 - <<'PY'
-          import glob
-          import json
-          import os
-
+          import glob, json, os
           merged = []
-          for path in sorted(glob.glob('artifacts/**/test_stats_*.json', recursive=True)):
-              with open(path, 'r', encoding='utf-8') as f:
-                  merged.extend(json.load(f))
-
-          with open('test_stats.json', 'w', encoding='utf-8') as f:
+          files = glob.glob("artifacts/**/test_stats*.json", recursive=True)
+          for p in sorted(set(files)):
+              with open(p, "r") as f:
+                  data = json.load(f)
+                  if isinstance(data, list): merged.extend(data)
+          with open("test_stats.json", "w") as f:
               json.dump(merged, f, indent=2)
-
-          print(f"Merged {len(merged)} record(s) into test_stats.json")
-
-          out = os.environ.get('GITHUB_OUTPUT')
-          if out:
-              with open(out, 'a', encoding='utf-8') as f:
-                  f.write(f"has_stats={'true' if len(merged) > 0 else 'false'}\n")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"has_stats={'true' if merged else 'false'}\n")
           PY
 
-      - name: Install update dependency (ruamel.yaml)
-        if: ${{ steps.merge.outputs.has_stats == 'true' }}
-        run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install ruamel.yaml
+      - name: Upload merged test_stats.json
+        if: steps.merge.outputs.has_stats == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: merged-test-stats-${{ github.run_id }}
+          path: test_stats.json
+          if-no-files-found: error
 
-      - name: Update config.yaml from stats
-        if: ${{ steps.merge.outputs.has_stats == 'true' }}
+      - name: Update config.yaml
+        if: steps.merge.outputs.has_stats == 'true'
         run: |
+          pip install ruamel.yaml
           python3 .github/workflows/scripts/update_test_times.py \
             --config .github/workflows/scripts/config.yaml \
             --stats test_stats.json
 
-      - name: Commit changes
-        if: ${{ steps.merge.outputs.has_stats == 'true' }}
-        id: commit
+      - name: Commit and Push to Fork
+        if: steps.merge.outputs.has_stats == 'true'
+        id: push_step
         run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "${{ env.BRANCH_NAME }}"
+
           git add .github/workflows/scripts/config.yaml
           if git diff --cached --quiet; then
-            echo "No config.yaml changes; skipping."
-            echo "HAS_CHANGES=false" >> "$GITHUB_OUTPUT"
-          else
-            git commit -s -m "ci: update e2e test estimated_time"
-            echo "HAS_CHANGES=true" >> "$GITHUB_OUTPUT"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            exit 0
           fi
+          
+          git commit -s -m "ci: update e2e test estimated_time"
+          # 推送到你自己的 Fork (origin)
+          git push --set-upstream origin "${{ env.BRANCH_NAME }}"
+          echo "has_changes=true" >> $GITHUB_OUTPUT
 
-      - name: Push branch
-        if: ${{ steps.commit.outputs.HAS_CHANGES == 'true' }}
-        run: |
-          git push origin "${BRANCH_NAME}"
-
-      - name: Create PR to zsl_test_1
-        if: ${{ steps.commit.outputs.HAS_CHANGES == 'true' }}
+      - name: Create PR to Upstream
+        if: steps.push_step.outputs.has_changes == 'true'
         uses: actions/github-script@v8
+        env:
+          PR_HEAD: ${{ env.FORK_OWNER }}:${{ env.BRANCH_NAME }}
+          PR_BASE: ${{ env.TARGET_BRANCH }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         with:
-          github-token: ${{ secrets.PAT_TOKEN }}
+          github-token: ${{ secrets.PAT_TOKEN || github.token }}
           script: |
-            const { REPO_OWNER, REPO_NAME, BASE_BRANCH, BRANCH_NAME } = process.env;
-
-            const pr = await github.rest.pulls.create({
-              owner: REPO_OWNER,
-              repo: REPO_NAME,
-              head: BRANCH_NAME,
-              base: BASE_BRANCH,
-              title: '[CI] update e2e test estimated_time',
-              body: `Automated update of .github/workflows/scripts/config.yaml based on scheduled test durations.\n\n` +
-                `Workflow run: ${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
-            });
-            core.info(`Created PR #${pr.data.number}: ${pr.data.html_url}`);
+            try {
+              const [owner, repo] = process.env.UPSTREAM_REPO.split('/');
+              const pr = await github.rest.pulls.create({
+                owner: owner,
+                repo: repo,
+                head: process.env.PR_HEAD, // 格式: "MrZ20:branch-name"
+                base: process.env.PR_BASE,
+                title: "[CI] Update E2E Test Estimated Time",
+                body: `## Auto-Update Summary\n\nAutomatically updated test times.\n\n[Workflow Run](${process.env.RUN_URL})`
+              });
+              core.info(`Created Upstream PR #${pr.data.number}`);
+            } catch (error) {
+              if (error.message.includes('A pull request already exists')) {
+                core.warning('PR already exists');
+              } else {
+                throw error;
+              }
+            }
