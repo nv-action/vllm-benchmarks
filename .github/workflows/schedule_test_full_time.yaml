@@ -54,9 +54,9 @@ jobs:
     env:
       UPSTREAM_REPO: nv-action/vllm-benchmarks
       FORK_OWNER: MrZ20
+      FORK_REPO: MrZ20/vllm-benchmarks
       TARGET_BRANCH: ${{ github.event.inputs.target_branch || 'main' }}
       BASE_BRANCH: ${{ github.event.inputs.target_branch || 'main' }}
-      BRANCH_NAME: auto-pr/update-test-times-${{ github.run_id }}
 
     steps:
       - name: Checkout Fork Repository
@@ -65,6 +65,22 @@ jobs:
           ref: ${{ env.BASE_BRANCH }}
           fetch-depth: 0
           token: ${{ secrets.PAT_TOKEN || github.token }}
+
+      - name: Setup git and branch from upstream
+        run: |
+          TARGET_BRANCH="${{ github.event.inputs.target_branch || 'main' }}"
+          echo "TARGET_BRANCH=${TARGET_BRANCH}" >> $GITHUB_ENV
+          BRANCH_NAME="auto-pr/update-test-times-$(date +%Y%m%d%H%M%S)-${{ github.run_id }}"
+          echo "BRANCH_NAME=${BRANCH_NAME}" >> $GITHUB_ENV
+
+          git remote set-url origin "https://x-access-token:${{ secrets.PAT_TOKEN || github.token }}@github.com/${{ env.FORK_REPO }}.git"
+          git fetch origin
+          git remote remove upstream || true
+          git remote add upstream "https://github.com/${{ env.UPSTREAM_REPO }}.git"
+          git fetch upstream
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+          git checkout -B "${BRANCH_NAME}" "origin/${TARGET_BRANCH}"
 
       - name: Download stats artifacts
         uses: actions/download-artifact@v4
@@ -89,6 +105,7 @@ jobs:
               json.dump(merged, f, indent=2)
           with open(os.environ["GITHUB_OUTPUT"], "a") as out:
               out.write(f"has_stats={'true' if merged else 'false'}\n")
+              out.write(f"stats_count={len(merged)}\n")
           PY
 
       - name: Upload merged test_stats.json
@@ -111,10 +128,6 @@ jobs:
         if: steps.merge.outputs.has_stats == 'true'
         id: push_step
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -B "${{ env.BRANCH_NAME }}"
-
           git add .github/workflows/scripts/config.yaml
           if git diff --cached --quiet; then
             echo "has_changes=false" >> $GITHUB_OUTPUT
@@ -133,18 +146,25 @@ jobs:
           PR_HEAD: ${{ env.FORK_OWNER }}:${{ env.BRANCH_NAME }}
           PR_BASE: ${{ env.TARGET_BRANCH }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          STATS_COUNT: ${{ steps.merge.outputs.stats_count }}
+          ARTIFACT_NAME: merged-test-stats-${{ github.run_id }}
         with:
           github-token: ${{ secrets.PAT_TOKEN || github.token }}
           script: |
             try {
               const [owner, repo] = process.env.UPSTREAM_REPO.split('/');
+              const prBody = '## Auto-Update Summary\n\n' +
+                '- Updated config: `.github/workflows/scripts/config.yaml`\n' +
+                '- Merged stats records: **' + (process.env.STATS_COUNT || '0') + '**\n' +
+                '- Artifact: `' + process.env.ARTIFACT_NAME + '`\n\n' +
+                '[Workflow Run](' + process.env.RUN_URL + ')';
               const pr = await github.rest.pulls.create({
                 owner: owner,
                 repo: repo,
                 head: process.env.PR_HEAD, // 格式: "MrZ20:branch-name"
                 base: process.env.PR_BASE,
                 title: "[CI] Update E2E Test Estimated Time",
-                body: `## Auto-Update Summary\n\nAutomatically updated test times.\n\n[Workflow Run](${process.env.RUN_URL})`
+                body: prBody
               });
               core.info(`Created Upstream PR #${pr.data.number}`);
             } catch (error) {
