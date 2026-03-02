@@ -51,37 +51,30 @@ jobs:
               return;
             }
 
-            // Step 2: Committers allowlist — hardcoded, never read from repo files
-            // Source: docs/source/community/contributors.md (Committers table)
-            const COMMITTERS = [
-              'wangxiyuan',
-              'Yikun',
-              'ganyi1996ppo',
-              'jianzs',
-              'ApsarasX',
-              'MengqingCao',
-              'paulyu12',
-              'yiz-liu',
-              'weijinqian0',
-              'nalinaly',
-              'zzzzwwjj',
-              'LCAIZJ',
-              'realliujiaxu',
-              'whx-sjtu',
-            ];
-
             const commenter = context.payload.comment.user.login;
             console.log(`Comment author: ${commenter}`);
 
-            const isCommitter = COMMITTERS.some(
-              c => c.toLowerCase() === commenter.toLowerCase()
-            );
+            // Step 2: Check committer status via GitHub API (repo collaborator permission)
+            let isCommitter = false;
+            try {
+              const { data: permData } = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo:  context.repo.repo,
+                username: commenter,
+              });
+              // Committers have 'write', 'maintain', or 'admin' permission
+              isCommitter = ['write', 'maintain', 'admin'].includes(permData.permission);
+              console.log(`${commenter} permission level: ${permData.permission}`);
+            } catch (e) {
+              // 404 means the user is not a collaborator at all
+              console.log(`${commenter} is not a collaborator (${e.status ?? e.message})`);
+            }
 
             // [TEST ONLY] Committer check disabled for local testing
-            // if (!isCommitter) {
-            //   console.log(`${commenter} is not a committer. Skipping.`);
-            //   return;
-            // }
+            if (!isCommitter) {
+              console.log(`${commenter} is not a committer. Skipping.`);
+              return;
+            }
 
             console.log(`${commenter} is a committer: ${isCommitter}. Proceeding (check bypassed for testing).`);
 
