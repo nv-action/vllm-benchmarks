@@ -1,0 +1,48 @@
+name: Sync Images Between Registries
+
+on:
+  workflow_dispatch:
+    inputs:
+        repo:
+            description: 'Repository to sync (e.g., nvidia/cuda:12.8.1-devel-ubuntu20.04 etc.)'
+            required: true
+            default: 'nvidia/cuda:12.8.1-devel-ubuntu20.04'
+        target_repo:
+            description: 'Target repository in SWR Southwest (e.g., swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann)'
+            required: true
+            default: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:12.8.1-devel-ubuntu20.04'
+
+
+concurrency:
+  group: sync-images-${{ github.ref }}
+  cancel-in-progress: true
+
+
+jobs:
+  build-and-sync:
+    runs-on: ubuntu-22.04-arm
+
+    outputs:
+      image-tag: ${{ steps.build-image.outputs.image-tag }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Login to Huawei Cloud SWR
+        id: login-swr
+        if: ${{ env.HW_USERNAME != '' && env.HW_TOKEN != '' }}
+        run: |
+          echo "${{ env.HW_TOKEN }}" | docker login -u "${{ env.HW_USERNAME }}" --password-stdin swr.cn-southwest-2.myhuaweicloud.com
+        env:
+          HW_USERNAME: ${{ secrets.HW_USERNAME }}
+          HW_TOKEN: ${{ secrets.HW_TOKEN }}
+
+      - name: Pull image
+        id: build-image
+        run: |
+          docker pull ${{ github.event.inputs.repo }}
+
+      - name: Push image to SWR
+        run: |
+          docker tag ${{ github.event.inputs.repo }} ${{ github.event.inputs.target_repo }}
+          docker push ${{ github.event.inputs.target_repo }}
