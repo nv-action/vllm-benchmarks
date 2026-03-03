@@ -37,12 +37,8 @@ jobs:
           HW_USERNAME: ${{ secrets.HW_USERNAME }}
           HW_TOKEN: ${{ secrets.HW_TOKEN }}
 
-      - name: Pull image
-        id: build-image
+      - name: Sync multi-arch image
         run: |
-          docker pull ${{ github.event.inputs.repo }}
-
-      - name: Push image to SWR
-        run: |
-          docker tag ${{ github.event.inputs.repo }} ${{ github.event.inputs.target_repo }}
-          docker push ${{ github.event.inputs.target_repo }}
+          skopeo copy --all \
+            docker://${{ github.event.inputs.repo }} \
+            docker://${{ github.event.inputs.target_repo }}
