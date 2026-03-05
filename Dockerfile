@@ -29,7 +29,6 @@ ENV SOC_VERSION=$SOC_VERSION \
 
 WORKDIR /workspace
 
-COPY . /vllm-workspace/vllm-ascend/
 
 # # Install Mooncake dependencies
 RUN apt-get update -y && \
