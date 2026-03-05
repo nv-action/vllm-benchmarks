@@ -32,6 +32,13 @@ jobs:
   build-push-digest:
     name: build
     runs-on: ${{ matrix.runner }}
+    permissions:
+      packages: write
+      contents: read
+    env:
+      QUAY_REPO: quay.io/wangli12345/vllm-dev
+      CACHE_REPO: ghcr.io/${{ github.repository }}
+
     strategy:
       matrix:
         include:
@@ -81,7 +88,7 @@ jobs:
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
-        password: ${{ github.token }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Compute cache tag
       id: cache-tag
@@ -102,11 +109,11 @@ jobs:
         file: ${{ inputs.dockerfile || 'Dockerfile' }}
         # only trigger when tag, branch/main push
         push: ${{ inputs.should_push }}
-        outputs: type=image,name=quay.io/wangli12345/vllm-dev,push-by-digest=true,name-canonical=true,push=${{ inputs.should_push }}
+        outputs: type=image,name=${{ env.QUAY_REPO }},push-by-digest=true,name-canonical=true,push=${{ inputs.should_push }}
         build-args: |
           PIP_INDEX_URL=https://pypi.org/simple
         provenance: false
-        cache-from: type=registry,ref=ghcr.io/${{ github.repository }}:${{ steps.cache-tag.outputs.value }}
+        cache-from: type=registry,ref=${{ env.CACHE_REPO }}:${{ steps.cache-tag.outputs.value }}
         cache-to: ${{ inputs.should_push && format('type=registry,ref=ghcr.io/{0}:{1},mode=max', github.repository, steps.cache-tag.outputs.value) || '' }}
 
     - name: Export digest
