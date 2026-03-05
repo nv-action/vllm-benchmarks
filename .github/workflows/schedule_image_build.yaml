@@ -27,6 +27,9 @@ on:
 jobs:
   image_build:
     name: Image Build and Push
+    permissions:
+      packages: write
+      contents: read
     strategy:
       matrix:
         build_meta:
