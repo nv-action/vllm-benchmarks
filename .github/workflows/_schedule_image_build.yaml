@@ -76,6 +76,13 @@ jobs:
         driver: docker-container
         use: true
 
+    - name: Login to GitHub Container Registry (for cache)
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+
     - name: Compute cache tag
       id: cache-tag
       run: |
@@ -99,8 +106,8 @@ jobs:
         build-args: |
           PIP_INDEX_URL=https://pypi.org/simple
         provenance: false
-        cache-from: type=registry,ref=quay.io/wangli12345/vllm-dev:${{ steps.cache-tag.outputs.value }}
-        cache-to: ${{ inputs.should_push && format('type=registry,ref=quay.io/wangli12345/vllm-dev:{0},mode=max', steps.cache-tag.outputs.value) || '' }}
+        cache-from: type=registry,ref=ghcr.io/${{ github.repository }}:${{ steps.cache-tag.outputs.value }}
+        cache-to: ${{ inputs.should_push && format('type=registry,ref=ghcr.io/{0}:{1},mode=max', github.repository, steps.cache-tag.outputs.value) || '' }}
 
     - name: Export digest
       run: |
