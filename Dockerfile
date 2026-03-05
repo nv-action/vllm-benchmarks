@@ -31,20 +31,20 @@ WORKDIR /workspace
 
 COPY . /vllm-workspace/vllm-ascend/
 
-# Install Mooncake dependencies
+# # Install Mooncake dependencies
 RUN apt-get update -y && \
-    apt-get install -y git vim wget net-tools gcc g++ cmake libnuma-dev libjemalloc2 && \
-    git clone --depth 1 --branch ${MOONCAKE_TAG} https://github.com/kvcache-ai/Mooncake /vllm-workspace/Mooncake && \
-    cp /vllm-workspace/vllm-ascend/tools/mooncake_installer.sh /vllm-workspace/Mooncake/ && \
-    cd /vllm-workspace/Mooncake && bash mooncake_installer.sh -y && \
-    ARCH=$(uname -m) && \
-    source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
-    export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/${ARCH}-linux/devlib:/usr/local/Ascend/ascend-toolkit/latest/${ARCH}-linux/lib64:$LD_LIBRARY_PATH && \
-    mkdir -p build && cd build && cmake .. -DUSE_ASCEND_DIRECT=ON && \
-    make -j$(nproc) && make install && \
-    rm -fr /vllm-workspace/Mooncake/build && \
-    rm -rf /var/cache/apt/* && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get install -y git vim wget net-tools gcc g++ cmake libnuma-dev libjemalloc2
+#     git clone --depth 1 --branch ${MOONCAKE_TAG} https://github.com/kvcache-ai/Mooncake /vllm-workspace/Mooncake && \
+#     cp /vllm-workspace/vllm-ascend/tools/mooncake_installer.sh /vllm-workspace/Mooncake/ && \
+#     cd /vllm-workspace/Mooncake && bash mooncake_installer.sh -y && \
+#     ARCH=$(uname -m) && \
+#     source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
+#     export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/${ARCH}-linux/devlib:/usr/local/Ascend/ascend-toolkit/latest/${ARCH}-linux/lib64:$LD_LIBRARY_PATH && \
+#     mkdir -p build && cd build && cmake .. -DUSE_ASCEND_DIRECT=ON && \
+#     make -j$(nproc) && make install && \
+#     rm -fr /vllm-workspace/Mooncake/build && \
+#     rm -rf /var/cache/apt/* && \
+#     rm -rf /var/lib/apt/lists/*
 
 RUN pip config set global.index-url ${PIP_INDEX_URL}
 
@@ -59,24 +59,24 @@ RUN VLLM_TARGET_DEVICE="empty" python3 -m pip install -v -e /vllm-workspace/vllm
 
 # Install vllm-ascend
 # Append `libascend_hal.so` path (devlib) to LD_LIBRARY_PATH
-RUN export PIP_EXTRA_INDEX_URL=https://mirrors.huaweicloud.com/ascend/repos/pypi && \
-    source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
-    source /usr/local/Ascend/nnal/atb/set_env.sh && \
-    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/Ascend/ascend-toolkit/latest/`uname -i`-linux/devlib && \
-    python3 -m pip install -v -e /vllm-workspace/vllm-ascend/ --extra-index https://download.pytorch.org/whl/cpu/ && \
-    python3 -m pip cache purge
+# RUN export PIP_EXTRA_INDEX_URL=https://mirrors.huaweicloud.com/ascend/repos/pypi && \
+#     source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
+#     source /usr/local/Ascend/nnal/atb/set_env.sh && \
+#     export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/Ascend/ascend-toolkit/latest/`uname -i`-linux/devlib && \
+#     python3 -m pip install -v -e /vllm-workspace/vllm-ascend/ --extra-index https://download.pytorch.org/whl/cpu/ && \
+#     python3 -m pip cache purge
 
-# Install clang-15 (for triton-ascend)
-RUN apt-get update -y && \
-    apt-get -y install clang-15 && \
-    update-alternatives --install /usr/bin/clang clang /usr/bin/clang-15 20 && \
-    update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-15 20 && \
-    rm -rf /var/cache/apt/* && \
-    rm -rf /var/lib/apt/lists/*
+# # Install clang-15 (for triton-ascend)
+# RUN apt-get update -y && \
+#     apt-get -y install clang-15 && \
+#     update-alternatives --install /usr/bin/clang clang /usr/bin/clang-15 20 && \
+#     update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-15 20 && \
+#     rm -rf /var/cache/apt/* && \
+#     rm -rf /var/lib/apt/lists/*
 
-# Install modelscope (for fast download) and ray (for multinode)
-RUN python3 -m pip install modelscope 'ray>=2.47.1,<=2.48.0' 'protobuf>3.20.0' && \
-    python3 -m pip cache purge
+# # Install modelscope (for fast download) and ray (for multinode)
+# RUN python3 -m pip install modelscope 'ray>=2.47.1,<=2.48.0' 'protobuf>3.20.0' && \
+#     python3 -m pip cache purge
 
 RUN echo "export LD_PRELOAD=/usr/lib/$(uname -m)-linux-gnu/libjemalloc.so.2:$LD_PRELOAD" >> ~/.bashrc
 
