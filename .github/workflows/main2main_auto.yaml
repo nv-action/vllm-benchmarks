@@ -1,0 +1,460 @@
+#
+# Copyright (c) 2025 Huawei Technologies Co., Ltd. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# This file is a part of the vllm-ascend project.
+#
+name: Main2Main Auto
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Daily at 10am UTC+8
+  workflow_dispatch:
+    inputs:
+      max_phase2_retries:
+        description: 'Max Phase 2 (error-analysis) retry rounds'
+        default: '2'
+      max_phase3_retries:
+        description: 'Max Phase 3 (bisection) retry rounds'
+        default: '1'
+      target_commit:
+        description: 'Target vLLM commit (empty = latest main)'
+        default: ''
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: write
+  actions: write
+
+concurrency:
+  group: main2main-auto
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: nv-action/vllm-benchmarks
+  FORK_REPO: Meihan-chen/vllm-benchmarks
+
+defaults:
+  run:
+    shell: bash -el {0}
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  # Phase 1: Detect vLLM changes, invoke Claude Code for proactive adaptation
+  # Push to fork, create PR to upstream
+  # ──────────────────────────────────────────────────────────────────────────
+  detect-and-adapt:
+    name: "Phase 1: Detect & Adapt"
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.detect.outputs.skip }}
+      pr_branch: ${{ steps.setup-branch.outputs.pr_branch }}
+      pr_number: ${{ steps.create-pr.outputs.pr_number }}
+      old_commit: ${{ steps.detect.outputs.old_commit }}
+      new_commit: ${{ steps.detect.outputs.new_commit }}
+    steps:
+      - name: Checkout fork repo
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ env.FORK_REPO }}
+          token: ${{ secrets.PAT_TOKEN }}
+          ref: main
+
+      - name: Setup upstream remote
+        run: |
+          git remote add upstream "https://github.com/${{ env.UPSTREAM_REPO }}.git"
+          git fetch upstream main
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+
+      - name: Detect vLLM version change
+        id: detect
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          # Ensure we're on the latest upstream main
+          git checkout -B main upstream/main
+
+          OLD_COMMIT=$(grep -oP '[0-9a-f]{40}' docs/source/community/versioning_policy.md | head -1)
+          echo "old_commit=${OLD_COMMIT}" >> "$GITHUB_OUTPUT"
+
+          TARGET="${{ inputs.target_commit }}"
+          if [[ -z "${TARGET}" ]]; then
+            TARGET=$(gh api repos/vllm-project/vllm/commits/main --jq '.sha')
+          fi
+          echo "new_commit=${TARGET}" >> "$GITHUB_OUTPUT"
+
+          if [[ "${OLD_COMMIT}" == "${TARGET}" ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check for existing main2main PR
+        if: steps.detect.outputs.skip != 'true'
+        id: check-existing
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          EXISTING=$(gh pr list --repo "${{ env.UPSTREAM_REPO }}" \
+            --label "main2main" --state open \
+            --json number --jq '.[0].number // empty')
+          if [[ -n "${EXISTING}" ]]; then
+            echo "Found existing main2main PR #${EXISTING}, skipping"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create PR branch from upstream/main
+        if: steps.detect.outputs.skip != 'true' && steps.check-existing.outputs.skip != 'true'
+        id: setup-branch
+        run: |
+          BRANCH="main2main_auto_$(date +%Y-%m-%d)"
+          git checkout -B "${BRANCH}" upstream/main
+          echo "pr_branch=${BRANCH}" >> "$GITHUB_OUTPUT"
+
+      - name: Run Claude Code — proactive adaptation
+        if: steps.detect.outputs.skip != 'true' && steps.check-existing.outputs.skip != 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            OLD_COMMIT=${{ steps.detect.outputs.old_commit }}
+            NEW_COMMIT=${{ steps.detect.outputs.new_commit }}
+
+            Follow the main2main skill instructions to:
+            1. Analyze vLLM changes between OLD_COMMIT and NEW_COMMIT using GitHub API
+            2. Apply P0/P1 adaptation fixes with vllm_version_is() guards
+            3. Update all commit hash references from OLD_COMMIT to NEW_COMMIT
+            4. Commit all changes (do NOT create a PR)
+          claude_args: >
+            --append-system-prompt-file .agents/skills/main2main/SKILL.md
+            --max-turns 30
+            --max-budget-usd 10.00
+            --allowedTools "Bash(git *),Bash(gh *),Bash(grep *),Bash(sed *),Bash(python3 *),Read,Write,Edit,Glob,Grep"
+        env:
+          MAIN2MAIN_CI_MODE: "true"
+
+      - name: Push to fork and create PR to upstream
+        if: steps.detect.outputs.skip != 'true' && steps.check-existing.outputs.skip != 'true'
+        id: create-pr
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          BRANCH="${{ steps.setup-branch.outputs.pr_branch }}"
+          OLD="${{ steps.detect.outputs.old_commit }}"
+          NEW="${{ steps.detect.outputs.new_commit }}"
+
+          # Push branch to fork (origin = vllm-ascend-ci/vllm-ascend)
+          git push -f origin "${BRANCH}"
+
+          # Create PR from fork to upstream
+          PR_URL=$(gh pr create \
+            --repo "${{ env.UPSTREAM_REPO }}" \
+            --head "${{ env.FORK_REPO }}:${BRANCH}" \
+            --base main \
+            --title "feat: upgrade to vLLM main ($(date +%Y-%m-%d))" \
+            --body "## Summary
+          Automated main2main upgrade via Claude Code.
+
+          **Commit range:** \`${OLD:0:12}\`...\`${NEW:0:12}\`
+
+          Phase 1 (proactive adaptation) complete. CI tests will run next.
+
+          🤖 Generated with [Claude Code](https://claude.com/claude-code)" --draft)
+
+          PR_NUMBER=$(echo "${PR_URL}" | grep -oP '\d+$')
+          echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+
+          # Add labels: main2main (identity) + ready/ready-for-test (trigger E2E-Full)
+          gh pr edit "${PR_NUMBER}" --repo "${{ env.UPSTREAM_REPO }}" \
+            --add-label "main2main" --add-label "ready" --add-label "ready-for-test"
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Phase 2: Wait for PR CI (E2E-Full), let Claude analyze failures and fix
+  # ──────────────────────────────────────────────────────────────────────────
+  run-and-fix:
+    name: "Phase 2: Test & Fix"
+    needs: detect-and-adapt
+    if: needs.detect-and-adapt.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 720
+    outputs:
+      all_passed: ${{ steps.loop.outputs.all_passed }}
+      last_run_id: ${{ steps.loop.outputs.last_run_id }}
+      remaining_failures: ${{ steps.loop.outputs.remaining_failures }}
+    steps:
+      - name: Checkout fork repo (PR branch)
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ env.FORK_REPO }}
+          token: ${{ secrets.PAT_TOKEN }}
+          ref: ${{ needs.detect-and-adapt.outputs.pr_branch }}
+          fetch-depth: 0
+
+      - name: Setup git
+        run: |
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+
+      - name: Phase 2 — test and fix loop
+        id: loop
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          MAX_RETRIES="${{ inputs.max_phase2_retries || '2' }}"
+          BRANCH="${{ needs.detect-and-adapt.outputs.pr_branch }}"
+          PR_NUMBER="${{ needs.detect-and-adapt.outputs.pr_number }}"
+          REPO="${{ env.UPSTREAM_REPO }}"
+          OLD="${{ needs.detect-and-adapt.outputs.old_commit }}"
+          NEW="${{ needs.detect-and-adapt.outputs.new_commit }}"
+          ALL_PASSED="false"
+          SESSION_ID=""
+
+          for ROUND in $(seq 1 "${MAX_RETRIES}"); do
+            echo "::group::Phase 2 Round ${ROUND}/${MAX_RETRIES}"
+
+            # 1. Wait for PR CI (E2E-Full) to complete
+            #    Round 1: triggered by Phase 1's label addition (labeled event)
+            #    Round 2+: triggered by Claude's fix push (synchronize event)
+            echo "Waiting for PR #${PR_NUMBER} checks to complete..."
+            gh pr checks "${PR_NUMBER}" --repo "${REPO}" --watch --fail-level all || true
+
+            # 2. Find the latest E2E-Full run
+            RUN_ID=$(gh run list --workflow pr_test_full.yaml \
+              --branch "${BRANCH}" --repo "${REPO}" \
+              --limit 1 --json databaseId --jq '.[0].databaseId')
+            echo "last_run_id=${RUN_ID}" >> "$GITHUB_OUTPUT"
+
+            CONCLUSION=$(gh run view "${RUN_ID}" --repo "${REPO}" \
+              --json conclusion --jq '.conclusion')
+            echo "E2E-Full conclusion: ${CONCLUSION}"
+
+            # 3. All passed?
+            if [[ "${CONCLUSION}" == "success" ]]; then
+              echo "All PR CI (E2E-Full) tests passed!"
+              ALL_PASSED="true"
+              echo "::endgroup::"
+              break
+            fi
+
+            # 4. Invoke Claude Code with main2main-error-analysis skill
+            #    Claude will run extract_and_analyze.py to download logs,
+            #    extract root-cause errors, and generate targeted fixes.
+            RESUME_FLAG=""
+            if [[ -n "${SESSION_ID}" ]]; then
+              RESUME_FLAG="--resume ${SESSION_ID}"
+            fi
+
+            RESULT=$(claude -p "Round ${ROUND}: Analyze and fix CI failures.
+
+            RUN_ID=${RUN_ID}
+            REPO=${REPO}
+            OLD_COMMIT=${OLD}
+            NEW_COMMIT=${NEW}
+
+            Follow the main2main-error-analysis skill instructions:
+            1. Run extract_and_analyze.py with --run-id ${RUN_ID} to download logs and extract root-cause errors
+            2. Only fix code_bugs, skip env_flakes
+            3. Apply vllm_version_is() guards where appropriate
+            4. Commit each fix separately
+            5. Do NOT push — the workflow will handle pushing" \
+              --append-system-prompt-file .agents/skills/main2main-error-analysis/SKILL.md \
+              --output-format json \
+              --max-turns 25 \
+              --max-budget-usd 5.00 \
+              --allowedTools "Bash(git *),Bash(gh *),Bash(grep *),Bash(sed *),Bash(python3 *),Bash(pre-commit *),Read,Write,Edit,Glob,Grep" \
+              ${RESUME_FLAG})
+
+            # Capture session ID for resume in next round
+            SESSION_ID=$(echo "${RESULT}" | jq -r '.session_id // empty')
+
+            # Extract remaining failures from Claude's output for Phase 3
+            FAILED_TESTS=$(echo "${RESULT}" | jq -r '.result // empty' | \
+              grep -oP 'remaining.*?(\[.*?\])' | grep -oP '\[.*\]' || echo "[]")
+            echo "remaining_failures=${FAILED_TESTS}" >> "$GITHUB_OUTPUT"
+
+            # Push fixes to fork — triggers E2E-Full via synchronize event
+            git push origin "${BRANCH}" || true
+
+            echo "::endgroup::"
+          done
+
+          echo "all_passed=${ALL_PASSED}" >> "$GITHUB_OUTPUT"
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Phase 3: Bisect remaining failures, apply targeted fixes
+  # ──────────────────────────────────────────────────────────────────────────
+  bisect-and-fix:
+    name: "Phase 3: Bisect & Fix"
+    needs: [detect-and-adapt, run-and-fix]
+    if: needs.run-and-fix.outputs.all_passed != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    outputs:
+      all_passed: ${{ steps.verify.outputs.all_passed }}
+    steps:
+      - name: Checkout fork repo (PR branch)
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ env.FORK_REPO }}
+          token: ${{ secrets.PAT_TOKEN }}
+          ref: ${{ needs.detect-and-adapt.outputs.pr_branch }}
+          fetch-depth: 0
+
+      - name: Setup git
+        run: |
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+
+      - name: Trigger bisect workflow
+        id: bisect
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          OLD="${{ needs.detect-and-adapt.outputs.old_commit }}"
+          NEW="${{ needs.detect-and-adapt.outputs.new_commit }}"
+          REMAINING='${{ needs.run-and-fix.outputs.remaining_failures }}'
+
+          TEST_CMDS=$(echo "${REMAINING}" | python3 -c "
+          import sys, json
+          tests = json.load(sys.stdin)
+          print('; '.join(f'pytest -sv {t}' for t in tests))
+          ")
+
+          gh workflow run bisect_vllm.yaml \
+            --repo "${{ env.UPSTREAM_REPO }}" \
+            -f good_commit="${OLD}" \
+            -f bad_commit="${NEW}" \
+            -f test_cmd="${TEST_CMDS}"
+
+          sleep 60
+          RUN_ID=$(gh run list --workflow bisect_vllm.yaml \
+            --repo "${{ env.UPSTREAM_REPO }}" \
+            --limit 1 --json databaseId --jq '.[0].databaseId')
+
+          gh run watch "${RUN_ID}" --repo "${{ env.UPSTREAM_REPO }}" \
+            --exit-status || true
+
+          echo "bisect_run_id=${RUN_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Download bisect results
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          gh run download "${{ steps.bisect.outputs.bisect_run_id }}" \
+            --repo "${{ env.UPSTREAM_REPO }}" \
+            --name bisect-summary \
+            --dir /tmp/bisect_results || echo "No bisect-summary artifact"
+
+      - name: Apply targeted fixes
+        id: fix
+        uses: anthropics/claude-code-action@v1
+        if: hashFiles('/tmp/bisect_results/bisect_summary.md') != ''
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            The bisection identified culprit commits for each failing test.
+            BISECT_RESULTS are in /tmp/bisect_results/bisect_summary.md.
+
+            For each culprit:
+            1. Fetch the culprit commit's diff via gh api
+            2. Generate a targeted vllm-ascend fix with vllm_version_is() guard
+            3. Commit each fix separately (do NOT push)
+          claude_args: >
+            --append-system-prompt-file .agents/skills/main2main/SKILL.md
+            --max-turns 25
+            --max-budget-usd 5.00
+            --allowedTools "Bash(git *),Bash(gh *),Bash(grep *),Bash(sed *),Read,Write,Edit,Glob,Grep"
+        env:
+          MAIN2MAIN_CI_MODE: "true"
+
+      - name: Push fixes and verify with PR CI
+        id: verify
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          BRANCH="${{ needs.detect-and-adapt.outputs.pr_branch }}"
+          PR_NUMBER="${{ needs.detect-and-adapt.outputs.pr_number }}"
+          REPO="${{ env.UPSTREAM_REPO }}"
+
+          # Push fixes to fork — triggers E2E-Full via synchronize event
+          git push origin "${BRANCH}" || true
+
+          # Wait for PR CI to complete
+          echo "Waiting for PR #${PR_NUMBER} checks after Phase 3 fixes..."
+          gh pr checks "${PR_NUMBER}" --repo "${REPO}" --watch --fail-level all || true
+
+          RUN_ID=$(gh run list --workflow pr_test_full.yaml \
+            --branch "${BRANCH}" --repo "${REPO}" \
+            --limit 1 --json databaseId --jq '.[0].databaseId')
+
+          CONCLUSION=$(gh run view "${RUN_ID}" --repo "${REPO}" \
+            --json conclusion --jq '.conclusion')
+
+          [[ "${CONCLUSION}" == "success" ]] && echo "all_passed=true" >> "$GITHUB_OUTPUT" \
+            || echo "all_passed=false" >> "$GITHUB_OUTPUT"
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Report: mark PR ready or create issue on failure
+  # ──────────────────────────────────────────────────────────────────────────
+  report:
+    name: "Report"
+    needs: [detect-and-adapt, run-and-fix, bisect-and-fix]
+    if: always() && needs.detect-and-adapt.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate report
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          PR="${{ needs.detect-and-adapt.outputs.pr_number }}"
+          OLD="${{ needs.detect-and-adapt.outputs.old_commit }}"
+          NEW="${{ needs.detect-and-adapt.outputs.new_commit }}"
+          P2="${{ needs.run-and-fix.outputs.all_passed }}"
+          P3="${{ needs.bisect-and-fix.outputs.all_passed }}"
+          REPO="${{ env.UPSTREAM_REPO }}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          if [[ "${P2}" == "true" || "${P3}" == "true" ]]; then
+            gh pr ready "${PR}" --repo "${REPO}"
+            PHASES="Phase 1 only"
+            [[ "${P2}" == "true" ]] && PHASES="Phase 1 + Phase 2"
+            [[ "${P3}" == "true" ]] && PHASES="Phase 1 + Phase 2 + Phase 3"
+
+            gh pr comment "${PR}" --repo "${REPO}" --body "## Main2Main Auto — Success ✅
+
+          | Item | Value |
+          |:---|:---|
+          | **Commit Range** | \`${OLD:0:12}\`...\`${NEW:0:12}\` |
+          | **Phases Used** | ${PHASES} |
+          | **Workflow Run** | [${GITHUB_RUN_ID}](${RUN_URL}) |"
+          else
+            REMAINING='${{ needs.run-and-fix.outputs.remaining_failures }}'
+            gh issue create --repo "${REPO}" \
+              --title "Main2Main Auto: manual review needed ($(date +%Y-%m-%d))" \
+              --label "main2main" \
+              --body "## Main2Main Auto — Needs Human Review
+
+          | Item | Value |
+          |:---|:---|
+          | **Commit Range** | \`${OLD:0:12}\`...\`${NEW:0:12}\` |
+          | **PR** | #${PR} |
+          | **Workflow Run** | [${GITHUB_RUN_ID}](${RUN_URL}) |
+
+          ### Remaining Failures
+          \`\`\`json
+          ${REMAINING}
+          \`\`\`"
+          fi
