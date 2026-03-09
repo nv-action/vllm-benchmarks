@@ -1,21 +1,22 @@
 ---
 name: main2main-error-analysis
 description: |
-  Diagnoses and fixes vLLM-Ascend CI failures caused by upstream vLLM main branch changes.
-  Works in two modes:
-  - Interactive: given a CI run URL, extracts errors, generates report, applies fixes, creates PR
-  - CI pipeline: given pre-extracted failures JSON, applies targeted fixes to existing branch
+  Automates root-cause analysis of vLLM-Ascend CI failures triggered by upstream vLLM main branch updates.
+  Given a GitHub Actions workflow run, this skill extracts failed test cases,
+  mines error logs for true root causes, traces failures to specific upstream vLLM commits, generates a
+  structured diagnostic report (vllm_error_analyze.md), applies adaptation fixes, and creates a PR.
+
+  Use this skill whenever:
+  - The user shares a GitHub Actions URL or run ID related to vLLM-Ascend CI failures
+  - The user mentions CI failures related to vLLM main branch updates or "main2main" test failures
+  - The user asks to analyze, debug, or fix failures in vllm-ascend E2E tests caused by upstream changes
+  - The user wants to understand what broke between a "good" pinned commit and a "bad" upstream commit
+  - Even if the user just says "the nightly CI is red" or "schedule tests are failing" — use this skill
 ---
 
 # main2main-error-analysis
 
-Diagnose and fix vLLM-Ascend CI failures caused by upstream vLLM main branch evolution. This skill implements a 4-phase pipeline: context acquisition, change analysis, report generation, and automated fix with PR submission.
-
-## Mode Detection
-
-Check for the environment variable `MAIN2MAIN_CI_MODE`:
-- **If set:** CI pipeline mode — failures already extracted, skip report, commit without PR
-- **If unset:** Interactive mode — full 4-phase pipeline as before
+Diagnose and fix vLLM-Ascend CI failures caused by upstream vLLM main branch evolution. This skill implements a 4-phase pipeline: context acquisition, log mining, change analysis, report generation, and automated fix with PR submission.
 
 ## Prerequisites
 
@@ -33,13 +34,13 @@ Also verify you are inside the vllm-ascend repository:
 git rev-parse --show-toplevel  # Should end with vllm-ascend
 ```
 
-Locate the vLLM upstream repo. If not found, prompt the user to specify the exact path to the vLLM git repository.
+Locate the vLLM upstream repo, if not found, prompt the user to specify the exact path to the vLLM git repository.
 
 Before Phase 2, ensure the vllm repo has both the good and bad commits:
 
 ```bash
-git cat-file -t <GOOD_COMMIT>
-git cat-file -t <BAD_COMMIT>
+git cat-file -t <GOOD_COMMIT>  
+git cat-file -t <BAD_COMMIT> 
 ```
 
 ---
@@ -55,11 +56,9 @@ CI logs can be enormous (10K+ lines per job). To avoid exhausting your context o
 
 ---
 
-## Phase 1: Fault Context Acquisition
+## Phase 1: Fault Context Acquisition — Use the Script
 
-**CI mode:** Read pre-extracted failures from the file path in `FAILURES_FILE` env var (or from the prompt). The JSON has the same schema as `extract_and_analyze.py` output. Skip running the script — just parse the JSON.
-
-**Interactive mode:** Run the bundled script:
+This skill bundles `scripts/extract_and_analyze.py` which handles Phases 1 and 2 automatically. **Always run the script first** to avoid wasting tokens on manual log parsing.
 
 ### 1.1 Run the Extraction Script
 
@@ -74,15 +73,16 @@ python3 <SKILL_DIR>/scripts/extract_and_analyze.py --llm-output -o /tmp/ci_analy
 ```
 
 The script will:
+
 - Find the failed workflow run and download logs for each failed job
-- Extract the **bad commit** from the vLLM version string in the logs
-- Extract the **good commit** from `.github/workflows/pr_test_full.yaml`
-- Parse all failed test identifiers using three regex patterns
+- Extract the **bad commit** from the vLLM version string in the logs (e.g., `vLLM 0.1.dev1+g6d4f9d3ad.empty` → `6d4f9d3ad`)
+- Extract the **good commit** from `.github/workflows/pr_test_full.yaml` (the `vllm_version` matrix field)
+- Parse all failed test identifiers using three regex patterns (inline, summary block, pytest FAILED line)
 - Extract root-cause exceptions (TypeError, AttributeError, ImportError, etc.)
 - Skip wrapper errors (`Engine core initialization failed`, `Worker failed with error`)
 - Filter downstream effects (`KeyError: 'choices'` caused by upstream engine crash)
-- Detect environment flakes (`Stale file handle`, `ConnectionResetError`, `filelock` errors)
-- Deduplicate errors by normalized signature
+- Detect environment flakes (`Stale file handle`, `ConnectionResetError`, `filelock` errors) — even when embedded inside assertion messages
+- Deduplicate errors by normalized signature (stripping PIDs, timestamps, addresses, errno numbers)
 - Output a structured JSON report
 
 ### 1.2 Read the Script Output
@@ -100,7 +100,7 @@ Load `/tmp/ci_analysis.json` and extract the key fields:
 }
 ```
 
-**Phase 1 outputs:** `RUN_ID`, `GOOD_COMMIT`, `BAD_COMMIT` and list of `code_bugs`
+**Phase 1 outputs:** `RUN_ID`, `GOOD_COMMIT`, `BAD_COMMIT`and list of `code_bugs`
 
 ---
 
@@ -119,11 +119,13 @@ git diff  <GOOD_COMMIT>..<BAD_COMMIT> --name-only
 ```
 
 List commits in the range:
+
 ```bash
 git log --oneline <GOOD_COMMIT>..<BAD_COMMIT>
 ```
 
 Focus on files in these critical paths:
+
 - `vllm/platforms/` — Platform interface changes
 - `vllm/model_executor/layers/attention/` — Attention backends
 - `vllm/model_executor/layers/fused_moe/` — MoE layer
@@ -142,18 +144,18 @@ For each code bug from the script output, use the error type, message, and conte
 
 Map vLLM changes to their vllm-ascend counterparts:
 
-| vLLM Source Path                          | vllm-ascend Target Path                                                          |
-| :---------------------------------------- | :------------------------------------------------------------------------------- |
-| `vllm/platforms/`                         | `vllm_ascend/platform.py`                                                        |
-| `vllm/model_executor/layers/attention/`   | `vllm_ascend/attention/`, `vllm_ascend/ops/mm_encoder_attention.py`              |
-| `vllm/model_executor/layers/fused_moe/`   | `vllm_ascend/ops/moe.py`                                                         |
-| `vllm/model_executor/layers/layernorm.py` | `vllm_ascend/ops/layernorm.py`                                                   |
-| `vllm/model_executor/custom_op.py`        | `vllm_ascend/ops/` (any file registering custom ops)                             |
-| `vllm/v1/worker/gpu/model_runner.py`      | `vllm_ascend/worker/model_runner_v1.py`, `vllm_ascend/worker/v2/model_runner.py` |
-| `vllm/v1/worker/gpu/spec_decode/`         | `vllm_ascend/spec_decode/`                                                       |
-| `vllm/distributed/`                       | `vllm_ascend/distributed/`                                                       |
-| `vllm/config*.py`                         | `vllm_ascend/ascend_config.py`                                                   |
-| `vllm/compilation/`                       | `vllm_ascend/compilation/` or config overrides                                   |
+| vLLM Source Path | vllm-ascend Target Path |
+|:---|:---|
+| `vllm/platforms/` | `vllm_ascend/platform.py` |
+| `vllm/model_executor/layers/attention/` | `vllm_ascend/attention/`, `vllm_ascend/ops/mm_encoder_attention.py` |
+| `vllm/model_executor/layers/fused_moe/` | `vllm_ascend/ops/moe.py` |
+| `vllm/model_executor/layers/layernorm.py` | `vllm_ascend/ops/layernorm.py` |
+| `vllm/model_executor/custom_op.py` | `vllm_ascend/ops/` (any file registering custom ops) |
+| `vllm/v1/worker/gpu/model_runner.py` | `vllm_ascend/worker/model_runner_v1.py`, `vllm_ascend/worker/v2/model_runner.py` |
+| `vllm/v1/worker/gpu/spec_decode/` | `vllm_ascend/spec_decode/` |
+| `vllm/distributed/` | `vllm_ascend/distributed/` |
+| `vllm/config*.py` | `vllm_ascend/ascend_config.py` |
+| `vllm/compilation/` | `vllm_ascend/compilation/` or config overrides |
 
 **Phase 2 outputs:** For each code bug, the causal upstream commit(s), the changed vLLM file(s), and the affected vllm-ascend file(s).
 
@@ -161,9 +163,9 @@ Map vLLM changes to their vllm-ascend counterparts:
 
 ## Phase 3: Generate Diagnostic Report
 
-**CI mode:** Skip this phase entirely. The orchestrator's report job handles reporting.
+Write `vllm_error_analyze.md` in the repository root **as early as possible**. Start writing it right after Phase 1 completes — fill in the Overview, Failed Jobs Summary, and error list immediately. Then update the Issue Analysis sections with upstream commit details as you complete Phase 2. This incremental approach ensures a useful report exists even if you can't finish all the tracing.
 
-**Interactive mode:** Write `vllm_error_analyze.md` in the repository root **as early as possible**.
+Use the script output JSON to populate it — do not re-download logs.
 
 ```markdown
 # vLLM-Ascend CI Failure Analysis Report
@@ -182,7 +184,7 @@ Map vLLM changes to their vllm-ascend counterparts:
 ## Failed Jobs Summary
 
 | Job        | Conclusion | Failed Tests     |
-| :--------- | :--------- | :--------------- |
+|:---        |:---        |:---              |
 | <job_name> | failure    | <test1>, <test2> |
 
 ## Issue Analysis
@@ -205,6 +207,8 @@ Map vLLM changes to their vllm-ascend counterparts:
 
 **Fix Suggestion:** <Specific code change needed>
 
+### Issue 2: ...
+
 ## Summary Table
 
 | #    | Error | Category | Upstream Commit | Affected Tests | Fix  |
@@ -219,17 +223,17 @@ Map vLLM changes to their vllm-ascend counterparts:
 
 ---
 
-## Phase 4: Apply Fixes
+## Phase 4: Automated Fix & PR Submission
 
 ### 4.1 Apply Fixes
 
 Only fix `Code Bug` issues. Skip `Environment Flake` issues entirely.
 
-Map each error to the corresponding fix pattern in the **main2main** skill's Fix Patterns section. The patterns cover frequently seen upstream vLLM evolution issues with concrete fix examples.
+Map each error to the corresponding fix pattern in **Common Error Patterns Reference** below. The patterns cover frequently seen upstream vLLM evolution issues with concrete fix examples.
 
 ### 4.2 Version Compatibility Pattern
 
-Most fixes require `vllm_version_is()` guards to maintain compatibility with both the pinned release version and main branch:
+Most fixes require `vllm_version_is()` guards to maintain compatibility with both the pinned release version and main branch. The compatible release version comes from the `vllm_version` matrix in `.github/workflows/pr_test_full.yaml`:
 
 ```python
 from vllm_ascend.utils import vllm_version_is
@@ -240,42 +244,41 @@ else:
     # Use new API
 ```
 
+This pattern appears throughout the Common Error Patterns below.
+
 ### 4.3 Update vLLM Commit References
 
-**CI mode:** Skip — Phase 1 (main2main skill) already did this.
-
-**Interactive mode:** Run grep-and-replace:
+After applying code fixes, update all vllm commit references in vllm-ascend from the **good commit** to the **bad commit**. Use a repo-wide grep-and-replace:
 
 ```bash
+# Find all files containing the good commit and replace with bad commit
 grep -Frl "<GOOD_COMMIT>" . | xargs sed -i '' "s/<GOOD_COMMIT>/<BAD_COMMIT>/g"
 ```
 
 Verify no old references remain:
+
 ```bash
 grep -Frn "<GOOD_COMMIT>" .
 # Should return nothing
 ```
 
-### 4.4 Commit Changes
+### 4.4 Create Branch and PR
 
-**CI mode:** Commit each fix separately to the current branch:
-```bash
-git add -u
-git commit -m "fix: <error_type> in <affected_file> — <description>"
-```
-Do NOT create branch or PR — the orchestrator manages the PR.
-
-**Interactive mode:** Create branch and PR:
+After applying all fixes and updating commit references:
 
 ```bash
+# Remove the analysis report (it's for local diagnosis only, not for the repo)
 rm -f vllm_error_analyze.md
 
+# Create a descriptive branch
 git checkout main
 git checkout -b main2main-ci-$(date +%Y%m%d)
 
-pre-commit run --all-files
+# Stage all modified files
+pre-commit run --all-files 
 git add -u
 
+# Commit with structured message
 git commit -m "fix: adapt to upstream vLLM changes (<GOOD_COMMIT_SHORT>..<BAD_COMMIT_SHORT>)
 
 Root causes:
@@ -286,6 +289,7 @@ Upstream commit range: <GOOD_COMMIT>..<BAD_COMMIT>
 
 Co-Authored-By: Claude Code <noreply@anthropic.com>"
 
+# Push and create PR
 git push -u origin main2main-ci-$(date +%Y%m%d)
 
 gh pr create \
@@ -303,6 +307,8 @@ Fixes CI failures in schedule_test_vllm_main caused by upstream vLLM changes.
 ### Issues Skipped (Environment Flakes)
 - <flake description> — no code fix needed
 
+See `vllm_error_analyze.md` for full analysis.
+
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
 )"
@@ -315,49 +321,62 @@ EOF
 These are the most frequently seen failure patterns when upstream vLLM evolves:
 
 ### Pattern: Method Signature Change
+
 - **Error:** `TypeError: forward_oot() got an unexpected keyword argument 'X'` or `missing 1 required positional argument: 'X'`
-- **Cause:** vLLM changed a method signature — parameter added, removed, renamed, or full API replacement.
+- **Cause:** vLLM changed a method signature — parameter added, removed, renamed, or full API replacement (e.g., `disable_full` → `valid_modes`/`invalid_modes`).
 - **Fix:** Compare signatures at good vs bad commit, then adapt:
+
 ```python
 from vllm_ascend.utils import vllm_version_is
 
 # Option 1: Add parameter conditionally to call site
 kwargs = {"existing_param": value}
-if not vllm_version_is("0.16.0"):
+if not vllm_version_is("0.16.0"):  # version before the change
     kwargs["new_param"] = new_value
 function(**kwargs)
 
 # Option 2: Add default parameter to OOT method signature
 def forward_oot(self, query, key, value, cu_seqlens=None, max_seqlen=None, new_param=None):
 ```
-**Important:** When creating version-guarded branches, all branches must define the function with identical signatures.
+
+For full API replacements, adapt the call site to match the new API — do NOT blindly add the old parameter.
+**Important:** When creating version-guarded branches, all branches must define the function with identical signatures (convert lambdas to `def` if needed). Mismatched signatures across branches cause mypy `[call-arg]` errors.
 
 ### Pattern: Config/Attribute Change
-- **Error:** `AttributeError: 'CompilationConfig' object has no attribute 'X'`
-- **Cause:** Upstream moved an attribute/config field between classes, restructured a config class, or added a new required field.
-- **Fix:** Use `vllm_version_is()` to access from the correct location.
 
-### Pattern: Custom Op Not Registered
-- **Error:** `AttributeError: '_OpNamespace' '_C' object has no attribute 'op_name'`
-- **Cause:** vLLM code references a CUDA custom op not available on Ascend.
-- **Fix:** Register an equivalent Ascend op, or override config.
+- **Error:** `AttributeError: 'CompilationConfig' object has no attribute 'X'`, `KeyError: 'field_name'`, or `Config object has no attribute 'Y'`
+- **Cause:** Upstream moved an attribute/config field between classes, restructured a config class, or added a new required field (e.g., `bs_to_padded_graph_size` moved to `CudagraphDispatcher`, `uses_mrope` moved from target to draft model config, `enable_eplb` added to `FusedMoEParallelConfig`).
+- **Fix:** Use `vllm_version_is()` to access from the correct location:
+
+```python
+if vllm_version_is('0.16.0'):
+    value = self.vllm_config.old_location.attribute
+else:
+    value = self.new_class.new_location.attribute
+```
+
+For config access that changes frequently, consider helper methods like `_get_positions()` / `_set_positions()` to abstract the logic. For new required fields, add them to the config wrapper.
 
 ### Pattern: Method Return Type Change
-- **Error:** `TypeError: '>' not supported between instances of 'NoneType' and 'NoneType'`
-- **Cause:** Upstream changed a method's return type.
+
+- **Error:** `TypeError: '>' not supported between instances of 'NoneType' and 'NoneType'` or similar comparison errors on None
+- **Cause:** Upstream changed a method from returning `None` to returning a value (e.g., `float`), and the caller now uses it.
 - **Fix:** Update the OOT override to return the expected value.
 
 ### Pattern: Module Reorganization
-- **Error:** `ImportError: cannot import name 'X' from 'vllm.old.path'`
-- **Cause:** vLLM moved/renamed a module, or removed it entirely.
-- **Fix:** Use `vllm_version_is()` to branch imports. For removed modules, clean removal over `# type: ignore`.
+
+- **Error:** `ImportError: cannot import name 'X' from 'vllm.old.path'`, or  `error: Cannot find implementation or library stub for module named "vllm.X"  [import-not-found]`
+- **Cause:** vLLM moved/renamed a module, or removed it entirely (e.g., `vllm._bc_linter`).
+- **Fix:** For moved/renamed modules, use `vllm_version_is()` to branch imports. For removed modules, delete the import **and** all usages (decorators, function calls) — clean removal over `# type: ignore`.
 
 ### Pattern: Platform Interface Addition
+
 - **Error:** `TypeError: Can't instantiate abstract class AscendPlatform with abstract method X`
-- **Cause:** New abstract method added to vLLM's `Platform` base class.
-- **Fix:** Implement the method in `vllm_ascend/platform.py`.
+- **Cause:** New abstract method added to vLLM's `Platform` base class
+- **Fix:** Implement the method in `vllm_ascend/platform.py`
 
 ### Pattern: Environment Flakes (NO FIX NEEDED)
+
 - `OSError: [Errno 116] Stale file handle` — multi-process NFS race
 - `ConnectionResetError` — transient network
 - `filelock` errors — model download contention
