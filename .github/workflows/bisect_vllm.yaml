@@ -16,10 +16,15 @@
 #
 
 name: Bisect vLLM
+run-name: Bisect vLLM caller-${{ inputs.caller_run_id }}
 
 on:  
   workflow_dispatch:
     inputs:
+      caller_run_id:
+        description: 'Caller workflow run id for traceability'
+        required: false
+        default: 'manual'
       good_commit:
         description: 'Known good vllm commit (leave empty to auto-detect from main branch)'
         required: false
