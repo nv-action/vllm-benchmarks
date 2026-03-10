@@ -355,6 +355,9 @@ class NPUPlatform(Platform):
             else:
                 parallel_config.worker_cls = "vllm_ascend.worker.worker.NPUWorker"
 
+        # Update block size for attention backend compatibility
+        cls.update_block_size_for_backend(vllm_config)
+
         refresh_block_size(vllm_config)
 
         # Activate custom ops for v1, except on 310P
@@ -516,6 +519,65 @@ class NPUPlatform(Platform):
 
     @classmethod
     def opaque_attention_op(cls) -> bool:
+        return True
+
+    @classmethod
+    def update_block_size_for_backend(cls, vllm_config: VllmConfig) -> None:
+        """
+        Ensure block_size is compatible with the attention backend.
+        """
+        from vllm.config.cache import CacheConfig
+
+        cache_config = vllm_config.cache_config
+        if cache_config.user_specified_block_size:
+            # User specified --block-size; keep it.
+            return
+
+        model_config = vllm_config.model_config
+        # model_config may be None during testing.
+        # Skip hybrid models — their block_size is managed by
+        # HybridAttentionMambaModelConfig.
+        if model_config is None or model_config.is_hybrid:
+            cache_config.block_size = CacheConfig.DEFAULT_BLOCK_SIZE
+            return
+
+        from vllm.config.vllm import (
+            get_layers_from_vllm_config,
+            set_current_vllm_config,
+        )
+        from vllm.model_executor.layers.attention_layer_base import (
+            AttentionLayerBase,
+        )
+
+        attn_layers = get_layers_from_vllm_config(
+            vllm_config,
+            AttentionLayerBase,  # type: ignore[type-abstract]
+        )
+        if not attn_layers:
+            cache_config.block_size = CacheConfig.DEFAULT_BLOCK_SIZE
+            return
+
+        first_layer = next(iter(attn_layers.values()))
+        backend_cls = first_layer.get_attn_backend()
+        with set_current_vllm_config(vllm_config):
+            preferred = backend_cls.get_preferred_block_size(
+                CacheConfig.DEFAULT_BLOCK_SIZE
+            )
+        if preferred != CacheConfig.DEFAULT_BLOCK_SIZE:
+            logger.info(
+                "Setting kv cache block size to %d for %s backend.",
+                preferred,
+                backend_cls.get_name(),
+            )
+        cache_config.block_size = preferred
+
+    @classmethod
+    def use_custom_op_collectives(cls) -> bool:
+        """
+        Whether this platform should use torch.ops.vllm.* custom ops for collectives.
+
+        Returns True for Ascend NPU to enable custom collective operations.
+        """
         return True
 
     @classmethod
