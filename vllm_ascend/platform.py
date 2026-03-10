@@ -158,6 +158,16 @@ class NPUPlatform(Platform):
         return None
 
     @classmethod
+    def update_block_size_for_backend(cls, vllm_config: VllmConfig) -> None:
+        """
+        Update block_size for Ascend backend.
+        NPU uses different block size logic than CUDA.
+        """
+        from vllm_ascend.utils import refresh_block_size
+
+        refresh_block_size(vllm_config)
+
+    @classmethod
     def get_device_name(cls, device_id: int = 0) -> str:
         return torch.npu.get_device_name(device_id)
 
