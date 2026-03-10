@@ -41,8 +41,21 @@ class AclGraphManager(CudaGraphManager):
         use_mrope: bool,
         device: torch.device,
     ):
+        # Extract cudagraph_mode and decode_query_len from vllm_config
+        # to match the new CudaGraphManager constructor signature
+        compilation_config = vllm_config.compilation_config
+        assert compilation_config is not None
+        cudagraph_mode = compilation_config.cudagraph_mode
+
+        # For Ascend NPUs, we typically use decode_query_len = 1
+        # This may need adjustment based on speculative decoding settings
+        decode_query_len = 1
+
         with torch_cuda_wrapper():
-            super().__init__(vllm_config, use_mrope, device)
+            super().__init__(vllm_config, device, cudagraph_mode, decode_query_len)
+
+        # Store use_mrope for Ascend-specific logic
+        self.use_mrope = use_mrope
 
     def capture_graph(
         self,

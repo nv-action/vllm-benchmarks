@@ -60,6 +60,8 @@ class NPUModelRunner(GPUModelRunner):
         del self.speculator
 
         # NPU specific initializations can be added below.
+        # Note: AclGraphManager now uses the new CudaGraphManager signature
+        # which extracts cudagraph_mode and decode_query_len from vllm_config
         self.cudagraph_manager: AclGraphManager = AclGraphManager(
             self.vllm_config,
             self.uses_mrope,
