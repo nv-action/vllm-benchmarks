@@ -211,3 +211,5 @@ kernel_meta/
 fusion_result.json
 csrc/output/
 
+# claude code skills
+.claude/skills/*

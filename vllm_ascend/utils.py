@@ -485,7 +485,10 @@ def update_aclgraph_sizes(vllm_config: VllmConfig) -> None:
     resources_per_graph = num_hidden_layers + 1
     # For suffix decoding, use the suffix path when no draft_model_config is provided.
     if (spec := vllm_config.speculative_config) and (draft := spec.draft_model_config):
-        resources_per_graph += draft.hf_config.num_hidden_layers + 1
+        # Use get_total_num_hidden_layers() to correctly handle MTP models,
+        # which store layer count in num_nextn_predict_layers or
+        # mtp_num_hidden_layers (for Qwen3.5) instead of num_hidden_layers.
+        resources_per_graph += draft.get_total_num_hidden_layers() + 1
 
     # TODO: Find out whether we need to take into account the pp_size
     num_comm_groups = sum(
@@ -597,6 +600,7 @@ def register_ascend_customop(vllm_config: VllmConfig | None = None):
     from vllm.model_executor.custom_op import CustomOp
 
     from vllm_ascend.ops.activation import AscendQuickGELU, AscendSiluAndMul
+    from vllm_ascend.ops.conv import AscendConv2dLayer, AscendConv3dLayer
     from vllm_ascend.ops.fused_moe.fused_moe import AscendFusedMoE, AscendSharedFusedMoE
     from vllm_ascend.ops.layernorm import AscendGemmaRMSNorm, AscendRMSNorm, AscendRMSNormGated
     from vllm_ascend.ops.linear import (
@@ -645,6 +649,8 @@ def register_ascend_customop(vllm_config: VllmConfig | None = None):
         "MMEncoderAttention": AscendMMEncoderAttention,
         "ApplyRotaryEmb": AscendApplyRotaryEmb,
         "RMSNormGated": AscendRMSNormGated,
+        "Conv2dLayer": AscendConv2dLayer,
+        "Conv3dLayer": AscendConv3dLayer,
     }
 
     # 310P: override selected ops with 310P implementations (keep minimal changes outside _310p)
@@ -1182,3 +1188,19 @@ def check_gdn_layer(vllm_config) -> bool:
             return True
 
     return False
+
+
+def get_rope_dim(vllm_config):
+    model_config = vllm_config.model_config
+
+    if model_config.use_mla:
+        rope_dim = model_config.hf_text_config.qk_rope_head_dim
+    else:
+        rope_dim = model_config.get_head_size()
+        # For models using partial rope like Qwen3-Next.
+        if hasattr(model_config.hf_text_config, "partial_rotary_factor"):
+            rope_dim = int(rope_dim * model_config.hf_text_config.partial_rotary_factor)
+        elif hasattr(model_config.hf_text_config, "rotary_dim"):
+            rope_dim = int(model_config.hf_text_config.rotary_dim)
+
+    return rope_dim
