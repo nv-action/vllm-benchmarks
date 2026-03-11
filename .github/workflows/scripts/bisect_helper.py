@@ -70,7 +70,7 @@ ENV_RULES = [
     {
         "pattern": r"tests/e2e/310p/multicard/",
         "runner": "linux-aarch64-310p-4",
-        "image": "swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-310p-ubuntu22.04-py3.11",
+        "image": "swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-310p-ubuntu22.04-py3.11",
         "test_type": "e2e",
         "container_env": {**_E2E_CONTAINER_ENV},
         "sys_deps": (
@@ -85,7 +85,7 @@ ENV_RULES = [
     {
         "pattern": r"tests/e2e/310p/",
         "runner": "linux-aarch64-310p-1",
-        "image": "swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-310p-ubuntu22.04-py3.11",
+        "image": "swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-310p-ubuntu22.04-py3.11",
         "test_type": "e2e",
         "container_env": {**_E2E_CONTAINER_ENV},
         "sys_deps": (
@@ -100,7 +100,7 @@ ENV_RULES = [
     {
         "pattern": r"tests/e2e/multicard/4-cards/",
         "runner": "linux-aarch64-a3-4",
-        "image": "m.daocloud.io/quay.io/ascend/cann:8.5.0-a3-ubuntu22.04-py3.11",
+        "image": "m.daocloud.io/quay.io/ascend/cann:8.5.1-a3-ubuntu22.04-py3.11",
         "test_type": "e2e",
         "container_env": {**_E2E_CONTAINER_ENV},
         "sys_deps": _E2E_SYS_DEPS,
@@ -111,7 +111,7 @@ ENV_RULES = [
     {
         "pattern": r"tests/e2e/multicard/2-cards/",
         "runner": "linux-aarch64-a3-2",
-        "image": "swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-a3-ubuntu22.04-py3.11",
+        "image": "swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-a3-ubuntu22.04-py3.11",
         "test_type": "e2e",
         "container_env": {**_E2E_CONTAINER_ENV, "HCCL_BUFFSIZE": "1024"},
         "sys_deps": _E2E_SYS_DEPS,
@@ -121,8 +121,8 @@ ENV_RULES = [
     },
     {
         "pattern": r"tests/e2e/singlecard/",
-        "runner": "linux-aarch64-a2b3-1",
-        "image": "swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-910b-ubuntu22.04-py3.11",
+        "runner": "linux-aarch64-a2-1",
+        "image": "swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-910b-ubuntu22.04-py3.11",
         "test_type": "e2e",
         "container_env": {**_E2E_CONTAINER_ENV},
         "sys_deps": _E2E_SYS_DEPS,
@@ -133,7 +133,7 @@ ENV_RULES = [
     {
         "pattern": r"tests/ut/",
         "runner": "linux-amd64-cpu-8-hk",
-        "image": "quay.nju.edu.cn/ascend/cann:8.5.0-910b-ubuntu22.04-py3.11",
+        "image": "quay.nju.edu.cn/ascend/cann:8.5.1-910b-ubuntu22.04-py3.11",
         "test_type": "ut",
         "container_env": {
             "VLLM_LOGGING_LEVEL": "ERROR",
@@ -166,7 +166,7 @@ ENV_RULES = [
 
 # Default fallback
 DEFAULT_RUNNER = "linux-aarch64-a3-4"
-DEFAULT_IMAGE = "m.daocloud.io/quay.io/ascend/cann:8.5.0-a3-ubuntu22.04-py3.11"
+DEFAULT_IMAGE = "m.daocloud.io/quay.io/ascend/cann:8.5.1-a3-ubuntu22.04-py3.11"
 
 # All possible container_env keys across all rules (used by workflow YAML)
 ALL_CONTAINER_ENV_KEYS = sorted({k for rule in ENV_RULES for k in rule.get("container_env", {})})

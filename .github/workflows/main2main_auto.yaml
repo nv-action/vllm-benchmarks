@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# This file is a part of the vllm-ascend project.
+# This file is a part of the vllm-benchmarks project.
 #
 
 name: Main2Main Auto
@@ -23,14 +23,50 @@ on:
     - cron: '0 2 * * *'
   workflow_dispatch:
     inputs:
+      mode:
+        description: 'Execution mode: empty/default for detect-and-adapt, fixup for explicit repair runs'
+        required: false
+        default: ''
       target_commit:
         description: 'Target vLLM commit hash (default: latest vLLM main HEAD)'
         required: false
         default: ''
-  # Phase 2/3: triggered when E2E-Full completes on a main2main PR
-  workflow_run:
-    workflows: ["E2E-Full"]
-    types: [completed]
+      pr_number:
+        description: 'PR number for explicit fixup runs'
+        required: false
+        default: ''
+      branch:
+        description: 'PR branch name for explicit fixup runs'
+        required: false
+        default: ''
+      head_sha:
+        description: 'PR head SHA for explicit fixup runs'
+        required: false
+        default: ''
+      run_id:
+        description: 'Completed E2E-Full workflow run id'
+        required: false
+        default: ''
+      run_url:
+        description: 'Completed E2E-Full workflow run URL'
+        required: false
+        default: ''
+      conclusion:
+        description: 'Completed E2E-Full conclusion'
+        required: false
+        default: ''
+      phase:
+        description: 'Explicit fixup phase: 2, 3, or done'
+        required: false
+        default: ''
+      old_commit:
+        description: 'Pinned good vLLM commit'
+        required: false
+        default: ''
+      new_commit:
+        description: 'Target bad/new vLLM commit'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -45,13 +81,11 @@ env:
 # ====================================================================
 # Phase 1: Detect & Adapt  (schedule / workflow_dispatch)
 #   Creates a cross-fork PR with the "main2main" label.
-#   Adding "ready" + "ready-for-test" labels triggers E2E-Full.
+#   Adding "main2main" + "ready" + "ready-for-test" labels triggers E2E-Full.
 #
-# Fixup: Analyze & Fix     (workflow_run from E2E-Full)
-#   When E2E-Full completes on a PR with "main2main" label:
-#   - success  → mark PR ready
-#   - failure  → Phase 2 fix (first time) or Phase 3 bisect (second time)
-#   State is tracked via labels: main2main-phase2, main2main-phase3
+# Fixup: Analyze & Fix     (workflow_dispatch with explicit context)
+#   The external orchestrator waits for E2E-Full, computes the next phase,
+#   then calls this workflow with explicit PR/run/phase/commit inputs.
 # ====================================================================
 
 jobs:
@@ -59,7 +93,7 @@ jobs:
   # Phase 1: Detect & Adapt
   # ================================================================
   detect-and-adapt:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.mode != 'fixup')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     defaults:
@@ -73,7 +107,7 @@ jobs:
       ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
 
     steps:
-      - name: Checkout fork vLLM-ascend repo
+      - name: Checkout fork vLLM-benchmarks repo
         uses: actions/checkout@v6
         with:
           repository: Meihan-chen/vllm-benchmarks
@@ -105,13 +139,6 @@ jobs:
           ref: ${{ inputs.target_commit != '' && inputs.target_commit || 'main' }}
           path: vllm-upstream
           fetch-depth: 0
-
-      - name: Debug workspace after upstream checkout
-        run: |
-          pwd
-          ls -la
-          cd ..
-          ls -la
 
       - name: Detect vLLM version change
         id: detect
@@ -188,7 +215,7 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
           prompt: |
-            Use the main2main skill to adapt vllm-ascend to the latest vLLM main branch.
+            Use the main2main skill to adapt vllm-benchmarks to the latest vLLM main branch.
             The NEW_COMMIT environment variable is set to ${{ steps.detect.outputs.new_commit }}.
             The upstream vLLM source is checked out at ../vllm-upstream.
             Analyze the upstream diff, apply adaptation fixes, and update all commit references.
@@ -249,18 +276,14 @@ jobs:
             --add-label "main2main,ready,ready-for-test"
 
   # ================================================================
-  # Fixup: Event-driven Phase 2 & Phase 3
+  # Fixup: Explicit Phase 2 & Phase 3 executor
   #
-  # Triggered when E2E-Full completes. Checks if the run belongs
-  # to a main2main PR, then applies the appropriate fix phase.
-  #
-  # State machine (via PR labels):
-  #   main2main                → first CI run, do Phase 2 on failure
-  #   main2main + phase2-done  → Phase 2 fix was pushed, do Phase 3 on failure
-  #   main2main + phase3-done  → all phases exhausted, create issue on failure
+  # Triggered explicitly by the external orchestrator after E2E-Full
+  # completes. This job validates the provided context and executes
+  # the requested outcome for phase 2 / phase 3 / done.
   # ================================================================
   fixup:
-    if: github.event_name == 'workflow_run'
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'fixup'
     runs-on: ubuntu-latest
     timeout-minutes: 420  # 7 hours (bisect can be slow)
     env:
@@ -277,43 +300,42 @@ jobs:
           gh auth status
           gh api graphql -f query='query { organization(login: "nv-action") { login } }' >/dev/null
 
-      # ── Identify the main2main PR ──
-      - name: Find main2main PR for this run
+      # ── Load explicit fixup context ──
+      - name: Load fixup context
         id: ctx
         run: |
-          RUN_ID="${{ github.event.workflow_run.id }}"
-          RUN_CONCLUSION="${{ github.event.workflow_run.conclusion }}"
-          RUN_HEAD="${{ github.event.workflow_run.head_sha }}"
+          PR_NUMBER="${{ github.event.inputs.pr_number }}"
+          PR_BRANCH="${{ github.event.inputs.branch }}"
+          RUN_HEAD="${{ github.event.inputs.head_sha }}"
+          RUN_ID="${{ github.event.inputs.run_id }}"
+          RUN_URL="${{ github.event.inputs.run_url }}"
+          RUN_CONCLUSION="${{ github.event.inputs.conclusion }}"
+          PHASE="${{ github.event.inputs.phase }}"
+          OLD_COMMIT="${{ github.event.inputs.old_commit }}"
+          NEW_COMMIT="${{ github.event.inputs.new_commit }}"
 
-          # Find open PR with main2main label
-          PR_JSON=$(gh pr list \
-            --repo "${{ env.UPSTREAM_REPO }}" \
-            --label main2main \
-            --state open \
-            --json number,headRefOid,headRefName,labels,body \
-            --jq '[.[] | select(.headRefOid=="'"$RUN_HEAD"'")][0] // empty')
+          for value_name in PR_NUMBER PR_BRANCH RUN_HEAD RUN_ID RUN_URL RUN_CONCLUSION PHASE OLD_COMMIT NEW_COMMIT; do
+            if [ -z "${!value_name}" ]; then
+              echo "::error::Missing required fixup input: ${value_name}"
+              exit 1
+            fi
+          done
 
-          if [ -z "$PR_JSON" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "No open main2main PR found for run sha ${RUN_HEAD:0:12}. Skipping."
-            exit 0
-          fi
-
-          PR_NUMBER=$(echo "$PR_JSON" | jq -r '.number')
-          PR_HEAD=$(echo "$PR_JSON" | jq -r '.headRefOid')
-          PR_BRANCH=$(echo "$PR_JSON" | jq -r '.headRefName')
-
-          # Verify this E2E-Full run is for our main2main PR
-          if [ "$PR_HEAD" != "$RUN_HEAD" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "Run ${RUN_ID} (sha=${RUN_HEAD:0:12}) is not for main2main PR #${PR_NUMBER} (sha=${PR_HEAD:0:12}). Skipping."
-            exit 0
-          fi
+          case "$PHASE" in
+            2|3|done)
+              ;;
+            *)
+              echo "::error::Invalid fixup phase: $PHASE"
+              exit 1
+              ;;
+          esac
 
           echo "skip=false" >> "$GITHUB_OUTPUT"
           echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
           echo "branch=$PR_BRANCH" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$RUN_HEAD" >> "$GITHUB_OUTPUT"
           echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "run_url=$RUN_URL" >> "$GITHUB_OUTPUT"
           echo "conclusion=$RUN_CONCLUSION" >> "$GITHUB_OUTPUT"
           case "$RUN_CONCLUSION" in
             success)
@@ -327,31 +349,11 @@ jobs:
               ;;
           esac
           echo "normalized_conclusion=$NORMALIZED_CONCLUSION" >> "$GITHUB_OUTPUT"
-
-          PR_BODY=$(echo "$PR_JSON" | jq -r '.body')
-          COMMIT_RANGE_LINE=$(echo "$PR_BODY" | grep -m1 '^\*\*Commit range:\*\* ' || true)
-          OLD_COMMIT=$(echo "$COMMIT_RANGE_LINE" | grep -oE '[0-9a-f]{40}' | head -1)
-          NEW_COMMIT=$(echo "$COMMIT_RANGE_LINE" | grep -oE '[0-9a-f]{40}' | tail -1)
-          if [ -z "$OLD_COMMIT" ] || [ -z "$NEW_COMMIT" ]; then
-            echo "::error::Missing commit range metadata in PR #${PR_NUMBER} body"
-            exit 1
-          fi
           echo "old_commit=${OLD_COMMIT}" >> "$GITHUB_OUTPUT"
           echo "new_commit=${NEW_COMMIT}" >> "$GITHUB_OUTPUT"
+          echo "phase=$PHASE" >> "$GITHUB_OUTPUT"
 
-          # Determine current phase from labels
-          LABELS=$(echo "$PR_JSON" | jq -r '[.labels[].name] | join(",")')
-          echo "labels=$LABELS" >> "$GITHUB_OUTPUT"
-
-          if echo "$LABELS" | grep -q "main2main-phase3"; then
-            echo "phase=done" >> "$GITHUB_OUTPUT"
-          elif echo "$LABELS" | grep -q "main2main-phase2"; then
-            echo "phase=3" >> "$GITHUB_OUTPUT"
-          else
-            echo "phase=2" >> "$GITHUB_OUTPUT"
-          fi
-
-          echo "::notice::PR #${PR_NUMBER} | run=${RUN_ID} | conclusion=${RUN_CONCLUSION} | normalized=${NORMALIZED_CONCLUSION} | next_phase=$(cat $GITHUB_OUTPUT | grep phase= | cut -d= -f2)"
+          echo "::notice::PR #${PR_NUMBER} | run=${RUN_ID} | conclusion=${RUN_CONCLUSION} | normalized=${NORMALIZED_CONCLUSION} | phase=${PHASE}"
 
       # ── CI passed → mark PR ready ──
       - name: "Report: Mark PR ready for review"
@@ -361,7 +363,7 @@ jobs:
           gh pr comment "${{ steps.ctx.outputs.pr_number }}" --repo "${{ env.UPSTREAM_REPO }}" \
             --body "## Main2Main Auto — All Tests Passed
 
-          The automated pipeline successfully adapted vllm-ascend to the latest
+          The automated pipeline successfully adapted vllm-benchmarks to the latest
           upstream vLLM main branch. All E2E-Full tests are green.
 
           This PR is ready for human review."
@@ -384,7 +386,7 @@ jobs:
           echo "| Item | Value |" >> /tmp/issue_body.md
           echo "|:--|:--|" >> /tmp/issue_body.md
           echo "| **PR** | #${{ steps.ctx.outputs.pr_number }} |" >> /tmp/issue_body.md
-          echo "| **Failed Run** | ${{ github.event.workflow_run.html_url }} |" >> /tmp/issue_body.md
+          echo "| **Failed Run** | ${{ steps.ctx.outputs.run_url }} |" >> /tmp/issue_body.md
           echo "| **Old vLLM Commit** | \`${{ steps.ctx.outputs.old_commit }}\` |" >> /tmp/issue_body.md
           echo "| **New vLLM Commit** | \`${{ steps.ctx.outputs.new_commit }}\` |" >> /tmp/issue_body.md
           echo "" >> /tmp/issue_body.md
@@ -613,12 +615,10 @@ jobs:
         run: |
           if [ "${{ steps.ctx.outputs.phase }}" = "2" ]; then
             COMMIT_MSG="fix: address E2E-Full CI failures (Phase 2)"
-            PHASE_LABEL="main2main-phase2"
-            NOTICE="Phase 2 fixes pushed. E2E-Full will re-trigger automatically."
+            NOTICE="Phase 2 fixes pushed. External orchestration should trigger the next E2E-Full cycle."
           else
             COMMIT_MSG="fix: bisect-guided adaptation fixes (Phase 3)"
-            PHASE_LABEL="main2main-phase3"
-            NOTICE="Phase 3 fixes pushed. E2E-Full will re-trigger automatically."
+            NOTICE="Phase 3 fixes pushed. External orchestration should trigger the next E2E-Full cycle."
           fi
 
           if [ -n "$(git status --porcelain)" ]; then
@@ -632,7 +632,3 @@ jobs:
           else
             echo "::warning::No changes after phase ${{ steps.ctx.outputs.phase }} fix attempt."
           fi
-
-          gh pr edit "${{ steps.ctx.outputs.pr_number }}" \
-            --repo "${{ env.UPSTREAM_REPO }}" \
-            --add-label "${PHASE_LABEL}"
