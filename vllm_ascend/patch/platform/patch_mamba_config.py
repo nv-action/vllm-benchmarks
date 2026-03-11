@@ -7,6 +7,8 @@ from vllm.utils.math_utils import cdiv
 from vllm.utils.torch_utils import STR_DTYPE_TO_TORCH_DTYPE
 from vllm.v1.kv_cache_interface import FullAttentionSpec, MambaSpec
 
+from vllm_ascend.utils import vllm_version_is
+
 
 @classmethod
 def verify_and_update_config(cls, vllm_config) -> None:
@@ -64,7 +66,17 @@ def verify_and_update_config(cls, vllm_config) -> None:
     # override attention block size if either (a) the
     # user has not set it or (b) the user has set it
     # too small.
-    if cache_config.block_size is None or cache_config.block_size < attn_block_size:
+    # Handle vLLM version differences in CacheConfig.block_size handling
+    needs_override = False
+    if vllm_version_is("0.16.0"):
+        # Old version: check if block_size is None
+        needs_override = cache_config.block_size is None or cache_config.block_size < attn_block_size
+    else:
+        # New version: check user_specified_block_size attribute
+        user_specified = getattr(cache_config, 'user_specified_block_size', False)
+        needs_override = (not user_specified) or cache_config.block_size < attn_block_size
+
+    if needs_override:
         cache_config.block_size = attn_block_size
         logger.info(
             "Setting attention block size to %d tokens to ensure that attention page size is >= mamba page size.",

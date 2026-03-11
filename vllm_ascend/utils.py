@@ -1060,7 +1060,18 @@ def refresh_block_size(vllm_config):
     if not cache_config:
         return
 
-    if cache_config.block_size is None:
+    # Handle vLLM version differences in CacheConfig.block_size handling
+    # v0.16.0 uses block_size is None check
+    # Main branch (commit 81939e77+) uses user_specified_block_size attribute
+    needs_default_block_size = False
+    if vllm_version_is("0.16.0"):
+        # Old version: check if block_size is None
+        needs_default_block_size = cache_config.block_size is None
+    else:
+        # New version: check user_specified_block_size attribute
+        needs_default_block_size = not getattr(cache_config, 'user_specified_block_size', False)
+
+    if needs_default_block_size:
         cache_config.block_size = 128
 
     if not scheduler_config or not model_config:
