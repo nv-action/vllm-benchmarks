@@ -2800,7 +2800,13 @@ class NPUModelRunner(GPUModelRunner):
                 # to kernel_block_sizes[0]
                 kernel_block_sizes.append([0])
         if block_sizes != [self.cache_config.block_size] or kernel_block_sizes != [[self.cache_config.block_size]]:
-            assert self.cache_config.cpu_offload_gb == 0, (
+            # In v0.16.0, cpu_offload_gb was in cache_config.
+            # In main branch, it moved to offload_config.uva.cpu_offload_gb.
+            if vllm_version_is("0.16.0"):
+                cpu_offload = self.cache_config.cpu_offload_gb
+            else:
+                cpu_offload = self.vllm_config.offload_config.uva.cpu_offload_gb
+            assert cpu_offload == 0, (
                 "Cannot re-initialize the input batch when CPU weight "
                 "offloading is enabled. See https://github.com/vllm-project/vllm/pull/18298 "  # noqa: E501
                 "for more details."
