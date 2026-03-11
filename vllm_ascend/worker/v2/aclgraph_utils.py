@@ -25,14 +25,14 @@ from vllm.config import VllmConfig
 from vllm.v1.attention.backend import AttentionMetadataBuilder
 from vllm.v1.kv_cache_interface import KVCacheConfig
 from vllm.v1.worker.gpu.block_table import BlockTables
-from vllm.v1.worker.gpu.cudagraph_utils import CudaGraphManager
+from vllm.v1.worker.gpu.cudagraph_utils import ModelCudaGraphManager
 from vllm.v1.worker.gpu.cudagraph_utils import prepare_inputs_to_capture as prepare_inputs_to_capture_gpu
 from vllm.v1.worker.gpu.input_batch import InputBuffers
 
 from vllm_ascend.worker.v2.utils import torch_cuda_wrapper
 
 
-class AclGraphManager(CudaGraphManager):
+class AclGraphManager(ModelCudaGraphManager):
     """ACL Graph Manager for Ascend NPUs."""
 
     def __init__(
@@ -42,7 +42,14 @@ class AclGraphManager(CudaGraphManager):
         device: torch.device,
     ):
         with torch_cuda_wrapper():
-            super().__init__(vllm_config, use_mrope, device)
+            # NOTE: vLLM renamed CudaGraphManager to ModelCudaGraphManager and changed constructor signature.
+            # The old signature was (vllm_config, use_aux_hidden_state_outputs, device).
+            # The new signature is (vllm_config, device, cudagraph_mode, decode_query_len).
+            # We need to adapt to the new signature. use_mrope parameter is kept for compatibility but may not be used.
+            compilation_config = vllm_config.compilation_config
+            cudagraph_mode = compilation_config.cudagraph_mode if compilation_config else None
+            decode_query_len = 1  # Default value, may need adjustment based on speculative config
+            super().__init__(vllm_config, device, cudagraph_mode, decode_query_len)
 
     def capture_graph(
         self,
