@@ -519,6 +519,27 @@ class NPUPlatform(Platform):
         return True
 
     @classmethod
+    def update_block_size_for_backend(cls, vllm_config: VllmConfig) -> None:
+        """
+        Ensure block_size is compatible with the attention backend.
+        For Ascend NPU, we rely on the existing refresh_block_size logic.
+        """
+        # Ascend NPU already handles block size updates in check_and_update_config
+        # via the refresh_block_size() call, so we don't need to duplicate
+        # the logic here. The default platform implementation would inspect
+        # attention backends, but Ascend has its own custom logic.
+        pass
+
+    @classmethod
+    def use_custom_op_collectives(cls) -> bool:
+        """
+        Whether this platform should use torch.ops.vllm.* custom ops for collectives.
+
+        For Ascend NPU, we use custom collectives, so return True.
+        """
+        return True
+
+    @classmethod
     def get_static_graph_wrapper_cls(cls) -> str:
         """
         Get piecewise backend class for piecewise graph.

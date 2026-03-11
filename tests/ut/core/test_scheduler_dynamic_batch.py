@@ -141,7 +141,6 @@ class TestSchedulerDynamicBatch(TestBase):
         cache_config = CacheConfig(
             block_size=block_size,
             gpu_memory_utilization=0.9,
-            swap_space=0,
             cache_dtype="auto",
             **kwargs_cache,
         )
