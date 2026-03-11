@@ -16,6 +16,17 @@
 #
 
 name: Main2Main Auto
+run-name: >-
+  ${{
+    github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'fixup' &&
+    format(
+      'Main2Main Auto fixup pr={0} phase={1} token={2}',
+      github.event.inputs.pr_number,
+      github.event.inputs.phase,
+      github.event.inputs.dispatch_token
+    ) ||
+    'Main2Main Auto'
+  }}
 
 on:
   schedule:
@@ -65,6 +76,10 @@ on:
         default: ''
       new_commit:
         description: 'Target bad/new vLLM commit'
+        required: false
+        default: ''
+      dispatch_token:
+        description: 'Correlation token for the dispatched fixup workflow run'
         required: false
         default: ''
 
@@ -275,6 +290,25 @@ jobs:
             --repo "${{ env.UPSTREAM_REPO }}" \
             --add-label "main2main,ready,ready-for-test"
 
+      - name: Publish registration comment for orchestrator
+        if: steps.pr.outputs.number
+        run: |
+          HEAD_SHA=$(git rev-parse HEAD)
+          cat > /tmp/main2main_register_comment.md <<EOF
+          <!-- main2main-register
+          pr_number=${{ steps.pr.outputs.number }}
+          branch=${{ steps.branch.outputs.name }}
+          head_sha=$(git rev-parse HEAD)
+          old_commit=${{ steps.detect.outputs.old_commit }}
+          new_commit=${{ steps.detect.outputs.new_commit }}
+          phase=2
+          -->
+          EOF
+
+          gh pr comment "${{ steps.pr.outputs.number }}" \
+            --repo "${{ env.UPSTREAM_REPO }}" \
+            --body-file /tmp/main2main_register_comment.md
+
   # ================================================================
   # Fixup: Explicit Phase 2 & Phase 3 executor
   #
@@ -313,8 +347,9 @@ jobs:
           PHASE="${{ github.event.inputs.phase }}"
           OLD_COMMIT="${{ github.event.inputs.old_commit }}"
           NEW_COMMIT="${{ github.event.inputs.new_commit }}"
+          DISPATCH_TOKEN="${{ github.event.inputs.dispatch_token }}"
 
-          for value_name in PR_NUMBER PR_BRANCH RUN_HEAD RUN_ID RUN_URL RUN_CONCLUSION PHASE OLD_COMMIT NEW_COMMIT; do
+          for value_name in PR_NUMBER PR_BRANCH RUN_HEAD RUN_ID RUN_URL RUN_CONCLUSION PHASE OLD_COMMIT NEW_COMMIT DISPATCH_TOKEN; do
             if [ -z "${!value_name}" ]; then
               echo "::error::Missing required fixup input: ${value_name}"
               exit 1
@@ -351,6 +386,7 @@ jobs:
           echo "normalized_conclusion=$NORMALIZED_CONCLUSION" >> "$GITHUB_OUTPUT"
           echo "old_commit=${OLD_COMMIT}" >> "$GITHUB_OUTPUT"
           echo "new_commit=${NEW_COMMIT}" >> "$GITHUB_OUTPUT"
+          echo "dispatch_token=${DISPATCH_TOKEN}" >> "$GITHUB_OUTPUT"
           echo "phase=$PHASE" >> "$GITHUB_OUTPUT"
 
           echo "::notice::PR #${PR_NUMBER} | run=${RUN_ID} | conclusion=${RUN_CONCLUSION} | normalized=${NORMALIZED_CONCLUSION} | phase=${PHASE}"
@@ -607,6 +643,7 @@ jobs:
           CLAUDE_WORKING_DIR: ${{ github.workspace }}/vllm-benchmarks
 
       - name: "Phase 2/3: Push fixes and mark phase complete"
+        id: push_fix
         if: >-
           steps.ctx.outputs.skip != 'true'
           && steps.ctx.outputs.normalized_conclusion == 'failure'
@@ -616,9 +653,11 @@ jobs:
           if [ "${{ steps.ctx.outputs.phase }}" = "2" ]; then
             COMMIT_MSG="fix: address E2E-Full CI failures (Phase 2)"
             NOTICE="Phase 2 fixes pushed. External orchestration should trigger the next E2E-Full cycle."
+            NEXT_PHASE="3"
           else
             COMMIT_MSG="fix: bisect-guided adaptation fixes (Phase 3)"
             NOTICE="Phase 3 fixes pushed. External orchestration should trigger the next E2E-Full cycle."
+            NEXT_PHASE="done"
           fi
 
           if [ -n "$(git status --porcelain)" ]; then
@@ -628,7 +667,40 @@ jobs:
 
           if ! git diff --quiet origin/${{ steps.ctx.outputs.branch }}..HEAD 2>/dev/null; then
             git push --force-with-lease
+            echo "changes_pushed=true" >> "$GITHUB_OUTPUT"
+            echo "next_phase=${NEXT_PHASE}" >> "$GITHUB_OUTPUT"
             echo "::notice::${NOTICE}"
           else
+            echo "changes_pushed=false" >> "$GITHUB_OUTPUT"
             echo "::warning::No changes after phase ${{ steps.ctx.outputs.phase }} fix attempt."
           fi
+
+      - name: Update registration comment for orchestrator
+        if: >-
+          steps.push_fix.outputs.changes_pushed == 'true'
+          && (steps.ctx.outputs.phase == '2' || steps.ctx.outputs.phase == '3')
+        run: |
+          cat > /tmp/main2main_register_comment.md <<EOF
+          <!-- main2main-register
+          pr_number=${{ steps.ctx.outputs.pr_number }}
+          branch=${{ steps.ctx.outputs.branch }}
+          head_sha=$(git -C vllm-benchmarks rev-parse HEAD)
+          old_commit=${{ steps.ctx.outputs.old_commit }}
+          new_commit=${{ steps.ctx.outputs.new_commit }}
+          phase=${NEXT_PHASE}
+          -->
+          EOF
+
+          COMMENT_ID=$(gh api "repos/${{ env.UPSTREAM_REPO }}/issues/${{ steps.ctx.outputs.pr_number }}/comments" \
+            --jq '.[] | select(.body | contains("main2main-register")) | .id' | tail -n1)
+
+          if [ -n "$COMMENT_ID" ]; then
+            gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/${COMMENT_ID}" \
+              -f body="$(cat /tmp/main2main_register_comment.md)" >/dev/null
+          else
+            gh pr comment "${{ steps.ctx.outputs.pr_number }}" \
+              --repo "${{ env.UPSTREAM_REPO }}" \
+              --body-file /tmp/main2main_register_comment.md
+          fi
+        env:
+          NEXT_PHASE: ${{ steps.push_fix.outputs.next_phase }}

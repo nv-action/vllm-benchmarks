@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -13,12 +14,15 @@ from main2main_orchestrator import (
     Main2MainStateStore,
     OrchestratorService,
     PrMetadata,
+    RegistrationMetadata,
     _main,
     apply_fixup_result,
     apply_no_change_fixup_result,
     decide_next_action,
     parse_fixup_job_output,
     parse_pr_metadata,
+    parse_registration_comment,
+    run_loop,
 )
 
 
@@ -60,6 +64,28 @@ ANNOTATIONS
     outcome = parse_fixup_job_output(output, phase="3")
 
     assert outcome == FixupOutcome(result="no_changes", phase="3")
+
+
+def test_parse_registration_comment_extracts_registration_metadata():
+    comment = """<!-- main2main-register
+pr_number=149
+branch=main2main_auto_2026-03-11_02-02
+head_sha=0ac6428474c21eed75ceacac5b7fc04c58512a95
+old_commit=4034c3d32e30d01639459edd3ab486f56993876d
+new_commit=81939e7733642f583d1731e5c9ef69dcd457b5e5
+phase=2
+-->"""
+
+    metadata = parse_registration_comment(comment)
+
+    assert metadata == RegistrationMetadata(
+        pr_number=149,
+        branch="main2main_auto_2026-03-11_02-02",
+        head_sha="0ac6428474c21eed75ceacac5b7fc04c58512a95",
+        old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+        new_commit="81939e7733642f583d1731e5c9ef69dcd457b5e5",
+        phase="2",
+    )
 
 
 def test_decide_next_action_marks_ready_on_success():
@@ -472,6 +498,103 @@ def test_cli_update_after_fixup_rejects_stale_head_sha():
     assert "stale fixup result" in result.stderr
 
 
+def test_cli_register_from_pr_comment_persists_state():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        state_path = Path(tmp_dir) / "state.json"
+        repo_root = Path(__file__).resolve().parents[2]
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(repo_root / "main2main_orchestrator.py"),
+                "register-from-pr-comment",
+                "--state-file",
+                str(state_path),
+                "--repo",
+                "nv-action/vllm-benchmarks",
+                "--pr-number",
+                "149",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            env={
+                **dict(),
+                "PYTHONPATH": str(repo_root),
+                "MAIN2MAIN_TEST_REGISTRATION_COMMENT": """<!-- main2main-register
+pr_number=149
+branch=main2main_auto_2026-03-11_02-02
+head_sha=0ac6428474c21eed75ceacac5b7fc04c58512a95
+old_commit=4034c3d32e30d01639459edd3ab486f56993876d
+new_commit=81939e7733642f583d1731e5c9ef69dcd457b5e5
+phase=2
+-->""",
+            },
+        )
+
+        assert '"action": "register"' in result.stdout
+        store = Main2MainStateStore(state_path)
+        loaded = store.get("nv-action/vllm-benchmarks", 149)
+        assert loaded is not None
+        assert loaded.phase == "2"
+        assert loaded.status == "waiting_e2e"
+
+
+def test_cli_run_once_registers_from_comment_and_reconciles():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        state_path = Path(tmp_dir) / "state.json"
+        repo_root = Path(__file__).resolve().parents[2]
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(repo_root / "main2main_orchestrator.py"),
+                "run-once",
+                "--state-file",
+                str(state_path),
+                "--repo",
+                "nv-action/vllm-benchmarks",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            env={
+                "PYTHONPATH": str(repo_root),
+                "MAIN2MAIN_TEST_RUN_ONCE": "1",
+            },
+        )
+
+        assert '"registered": [' in result.stdout
+        assert '"149"' in result.stdout or "149" in result.stdout
+
+
+def test_run_loop_repeats_run_once_and_collects_results():
+    calls = []
+
+    class FakeService:
+        def run_once(self, repo):
+            calls.append(repo)
+            return {"ok": len(calls)}
+
+    sleeps = []
+
+    results = run_loop(
+        FakeService(),
+        "nv-action/vllm-benchmarks",
+        interval_seconds=5,
+        iterations=3,
+        sleep_fn=sleeps.append,
+    )
+
+    assert calls == [
+        "nv-action/vllm-benchmarks",
+        "nv-action/vllm-benchmarks",
+        "nv-action/vllm-benchmarks",
+    ]
+    assert results == [{"ok": 1}, {"ok": 2}, {"ok": 3}]
+    assert sleeps == [5, 5]
+
+
 def test_github_cli_adapter_reads_pr_context():
     commands = []
 
@@ -507,6 +630,421 @@ def test_github_cli_adapter_reads_pr_context():
     assert len(commands) == 1
 
 
+def test_github_cli_adapter_reads_registration_metadata_from_pr_comments():
+    commands = []
+
+    def fake_runner(args):
+        commands.append(args)
+        assert args == [
+            "gh",
+            "api",
+            "repos/nv-action/vllm-benchmarks/issues/149/comments",
+        ]
+        return json_dumps(
+            [
+                {"body": "ordinary comment"},
+                {
+                    "body": """<!-- main2main-register
+pr_number=149
+branch=main2main_auto_2026-03-11_02-02
+head_sha=0ac6428474c21eed75ceacac5b7fc04c58512a95
+old_commit=4034c3d32e30d01639459edd3ab486f56993876d
+new_commit=81939e7733642f583d1731e5c9ef69dcd457b5e5
+phase=2
+-->"""
+                },
+            ]
+        )
+
+    adapter = GitHubCliAdapter(fake_runner)
+
+    metadata = adapter.get_registration_metadata("nv-action/vllm-benchmarks", 149)
+
+    assert metadata == RegistrationMetadata(
+        pr_number=149,
+        branch="main2main_auto_2026-03-11_02-02",
+        head_sha="0ac6428474c21eed75ceacac5b7fc04c58512a95",
+        old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+        new_commit="81939e7733642f583d1731e5c9ef69dcd457b5e5",
+        phase="2",
+    )
+
+
+def test_github_cli_adapter_lists_open_main2main_pr_numbers():
+    commands = []
+
+    def fake_runner(args):
+        commands.append(args)
+        assert args == [
+            "gh",
+            "pr",
+            "list",
+            "--repo",
+            "nv-action/vllm-benchmarks",
+            "--state",
+            "open",
+            "--label",
+            "main2main",
+            "--json",
+            "number",
+        ]
+        return json_dumps([{"number": 148}, {"number": 149}])
+
+    adapter = GitHubCliAdapter(fake_runner)
+
+    pr_numbers = adapter.list_open_main2main_pr_numbers("nv-action/vllm-benchmarks")
+
+    assert pr_numbers == [148, 149]
+
+
+def test_orchestrator_service_registers_pr_from_comment_metadata():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        store = Main2MainStateStore(Path(tmp_dir) / "state.json")
+
+        class FakeGitHub:
+            def get_registration_metadata(self, repo, pr_number):
+                assert repo == "nv-action/vllm-benchmarks"
+                assert pr_number == 149
+                return RegistrationMetadata(
+                    pr_number=149,
+                    branch="main2main_auto_2026-03-11_02-02",
+                    head_sha="0ac6428474c21eed75ceacac5b7fc04c58512a95",
+                    old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                    new_commit="81939e7733642f583d1731e5c9ef69dcd457b5e5",
+                    phase="2",
+                )
+
+        service = OrchestratorService(store, FakeGitHub())
+
+        result = service.register_from_pr_comment("nv-action/vllm-benchmarks", 149)
+
+        assert result == {
+            "action": "register",
+            "phase": "2",
+            "reason": "registered from PR comment metadata",
+        }
+        loaded = store.get("nv-action/vllm-benchmarks", 149)
+        assert loaded == Main2MainState(
+            repo="nv-action/vllm-benchmarks",
+            pr_number=149,
+            branch="main2main_auto_2026-03-11_02-02",
+            head_sha="0ac6428474c21eed75ceacac5b7fc04c58512a95",
+            old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+            new_commit="81939e7733642f583d1731e5c9ef69dcd457b5e5",
+            phase="2",
+            status="waiting_e2e",
+        )
+
+
+def test_orchestrator_service_run_once_registers_unknown_prs_and_reconciles_known_prs():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        store = Main2MainStateStore(Path(tmp_dir) / "state.json")
+        store.register(
+            Main2MainState(
+                repo="nv-action/vllm-benchmarks",
+                pr_number=148,
+                branch="main2main_auto_2026-03-11_11-48",
+                head_sha="head148",
+                old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
+                phase="3",
+                status="waiting_e2e",
+            )
+        )
+
+        class FakeGitHub:
+            def list_open_main2main_pr_numbers(self, repo):
+                assert repo == "nv-action/vllm-benchmarks"
+                return [148, 149]
+
+            def get_registration_metadata(self, repo, pr_number):
+                assert repo == "nv-action/vllm-benchmarks"
+                assert pr_number == 149
+                return RegistrationMetadata(
+                    pr_number=149,
+                    branch="main2main_auto_2026-03-11_02-02",
+                    head_sha="head149",
+                    old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                    new_commit="81939e7733642f583d1731e5c9ef69dcd457b5e5",
+                    phase="2",
+                )
+
+            def get_pr_context(self, repo, pr_number):
+                if pr_number == 148:
+                    return {
+                        "pr_number": 148,
+                        "head_sha": "head148",
+                        "branch": "main2main_auto_2026-03-11_11-48",
+                        "state": "OPEN",
+                        "labels": ["main2main"],
+                        "metadata": PrMetadata(
+                            old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                            new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
+                        ),
+                        "body": "",
+                    }
+                return {
+                    "pr_number": 149,
+                    "head_sha": "head149",
+                    "branch": "main2main_auto_2026-03-11_02-02",
+                    "state": "OPEN",
+                    "labels": ["main2main"],
+                    "metadata": PrMetadata(
+                        old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                        new_commit="81939e7733642f583d1731e5c9ef69dcd457b5e5",
+                    ),
+                    "body": "",
+                }
+
+            def wait_for_e2e_full(self, *, repo, head_sha):
+                if head_sha == "head148":
+                    return {
+                        "run_id": "1",
+                        "head_sha": "head148",
+                        "conclusion": "success",
+                        "run_url": "https://example/1",
+                    }
+                return None
+
+            def mark_pr_ready(self, repo, pr_number):
+                assert repo == "nv-action/vllm-benchmarks"
+                assert pr_number == 148
+
+        service = OrchestratorService(store, FakeGitHub())
+
+        result = service.run_once("nv-action/vllm-benchmarks")
+
+        assert result == {
+            "registered": [149],
+            "fixup_outcomes": {},
+            "reconciled": {
+                "148": {
+                    "action": "mark_ready",
+                    "phase": "3",
+                    "reason": "latest E2E-Full run succeeded",
+                },
+                "149": {
+                    "action": "wait",
+                    "reason": "e2e-full has not completed yet",
+                },
+            },
+        }
+
+
+def test_reconcile_dispatch_fixup_marks_state_fixing_with_run_id():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        store = Main2MainStateStore(Path(tmp_dir) / "state.json")
+        store.register(
+            Main2MainState(
+                repo="nv-action/vllm-benchmarks",
+                pr_number=148,
+                branch="main2main_auto_2026-03-11_11-48",
+                head_sha="head148",
+                old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
+                phase="2",
+                status="waiting_e2e",
+            )
+        )
+
+        class FakeGitHub:
+            def get_pr_context(self, repo, pr_number):
+                return {
+                    "pr_number": pr_number,
+                    "head_sha": "head148",
+                    "branch": "main2main_auto_2026-03-11_11-48",
+                    "state": "OPEN",
+                    "labels": ["main2main"],
+                    "metadata": PrMetadata(
+                        old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                        new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
+                    ),
+                    "body": "",
+                }
+
+            def wait_for_e2e_full(self, *, repo, head_sha):
+                return {
+                    "run_id": "100",
+                    "head_sha": "head148",
+                    "conclusion": "failure",
+                    "run_url": "https://example/e2e/100",
+                }
+
+            def dispatch_fixup(self, **kwargs):
+                assert kwargs["dispatch_token"] == "token-148"
+                return None
+
+            def find_latest_fixup_run(self, *, repo, dispatch_token):
+                assert dispatch_token == "token-148"
+                return {
+                    "run_id": "200",
+                    "status": "queued",
+                    "run_url": "https://example/fixup/200",
+                }
+
+        service = OrchestratorService(store, FakeGitHub(), token_factory=lambda: "token-148")
+
+        result = service.reconcile("nv-action/vllm-benchmarks", 148)
+
+        assert result == {
+            "action": "dispatch_fixup",
+            "phase": "2",
+            "reason": "phase 2 requires another automated fix attempt",
+        }
+        loaded = store.get("nv-action/vllm-benchmarks", 148)
+        assert loaded is not None
+        assert loaded.status == "fixing"
+        assert loaded.active_fixup_run_id == "200"
+
+
+def test_reconcile_dispatch_fixup_retries_until_fixup_run_appears():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        store = Main2MainStateStore(Path(tmp_dir) / "state.json")
+        store.register(
+            Main2MainState(
+                repo="nv-action/vllm-benchmarks",
+                pr_number=152,
+                branch="main2main_auto_2026-03-11_08-03",
+                head_sha="head152",
+                old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                new_commit="a40ee486f273eaaa885dafd0526f42f3a5b960c9",
+                phase="2",
+                status="waiting_e2e",
+            )
+        )
+
+        attempts = {"count": 0}
+
+        class FakeGitHub:
+            def get_pr_context(self, repo, pr_number):
+                return {
+                    "pr_number": pr_number,
+                    "head_sha": "head152",
+                    "branch": "main2main_auto_2026-03-11_08-03",
+                    "state": "OPEN",
+                    "labels": ["main2main"],
+                    "metadata": PrMetadata(
+                        old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                        new_commit="a40ee486f273eaaa885dafd0526f42f3a5b960c9",
+                    ),
+                    "body": "",
+                }
+
+            def wait_for_e2e_full(self, *, repo, head_sha):
+                return {
+                    "run_id": "300",
+                    "head_sha": "head152",
+                    "conclusion": "failure",
+                    "run_url": "https://example/e2e/300",
+                }
+
+            def dispatch_fixup(self, **kwargs):
+                assert kwargs["dispatch_token"] == "token-152"
+                return None
+
+            def find_latest_fixup_run(self, *, repo, dispatch_token):
+                assert dispatch_token == "token-152"
+                attempts["count"] += 1
+                if attempts["count"] < 3:
+                    return None
+                return {
+                    "run_id": "400",
+                    "status": "queued",
+                    "run_url": "https://example/fixup/400",
+                }
+
+        sleeps = []
+        service = OrchestratorService(
+            store,
+            FakeGitHub(),
+            sleep_fn=sleeps.append,
+            token_factory=lambda: "token-152",
+        )
+
+        result = service.reconcile("nv-action/vllm-benchmarks", 152)
+
+        assert result == {
+            "action": "dispatch_fixup",
+            "phase": "2",
+            "reason": "phase 2 requires another automated fix attempt",
+        }
+        assert attempts["count"] == 3
+        assert sleeps == [2, 2]
+        loaded = store.get("nv-action/vllm-benchmarks", 152)
+        assert loaded is not None
+        assert loaded.status == "fixing"
+        assert loaded.active_fixup_run_id == "400"
+
+
+def test_run_once_applies_completed_fixup_outcome():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        store = Main2MainStateStore(Path(tmp_dir) / "state.json")
+        store.register(
+            Main2MainState(
+                repo="nv-action/vllm-benchmarks",
+                pr_number=148,
+                branch="main2main_auto_2026-03-11_11-48",
+                head_sha="head148",
+                old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
+                phase="2",
+                status="fixing",
+                active_fixup_run_id="200",
+            )
+        )
+
+        class FakeGitHub:
+            def list_open_main2main_pr_numbers(self, repo):
+                return [148]
+
+            def get_workflow_run(self, *, repo, run_id):
+                assert run_id == "200"
+                return {
+                    "run_id": "200",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "run_url": "https://example/fixup/200",
+                }
+
+            def get_fixup_outcome(self, *, repo, run_id, phase):
+                return FixupOutcome(result="changes_pushed", phase="2")
+
+            def get_pr_context(self, repo, pr_number):
+                return {
+                    "pr_number": 148,
+                    "head_sha": "head149",
+                    "branch": "main2main_auto_2026-03-11_11-48",
+                    "state": "OPEN",
+                    "labels": ["main2main"],
+                    "metadata": PrMetadata(
+                        old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                        new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
+                    ),
+                    "body": "",
+                }
+
+        service = OrchestratorService(store, FakeGitHub())
+
+        result = service.run_once("nv-action/vllm-benchmarks")
+
+        assert result == {
+            "registered": [],
+            "fixup_outcomes": {
+                "148": {
+                    "action": "advance_phase",
+                    "phase": "3",
+                    "reason": "changes pushed",
+                }
+            },
+            "reconciled": {},
+        }
+        loaded = store.get("nv-action/vllm-benchmarks", 148)
+        assert loaded is not None
+        assert loaded.phase == "3"
+        assert loaded.status == "waiting_e2e"
+        assert loaded.active_fixup_run_id is None
+
+
 def test_github_cli_adapter_dispatches_fixup_workflow():
     commands = []
 
@@ -526,6 +1064,7 @@ def test_github_cli_adapter_dispatches_fixup_workflow():
         phase="2",
         old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
         new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
+        dispatch_token="dispatch-148",
     )
 
     assert commands == [[
@@ -555,6 +1094,62 @@ def test_github_cli_adapter_dispatches_fixup_workflow():
         "old_commit=4034c3d32e30d01639459edd3ab486f56993876d",
         "-f",
         "new_commit=4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
+        "-f",
+        "dispatch_token=dispatch-148",
+    ]]
+
+
+def test_github_cli_adapter_finds_fixup_run_by_dispatch_token():
+    commands = []
+
+    def fake_runner(args):
+        commands.append(args)
+        return json.dumps(
+            [
+                {
+                    "databaseId": 10,
+                    "status": "completed",
+                    "conclusion": "success",
+                    "url": "https://example/runs/10",
+                    "event": "workflow_dispatch",
+                    "displayTitle": "Main2Main Auto fixup pr=152 phase=2 token=other-token",
+                },
+                {
+                    "databaseId": 11,
+                    "status": "in_progress",
+                    "conclusion": "",
+                    "url": "https://example/runs/11",
+                    "event": "workflow_dispatch",
+                    "displayTitle": "Main2Main Auto fixup pr=152 phase=2 token=dispatch-152",
+                },
+            ]
+        )
+
+    adapter = GitHubCliAdapter(fake_runner)
+
+    run = adapter.find_latest_fixup_run(
+        repo="nv-action/vllm-benchmarks",
+        dispatch_token="dispatch-152",
+    )
+
+    assert run == {
+        "run_id": "11",
+        "status": "in_progress",
+        "conclusion": "",
+        "run_url": "https://example/runs/11",
+    }
+    assert commands == [[
+        "gh",
+        "run",
+        "list",
+        "--repo",
+        "nv-action/vllm-benchmarks",
+        "--workflow",
+        "main2main_auto.yaml",
+        "--json",
+        "databaseId,status,conclusion,url,event,displayTitle",
+        "-L",
+        "20",
     ]]
 
 
@@ -677,6 +1272,89 @@ def test_github_cli_adapter_wait_for_e2e_full_ignores_non_matching_runs():
     assert result is None
 
 
+def test_github_cli_adapter_wait_for_e2e_full_uses_latest_matching_run_only():
+    commands = []
+
+    def fake_runner(args):
+        commands.append(args)
+        return json_dumps(
+            [
+                {
+                    "databaseId": 22943110000,
+                    "workflowName": "E2E-Full",
+                    "headSha": "abc123",
+                    "status": "completed",
+                    "conclusion": "failure",
+                    "url": "https://example.invalid/old-completed",
+                    "createdAt": "2026-03-11T08:00:00Z",
+                },
+                {
+                    "databaseId": 22943116500,
+                    "workflowName": "E2E-Full",
+                    "headSha": "abc123",
+                    "status": "in_progress",
+                    "conclusion": "",
+                    "url": "https://example.invalid/new-in-progress",
+                    "createdAt": "2026-03-11T08:10:00Z",
+                },
+            ]
+        )
+
+    adapter = GitHubCliAdapter(fake_runner)
+    result = adapter.wait_for_e2e_full(
+        repo="nv-action/vllm-benchmarks",
+        head_sha="abc123",
+    )
+
+    assert result is None
+
+
+def test_github_cli_adapter_wait_for_e2e_full_waits_if_any_matching_run_is_still_active():
+    commands = []
+
+    def fake_runner(args):
+        commands.append(args)
+        return json_dumps(
+            [
+                {
+                    "databaseId": 22943116541,
+                    "workflowName": "E2E-Full",
+                    "headSha": "abc123",
+                    "status": "completed",
+                    "conclusion": "cancelled",
+                    "url": "https://example.invalid/completed-cancelled",
+                    "createdAt": "2026-03-11T08:15:29Z",
+                },
+                {
+                    "databaseId": 22943116500,
+                    "workflowName": "E2E-Full",
+                    "headSha": "abc123",
+                    "status": "in_progress",
+                    "conclusion": "",
+                    "url": "https://example.invalid/in-progress",
+                    "createdAt": "2026-03-11T08:15:29Z",
+                },
+                {
+                    "databaseId": 22943116484,
+                    "workflowName": "E2E-Full",
+                    "headSha": "abc123",
+                    "status": "completed",
+                    "conclusion": "cancelled",
+                    "url": "https://example.invalid/completed-cancelled-older",
+                    "createdAt": "2026-03-11T08:15:29Z",
+                },
+            ]
+        )
+
+    adapter = GitHubCliAdapter(fake_runner)
+    result = adapter.wait_for_e2e_full(
+        repo="nv-action/vllm-benchmarks",
+        head_sha="abc123",
+    )
+
+    assert result is None
+
+
 def test_github_cli_adapter_gets_fixup_outcome_from_run_job_output():
     commands = []
 
@@ -746,6 +1424,15 @@ class FakeGitHubAdapter:
     def dispatch_fixup(self, **kwargs):
         self.calls.append(("dispatch_fixup", kwargs))
 
+    def find_latest_fixup_run(self, *, repo, dispatch_token):
+        self.calls.append(("find_latest_fixup_run", repo, dispatch_token))
+        return {
+            "run_id": "fixup-1",
+            "status": "queued",
+            "conclusion": "",
+            "run_url": "https://github.com/nv-action/vllm-benchmarks/actions/runs/fixup-1",
+        }
+
     def create_manual_review_issue(self, **kwargs):
         self.calls.append(("create_manual_review_issue", kwargs))
         return "https://github.com/nv-action/vllm-benchmarks/issues/1"
@@ -756,6 +1443,15 @@ class FakeGitHubAdapter:
     def get_fixup_outcome(self, *, repo, run_id, phase):
         self.calls.append(("get_fixup_outcome", repo, run_id, phase))
         return FixupOutcome(result="no_changes", phase=phase)
+
+    def get_workflow_run(self, *, repo, run_id):
+        self.calls.append(("get_workflow_run", repo, run_id))
+        return {
+            "run_id": run_id,
+            "status": "completed",
+            "conclusion": "success",
+            "run_url": f"https://github.com/nv-action/vllm-benchmarks/actions/runs/{run_id}",
+        }
 
 
 def test_orchestrator_service_marks_pr_ready_on_success():
@@ -837,13 +1533,15 @@ def test_orchestrator_service_dispatches_fixup_on_failure():
             },
         )
 
-        service = OrchestratorService(store, adapter)
+        service = OrchestratorService(store, adapter, token_factory=lambda: "dispatch-148")
         result = service.reconcile("nv-action/vllm-benchmarks", 148)
 
         assert result["action"] == "dispatch_fixup"
         dispatch_calls = [call for call in adapter.calls if call[0] == "dispatch_fixup"]
         assert len(dispatch_calls) == 1
         assert dispatch_calls[0][1]["phase"] == "2"
+        assert dispatch_calls[0][1]["dispatch_token"] == "dispatch-148"
+        assert ("find_latest_fixup_run", "nv-action/vllm-benchmarks", "dispatch-148") in adapter.calls
 
 
 def test_orchestrator_service_creates_manual_review_when_done_phase_fails():
@@ -1018,6 +1716,44 @@ def test_orchestrator_service_creates_issue_when_phase3_fixup_has_no_changes():
         assert updated.phase == "done"
         assert updated.status == "manual_review"
         assert len(issue_calls) == 1
+
+
+def test_run_once_skips_terminal_manual_review_state_without_creating_duplicate_issue():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        store = Main2MainStateStore(Path(tmp_dir) / "state.json")
+        store.register(
+            Main2MainState(
+                repo="nv-action/vllm-benchmarks",
+                pr_number=149,
+                branch="main2main_auto_2026-03-11_02-02",
+                head_sha="def456",
+                old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                new_commit="81939e7733642f583d1731e5c9ef69dcd457b5e5",
+                phase="done",
+                status="manual_review",
+                active_fixup_run_id=None,
+            )
+        )
+
+        class FakeGitHub:
+            def list_open_main2main_pr_numbers(self, repo):
+                return [149]
+
+            def create_manual_review_issue(self, **kwargs):
+                raise AssertionError("manual review issue should not be created again")
+
+            def get_pr_context(self, repo, pr_number):
+                raise AssertionError("terminal manual_review state should not reconcile")
+
+        service = OrchestratorService(store, FakeGitHub())
+
+        result = service.run_once("nv-action/vllm-benchmarks")
+
+        assert result == {
+            "registered": [],
+            "fixup_outcomes": {},
+            "reconciled": {},
+        }
 
 
 def test_cli_reconcile_reports_wait_when_e2e_not_finished():

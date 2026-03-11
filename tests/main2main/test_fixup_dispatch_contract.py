@@ -9,6 +9,7 @@ from main2main_orchestrator import GitHubCliAdapter, Main2MainState, Main2MainSt
 
 def test_reconcile_dispatches_fixup_with_explicit_contract_fields():
     commands = []
+    dispatch_token = "dispatch-148"
 
     def fake_runner(args):
         commands.append(args)
@@ -23,7 +24,7 @@ def test_reconcile_dispatches_fixup_with_explicit_contract_fields():
                 '"state":"OPEN"'
                 '}'
             )
-        if args[:4] == ["gh", "run", "list", "--repo"]:
+        if args[:7] == ["gh", "run", "list", "--repo", "nv-action/vllm-benchmarks", "--workflow", "pr_test_full.yaml"]:
             return (
                 '['
                 '{'
@@ -33,6 +34,19 @@ def test_reconcile_dispatches_fixup_with_explicit_contract_fields():
                 '"status":"completed",'
                 '"conclusion":"failure",'
                 '"url":"https://github.com/nv-action/vllm-benchmarks/actions/runs/22901040063"'
+                '}'
+                ']'
+            )
+        if args[:7] == ["gh", "run", "list", "--repo", "nv-action/vllm-benchmarks", "--workflow", "main2main_auto.yaml"]:
+            return (
+                '['
+                '{'
+                '"databaseId":22901050000,'
+                '"status":"in_progress",'
+                '"conclusion":"",'
+                '"url":"https://github.com/nv-action/vllm-benchmarks/actions/runs/22901050000",'
+                '"event":"workflow_dispatch",'
+                f'"displayTitle":"Main2Main Auto fixup pr=148 phase=2 token={dispatch_token}"'
                 '}'
                 ']'
             )
@@ -52,7 +66,11 @@ def test_reconcile_dispatches_fixup_with_explicit_contract_fields():
                 status="waiting_e2e",
             )
         )
-        service = OrchestratorService(store, GitHubCliAdapter(fake_runner))
+        service = OrchestratorService(
+            store,
+            GitHubCliAdapter(fake_runner),
+            token_factory=lambda: dispatch_token,
+        )
 
         result = service.reconcile("nv-action/vllm-benchmarks", 148)
 
@@ -71,5 +89,6 @@ def test_reconcile_dispatches_fixup_with_explicit_contract_fields():
         "phase=2",
         "old_commit=4034c3d32e30d01639459edd3ab486f56993876d",
         "new_commit=4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
+        f"dispatch_token={dispatch_token}",
     ]:
         assert expected in joined

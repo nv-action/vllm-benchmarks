@@ -20,6 +20,7 @@ def test_workflow_dispatch_declares_fixup_contract_inputs():
         'phase:',
         'old_commit:',
         'new_commit:',
+        'dispatch_token:',
     ]:
         assert key in text
 
@@ -40,3 +41,25 @@ def test_fixup_no_longer_tracks_phase_via_labels():
     assert 'main2main-phase2' not in text
     assert 'main2main-phase3' not in text
     assert '--add-label "${PHASE_LABEL}"' not in text
+
+
+def test_phase1_publishes_registration_comment_for_orchestrator():
+    text = read_workflow()
+    assert 'main2main-register' in text
+    assert 'gh pr comment "${{ steps.pr.outputs.number }}"' in text
+    assert 'head_sha=$(git rev-parse HEAD)' in text
+    assert 'phase=2' in text
+
+
+def test_fixup_run_name_includes_dispatch_token():
+    text = read_workflow()
+    assert 'run-name:' in text
+    assert 'github.event.inputs.dispatch_token' in text
+
+
+def test_fixup_updates_registration_comment_after_pushing_changes():
+    text = read_workflow()
+    assert 'Update registration comment for orchestrator' in text
+    assert 'gh api "repos/${{ env.UPSTREAM_REPO }}/issues/${{ steps.ctx.outputs.pr_number }}/comments"' in text
+    assert 'phase=${NEXT_PHASE}' in text
+    assert 'head_sha=$(git rev-parse HEAD)' in text

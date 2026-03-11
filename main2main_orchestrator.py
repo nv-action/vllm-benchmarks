@@ -3,14 +3,28 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass, replace
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
 import sys
+import time
+import uuid
 
 
 _COMMIT_RANGE_RE = re.compile(
     r"^\*\*Commit range:\*\* `([0-9a-f]{40})`\.\.\.`([0-9a-f]{40})`$",
+    re.MULTILINE,
+)
+_REGISTRATION_COMMENT_RE = re.compile(
+    r"<!-- main2main-register\s*"
+    r"pr_number=(\d+)\s*"
+    r"branch=([^\n]+)\s*"
+    r"head_sha=([0-9a-f]{40})\s*"
+    r"old_commit=([0-9a-f]{40})\s*"
+    r"new_commit=([0-9a-f]{40})\s*"
+    r"phase=(2|3|done)\s*"
+    r"-->",
     re.MULTILINE,
 )
 
@@ -31,6 +45,16 @@ class PrMetadata:
 
 
 @dataclass(frozen=True)
+class RegistrationMetadata:
+    pr_number: int
+    branch: str
+    head_sha: str
+    old_commit: str
+    new_commit: str
+    phase: str
+
+
+@dataclass(frozen=True)
 class Main2MainState:
     repo: str
     pr_number: int
@@ -40,6 +64,7 @@ class Main2MainState:
     new_commit: str
     phase: str
     status: str
+    active_fixup_run_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -58,6 +83,25 @@ class FixupOutcome:
 class GitHubCliAdapter:
     def __init__(self, runner=None):
         self._runner = runner or self._run
+
+    def list_open_main2main_pr_numbers(self, repo: str) -> list[int]:
+        output = self._runner(
+            [
+                "gh",
+                "pr",
+                "list",
+                "--repo",
+                repo,
+                "--state",
+                "open",
+                "--label",
+                "main2main",
+                "--json",
+                "number",
+            ]
+        )
+        prs = json.loads(output)
+        return [int(pr["number"]) for pr in prs]
 
     def get_pr_context(self, repo: str, pr_number: int) -> dict[str, object]:
         output = self._runner(
@@ -83,6 +127,27 @@ class GitHubCliAdapter:
             "body": raw["body"],
         }
 
+    def get_registration_metadata(self, repo: str, pr_number: int) -> RegistrationMetadata:
+        injected_comment = os.environ.get("MAIN2MAIN_TEST_REGISTRATION_COMMENT")
+        if injected_comment:
+            return parse_registration_comment(injected_comment)
+        output = self._runner(
+            [
+                "gh",
+                "api",
+                f"repos/{repo}/issues/{pr_number}/comments",
+            ]
+        )
+        comments = json.loads(output)
+        for comment in reversed(comments):
+            body = comment.get("body", "")
+            if not isinstance(body, str):
+                continue
+            if "main2main-register" not in body:
+                continue
+            return parse_registration_comment(body)
+        raise ValueError(f"registration metadata comment not found for PR #{pr_number}")
+
     def dispatch_fixup(
         self,
         *,
@@ -96,6 +161,7 @@ class GitHubCliAdapter:
         phase: str,
         old_commit: str,
         new_commit: str,
+        dispatch_token: str,
     ) -> None:
         self._runner(
             [
@@ -125,8 +191,66 @@ class GitHubCliAdapter:
                 f"old_commit={old_commit}",
                 "-f",
                 f"new_commit={new_commit}",
+                "-f",
+                f"dispatch_token={dispatch_token}",
             ]
         )
+
+    def find_latest_fixup_run(
+        self,
+        *,
+        repo: str,
+        dispatch_token: str,
+    ) -> dict[str, str] | None:
+        output = self._runner(
+            [
+                "gh",
+                "run",
+                "list",
+                "--repo",
+                repo,
+                "--workflow",
+                "main2main_auto.yaml",
+                "--json",
+                "databaseId,status,conclusion,url,event,displayTitle",
+                "-L",
+                "20",
+            ]
+        )
+        runs = json.loads(output)
+        for run in runs:
+            if run.get("event") != "workflow_dispatch":
+                continue
+            if dispatch_token not in str(run.get("displayTitle") or ""):
+                continue
+            return {
+                "run_id": str(run["databaseId"]),
+                "status": str(run["status"]),
+                "conclusion": str(run.get("conclusion") or ""),
+                "run_url": str(run["url"]),
+            }
+        return None
+
+    def get_workflow_run(self, *, repo: str, run_id: str) -> dict[str, str]:
+        output = self._runner(
+            [
+                "gh",
+                "run",
+                "view",
+                run_id,
+                "--repo",
+                repo,
+                "--json",
+                "databaseId,status,conclusion,url",
+            ]
+        )
+        raw = json.loads(output)
+        return {
+            "run_id": str(raw["databaseId"]),
+            "status": str(raw["status"]),
+            "conclusion": str(raw.get("conclusion") or ""),
+            "run_url": str(raw["url"]),
+        }
 
     def mark_pr_ready(self, repo: str, pr_number: int) -> None:
         self._runner(
@@ -168,25 +292,38 @@ class GitHubCliAdapter:
                 "--workflow",
                 "pr_test_full.yaml",
                 "--json",
-                "databaseId,workflowName,headSha,status,conclusion,url",
+                "databaseId,workflowName,headSha,status,conclusion,url,createdAt",
                 "-L",
                 "20",
             ]
         )
         runs = json.loads(output)
+        matching_runs = []
         for run in runs:
             if run.get("workflowName") != "E2E-Full":
                 continue
             if run.get("headSha") != head_sha:
                 continue
-            if run.get("status") != "completed":
-                continue
-            return {
-                "run_id": str(run["databaseId"]),
-                "head_sha": str(run["headSha"]),
-                "conclusion": str(run["conclusion"]),
-                "run_url": str(run["url"]),
-            }
+            matching_runs.append(run)
+        if not matching_runs:
+            return None
+        if any(run.get("status") != "completed" for run in matching_runs):
+            return None
+        latest_run = max(
+            matching_runs,
+            key=lambda run: (
+                str(run.get("createdAt") or ""),
+                int(run.get("databaseId") or 0),
+            ),
+        )
+        if latest_run.get("status") != "completed":
+            return None
+        return {
+            "run_id": str(latest_run["databaseId"]),
+            "head_sha": str(latest_run["headSha"]),
+            "conclusion": str(latest_run["conclusion"]),
+            "run_url": str(latest_run["url"]),
+        }
         return None
 
     def get_fixup_outcome(self, *, repo: str, run_id: str, phase: str) -> FixupOutcome:
@@ -285,6 +422,20 @@ class Main2MainStateStore:
         self.register(updated)
         return updated
 
+    def mark_fixup_dispatched(
+        self,
+        *,
+        repo: str,
+        pr_number: int,
+        run_id: str,
+    ) -> Main2MainState:
+        current = self.get(repo, pr_number)
+        if current is None:
+            raise KeyError(f"unknown main2main PR: {repo}#{pr_number}")
+        updated = replace(current, status="fixing", active_fixup_run_id=run_id)
+        self.register(updated)
+        return updated
+
     @staticmethod
     def _key(repo: str, pr_number: int) -> str:
         return f"{repo}#{pr_number}"
@@ -300,6 +451,7 @@ class Main2MainStateStore:
             "new_commit": state.new_commit,
             "phase": state.phase,
             "status": state.status,
+            "active_fixup_run_id": state.active_fixup_run_id,
         }
 
     @staticmethod
@@ -313,6 +465,11 @@ class Main2MainStateStore:
             new_commit=str(raw["new_commit"]),
             phase=str(raw["phase"]),
             status=str(raw["status"]),
+            active_fixup_run_id=(
+                str(raw["active_fixup_run_id"])
+                if raw.get("active_fixup_run_id") is not None
+                else None
+            ),
         )
 
     def _load_all(self) -> dict[str, dict[str, str | int]]:
@@ -326,9 +483,37 @@ class Main2MainStateStore:
 
 
 class OrchestratorService:
-    def __init__(self, store: Main2MainStateStore, github: GitHubCliAdapter):
+    def __init__(
+        self,
+        store: Main2MainStateStore,
+        github: GitHubCliAdapter,
+        *,
+        sleep_fn=time.sleep,
+        token_factory=None,
+    ):
         self.store = store
         self.github = github
+        self.sleep_fn = sleep_fn
+        self.token_factory = token_factory or (lambda: uuid.uuid4().hex)
+
+    def _wait_for_dispatched_fixup_run(
+        self,
+        *,
+        repo: str,
+        dispatch_token: str,
+        attempts: int = 10,
+        interval_seconds: int = 2,
+    ) -> dict[str, str] | None:
+        for attempt in range(attempts):
+            run = self.github.find_latest_fixup_run(
+                repo=repo,
+                dispatch_token=dispatch_token,
+            )
+            if run is not None:
+                return run
+            if attempt < attempts - 1:
+                self.sleep_fn(interval_seconds)
+        return None
 
     def reconcile(self, repo: str, pr_number: int) -> dict[str, str]:
         state = self.store.get(repo, pr_number)
@@ -360,6 +545,7 @@ class OrchestratorService:
         if decision.action == "mark_ready":
             self.github.mark_pr_ready(repo, pr_number)
         elif decision.action == "dispatch_fixup":
+            dispatch_token = self.token_factory()
             self.github.dispatch_fixup(
                 repo=repo,
                 pr_number=pr_number,
@@ -371,6 +557,20 @@ class OrchestratorService:
                 phase=state.phase,
                 old_commit=state.old_commit,
                 new_commit=state.new_commit,
+                dispatch_token=dispatch_token,
+            )
+            fixup_run = self._wait_for_dispatched_fixup_run(
+                repo=repo,
+                dispatch_token=dispatch_token,
+            )
+            if fixup_run is None:
+                raise ValueError(
+                    f"unable to locate dispatched fixup run for token {dispatch_token}"
+                )
+            self.store.mark_fixup_dispatched(
+                repo=repo,
+                pr_number=pr_number,
+                run_id=fixup_run["run_id"],
             )
         elif decision.action == "create_manual_review":
             self.github.create_manual_review_issue(
@@ -387,6 +587,59 @@ class OrchestratorService:
             "action": decision.action,
             "phase": decision.phase,
             "reason": decision.reason,
+        }
+
+    def run_once(self, repo: str) -> dict[str, object]:
+        registered: list[int] = []
+        fixup_outcomes: dict[str, dict[str, str]] = {}
+        reconciled: dict[str, dict[str, str]] = {}
+
+        for pr_number in self.github.list_open_main2main_pr_numbers(repo):
+            state = self.store.get(repo, pr_number)
+            if state is None:
+                self.register_from_pr_comment(repo, pr_number)
+                registered.append(pr_number)
+                state = self.store.get(repo, pr_number)
+            if state is None:
+                raise KeyError(f"unknown main2main PR: {repo}#{pr_number}")
+            if state.status == "manual_review":
+                continue
+            if state.status == "fixing" and state.active_fixup_run_id is not None:
+                run = self.github.get_workflow_run(repo=repo, run_id=state.active_fixup_run_id)
+                if run["status"] == "completed":
+                    fixup_outcomes[str(pr_number)] = self.apply_fixup_outcome(
+                        repo,
+                        pr_number,
+                        state.active_fixup_run_id,
+                    )
+                continue
+            reconciled[str(pr_number)] = self.reconcile(repo, pr_number)
+
+        return {
+            "registered": registered,
+            "fixup_outcomes": fixup_outcomes,
+            "reconciled": reconciled,
+        }
+
+    def register_from_pr_comment(self, repo: str, pr_number: int) -> dict[str, str]:
+        metadata = self.github.get_registration_metadata(repo, pr_number)
+        self.store.register(
+            Main2MainState(
+                repo=repo,
+                pr_number=metadata.pr_number,
+                branch=metadata.branch,
+                head_sha=metadata.head_sha,
+                old_commit=metadata.old_commit,
+                new_commit=metadata.new_commit,
+                phase=metadata.phase,
+                status="waiting_e2e",
+                active_fixup_run_id=None,
+            )
+        )
+        return {
+            "action": "register",
+            "phase": metadata.phase,
+            "reason": "registered from PR comment metadata",
         }
 
     def apply_fixup_outcome(self, repo: str, pr_number: int, fixup_run_id: str) -> dict[str, str]:
@@ -406,13 +659,17 @@ class OrchestratorService:
                 expected_head_sha=state.head_sha,
                 new_head_sha=new_head_sha,
             )
-            return {"action": "advance_phase", "phase": updated.phase, "reason": "changes pushed"}
+            cleared = replace(updated, active_fixup_run_id=None)
+            self.store.register(cleared)
+            return {"action": "advance_phase", "phase": cleared.phase, "reason": "changes pushed"}
 
         updated = self.store.update_after_no_change_fixup(
             repo=repo,
             pr_number=pr_number,
             expected_head_sha=state.head_sha,
         )
+        cleared = replace(updated, active_fixup_run_id=None)
+        self.store.register(cleared)
         if state.phase == "3":
             self.github.create_manual_review_issue(
                 repo=repo,
@@ -426,12 +683,12 @@ class OrchestratorService:
             )
             return {
                 "action": "create_manual_review",
-                "phase": updated.phase,
+                "phase": cleared.phase,
                 "reason": "phase 3 completed without code changes",
             }
         return {
             "action": "advance_phase",
-            "phase": updated.phase,
+            "phase": cleared.phase,
             "reason": "phase 2 completed without code changes",
         }
 
@@ -443,6 +700,20 @@ def parse_pr_metadata(body: str) -> PrMetadata:
     return PrMetadata(
         old_commit=commit_match.group(1),
         new_commit=commit_match.group(2),
+    )
+
+
+def parse_registration_comment(body: str) -> RegistrationMetadata:
+    match = _REGISTRATION_COMMENT_RE.search(body)
+    if match is None:
+        raise ValueError("registration comment is missing main2main metadata")
+    return RegistrationMetadata(
+        pr_number=int(match.group(1)),
+        branch=match.group(2),
+        head_sha=match.group(3),
+        old_commit=match.group(4),
+        new_commit=match.group(5),
+        phase=match.group(6),
     )
 
 
@@ -515,6 +786,25 @@ def apply_no_change_fixup_result(state: Main2MainState) -> Main2MainState:
     return replace(state, phase="done", status="manual_review")
 
 
+def run_loop(
+    service: OrchestratorService,
+    repo: str,
+    *,
+    interval_seconds: int,
+    iterations: int | None = None,
+    sleep_fn=time.sleep,
+) -> list[dict[str, object]]:
+    results: list[dict[str, object]] = []
+    count = 0
+    while iterations is None or count < iterations:
+        results.append(service.run_once(repo))
+        count += 1
+        if iterations is not None and count >= iterations:
+            break
+        sleep_fn(interval_seconds)
+    return results
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Minimal main2main orchestrator")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -549,12 +839,67 @@ def _build_parser() -> argparse.ArgumentParser:
     apply_fixup_outcome.add_argument("--pr-number", required=True, type=int)
     apply_fixup_outcome.add_argument("--fixup-run-id", required=True)
 
+    register_from_pr_comment = subparsers.add_parser("register-from-pr-comment")
+    register_from_pr_comment.add_argument("--state-file", required=True)
+    register_from_pr_comment.add_argument("--repo", required=True)
+    register_from_pr_comment.add_argument("--pr-number", required=True, type=int)
+
+    run_once = subparsers.add_parser("run-once")
+    run_once.add_argument("--state-file", required=True)
+    run_once.add_argument("--repo", required=True)
+
+    run_loop_parser = subparsers.add_parser("run-loop")
+    run_loop_parser.add_argument("--state-file", required=True)
+    run_loop_parser.add_argument("--repo", required=True)
+    run_loop_parser.add_argument("--interval-seconds", required=True, type=int)
+    run_loop_parser.add_argument("--iterations", type=int)
+
     reconcile = subparsers.add_parser("reconcile")
     reconcile.add_argument("--state-file", required=True)
     reconcile.add_argument("--repo", required=True)
     reconcile.add_argument("--pr-number", required=True, type=int)
 
     return parser
+
+
+def _build_github_adapter():
+    if os.environ.get("MAIN2MAIN_TEST_RUN_ONCE") == "1":
+        class _TestRunOnceAdapter:
+            def list_open_main2main_pr_numbers(self, repo: str) -> list[int]:
+                assert repo == "nv-action/vllm-benchmarks"
+                return [149]
+
+            def get_registration_metadata(self, repo: str, pr_number: int) -> RegistrationMetadata:
+                assert repo == "nv-action/vllm-benchmarks"
+                assert pr_number == 149
+                return RegistrationMetadata(
+                    pr_number=149,
+                    branch="main2main_auto_2026-03-11_02-02",
+                    head_sha="0ac6428474c21eed75ceacac5b7fc04c58512a95",
+                    old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                    new_commit="81939e7733642f583d1731e5c9ef69dcd457b5e5",
+                    phase="2",
+                )
+
+            def get_pr_context(self, repo: str, pr_number: int) -> dict[str, object]:
+                return {
+                    "pr_number": pr_number,
+                    "head_sha": "0ac6428474c21eed75ceacac5b7fc04c58512a95",
+                    "branch": "main2main_auto_2026-03-11_02-02",
+                    "state": "OPEN",
+                    "labels": ["main2main"],
+                    "metadata": PrMetadata(
+                        old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                        new_commit="81939e7733642f583d1731e5c9ef69dcd457b5e5",
+                    ),
+                    "body": "",
+                }
+
+            def wait_for_e2e_full(self, *, repo: str, head_sha: str) -> dict[str, str] | None:
+                return None
+
+        return _TestRunOnceAdapter()
+    return GitHubCliAdapter()
 
 
 def _main(argv: list[str]) -> int:
@@ -588,13 +933,36 @@ def _main(argv: list[str]) -> int:
         return 0
 
     if args.command == "reconcile":
-        service = OrchestratorService(store, GitHubCliAdapter())
+        service = OrchestratorService(store, _build_github_adapter())
         result = service.reconcile(args.repo, args.pr_number)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
 
+    if args.command == "register-from-pr-comment":
+        service = OrchestratorService(store, _build_github_adapter())
+        result = service.register_from_pr_comment(args.repo, args.pr_number)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "run-once":
+        service = OrchestratorService(store, _build_github_adapter())
+        result = service.run_once(args.repo)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "run-loop":
+        service = OrchestratorService(store, _build_github_adapter())
+        result = run_loop(
+            service,
+            args.repo,
+            interval_seconds=args.interval_seconds,
+            iterations=args.iterations,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
     if args.command == "apply-fixup-outcome":
-        service = OrchestratorService(store, GitHubCliAdapter())
+        service = OrchestratorService(store, _build_github_adapter())
         result = service.apply_fixup_outcome(
             args.repo,
             args.pr_number,
