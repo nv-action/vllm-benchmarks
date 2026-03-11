@@ -275,6 +275,25 @@ jobs:
             --repo "${{ env.UPSTREAM_REPO }}" \
             --add-label "main2main,ready,ready-for-test"
 
+      - name: Publish registration comment for orchestrator
+        if: steps.pr.outputs.number
+        run: |
+          HEAD_SHA=$(git rev-parse HEAD)
+          cat > /tmp/main2main_register_comment.md <<EOF
+          <!-- main2main-register
+          pr_number=${{ steps.pr.outputs.number }}
+          branch=${{ steps.branch.outputs.name }}
+          head_sha=$(git rev-parse HEAD)
+          old_commit=${{ steps.detect.outputs.old_commit }}
+          new_commit=${{ steps.detect.outputs.new_commit }}
+          phase=2
+          -->
+          EOF
+
+          gh pr comment "${{ steps.pr.outputs.number }}" \
+            --repo "${{ env.UPSTREAM_REPO }}" \
+            --body-file /tmp/main2main_register_comment.md
+
   # ================================================================
   # Fixup: Explicit Phase 2 & Phase 3 executor
   #

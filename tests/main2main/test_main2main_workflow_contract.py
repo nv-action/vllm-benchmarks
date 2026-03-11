@@ -40,3 +40,11 @@ def test_fixup_no_longer_tracks_phase_via_labels():
     assert 'main2main-phase2' not in text
     assert 'main2main-phase3' not in text
     assert '--add-label "${PHASE_LABEL}"' not in text
+
+
+def test_phase1_publishes_registration_comment_for_orchestrator():
+    text = read_workflow()
+    assert 'main2main-register' in text
+    assert 'gh pr comment "${{ steps.pr.outputs.number }}"' in text
+    assert 'head_sha=$(git rev-parse HEAD)' in text
+    assert 'phase=2' in text
