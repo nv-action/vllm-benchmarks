@@ -64,7 +64,7 @@ def verify_and_update_config(cls, vllm_config) -> None:
     # override attention block size if either (a) the
     # user has not set it or (b) the user has set it
     # too small.
-    if cache_config.block_size is None or cache_config.block_size < attn_block_size:
+    if not cache_config.user_specified_block_size or cache_config.block_size < attn_block_size:
         cache_config.block_size = attn_block_size
         logger.info(
             "Setting attention block size to %d tokens to ensure that attention page size is >= mamba page size.",

@@ -1060,7 +1060,7 @@ def refresh_block_size(vllm_config):
     if not cache_config:
         return
 
-    if cache_config.block_size is None:
+    if not cache_config.user_specified_block_size:
         cache_config.block_size = 128
 
     if not scheduler_config or not model_config:

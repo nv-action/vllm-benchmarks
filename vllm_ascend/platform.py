@@ -791,3 +791,36 @@ class NPUPlatform(Platform):
                     "ignored on Ascend. Resetting to default (32)."
                 )
                 att_config.flash_attn_max_num_splits_for_cuda_graph = 32
+
+    @classmethod
+    def update_block_size_for_backend(cls, vllm_config: "VllmConfig") -> None:
+        """
+        Ensure block_size is compatible with the attention backend.
+        """
+        from vllm.config.cache import CacheConfig
+
+        cache_config = vllm_config.cache_config
+        if cache_config.user_specified_block_size:
+            # User specified --block-size; keep it.
+            return
+
+        model_config = vllm_config.model_config
+        # model_config may be None during testing.
+        # Skip hybrid models — their block_size is managed by
+        # HybridAttentionMambaModelConfig.
+        if model_config is None or model_config.is_hybrid:
+            cache_config.block_size = CacheConfig.DEFAULT_BLOCK_SIZE
+            return
+
+        # For Ascend NPU, we use the default block size
+        # TODO: Add Ascend-specific block size logic if needed
+        cache_config.block_size = CacheConfig.DEFAULT_BLOCK_SIZE
+
+    @classmethod
+    def use_custom_op_collectives(cls) -> bool:
+        """
+        Whether this platform should use torch.ops.vllm.* custom ops for collectives.
+
+        Returns True for Ascend NPU to use custom collectives.
+        """
+        return True
