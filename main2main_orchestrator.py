@@ -831,7 +831,7 @@ def _build_github_adapter():
                     pr_number=149,
                     branch="main2main_auto_2026-03-11_02-02",
                     head_sha="0ac6428474c21eed75ceacac5b7fc04c58512a95",
-                    old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                    old_commit="a40ee486f273eaaa885dafd0526f42f3a5b960c9",
                     new_commit="81939e7733642f583d1731e5c9ef69dcd457b5e5",
                     phase="2",
                 )
@@ -844,7 +844,7 @@ def _build_github_adapter():
                     "state": "OPEN",
                     "labels": ["main2main"],
                     "metadata": PrMetadata(
-                        old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                        old_commit="a40ee486f273eaaa885dafd0526f42f3a5b960c9",
                         new_commit="81939e7733642f583d1731e5c9ef69dcd457b5e5",
                     ),
                     "body": "",

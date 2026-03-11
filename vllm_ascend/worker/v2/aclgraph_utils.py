@@ -25,7 +25,7 @@ from vllm.config import VllmConfig
 from vllm.v1.attention.backend import AttentionMetadataBuilder
 from vllm.v1.kv_cache_interface import KVCacheConfig
 from vllm.v1.worker.gpu.block_table import BlockTables
-from vllm.v1.worker.gpu.cudagraph_utils import CudaGraphManager
+from vllm.v1.worker.gpu.cudagraph_utils import ModelCudaGraphManager as CudaGraphManager
 from vllm.v1.worker.gpu.cudagraph_utils import prepare_inputs_to_capture as prepare_inputs_to_capture_gpu
 from vllm.v1.worker.gpu.input_batch import InputBuffers
 
@@ -42,7 +42,15 @@ class AclGraphManager(CudaGraphManager):
         device: torch.device,
     ):
         with torch_cuda_wrapper():
-            super().__init__(vllm_config, use_mrope, device)
+            # Updated for vLLM main branch compatibility
+            # Old signature: CudaGraphManager(vllm_config, use_mrope, device)
+            # New signature: ModelCudaGraphManager(vllm_config, device, cudagraph_mode, decode_query_len)
+            super().__init__(
+                vllm_config,
+                device,
+                vllm_config.compilation_config.cudagraph_mode,
+                decode_query_len=1,  # Default decode query length
+            )
 
     def capture_graph(
         self,

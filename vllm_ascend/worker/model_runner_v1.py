@@ -277,7 +277,6 @@ class NPUModelRunner(GPUModelRunner):
             0,
             self.dtype,
             None,
-            self.block_size,
             use_mla=self.model_config.use_mla,
             use_sparse=self.use_sparse,
             use_mm_prefix=self.model_config is not None and self.model_config.is_mm_prefix_lm,
@@ -2800,11 +2799,13 @@ class NPUModelRunner(GPUModelRunner):
                 # to kernel_block_sizes[0]
                 kernel_block_sizes.append([0])
         if block_sizes != [self.cache_config.block_size] or kernel_block_sizes != [[self.cache_config.block_size]]:
-            assert self.cache_config.cpu_offload_gb == 0, (
-                "Cannot re-initialize the input batch when CPU weight "
-                "offloading is enabled. See https://github.com/vllm-project/vllm/pull/18298 "  # noqa: E501
-                "for more details."
-            )
+            # Check for CPU offloading only in older vLLM versions where cpu_offload_gb exists
+            if hasattr(self.cache_config, 'cpu_offload_gb'):
+                assert self.cache_config.cpu_offload_gb == 0, (
+                    "Cannot re-initialize the input batch when CPU weight "
+                    "offloading is enabled. See https://github.com/vllm-project/vllm/pull/18298 "  # noqa: E501
+                    "for more details."
+                )
             self.input_batch = NPUInputBatch(
                 max_num_reqs=self.max_num_reqs,
                 max_model_len=max(self.model_config.max_model_len, self.max_encoder_len),
