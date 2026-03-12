@@ -62,8 +62,9 @@ class NPUModelRunner(GPUModelRunner):
         # NPU specific initializations can be added below.
         self.cudagraph_manager: AclGraphManager = AclGraphManager(
             self.vllm_config,
-            self.uses_mrope,
             self.device,
+            self.compilation_config.cudagraph_mode,
+            self.decode_query_len,
         )
 
         # we define AscendEagleSpeculator in vllm_ascend.worker.v2.spec_decode.eagle

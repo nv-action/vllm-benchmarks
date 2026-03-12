@@ -19,7 +19,7 @@ def test_reconcile_dispatches_fixup_with_explicit_contract_fields():
                 '"number":148,'
                 '"headRefOid":"abc123",'
                 '"headRefName":"main2main_auto_2026-03-11_12-30",'
-                '"body":"## Summary\\n\\n**Commit range:** `4034c3d32e30d01639459edd3ab486f56993876d`...`4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366`\\n",'
+                '"body":"## Summary\\n\\n**Commit range:** `5282c7d4d0d1487eb283f09d322b0140dea5a968`...`4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366`\\n",'
                 '"labels":[{"name":"main2main"}],'
                 '"state":"OPEN"'
                 '}'
@@ -60,7 +60,7 @@ def test_reconcile_dispatches_fixup_with_explicit_contract_fields():
                 pr_number=148,
                 branch="main2main_auto_2026-03-11_12-30",
                 head_sha="abc123",
-                old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                old_commit="5282c7d4d0d1487eb283f09d322b0140dea5a968",
                 new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
                 phase="2",
                 status="waiting_e2e",
@@ -87,7 +87,7 @@ def test_reconcile_dispatches_fixup_with_explicit_contract_fields():
         "run_url=https://github.com/nv-action/vllm-benchmarks/actions/runs/22901040063",
         "conclusion=failure",
         "phase=2",
-        "old_commit=4034c3d32e30d01639459edd3ab486f56993876d",
+        "old_commit=5282c7d4d0d1487eb283f09d322b0140dea5a968",
         "new_commit=4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
         f"dispatch_token={dispatch_token}",
     ]:
