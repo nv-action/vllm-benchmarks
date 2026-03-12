@@ -86,7 +86,7 @@ jobs:
         file: ${{ inputs.dockerfile || 'Dockerfile' }}
         # only trigger when tag, branch/main push
         push: ${{ inputs.should_push }}
-        outputs: type=image,name=quay.io/ascend/vllm-ascend,push-by-digest=true,name-canonical=true,push=${{ inputs.should_push }}
+        outputs: type=image,name=quay.io/wangli12345/vllm-dev,push-by-digest=true,name-canonical=true,push=${{ inputs.should_push }}
         build-args: |
           PIP_INDEX_URL=https://pypi.org/simple
         provenance: false
@@ -143,7 +143,7 @@ jobs:
         with:
           # TODO(yikun): add more hub image and a note on release policy for container image
           images: |
-            quay.io/ascend/vllm-ascend
+            quay.io/wangli12345/vllm-dev
           # Note for test case
           # https://github.com/marketplace/actions/docker-metadata-action#typeref
           # 1. branch job publish per main/*-dev branch commits
@@ -172,7 +172,7 @@ jobs:
 
       - name: Merge and push multi-arch image
         env:
-          IMAGE: quay.io/ascend/vllm-ascend
+          IMAGE: quay.io/wangli12345/vllm-dev
           TAGS: ${{ steps.meta.outputs.tags }}
         run: |
           DIGESTS=$(printf "$IMAGE@sha256:%s " $(ls ${{ runner.temp }}/digests))
