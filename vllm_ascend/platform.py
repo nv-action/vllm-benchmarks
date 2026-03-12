@@ -534,6 +534,15 @@ class NPUPlatform(Platform):
         return True
 
     @classmethod
+    def use_custom_op_collectives(cls) -> bool:
+        """
+        Whether this platform should use torch.ops.vllm.* custom ops for collectives.
+
+        Ascend NPU uses custom collective ops for performance.
+        """
+        return True
+
+    @classmethod
     def set_additional_forward_context(
         cls,
         attn_metadata: dict[str, Any],
