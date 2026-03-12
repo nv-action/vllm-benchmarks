@@ -12,6 +12,9 @@ import time
 import urllib.request
 import uuid
 
+from github_adapter import GitHubCliAdapter
+from state_store import JsonStore
+
 
 _COMMIT_RANGE_RE = re.compile(
     r"^\*\*Commit range:\*\* `([0-9a-f]{40})`\.\.\.`([0-9a-f]{40})`$",
@@ -159,7 +162,7 @@ def summarize_manual_review_issue(
     raise ValueError("Claude gateway response did not contain text content")
 
 
-class GitHubCliAdapter:
+class _LegacyGitHubCliAdapter:
     def __init__(self, runner=None):
         self._runner = runner or self._run
 
@@ -451,6 +454,7 @@ class GitHubCliAdapter:
 class Main2MainStateStore:
     def __init__(self, path: Path | str):
         self.path = Path(path)
+        self._store = JsonStore(self.path)
 
     def register(self, state: Main2MainState) -> None:
         data = self._load_all()
@@ -463,6 +467,9 @@ class Main2MainStateStore:
         if raw is None:
             return None
         return self._from_dict(raw)
+
+    def load_all(self) -> dict[str, dict[str, str | int]]:
+        return self._load_all()
 
     def update_after_fixup(
         self,
@@ -552,13 +559,10 @@ class Main2MainStateStore:
         )
 
     def _load_all(self) -> dict[str, dict[str, str | int]]:
-        if not self.path.exists():
-            return {}
-        return json.loads(self.path.read_text())
+        return self._store.load()
 
     def _save_all(self, data: dict[str, dict[str, str | int]]) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(data, indent=2, sort_keys=True))
+        self._store.save(data)
 
 
 class OrchestratorService:
@@ -569,11 +573,13 @@ class OrchestratorService:
         *,
         sleep_fn=time.sleep,
         token_factory=None,
+        terminal_enqueue_fn=None,
     ):
         self.store = store
         self.github = github
         self.sleep_fn = sleep_fn
         self.token_factory = token_factory or (lambda: uuid.uuid4().hex)
+        self.terminal_enqueue_fn = terminal_enqueue_fn
 
     def _build_manual_review_issue(
         self,
@@ -681,15 +687,26 @@ class OrchestratorService:
                 run_id=fixup_run["run_id"],
             )
         elif decision.action == "create_manual_review":
-            issue = self._build_manual_review_issue(
-                state=state,
-                pr_number=pr_number,
-                terminal_reason="done_failure",
-                e2e_run_url=e2e_result["run_url"],
-                e2e_run_id=e2e_result["run_id"],
-            )
-            self.store.register(replace(state, status="manual_review", active_fixup_run_id=None))
-            self.github.create_manual_review_issue(repo=repo, title=issue["title"], body=issue["body"])
+            if self.terminal_enqueue_fn is not None:
+                self.store.register(replace(state, status="pending_terminal", active_fixup_run_id=None))
+                self.terminal_enqueue_fn(
+                    pr_number=pr_number,
+                    repo=repo,
+                    terminal_reason="done_failure",
+                    e2e_run_id=e2e_result["run_id"],
+                    e2e_run_url=e2e_result["run_url"],
+                    fixup_run_id=None,
+                )
+            else:
+                issue = self._build_manual_review_issue(
+                    state=state,
+                    pr_number=pr_number,
+                    terminal_reason="done_failure",
+                    e2e_run_url=e2e_result["run_url"],
+                    e2e_run_id=e2e_result["run_id"],
+                )
+                self.store.register(replace(state, status="manual_review", active_fixup_run_id=None))
+                self.github.create_manual_review_issue(repo=repo, title=issue["title"], body=issue["body"])
         return {
             "action": decision.action,
             "phase": decision.phase,
@@ -710,6 +727,8 @@ class OrchestratorService:
             if state is None:
                 raise KeyError(f"unknown main2main PR: {repo}#{pr_number}")
             if state.status == "manual_review":
+                continue
+            if state.status == "pending_terminal":
                 continue
             if state.status == "fixing" and state.active_fixup_run_id is not None:
                 run = self.github.get_workflow_run(repo=repo, run_id=state.active_fixup_run_id)
@@ -778,17 +797,28 @@ class OrchestratorService:
         cleared = replace(updated, active_fixup_run_id=None)
         self.store.register(cleared)
         if state.phase == "3":
-            issue = self._build_manual_review_issue(
-                state=state,
-                pr_number=pr_number,
-                terminal_reason="phase3_no_changes",
-                fixup_run_id=fixup_run_id,
-            )
-            self.github.create_manual_review_issue(
-                repo=repo,
-                title=issue["title"],
-                body=issue["body"],
-            )
+            if self.terminal_enqueue_fn is not None:
+                self.store.register(replace(cleared, status="pending_terminal"))
+                self.terminal_enqueue_fn(
+                    pr_number=pr_number,
+                    repo=repo,
+                    terminal_reason="phase3_no_changes",
+                    e2e_run_id=None,
+                    e2e_run_url=None,
+                    fixup_run_id=fixup_run_id,
+                )
+            else:
+                issue = self._build_manual_review_issue(
+                    state=state,
+                    pr_number=pr_number,
+                    terminal_reason="phase3_no_changes",
+                    fixup_run_id=fixup_run_id,
+                )
+                self.github.create_manual_review_issue(
+                    repo=repo,
+                    title=issue["title"],
+                    body=issue["body"],
+                )
             return {
                 "action": "create_manual_review",
                 "phase": cleared.phase,

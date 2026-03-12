@@ -24,6 +24,7 @@ compressed_tensors>=0.11.0
 # requirements for disaggregated prefill
 msgpack
 quart
+mcp
 
 # Required for N-gram speculative decoding
 numba

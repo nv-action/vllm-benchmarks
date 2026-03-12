@@ -431,15 +431,15 @@ def test_cli_register_persists_state():
                 "--repo",
                 "nv-action/vllm-benchmarks",
                 "--pr-number",
-                "148",
+                "149",
                 "--branch",
-                "main2main_auto_2026-03-11_12-30",
+                "main2main_auto_2026-03-11_02-02",
                 "--head-sha",
-                "abc123",
+                "0ac6428474c21eed75ceacac5b7fc04c58512a95",
                 "--old-commit",
                 "4034c3d32e30d01639459edd3ab486f56993876d",
                 "--new-commit",
-                "4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
+                "81939e7733642f583d1731e5c9ef69dcd457b5e5",
                 "--phase",
                 "2",
             ],
@@ -448,9 +448,9 @@ def test_cli_register_persists_state():
             text=True,
         )
 
-        assert '"pr_number": 148' in result.stdout
+        assert '"pr_number": 149' in result.stdout
         store = Main2MainStateStore(state_path)
-        assert store.get("nv-action/vllm-benchmarks", 148) is not None
+        assert store.get("nv-action/vllm-benchmarks", 149) is not None
 
 
 def test_cli_decide_reports_dispatch_fixup():
@@ -1855,6 +1855,34 @@ def test_run_once_skips_terminal_manual_review_state_without_creating_duplicate_
         }
 
 
+def test_run_once_skips_pending_terminal_status():
+    with tempfile.TemporaryDirectory() as d:
+        state_file = Path(d) / "state.json"
+        store = Main2MainStateStore(state_file)
+        store.register(
+            Main2MainState(
+                repo="nv-action/vllm-benchmarks",
+                pr_number=154,
+                branch="branch",
+                head_sha="a" * 40,
+                old_commit="b" * 40,
+                new_commit="c" * 40,
+                phase="done",
+                status="pending_terminal",
+            )
+        )
+
+        class FakeGH:
+            def list_open_main2main_pr_numbers(self, repo):
+                return [154]
+
+        service = OrchestratorService(store, FakeGH())
+        result = service.run_once("nv-action/vllm-benchmarks")
+
+        assert result["reconciled"] == {}
+        assert result["fixup_outcomes"] == {}
+
+
 def test_cli_reconcile_reports_wait_when_e2e_not_finished():
     with tempfile.TemporaryDirectory() as tmp_dir:
         state_path = Path(tmp_dir) / "state.json"
@@ -1870,15 +1898,15 @@ def test_cli_reconcile_reports_wait_when_e2e_not_finished():
                 "--repo",
                 "nv-action/vllm-benchmarks",
                 "--pr-number",
-                "148",
+                "149",
                 "--branch",
-                "main2main_auto_2026-03-11_12-30",
+                "main2main_auto_2026-03-11_02-02",
                 "--head-sha",
-                "abc123",
+                "0ac6428474c21eed75ceacac5b7fc04c58512a95",
                 "--old-commit",
                 "4034c3d32e30d01639459edd3ab486f56993876d",
                 "--new-commit",
-                "4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
+                "81939e7733642f583d1731e5c9ef69dcd457b5e5",
                 "--phase",
                 "2",
             ],
@@ -1898,14 +1926,73 @@ def test_cli_reconcile_reports_wait_when_e2e_not_finished():
                 "--repo",
                 "nv-action/vllm-benchmarks",
                 "--pr-number",
-                "148",
+                "149",
             ],
             check=False,
             capture_output=True,
             text=True,
+            env={
+                "PYTHONPATH": str(repo_root),
+                "MAIN2MAIN_TEST_RUN_ONCE": "1",
+            },
         )
 
-        assert result.returncode != 0
+        assert result.returncode == 0
+        assert '"action": "wait"' in result.stdout
+        assert "e2e-full has not completed yet" in result.stdout
+
+
+def test_reconcile_enqueues_terminal_job_when_callback_provided():
+    with tempfile.TemporaryDirectory() as d:
+        state_file = Path(d) / "state.json"
+        store = Main2MainStateStore(state_file)
+        store.register(
+            Main2MainState(
+                repo="r",
+                pr_number=1,
+                branch="b",
+                head_sha="a" * 40,
+                old_commit="b" * 40,
+                new_commit="c" * 40,
+                phase="done",
+                status="waiting_e2e",
+            )
+        )
+        enqueued = []
+
+        class FakeGH:
+            def get_pr_context(self, repo, pr_number):
+                return {
+                    "pr_number": 1,
+                    "head_sha": "a" * 40,
+                    "branch": "b",
+                    "state": "OPEN",
+                    "labels": ["main2main"],
+                    "metadata": PrMetadata(old_commit="b" * 40, new_commit="c" * 40),
+                    "body": "",
+                }
+
+            def wait_for_e2e_full(self, *, repo, head_sha):
+                return {
+                    "run_id": "99",
+                    "head_sha": "a" * 40,
+                    "conclusion": "failure",
+                    "run_url": "u",
+                }
+
+        service = OrchestratorService(
+            store,
+            FakeGH(),
+            terminal_enqueue_fn=lambda **kw: enqueued.append(kw),
+        )
+
+        result = service.reconcile("r", 1)
+
+        assert result["action"] == "create_manual_review"
+        assert len(enqueued) == 1
+        assert enqueued[0]["terminal_reason"] == "done_failure"
+        state = store.get("r", 1)
+        assert state.status == "pending_terminal"
 
 
 def test_cli_apply_fixup_outcome_updates_state_for_phase2_no_changes(monkeypatch):
