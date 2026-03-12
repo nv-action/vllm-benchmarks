@@ -3,6 +3,7 @@ from pathlib import Path
 import sys
 import tempfile
 import subprocess
+from urllib.error import HTTPError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import main2main_orchestrator as orchestrator
@@ -19,10 +20,12 @@ from main2main_orchestrator import (
     apply_fixup_result,
     apply_no_change_fixup_result,
     decide_next_action,
+    extract_e2e_failure_analysis,
     parse_fixup_job_output,
     parse_pr_metadata,
     parse_registration_comment,
     run_loop,
+    summarize_manual_review_issue,
 )
 
 
@@ -86,6 +89,89 @@ phase=2
         new_commit="81939e7733642f583d1731e5c9ef69dcd457b5e5",
         phase="2",
     )
+
+
+def test_extract_e2e_failure_analysis_invokes_script_with_repo_and_run_id(monkeypatch):
+    calls = []
+
+    class Completed:
+        stdout = '{"run_id": 123, "code_bugs": []}'
+
+    def fake_run(args, capture_output, text, check):
+        calls.append(args)
+        return Completed()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = extract_e2e_failure_analysis(
+        repo="nv-action/vllm-benchmarks",
+        run_id="123",
+    )
+
+    assert result == {"run_id": 123, "code_bugs": []}
+    assert "--repo" in calls[0]
+    assert "nv-action/vllm-benchmarks" in calls[0]
+    assert "--run-id" in calls[0]
+    assert "123" in calls[0]
+    assert "--llm-output" in calls[0]
+
+
+def test_summarize_manual_review_issue_uses_claude_gateway(monkeypatch):
+    requests = []
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return json.dumps(
+                {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Summary line\\n- cause\\n- next step",
+                        }
+                    ]
+                }
+            ).encode("utf-8")
+
+    def fake_urlopen(request):
+        requests.append(request)
+        return FakeResponse()
+
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://gateway.example")
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "secret-token")
+    monkeypatch.setattr(orchestrator.urllib.request, "urlopen", fake_urlopen)
+
+    summary = summarize_manual_review_issue(
+        analysis={"run_id": 123, "code_bugs": [{"error_type": "TypeError", "error_message": "bad"}]},
+        state=Main2MainState(
+            repo="nv-action/vllm-benchmarks",
+            pr_number=154,
+            branch="main2main_auto_branch",
+            head_sha="abc",
+            old_commit="0" * 40,
+            new_commit="1" * 40,
+            phase="done",
+            status="waiting_e2e",
+        ),
+        terminal_reason="done_failure",
+        e2e_run_url="https://example/e2e/123",
+        e2e_run_id="123",
+        fixup_run_id="456",
+    )
+
+    assert "Summary line" in summary
+    assert len(requests) == 1
+    request = requests[0]
+    assert request.full_url == "https://gateway.example/v1/messages"
+    assert request.headers["Authorization"] == "Bearer secret-token"
+    payload = json.loads(request.data.decode("utf-8"))
+    assert payload["model"] == "claude-sonnet-4-5"
+    assert "done_failure" in payload["messages"][0]["content"]
 
 
 def test_decide_next_action_marks_ready_on_success():
@@ -1581,11 +1667,19 @@ def test_orchestrator_service_creates_manual_review_when_done_phase_fails():
         )
 
         service = OrchestratorService(store, adapter)
+        service._build_manual_review_issue = lambda **kwargs: {
+            "title": "main2main: manual review needed",
+            "body": "AI summary for terminal E2E failure",
+        }
         result = service.reconcile("nv-action/vllm-benchmarks", 148)
 
         assert result["action"] == "create_manual_review"
         issue_calls = [call for call in adapter.calls if call[0] == "create_manual_review_issue"]
         assert len(issue_calls) == 1
+        assert issue_calls[0][1]["body"] == "AI summary for terminal E2E failure"
+        updated = store.get("nv-action/vllm-benchmarks", 148)
+        assert updated is not None
+        assert updated.status == "manual_review"
 
 
 def test_orchestrator_service_returns_waiting_when_no_completed_e2e_run():
@@ -1703,6 +1797,10 @@ def test_orchestrator_service_creates_issue_when_phase3_fixup_has_no_changes():
         )
 
         service = OrchestratorService(store, adapter)
+        service._build_manual_review_issue = lambda **kwargs: {
+            "title": "main2main: manual review needed",
+            "body": "AI summary for phase 3 no-change terminal failure",
+        }
         result = service.apply_fixup_outcome(
             repo="nv-action/vllm-benchmarks",
             pr_number=149,
@@ -1716,6 +1814,7 @@ def test_orchestrator_service_creates_issue_when_phase3_fixup_has_no_changes():
         assert updated.phase == "done"
         assert updated.status == "manual_review"
         assert len(issue_calls) == 1
+        assert issue_calls[0][1]["body"] == "AI summary for phase 3 no-change terminal failure"
 
 
 def test_run_once_skips_terminal_manual_review_state_without_creating_duplicate_issue():

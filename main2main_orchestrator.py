@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 import time
+import urllib.request
 import uuid
 
 
@@ -36,6 +37,15 @@ _FAILURE_CONCLUSIONS = {
     "startup_failure",
     "timed_out",
 }
+
+_ANALYSIS_SCRIPT_PATH = (
+    Path(__file__).resolve().parent
+    / ".claude"
+    / "skills"
+    / "main2main-error-analysis"
+    / "scripts"
+    / "extract_and_analyze.py"
+)
 
 
 @dataclass(frozen=True)
@@ -78,6 +88,75 @@ class ActionDecision:
 class FixupOutcome:
     result: str
     phase: str
+
+
+def extract_e2e_failure_analysis(*, repo: str, run_id: str) -> dict[str, object]:
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(_ANALYSIS_SCRIPT_PATH),
+            "--repo",
+            repo,
+            "--run-id",
+            str(run_id),
+            "--llm-output",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return json.loads(completed.stdout)
+
+
+def summarize_manual_review_issue(
+    *,
+    analysis: dict[str, object],
+    state: Main2MainState,
+    terminal_reason: str,
+    e2e_run_url: str | None,
+    e2e_run_id: str | None,
+    fixup_run_id: str | None,
+) -> str:
+    base_url = os.environ["ANTHROPIC_BASE_URL"].rstrip("/")
+    auth_token = os.environ["ANTHROPIC_AUTH_TOKEN"]
+    payload = {
+        "model": os.environ.get("MAIN2MAIN_ISSUE_MODEL", "claude-sonnet-4-5"),
+        "max_tokens": 800,
+        "messages": [
+            {
+                "role": "user",
+                "content": (
+                    "Summarize this terminal main2main failure for a GitHub issue.\n"
+                    f"terminal_reason: {terminal_reason}\n"
+                    f"pr_number: {state.pr_number}\n"
+                    f"phase: {state.phase}\n"
+                    f"e2e_run_id: {e2e_run_id}\n"
+                    f"e2e_run_url: {e2e_run_url}\n"
+                    f"fixup_run_id: {fixup_run_id}\n"
+                    f"commit_range: {state.old_commit}...{state.new_commit}\n"
+                    "Provide a concise issue body with summary, evidence, likely root cause, and next manual steps.\n"
+                    f"analysis_json:\n{json.dumps(analysis, ensure_ascii=False)}"
+                ),
+            }
+        ],
+    }
+    request = urllib.request.Request(
+        f"{base_url}/v1/messages",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {auth_token}",
+            "x-api-key": auth_token,
+            "anthropic-version": "2023-06-01",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(request) as response:
+        raw = json.loads(response.read().decode("utf-8"))
+    for block in raw.get("content", []):
+        if block.get("type") == "text":
+            return str(block.get("text", "")).strip()
+    raise ValueError("Claude gateway response did not contain text content")
 
 
 class GitHubCliAdapter:
@@ -496,6 +575,35 @@ class OrchestratorService:
         self.sleep_fn = sleep_fn
         self.token_factory = token_factory or (lambda: uuid.uuid4().hex)
 
+    def _build_manual_review_issue(
+        self,
+        *,
+        state: Main2MainState,
+        pr_number: int,
+        terminal_reason: str,
+        e2e_run_url: str | None = None,
+        e2e_run_id: str | None = None,
+        fixup_run_id: str | None = None,
+    ) -> dict[str, str]:
+        if e2e_run_id is None and terminal_reason == "done_failure":
+            raise ValueError("e2e_run_id is required for done_failure manual review")
+        analysis = extract_e2e_failure_analysis(
+            repo=state.repo,
+            run_id=str(e2e_run_id),
+        )
+        body = summarize_manual_review_issue(
+            analysis=analysis,
+            state=state,
+            terminal_reason=terminal_reason,
+            e2e_run_url=e2e_run_url,
+            e2e_run_id=e2e_run_id,
+            fixup_run_id=fixup_run_id,
+        )
+        return {
+            "title": "main2main: manual review needed",
+            "body": body,
+        }
+
     def _wait_for_dispatched_fixup_run(
         self,
         *,
@@ -573,16 +681,15 @@ class OrchestratorService:
                 run_id=fixup_run["run_id"],
             )
         elif decision.action == "create_manual_review":
-            self.github.create_manual_review_issue(
-                repo=repo,
-                title="main2main: manual review needed",
-                body=(
-                    "Main2Main automation exhausted all fixup phases.\n\n"
-                    f"PR: #{pr_number}\n"
-                    f"Run: {e2e_result['run_url']}\n"
-                    f"Commit range: {state.old_commit}...{state.new_commit}\n"
-                ),
+            issue = self._build_manual_review_issue(
+                state=state,
+                pr_number=pr_number,
+                terminal_reason="done_failure",
+                e2e_run_url=e2e_result["run_url"],
+                e2e_run_id=e2e_result["run_id"],
             )
+            self.store.register(replace(state, status="manual_review", active_fixup_run_id=None))
+            self.github.create_manual_review_issue(repo=repo, title=issue["title"], body=issue["body"])
         return {
             "action": decision.action,
             "phase": decision.phase,
@@ -671,15 +778,16 @@ class OrchestratorService:
         cleared = replace(updated, active_fixup_run_id=None)
         self.store.register(cleared)
         if state.phase == "3":
+            issue = self._build_manual_review_issue(
+                state=state,
+                pr_number=pr_number,
+                terminal_reason="phase3_no_changes",
+                fixup_run_id=fixup_run_id,
+            )
             self.github.create_manual_review_issue(
                 repo=repo,
-                title="main2main: manual review needed",
-                body=(
-                    "Main2Main automation completed phase 3 with no code changes.\n\n"
-                    f"PR: #{pr_number}\n"
-                    f"Fixup run: https://github.com/{repo}/actions/runs/{fixup_run_id}\n"
-                    f"Commit range: {state.old_commit}...{state.new_commit}\n"
-                ),
+                title=issue["title"],
+                body=issue["body"],
             )
             return {
                 "action": "create_manual_review",

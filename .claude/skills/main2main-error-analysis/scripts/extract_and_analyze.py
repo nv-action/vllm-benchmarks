@@ -27,8 +27,8 @@ import sys
 from collections import defaultdict
 from typing import Any
 
-REPO = "vllm-project/vllm-ascend"
-WORKFLOW = "schedule_test_vllm_main.yaml"
+DEFAULT_REPO = "vllm-project/vllm-ascend"
+DEFAULT_WORKFLOW = "schedule_test_vllm_main.yaml"
 
 # ─── Regex patterns ───────────────────────────────────────────────────────────
 
@@ -137,10 +137,10 @@ def gh_api_raw(endpoint: str) -> str:
 # ─── Core logic ───────────────────────────────────────────────────────────────
 
 
-def find_latest_failed_run() -> dict | None:
+def find_latest_failed_run(*, repo: str = DEFAULT_REPO, workflow: str = DEFAULT_WORKFLOW) -> dict | None:
     """Find the most recent failed run of schedule_test_vllm_main."""
     data = gh_api_json(
-        f"/repos/{REPO}/actions/workflows/{WORKFLOW}/runs",
+        f"/repos/{repo}/actions/workflows/{workflow}/runs",
         status="failure",
         per_page="5",
     )
@@ -148,10 +148,10 @@ def find_latest_failed_run() -> dict | None:
     return runs[0] if runs else None
 
 
-def get_failed_jobs(run_id: int) -> list[dict]:
+def get_failed_jobs(run_id: int, *, repo: str = DEFAULT_REPO) -> list[dict]:
     """List all failed jobs in a workflow run."""
     data = gh_api_json(
-        f"/repos/{REPO}/actions/runs/{run_id}/jobs",
+        f"/repos/{repo}/actions/runs/{run_id}/jobs",
         per_page="100",
     )
     return [j for j in data.get("jobs", []) if j.get("conclusion") == "failure"]
@@ -509,14 +509,14 @@ def get_good_commit() -> str | None:
     return None
 
 
-def process_run(run_id: int) -> dict:
+def process_run(run_id: int, *, repo: str = DEFAULT_REPO) -> dict:
     """Full pipeline: get jobs, download logs, extract failures and errors."""
     # Get run info
-    run_info = gh_api_json(f"/repos/{REPO}/actions/runs/{run_id}")
+    run_info = gh_api_json(f"/repos/{repo}/actions/runs/{run_id}")
 
     # Get all jobs (not just failed) for summary
     all_jobs_data = gh_api_json(
-        f"/repos/{REPO}/actions/runs/{run_id}/jobs",
+        f"/repos/{repo}/actions/runs/{run_id}/jobs",
         per_page="100",
     )
     all_jobs = all_jobs_data.get("jobs", [])
@@ -535,7 +535,7 @@ def process_run(run_id: int) -> dict:
         job_name = job["name"]
         print(f"  Downloading log for {job_name} ({job_id})...", file=sys.stderr)
 
-        log_text = gh_api_raw(f"/repos/{REPO}/actions/jobs/{job_id}/logs")
+        log_text = gh_api_raw(f"/repos/{repo}/actions/jobs/{job_id}/logs")
         if not log_text:
             job_results.append(
                 {
@@ -661,6 +661,11 @@ def main():
         description="Extract and analyze failed tests from a vLLM-Ascend CI run.",
     )
     parser.add_argument(
+        "--repo",
+        default=DEFAULT_REPO,
+        help=f"Repository in owner/name form. Default: {DEFAULT_REPO}",
+    )
+    parser.add_argument(
         "--run-id",
         type=int,
         default=None,
@@ -683,7 +688,7 @@ def main():
         run_id = args.run_id
     else:
         print("Finding latest failed run...", file=sys.stderr)
-        run = find_latest_failed_run()
+        run = find_latest_failed_run(repo=args.repo)
         if not run:
             print("No failed runs found.", file=sys.stderr)
             sys.exit(0)
@@ -691,7 +696,7 @@ def main():
         print(f"Found run {run_id}: {run.get('html_url', '')}", file=sys.stderr)
 
     print(f"Analyzing run {run_id}...", file=sys.stderr)
-    result = process_run(run_id)
+    result = process_run(run_id, repo=args.repo)
 
     if args.llm_output:
         output_data = {
