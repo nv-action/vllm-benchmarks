@@ -30,14 +30,14 @@ def test_parse_pr_metadata_extracts_commit_range_only():
     body = """
 ## Summary
 
-**Commit range:** `4034c3d32e30d01639459edd3ab486f56993876d`...`4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366`
+**Commit range:** `262b76a09fafe15cff7642f3eee433fb903cf1d8`...`4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366`
 **Pipeline:** https://github.com/example/repo/actions/runs/123
 """
 
     metadata = parse_pr_metadata(body)
 
     assert metadata == PrMetadata(
-        old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+        old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
         new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
     )
 
@@ -71,7 +71,7 @@ def test_parse_registration_comment_extracts_registration_metadata():
 pr_number=149
 branch=main2main_auto_2026-03-11_02-02
 head_sha=0ac6428474c21eed75ceacac5b7fc04c58512a95
-old_commit=4034c3d32e30d01639459edd3ab486f56993876d
+old_commit=262b76a09fafe15cff7642f3eee433fb903cf1d8
 new_commit=81939e7733642f583d1731e5c9ef69dcd457b5e5
 phase=2
 -->"""
@@ -82,7 +82,7 @@ phase=2
         pr_number=149,
         branch="main2main_auto_2026-03-11_02-02",
         head_sha="0ac6428474c21eed75ceacac5b7fc04c58512a95",
-        old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+        old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
         new_commit="81939e7733642f583d1731e5c9ef69dcd457b5e5",
         phase="2",
     )
@@ -94,7 +94,7 @@ def test_decide_next_action_marks_ready_on_success():
         pr_number=148,
         branch="main2main_auto_2026-03-11_12-30",
         head_sha="abc123",
-        old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+        old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
         new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
         phase="2",
         status="waiting_e2e",
@@ -112,7 +112,7 @@ def test_decide_next_action_dispatches_fixup_for_failure_like_results():
         pr_number=148,
         branch="main2main_auto_2026-03-11_12-30",
         head_sha="abc123",
-        old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+        old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
         new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
         phase="2",
         status="waiting_e2e",
@@ -130,7 +130,7 @@ def test_decide_next_action_creates_manual_review_after_done_phase_failure():
         pr_number=148,
         branch="main2main_auto_2026-03-11_12-30",
         head_sha="abc123",
-        old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+        old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
         new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
         phase="done",
         status="waiting_e2e",
@@ -148,7 +148,7 @@ def test_decide_next_action_ignores_stale_head_sha():
         pr_number=148,
         branch="main2main_auto_2026-03-11_12-30",
         head_sha="newsha",
-        old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+        old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
         new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
         phase="3",
         status="waiting_e2e",
@@ -166,7 +166,7 @@ def test_apply_fixup_result_advances_phase_and_head_sha():
         pr_number=148,
         branch="main2main_auto_2026-03-11_12-30",
         head_sha="abc123",
-        old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+        old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
         new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
         phase="2",
         status="fixing",
@@ -185,7 +185,7 @@ def test_apply_no_change_fixup_result_phase2_advances_to_phase3_without_new_head
         pr_number=148,
         branch="main2main_auto_2026-03-11_12-30",
         head_sha="abc123",
-        old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+        old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
         new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
         phase="2",
         status="fixing",
@@ -204,7 +204,7 @@ def test_apply_no_change_fixup_result_phase3_transitions_to_manual_review():
         pr_number=148,
         branch="main2main_auto_2026-03-11_12-30",
         head_sha="abc123",
-        old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+        old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
         new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
         phase="3",
         status="fixing",
@@ -225,7 +225,7 @@ def test_state_store_registers_and_loads_state():
             pr_number=148,
             branch="main2main_auto_2026-03-11_12-30",
             head_sha="abc123",
-            old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+            old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
             new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
             phase="2",
             status="waiting_e2e",
@@ -246,7 +246,7 @@ def test_state_store_updates_phase_and_head_sha():
             pr_number=148,
             branch="main2main_auto_2026-03-11_12-30",
             head_sha="abc123",
-            old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+            old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
             new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
             phase="2",
             status="waiting_e2e",
@@ -275,7 +275,7 @@ def test_state_store_updates_after_no_change_fixup_from_phase2():
             pr_number=148,
             branch="main2main_auto_2026-03-11_12-30",
             head_sha="abc123",
-            old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+            old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
             new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
             phase="2",
             status="fixing",
@@ -303,7 +303,7 @@ def test_state_store_updates_after_no_change_fixup_from_phase3():
             pr_number=149,
             branch="main2main_auto_2026-03-11_12-30",
             head_sha="def456",
-            old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+            old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
             new_commit="81939e7733642f583d1731e5c9ef69dcd457b5e5",
             phase="3",
             status="fixing",
@@ -351,7 +351,7 @@ def test_cli_register_persists_state():
                 "--head-sha",
                 "abc123",
                 "--old-commit",
-                "4034c3d32e30d01639459edd3ab486f56993876d",
+                "262b76a09fafe15cff7642f3eee433fb903cf1d8",
                 "--new-commit",
                 "4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
                 "--phase",
@@ -377,7 +377,7 @@ def test_cli_decide_reports_dispatch_fixup():
                 pr_number=148,
                 branch="main2main_auto_2026-03-11_12-30",
                 head_sha="abc123",
-                old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
                 new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
                 phase="2",
                 status="waiting_e2e",
@@ -419,7 +419,7 @@ def test_cli_update_after_fixup_advances_phase():
                 pr_number=148,
                 branch="main2main_auto_2026-03-11_12-30",
                 head_sha="abc123",
-                old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
                 new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
                 phase="2",
                 status="fixing",
@@ -465,7 +465,7 @@ def test_cli_update_after_fixup_rejects_stale_head_sha():
                 pr_number=148,
                 branch="main2main_auto_2026-03-11_12-30",
                 head_sha="abc123",
-                old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
                 new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
                 phase="2",
                 status="fixing",
@@ -525,7 +525,7 @@ def test_cli_register_from_pr_comment_persists_state():
 pr_number=149
 branch=main2main_auto_2026-03-11_02-02
 head_sha=0ac6428474c21eed75ceacac5b7fc04c58512a95
-old_commit=4034c3d32e30d01639459edd3ab486f56993876d
+old_commit=262b76a09fafe15cff7642f3eee433fb903cf1d8
 new_commit=81939e7733642f583d1731e5c9ef69dcd457b5e5
 phase=2
 -->""",
@@ -608,7 +608,7 @@ def test_github_cli_adapter_reads_pr_context():
                 "headRefName": "main2main_auto_2026-03-11_12-30",
                 "body": (
                     "## Summary\n\n"
-                    "**Commit range:** `4034c3d32e30d01639459edd3ab486f56993876d`..."
+                    "**Commit range:** `262b76a09fafe15cff7642f3eee433fb903cf1d8`..."
                     "`4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366`\n"
                 ),
                 "labels": [{"name": "main2main"}, {"name": "ready"}],
@@ -623,7 +623,7 @@ def test_github_cli_adapter_reads_pr_context():
     assert context["head_sha"] == "abc123"
     assert context["branch"] == "main2main_auto_2026-03-11_12-30"
     assert context["metadata"] == PrMetadata(
-        old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+        old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
         new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
     )
     assert context["labels"] == ["main2main", "ready"]
@@ -648,7 +648,7 @@ def test_github_cli_adapter_reads_registration_metadata_from_pr_comments():
 pr_number=149
 branch=main2main_auto_2026-03-11_02-02
 head_sha=0ac6428474c21eed75ceacac5b7fc04c58512a95
-old_commit=4034c3d32e30d01639459edd3ab486f56993876d
+old_commit=262b76a09fafe15cff7642f3eee433fb903cf1d8
 new_commit=81939e7733642f583d1731e5c9ef69dcd457b5e5
 phase=2
 -->"""
@@ -664,7 +664,7 @@ phase=2
         pr_number=149,
         branch="main2main_auto_2026-03-11_02-02",
         head_sha="0ac6428474c21eed75ceacac5b7fc04c58512a95",
-        old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+        old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
         new_commit="81939e7733642f583d1731e5c9ef69dcd457b5e5",
         phase="2",
     )
@@ -709,7 +709,7 @@ def test_orchestrator_service_registers_pr_from_comment_metadata():
                     pr_number=149,
                     branch="main2main_auto_2026-03-11_02-02",
                     head_sha="0ac6428474c21eed75ceacac5b7fc04c58512a95",
-                    old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                    old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
                     new_commit="81939e7733642f583d1731e5c9ef69dcd457b5e5",
                     phase="2",
                 )
@@ -729,7 +729,7 @@ def test_orchestrator_service_registers_pr_from_comment_metadata():
             pr_number=149,
             branch="main2main_auto_2026-03-11_02-02",
             head_sha="0ac6428474c21eed75ceacac5b7fc04c58512a95",
-            old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+            old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
             new_commit="81939e7733642f583d1731e5c9ef69dcd457b5e5",
             phase="2",
             status="waiting_e2e",
@@ -745,7 +745,7 @@ def test_orchestrator_service_run_once_registers_unknown_prs_and_reconciles_know
                 pr_number=148,
                 branch="main2main_auto_2026-03-11_11-48",
                 head_sha="head148",
-                old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
                 new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
                 phase="3",
                 status="waiting_e2e",
@@ -764,7 +764,7 @@ def test_orchestrator_service_run_once_registers_unknown_prs_and_reconciles_know
                     pr_number=149,
                     branch="main2main_auto_2026-03-11_02-02",
                     head_sha="head149",
-                    old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                    old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
                     new_commit="81939e7733642f583d1731e5c9ef69dcd457b5e5",
                     phase="2",
                 )
@@ -778,7 +778,7 @@ def test_orchestrator_service_run_once_registers_unknown_prs_and_reconciles_know
                         "state": "OPEN",
                         "labels": ["main2main"],
                         "metadata": PrMetadata(
-                            old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                            old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
                             new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
                         ),
                         "body": "",
@@ -790,7 +790,7 @@ def test_orchestrator_service_run_once_registers_unknown_prs_and_reconciles_know
                     "state": "OPEN",
                     "labels": ["main2main"],
                     "metadata": PrMetadata(
-                        old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                        old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
                         new_commit="81939e7733642f583d1731e5c9ef69dcd457b5e5",
                     ),
                     "body": "",
@@ -840,7 +840,7 @@ def test_reconcile_dispatch_fixup_marks_state_fixing_with_run_id():
                 pr_number=148,
                 branch="main2main_auto_2026-03-11_11-48",
                 head_sha="head148",
-                old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
                 new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
                 phase="2",
                 status="waiting_e2e",
@@ -856,7 +856,7 @@ def test_reconcile_dispatch_fixup_marks_state_fixing_with_run_id():
                     "state": "OPEN",
                     "labels": ["main2main"],
                     "metadata": PrMetadata(
-                        old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                        old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
                         new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
                     ),
                     "body": "",
@@ -906,7 +906,7 @@ def test_reconcile_dispatch_fixup_retries_until_fixup_run_appears():
                 pr_number=152,
                 branch="main2main_auto_2026-03-11_08-03",
                 head_sha="head152",
-                old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
                 new_commit="a40ee486f273eaaa885dafd0526f42f3a5b960c9",
                 phase="2",
                 status="waiting_e2e",
@@ -924,7 +924,7 @@ def test_reconcile_dispatch_fixup_retries_until_fixup_run_appears():
                     "state": "OPEN",
                     "labels": ["main2main"],
                     "metadata": PrMetadata(
-                        old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                        old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
                         new_commit="a40ee486f273eaaa885dafd0526f42f3a5b960c9",
                     ),
                     "body": "",
@@ -985,7 +985,7 @@ def test_run_once_applies_completed_fixup_outcome():
                 pr_number=148,
                 branch="main2main_auto_2026-03-11_11-48",
                 head_sha="head148",
-                old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
                 new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
                 phase="2",
                 status="fixing",
@@ -1017,7 +1017,7 @@ def test_run_once_applies_completed_fixup_outcome():
                     "state": "OPEN",
                     "labels": ["main2main"],
                     "metadata": PrMetadata(
-                        old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                        old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
                         new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
                     ),
                     "body": "",
@@ -1062,7 +1062,7 @@ def test_github_cli_adapter_dispatches_fixup_workflow():
         run_url="https://github.com/nv-action/vllm-benchmarks/actions/runs/22901040063",
         conclusion="failure",
         phase="2",
-        old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+        old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
         new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
         dispatch_token="dispatch-148",
     )
@@ -1091,7 +1091,7 @@ def test_github_cli_adapter_dispatches_fixup_workflow():
         "-f",
         "phase=2",
         "-f",
-        "old_commit=4034c3d32e30d01639459edd3ab486f56993876d",
+        "old_commit=262b76a09fafe15cff7642f3eee433fb903cf1d8",
         "-f",
         "new_commit=4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
         "-f",
@@ -1463,7 +1463,7 @@ def test_orchestrator_service_marks_pr_ready_on_success():
             pr_number=148,
             branch="main2main_auto_2026-03-11_12-30",
             head_sha="abc123",
-            old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+            old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
             new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
             phase="2",
             status="waiting_e2e",
@@ -1477,7 +1477,7 @@ def test_orchestrator_service_marks_pr_ready_on_success():
                 "state": "OPEN",
                 "labels": ["main2main"],
                 "metadata": PrMetadata(
-                    old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                    old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
                     new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
                 ),
                 "body": "",
@@ -1506,7 +1506,7 @@ def test_orchestrator_service_dispatches_fixup_on_failure():
             pr_number=148,
             branch="main2main_auto_2026-03-11_12-30",
             head_sha="abc123",
-            old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+            old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
             new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
             phase="2",
             status="waiting_e2e",
@@ -1520,7 +1520,7 @@ def test_orchestrator_service_dispatches_fixup_on_failure():
                 "state": "OPEN",
                 "labels": ["main2main"],
                 "metadata": PrMetadata(
-                    old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                    old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
                     new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
                 ),
                 "body": "",
@@ -1553,7 +1553,7 @@ def test_orchestrator_service_creates_manual_review_when_done_phase_fails():
             pr_number=148,
             branch="main2main_auto_2026-03-11_12-30",
             head_sha="abc123",
-            old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+            old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
             new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
             phase="done",
             status="waiting_e2e",
@@ -1567,7 +1567,7 @@ def test_orchestrator_service_creates_manual_review_when_done_phase_fails():
                 "state": "OPEN",
                 "labels": ["main2main"],
                 "metadata": PrMetadata(
-                    old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                    old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
                     new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
                 ),
                 "body": "",
@@ -1597,7 +1597,7 @@ def test_orchestrator_service_returns_waiting_when_no_completed_e2e_run():
             pr_number=148,
             branch="main2main_auto_2026-03-11_12-30",
             head_sha="abc123",
-            old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+            old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
             new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
             phase="2",
             status="waiting_e2e",
@@ -1611,7 +1611,7 @@ def test_orchestrator_service_returns_waiting_when_no_completed_e2e_run():
                 "state": "OPEN",
                 "labels": ["main2main"],
                 "metadata": PrMetadata(
-                    old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                    old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
                     new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
                 ),
                 "body": "",
@@ -1635,7 +1635,7 @@ def test_orchestrator_service_advances_to_phase3_when_phase2_fixup_has_no_change
                 pr_number=148,
                 branch="main2main_auto_2026-03-11_12-30",
                 head_sha="abc123",
-                old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
                 new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
                 phase="2",
                 status="fixing",
@@ -1649,7 +1649,7 @@ def test_orchestrator_service_advances_to_phase3_when_phase2_fixup_has_no_change
                 "state": "OPEN",
                 "labels": ["main2main"],
                 "metadata": PrMetadata(
-                    old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                    old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
                     new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
                 ),
                 "body": "",
@@ -1681,7 +1681,7 @@ def test_orchestrator_service_creates_issue_when_phase3_fixup_has_no_changes():
                 pr_number=149,
                 branch="main2main_auto_2026-03-11_02-02",
                 head_sha="def456",
-                old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
                 new_commit="81939e7733642f583d1731e5c9ef69dcd457b5e5",
                 phase="3",
                 status="fixing",
@@ -1695,7 +1695,7 @@ def test_orchestrator_service_creates_issue_when_phase3_fixup_has_no_changes():
                 "state": "OPEN",
                 "labels": ["main2main"],
                 "metadata": PrMetadata(
-                    old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                    old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
                     new_commit="81939e7733642f583d1731e5c9ef69dcd457b5e5",
                 ),
                 "body": "",
@@ -1727,7 +1727,7 @@ def test_run_once_skips_terminal_manual_review_state_without_creating_duplicate_
                 pr_number=149,
                 branch="main2main_auto_2026-03-11_02-02",
                 head_sha="def456",
-                old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
                 new_commit="81939e7733642f583d1731e5c9ef69dcd457b5e5",
                 phase="done",
                 status="manual_review",
@@ -1777,7 +1777,7 @@ def test_cli_reconcile_reports_wait_when_e2e_not_finished():
                 "--head-sha",
                 "abc123",
                 "--old-commit",
-                "4034c3d32e30d01639459edd3ab486f56993876d",
+                "262b76a09fafe15cff7642f3eee433fb903cf1d8",
                 "--new-commit",
                 "4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
                 "--phase",
@@ -1819,7 +1819,7 @@ def test_cli_apply_fixup_outcome_updates_state_for_phase2_no_changes(monkeypatch
                 pr_number=148,
                 branch="main2main_auto_2026-03-11_12-30",
                 head_sha="abc123",
-                old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
                 new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
                 phase="2",
                 status="fixing",
@@ -1847,7 +1847,7 @@ def test_cli_apply_fixup_outcome_updates_state_for_phase2_no_changes(monkeypatch
                     "state": "OPEN",
                     "labels": ["main2main"],
                     "metadata": PrMetadata(
-                        old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                        old_commit="262b76a09fafe15cff7642f3eee433fb903cf1d8",
                         new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
                     ),
                     "body": "",
