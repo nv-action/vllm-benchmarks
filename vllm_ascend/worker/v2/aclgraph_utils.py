@@ -38,11 +38,12 @@ class AclGraphManager(CudaGraphManager):
     def __init__(
         self,
         vllm_config: VllmConfig,
-        use_mrope: bool,
         device: torch.device,
+        cudagraph_mode,
+        decode_query_len: int,
     ):
         with torch_cuda_wrapper():
-            super().__init__(vllm_config, use_mrope, device)
+            super().__init__(vllm_config, device, cudagraph_mode, decode_query_len)
 
     def capture_graph(
         self,

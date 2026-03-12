@@ -534,6 +534,24 @@ class NPUPlatform(Platform):
         return True
 
     @classmethod
+    def update_block_size_for_backend(cls, vllm_config: VllmConfig) -> None:
+        """
+        Ensure block_size is compatible with the attention backend.
+        For NPU, we use the default block size.
+        """
+        # NPU platform uses default block size
+        # This method can be overridden if NPU-specific block size logic is needed
+        pass
+
+    @classmethod
+    def use_custom_op_collectives(cls) -> bool:
+        """
+        Whether this platform should use torch.ops.vllm.* custom ops for collectives.
+        NPU platform uses custom ops for collectives.
+        """
+        return True
+
+    @classmethod
     def set_additional_forward_context(
         cls,
         attn_metadata: dict[str, Any],
