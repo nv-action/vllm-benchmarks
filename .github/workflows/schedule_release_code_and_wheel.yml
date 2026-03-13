@@ -163,18 +163,29 @@ jobs:
   #           auditwheel show "$wheel"
   #         done
 
-  #     - name: Upload wheels to OBS
-  #       uses: huaweicloud/obs-helper@v1.0.1
-  #       with:
-  #         access_key: ${{ secrets.OBS_ACCESS_KEY_ID }}
-  #         secret_key: ${{ secrets.OBS_SECRET_ACCESS_KEY }}
-  #         region: cn-north-4
-  #         bucket_name: vllm-ascend
-  #         operation_type: upload
-  #         local_file_path: dist/
-  #         obs_file_path: wheel/
-  #         include_self_folder: false
-  #         clear_bucket: false
+      # - name: Upload wheels to OBS
+      #   env:
+      #     OBS_ACCESS_KEY: ${{ secrets.OBS_ACCESS_KEY_ID }}
+      #     OBS_SECRET_KEY: ${{ secrets.OBS_SECRET_ACCESS_KEY }}
+      #   run: |
+      #     pip install esdk-obs-python --quiet
+      #     python3 - <<'EOF'
+      #     import os, glob
+      #     from obs import ObsClient
+      #     client = ObsClient(
+      #         access_key_id=os.environ['OBS_ACCESS_KEY'],
+      #         secret_access_key=os.environ['OBS_SECRET_KEY'],
+      #         server='https://obs.cn-north-4.myhuaweicloud.com'
+      #     )
+      #     for whl in glob.glob('dist/*.whl'):
+      #         filename = os.path.basename(whl)
+      #         resp = client.putFile('vllm-ascend', f'vllm-ascend/wheel/{filename}', whl)
+      #         if resp.status < 300:
+      #             print(f'Uploaded: {filename}')
+      #         else:
+      #             raise Exception(f'Failed to upload {filename}: {resp.errorMessage}')
+      #     EOF
+
 
   #     - name: Archive wheel
   #       uses: actions/upload-artifact@v7
@@ -270,18 +281,28 @@ jobs:
   #           auditwheel show "$wheel"
   #         done
 
-  #     - name: Upload wheels to OBS
-  #       uses: huaweicloud/obs-helper@v1.0.1
-  #       with:
-  #         access_key: ${{ secrets.OBS_ACCESS_KEY_ID }}
-  #         secret_key: ${{ secrets.OBS_SECRET_ACCESS_KEY }}
-  #         region: cn-north-4
-  #         bucket_name: vllm-ascend
-  #         operation_type: upload
-  #         local_file_path: dist/
-  #         obs_file_path: wheel/
-  #         include_self_folder: false
-  #         clear_bucket: false
+      # - name: Upload wheels to OBS
+      #   env:
+      #     OBS_ACCESS_KEY: ${{ secrets.OBS_ACCESS_KEY_ID }}
+      #     OBS_SECRET_KEY: ${{ secrets.OBS_SECRET_ACCESS_KEY }}
+      #   run: |
+      #     pip install esdk-obs-python --quiet
+      #     python3 - <<'EOF'
+      #     import os, glob
+      #     from obs import ObsClient
+      #     client = ObsClient(
+      #         access_key_id=os.environ['OBS_ACCESS_KEY'],
+      #         secret_access_key=os.environ['OBS_SECRET_KEY'],
+      #         server='https://obs.cn-north-4.myhuaweicloud.com'
+      #     )
+      #     for whl in glob.glob('dist/*.whl'):
+      #         filename = os.path.basename(whl)
+      #         resp = client.putFile('vllm-ascend', f'vllm-ascend/wheel/{filename}', whl)
+      #         if resp.status < 300:
+      #             print(f'Uploaded: {filename}')
+      #         else:
+      #             raise Exception(f'Failed to upload {filename}: {resp.errorMessage}')
+      #     EOF
 
   #     - name: Archive wheel
   #       uses: actions/upload-artifact@v7
@@ -371,21 +392,48 @@ jobs:
             auditwheel show "$wheel"
           done
 
+      - name: Generate variant wheels
+        env:
+          WHEEL_FILE: dist
+          PROJECT_TOML: .github/workflows/scripts/wheel/pyproject.toml
+          OUTPUT_DIR: dist/variants
+        run: |
+          pip install build git+https://github.com/wheelnext/variantlib.git --quiet
+          mkdir -p dist/variants
+          python3 .github/workflows/scripts/wheel/make_variant.py \
+            -c .github/workflows/scripts/wheel/config.json \
+            -l 310p
+          echo "Generated variant wheels:"
+          ls dist/variants/
+
       - name: Upload wheels to OBS
-        uses: huaweicloud/obs-helper@v1.0.1
-        with:
-          access_key: ${{ secrets.OBS_ACCESS_KEY_ID }}
-          secret_key: ${{ secrets.OBS_SECRET_ACCESS_KEY }}
-          region: cn-north-4
-          bucket_name: vllm-ascend
-          operation_type: upload
-          local_file_path: dist/
-          obs_file_path: wheel/
-          include_self_folder: false
-          clear_bucket: false
+        env:
+          OBS_ACCESS_KEY: ${{ secrets.OBS_ACCESS_KEY_ID }}
+          OBS_SECRET_KEY: ${{ secrets.OBS_SECRET_ACCESS_KEY }}
+        run: |
+          pip install esdk-obs-python --quiet
+          python3 - <<'EOF'
+          import os, glob
+          from obs import ObsClient
+          client = ObsClient(
+              access_key_id=os.environ['OBS_ACCESS_KEY'],
+              secret_access_key=os.environ['OBS_SECRET_KEY'],
+              server='https://obs.cn-north-4.myhuaweicloud.com'
+          )
+          for whl in glob.glob('dist/*.whl') + glob.glob('dist/variants/*.whl'):
+              filename = os.path.basename(whl)
+              resp = client.putFile('vllm-ascend', f'vllm-ascend/wheel/{filename}', whl)
+              if resp.status < 300:
+                  print(f'Uploaded: {filename}')
+              else:
+                  raise Exception(f'Failed to upload {filename}: {resp.errorMessage}')
+          EOF
+
 
       - name: Archive wheel
         uses: actions/upload-artifact@v7
         with:
           name: vllm-ascend-310p-${{ matrix.os }}-py${{ matrix.python-version }}-wheel
-          path: dist/*
+          path: |
+            dist/*.whl
+            dist/variants/*.whl
