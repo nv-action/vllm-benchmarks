@@ -31,8 +31,6 @@ class GitHubCliAdapter:
     list_open_main2main_pr_numbers = list_open_pr_numbers
 
     def get_pr_context(self, repo: str, pr_number: int) -> dict[str, object]:
-        from main2main_orchestrator import parse_pr_metadata
-
         output = self._runner(
             [
                 "gh",
@@ -52,7 +50,6 @@ class GitHubCliAdapter:
             "branch": raw["headRefName"],
             "state": raw["state"],
             "labels": [label["name"] for label in raw["labels"]],
-            "metadata": parse_pr_metadata(raw["body"]),
             "body": raw["body"],
         }
 

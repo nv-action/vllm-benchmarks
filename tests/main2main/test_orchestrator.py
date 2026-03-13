@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -626,6 +627,72 @@ phase=2
         assert loaded.status == "waiting_e2e"
 
 
+def test_cli_reconcile_parses_pr_metadata_correctly_in_script_mode():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        state_path = tmp_path / "state.json"
+        gh_path = tmp_path / "gh"
+        repo_root = Path(__file__).resolve().parents[2]
+
+        gh_path.write_text(
+            """#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  cat <<'EOF'
+{"number":156,"headRefOid":"887b94f5d89a73e2b5704c1baca8b4730376f5aa","headRefName":"main2main_auto_2026-03-12_12-00","body":"## Summary\\n\\n**Commit range:** `4034c3d32e30d01639459edd3ab486f56993876d`...`5282c7d4d0d1487eb283f09d322b0140dea5a968`\\n","labels":[{"name":"main2main"}],"state":"OPEN"}
+EOF
+  exit 0
+fi
+if [ "$1" = "run" ] && [ "$2" = "list" ]; then
+  echo '[]'
+  exit 0
+fi
+echo "unexpected gh args: $@" >&2
+exit 1
+""",
+            encoding="utf-8",
+        )
+        gh_path.chmod(0o755)
+
+        store = Main2MainStateStore(state_path)
+        store.register(
+            Main2MainState(
+                repo="nv-action/vllm-benchmarks",
+                pr_number=156,
+                branch="main2main_auto_2026-03-12_12-00",
+                head_sha="887b94f5d89a73e2b5704c1baca8b4730376f5aa",
+                old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                new_commit="5282c7d4d0d1487eb283f09d322b0140dea5a968",
+                phase="2",
+                status="waiting_e2e",
+            )
+        )
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(repo_root / "main2main_orchestrator.py"),
+                "reconcile",
+                "--state-file",
+                str(state_path),
+                "--repo",
+                "nv-action/vllm-benchmarks",
+                "--pr-number",
+                "156",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            env={
+                "PATH": f"{tmp_path}:{os.environ['PATH']}",
+                "PYTHONPATH": str(repo_root),
+            },
+        )
+
+        assert result.returncode == 0
+        assert '"action": "wait"' in result.stdout
+        assert "invalid pr metadata" not in result.stderr
+
+
 def test_cli_run_once_registers_from_comment_and_reconciles():
     with tempfile.TemporaryDirectory() as tmp_dir:
         state_path = Path(tmp_dir) / "state.json"
@@ -708,9 +775,10 @@ def test_github_cli_adapter_reads_pr_context():
     assert context["pr_number"] == 148
     assert context["head_sha"] == "abc123"
     assert context["branch"] == "main2main_auto_2026-03-11_12-30"
-    assert context["metadata"] == PrMetadata(
-        old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
-        new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
+    assert context["body"] == (
+        "## Summary\n\n"
+        "**Commit range:** `4034c3d32e30d01639459edd3ab486f56993876d`..."
+        "`4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366`\n"
     )
     assert context["labels"] == ["main2main", "ready"]
     assert len(commands) == 1

@@ -26,6 +26,52 @@ async def poll_loop(service, repo: str, interval: float, lock: asyncio.Lock, sta
         await asyncio.sleep(interval)
 
 
+async def run_mcp_sse(
+    server,
+    host: str,
+    port: int,
+    *,
+    uvicorn_module=None,
+    sse_transport_cls=None,
+    starlette_cls=None,
+    route_cls=None,
+    mount_cls=None,
+    response_cls=None,
+) -> None:
+    from mcp.server.sse import SseServerTransport
+    from starlette.applications import Starlette
+    from starlette.responses import Response
+    from starlette.routing import Mount, Route
+    import uvicorn
+
+    uvicorn_module = uvicorn if uvicorn_module is None else uvicorn_module
+    sse_transport_cls = SseServerTransport if sse_transport_cls is None else sse_transport_cls
+    starlette_cls = Starlette if starlette_cls is None else starlette_cls
+    route_cls = Route if route_cls is None else route_cls
+    mount_cls = Mount if mount_cls is None else mount_cls
+    response_cls = Response if response_cls is None else response_cls
+
+    sse = sse_transport_cls("/messages/")
+
+    async def handle_sse(request):
+        async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
+            await server.run(
+                streams[0],
+                streams[1],
+                server.create_initialization_options(),
+            )
+        return response_cls()
+
+    app = starlette_cls(
+        routes=[
+            route_cls("/sse", endpoint=handle_sse, methods=["GET"]),
+            mount_cls("/messages/", app=sse.handle_post_message),
+        ]
+    )
+    config = uvicorn_module.Config(app, host=host, port=port, log_level="info")
+    await uvicorn_module.Server(config).serve()
+
+
 async def _run(
     state_path: str,
     repo: str,
@@ -151,7 +197,7 @@ async def _run(
         await asyncio.gather(
             poll_loop(service, repo, poll_interval, service_lock, poll_state),
             terminal.run_loop(),
-            mcp.run(transport="sse", host=mcp_host, port=mcp_port),
+            run_mcp_sse(mcp, mcp_host, mcp_port),
         )
     except asyncio.CancelledError:
         log.info("service shutting down")

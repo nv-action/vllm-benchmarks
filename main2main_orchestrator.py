@@ -641,9 +641,13 @@ class OrchestratorService:
             return {"action": "ignore", "reason": "pr is not marked main2main"}
         if pr_context["head_sha"] != state.head_sha:
             return {"action": "ignore", "reason": "pr head changed"}
-        metadata = pr_context["metadata"]
-        if not isinstance(metadata, PrMetadata):
-            raise TypeError("invalid pr metadata")
+        body = pr_context.get("body")
+        if isinstance(body, str) and body:
+            metadata = parse_pr_metadata(body)
+        else:
+            metadata = pr_context.get("metadata")
+            if not isinstance(metadata, PrMetadata):
+                raise TypeError("invalid pr metadata")
         if metadata.old_commit != state.old_commit or metadata.new_commit != state.new_commit:
             return {"action": "ignore", "reason": "pr commit range changed"}
 
