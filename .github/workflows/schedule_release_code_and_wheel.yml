@@ -33,6 +33,7 @@ on:
         type: choice
         options:
           - main
+          - v0.17.0rc1
           - v0.15.0rc1
           - v0.14.0rc1
           - v0.13.0rc3
@@ -81,6 +82,10 @@ jobs:
           name: vllm-ascend-src
           path: dist/*
 
+      # - name: Release
+      #   if: ${{ github.event_name == 'push' }}
+      #   run: |
+      #     python3 -m twine upload dist/* -u __token__ -p ${{ secrets.PYPI_TOKEN }}
 
   build_and_release_wheel:
     name: build and release wheel
@@ -177,6 +182,12 @@ jobs:
           echo "Generated variant wheels:"
           ls dist/variants/
 
+      - name: Generate variant index
+        run: |
+          variantlib generate-index-json -d dist/variants/
+          echo "Generated index:"
+          ls dist/variants/
+
       - name: Upload wheels to OBS
         env:
           OBS_ACCESS_KEY: ${{ secrets.OBS_ACCESS_KEY_ID }}
@@ -186,14 +197,16 @@ jobs:
           python3 - <<'EOF'
           import os, glob
           from obs import ObsClient
+          OBS_BUCKET = 'ascend-artifcat-packages'
+          OBS_PATH = 'pypi/packages/ascend/repos/pypi/variant/vllm-ascend'
           client = ObsClient(
               access_key_id=os.environ['OBS_ACCESS_KEY'],
               secret_access_key=os.environ['OBS_SECRET_KEY'],
               server='https://obs.cn-north-4.myhuaweicloud.com'
           )
-          for whl in glob.glob('dist/*.whl'):
-              filename = os.path.basename(whl)
-              resp = client.putFile('vllm-ascend', f'vllm-ascend/wheel/{filename}', whl)
+          for file in glob.glob('dist/*.whl') + glob.glob('dist/variants/*.whl') + glob.glob('dist/variants/*.json'):
+              filename = os.path.basename(file)
+              resp = client.putFile(OBS_BUCKET, f'{OBS_PATH}/{filename}', file)
               if resp.status < 300:
                   print(f'Uploaded: {filename}')
               else:
@@ -309,6 +322,12 @@ jobs:
           echo "Generated variant wheels:"
           ls dist/variants/
 
+      - name: Generate variant index
+        run: |
+          variantlib generate-index-json -d dist/variants/
+          echo "Generated index:"
+          ls dist/variants/
+
       - name: Upload wheels to OBS
         env:
           OBS_ACCESS_KEY: ${{ secrets.OBS_ACCESS_KEY_ID }}
@@ -318,14 +337,16 @@ jobs:
           python3 - <<'EOF'
           import os, glob
           from obs import ObsClient
+          OBS_BUCKET = 'ascend-artifcat-packages'
+          OBS_PATH = 'pypi/packages/ascend/repos/pypi/variant/vllm-ascend'
           client = ObsClient(
               access_key_id=os.environ['OBS_ACCESS_KEY'],
               secret_access_key=os.environ['OBS_SECRET_KEY'],
               server='https://obs.cn-north-4.myhuaweicloud.com'
           )
-          for whl in glob.glob('dist/*.whl'):
-              filename = os.path.basename(whl)
-              resp = client.putFile('vllm-ascend', f'vllm-ascend/wheel/{filename}', whl)
+          for file in glob.glob('dist/*.whl') + glob.glob('dist/variants/*.whl') + glob.glob('dist/variants/*.json'):
+              filename = os.path.basename(file)
+              resp = client.putFile(OBS_BUCKET, f'{OBS_PATH}/{filename}', file)
               if resp.status < 300:
                   print(f'Uploaded: {filename}')
               else:
@@ -434,6 +455,12 @@ jobs:
           echo "Generated variant wheels:"
           ls dist/variants/
 
+      - name: Generate variant index
+        run: |
+          variantlib generate-index-json -d dist/variants/
+          echo "Generated index:"
+          ls dist/variants/
+
       - name: Upload wheels to OBS
         env:
           OBS_ACCESS_KEY: ${{ secrets.OBS_ACCESS_KEY_ID }}
@@ -443,14 +470,16 @@ jobs:
           python3 - <<'EOF'
           import os, glob
           from obs import ObsClient
+          OBS_BUCKET = 'ascend-artifcat-packages'
+          OBS_PATH = 'pypi/packages/ascend/repos/pypi/variant/vllm-ascend'
           client = ObsClient(
               access_key_id=os.environ['OBS_ACCESS_KEY'],
               secret_access_key=os.environ['OBS_SECRET_KEY'],
               server='https://obs.cn-north-4.myhuaweicloud.com'
           )
-          for whl in glob.glob('dist/*.whl') + glob.glob('dist/variants/*.whl'):
-              filename = os.path.basename(whl)
-              resp = client.putFile('vllm-ascend', f'vllm-ascend/wheel/{filename}', whl)
+          for file in glob.glob('dist/*.whl') + glob.glob('dist/variants/*.whl') + glob.glob('dist/variants/*.json'):
+              filename = os.path.basename(file)
+              resp = client.putFile(OBS_BUCKET, f'{OBS_PATH}/{filename}', file)
               if resp.status < 300:
                   print(f'Uploaded: {filename}')
               else:
