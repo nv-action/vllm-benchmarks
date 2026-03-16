@@ -1,4 +1,4 @@
-import vllm.v1.sample.rejection_sampler as rs
+import vllm.v1.worker.gpu.spec_decode.rejection_sampler as rs
 
 from vllm_ascend.sample.rejection_sampler import apply_sampling_constraints, expand_batch_to_tokens, rejection_sample
 

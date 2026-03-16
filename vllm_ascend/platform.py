@@ -514,6 +514,20 @@ class NPUPlatform(Platform):
         return True
 
     @classmethod
+    def is_zen_cpu(cls) -> bool:
+        """Return False since NPU is not Zen CPU."""
+        return False
+
+    @classmethod
+    def use_custom_op_collectives(cls) -> bool:
+        """
+        Whether this platform should use torch.ops.vllm.* custom ops for collectives.
+
+        NPU uses custom communication ops (HCCL) for collectives, so return True.
+        """
+        return True
+
+    @classmethod
     def opaque_attention_op(cls) -> bool:
         return True
 

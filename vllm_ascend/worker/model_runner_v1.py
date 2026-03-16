@@ -73,7 +73,7 @@ from vllm.v1.outputs import (
 )
 from vllm.v1.sample.logits_processor import build_logitsprocs
 from vllm.v1.sample.metadata import SamplingMetadata
-from vllm.v1.sample.rejection_sampler import RejectionSampler
+from vllm.v1.worker.gpu.spec_decode.rejection_sampler import RejectionSampler
 from vllm.v1.spec_decode.metadata import SpecDecodeMetadata
 from vllm.v1.structured_output.utils import apply_grammar_bitmask
 from vllm.v1.utils import record_function_or_nullcontext

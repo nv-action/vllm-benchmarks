@@ -3,7 +3,7 @@
 import torch
 from vllm.triton_utils import HAS_TRITON, triton
 from vllm.v1.sample.metadata import SamplingMetadata
-from vllm.v1.sample.rejection_sampler import (
+from vllm.v1.worker.gpu.spec_decode.rejection_sampler import (
     GREEDY_TEMPERATURE,
     MAX_SPEC_LEN,
     PLACEHOLDER_TOKEN_ID,

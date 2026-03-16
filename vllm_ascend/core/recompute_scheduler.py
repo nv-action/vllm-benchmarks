@@ -38,7 +38,7 @@ from vllm.v1.engine import EngineCoreEventType, EngineCoreOutput, EngineCoreOutp
 from vllm.v1.metrics.perf import PerfStats
 from vllm.v1.outputs import ModelRunnerOutput
 from vllm.v1.request import Request, RequestStatus, StreamingUpdate
-from vllm.v1.sample.rejection_sampler import PLACEHOLDER_TOKEN_ID
+from vllm.v1.worker.gpu.spec_decode.rejection_sampler import PLACEHOLDER_TOKEN_ID
 from vllm.v1.spec_decode.metrics import SpecDecodingStats
 from vllm.v1.utils import ConstantList, record_function_or_nullcontext
 
