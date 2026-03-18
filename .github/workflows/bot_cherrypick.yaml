@@ -130,7 +130,7 @@ jobs:
           # Verify target branch exists on upstream
           if ! git ls-remote --exit-code --heads upstream "${TARGET_BRANCH}" > /dev/null 2>&1; then
             echo "CHERRY_PICK_ERROR=Target branch '${TARGET_BRANCH}' does not exist on upstream." >> $GITHUB_ENV
-            echo "cherry-pick_failed=true" >> $GITHUB_OUTPUT
+            echo "cherry_pick_failed=true" >> $GITHUB_OUTPUT
             exit 0
           fi
 
@@ -141,16 +141,16 @@ jobs:
             CONFLICT_FILES=$(git diff --name-only --diff-filter=U | tr '\n' ' ')
             git cherry-pick --abort || true
             echo "CHERRY_PICK_ERROR=Cherry-pick failed due to conflicts in: ${CONFLICT_FILES}" >> $GITHUB_ENV
-            echo "cherry-pick_failed=true" >> $GITHUB_OUTPUT
+            echo "cherry_pick_failed=true" >> $GITHUB_OUTPUT
             exit 0
           fi
 
           git push -f origin "${NEW_BRANCH}:${NEW_BRANCH}"
-          echo "cherry-pick_failed=false" >> $GITHUB_OUTPUT
+          echo "cherry_pick_failed=false" >> $GITHUB_OUTPUT
 
       - name: Create cherry-pick PR
         id: create_pr
-        if: steps.cherry-pick.outputs.cherry-pick_failed == 'false'
+        if: steps.cherry-pick.outputs.cherry_pick_failed == 'false'
         uses: actions/github-script@v7
         env:
           NEW_BRANCH: ${{ env.NEW_BRANCH }}
@@ -194,7 +194,7 @@ jobs:
             }
 
       - name: Comment success on original PR
-        if: steps.cherry-pick.outputs.cherry-pick_failed == 'false'
+        if: steps.cherry-pick.outputs.cherry_pick_failed == 'false'
         uses: actions/github-script@v7
         env:
           NEW_PR_URL: ${{ steps.create_pr.outputs.new_pr_url }}
@@ -215,7 +215,7 @@ jobs:
             });
 
       - name: Comment failure on original PR
-        if: steps.cherry-pick.outputs.cherry-pick_failed == 'true'
+        if: steps.cherry-pick.outputs.cherry_pick_failed == 'true'
         uses: actions/github-script@v7
         env:
           CHERRY_PICK_ERROR: ${{ env.CHERRY_PICK_ERROR }}
