@@ -73,11 +73,24 @@ from vllm.v1.outputs import (
 )
 from vllm.v1.sample.logits_processor import build_logitsprocs
 from vllm.v1.sample.metadata import SamplingMetadata
-from vllm.v1.sample.rejection_sampler import RejectionSampler
+
+# Import RejectionSampler from correct path based on vLLM version
+from vllm_ascend.utils import vllm_version_is
+if vllm_version_is("0.16.0"):
+    from vllm.v1.sample.rejection_sampler import RejectionSampler
+else:
+    from vllm.v1.worker.gpu.spec_decode.rejection_sampler import RejectionSampler
+
 from vllm.v1.spec_decode.metadata import SpecDecodeMetadata
 from vllm.v1.structured_output.utils import apply_grammar_bitmask
 from vllm.v1.utils import record_function_or_nullcontext
-from vllm.v1.worker.gpu_model_runner import AsyncGPUModelRunnerOutput, GPUModelRunner
+
+# Import GPUModelRunner from correct path based on vLLM version
+if vllm_version_is("0.16.0"):
+    from vllm.v1.worker.gpu_model_runner import AsyncGPUModelRunnerOutput, GPUModelRunner
+else:
+    from vllm.v1.worker.gpu.model_runner import AsyncGPUModelRunnerOutput, GPUModelRunner
+
 from vllm.v1.worker.ubatch_utils import (
     UBatchSlices,
     maybe_create_ubatch_slices,

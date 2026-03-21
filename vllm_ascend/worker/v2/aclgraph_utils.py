@@ -25,14 +25,24 @@ from vllm.config import VllmConfig
 from vllm.v1.attention.backend import AttentionMetadataBuilder
 from vllm.v1.kv_cache_interface import KVCacheConfig
 from vllm.v1.worker.gpu.block_table import BlockTables
-from vllm.v1.worker.gpu.cudagraph_utils import CudaGraphManager
-from vllm.v1.worker.gpu.cudagraph_utils import prepare_inputs_to_capture as prepare_inputs_to_capture_gpu
+
+# Import CudaGraphManager/ModelCudaGraphManager based on vLLM version
+from vllm_ascend.utils import vllm_version_is
+if vllm_version_is("0.16.0"):
+    from vllm.v1.worker.gpu.cudagraph_utils import CudaGraphManager
+    from vllm.v1.worker.gpu.cudagraph_utils import prepare_inputs_to_capture as prepare_inputs_to_capture_gpu
+    _CudaGraphManagerBase = CudaGraphManager
+else:
+    from vllm.v1.worker.gpu.cudagraph_utils import ModelCudaGraphManager
+    from vllm.v1.worker.gpu.cudagraph_utils import prepare_inputs_to_capture as prepare_inputs_to_capture_gpu
+    _CudaGraphManagerBase = ModelCudaGraphManager
+
 from vllm.v1.worker.gpu.input_batch import InputBuffers
 
 from vllm_ascend.worker.v2.utils import torch_cuda_wrapper
 
 
-class AclGraphManager(CudaGraphManager):
+class AclGraphManager(_CudaGraphManagerBase):
     """ACL Graph Manager for Ascend NPUs."""
 
     def __init__(
@@ -42,7 +52,18 @@ class AclGraphManager(CudaGraphManager):
         device: torch.device,
     ):
         with torch_cuda_wrapper():
-            super().__init__(vllm_config, use_mrope, device)
+            # Handle different constructor signatures between vLLM versions
+            if vllm_version_is("0.16.0"):
+                # Old signature: CudaGraphManager(vllm_config, use_mrope, device)
+                super().__init__(vllm_config, use_mrope, device)
+            else:
+                # New signature: ModelCudaGraphManager(vllm_config, device, cudagraph_mode, decode_query_len)
+                super().__init__(
+                    vllm_config,
+                    device,
+                    vllm_config.compilation_config.cudagraph_mode,
+                    decode_query_len=vllm_config.speculative_config.num_speculative_tokens + 1 if vllm_config.speculative_config else 1,
+                )
 
     def capture_graph(
         self,

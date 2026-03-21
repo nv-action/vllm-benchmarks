@@ -790,3 +790,26 @@ class NPUPlatform(Platform):
                     "ignored on Ascend. Resetting to default (32)."
                 )
                 att_config.flash_attn_max_num_splits_for_cuda_graph = 32
+
+    def is_zen_cpu(self) -> bool:
+        """Check if this platform is Zen CPU. NPU is not Zen CPU."""
+        return False
+
+    @classmethod
+    def update_block_size_for_backend(cls, vllm_config: "VllmConfig") -> None:
+        """
+        Ensure block_size is compatible with the attention backend.
+        NPU platform has its own block size management.
+        """
+        # NPU uses its own block size management logic
+        # Override the parent implementation if needed
+        pass
+
+    @classmethod
+    def use_custom_op_collectives(cls) -> bool:
+        """
+        Whether this platform should use torch.ops.vllm.* custom ops for collectives.
+
+        Returns False by default - NPU uses its own communication primitives.
+        """
+        return False

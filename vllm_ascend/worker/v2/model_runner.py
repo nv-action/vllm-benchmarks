@@ -30,7 +30,13 @@ from vllm.v1.worker.gpu.input_batch import (
     prepare_pos_seq_lens,
     prepare_prefill_inputs,
 )
-from vllm.v1.worker.gpu.model_runner import GPUModelRunner
+
+# Import GPUModelRunner from correct path based on vLLM version
+from vllm_ascend.utils import vllm_version_is
+if vllm_version_is("0.16.0"):
+    from vllm.v1.worker.gpu.model_runner import GPUModelRunner
+else:
+    from vllm.v1.worker.gpu.model_runner import GPUModelRunner
 
 from vllm_ascend.worker.v2.aclgraph_utils import AclGraphManager
 from vllm_ascend.worker.v2.attn_utils import build_attn_metadata, build_attn_state
