@@ -19,7 +19,7 @@ FROM quay.io/ascend/vllm-ascend:main-a3
 
 ARG PIP_INDEX_URL="https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
 ARG AIS_BENCH_TAG="v3.0-20250930-master"
-ARG AIS_BENCH_URL="https://gitee.com/aisbench/benchmark.git"
+ARG AIS_BENCH_URL="https://Potabk:9d44dd1f4019104cfffc9dadc00134cf@gitee.com/aisbench/benchmark.git"
 
 # Define environments
 ENV DEBIAN_FRONTEND=noninteractive
