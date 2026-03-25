@@ -1,0 +1,705 @@
+#
+# Copyright (c) 2025 Huawei Technologies Co., Ltd. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# This file is a part of the vllm-benchmarks project.
+#
+
+name: Main2Main Auto
+run-name: >-
+  ${{
+    github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'fixup' &&
+    format(
+      'Main2Main Auto fixup pr={0} phase={1} token={2}',
+      github.event.inputs.pr_number,
+      github.event.inputs.phase,
+      github.event.inputs.dispatch_token
+    ) ||
+    'Main2Main Auto'
+  }}
+
+on:
+  schedule:
+    # Daily at UTC 02:00 (UTC+8 10:00)
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Execution mode: empty/default for detect-and-adapt, fixup for explicit repair runs'
+        required: false
+        default: ''
+      target_commit:
+        description: 'Target vLLM commit hash (default: latest vLLM main HEAD)'
+        required: false
+        default: ''
+      pr_number:
+        description: 'PR number for explicit fixup runs'
+        required: false
+        default: ''
+      branch:
+        description: 'PR branch name for explicit fixup runs'
+        required: false
+        default: ''
+      head_sha:
+        description: 'PR head SHA for explicit fixup runs'
+        required: false
+        default: ''
+      run_id:
+        description: 'Completed E2E-Full workflow run id'
+        required: false
+        default: ''
+      run_url:
+        description: 'Completed E2E-Full workflow run URL'
+        required: false
+        default: ''
+      conclusion:
+        description: 'Completed E2E-Full conclusion'
+        required: false
+        default: ''
+      phase:
+        description: 'Explicit fixup phase: 2, 3, or done'
+        required: false
+        default: ''
+      old_commit:
+        description: 'Pinned good vLLM commit'
+        required: false
+        default: ''
+      new_commit:
+        description: 'Target bad/new vLLM commit'
+        required: false
+        default: ''
+      dispatch_token:
+        description: 'Correlation token for the dispatched fixup workflow run'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+
+env:
+  UPSTREAM_REPO: nv-action/vllm-benchmarks
+  FORK_OWNER: Meihan-chen
+
+# ====================================================================
+# Phase 1: Detect & Adapt  (schedule / workflow_dispatch)
+#   Creates a cross-fork PR with the "main2main" label.
+#   Adding "main2main" + "ready" + "ready-for-test" labels triggers E2E-Full.
+#
+# Fixup: Analyze & Fix     (workflow_dispatch with explicit context)
+#   The external orchestrator waits for E2E-Full, computes the next phase,
+#   then calls this workflow with explicit PR/run/phase/commit inputs.
+# ====================================================================
+
+jobs:
+  # ================================================================
+  # Phase 1: Detect & Adapt
+  # ================================================================
+  detect-and-adapt:
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.mode != 'fixup')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: vllm-benchmarks
+    env:
+      GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+      MAIN2MAIN_CI_MODE: "1"
+      API_TIMEOUT_MS: 3000000
+      ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+      ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+
+    steps:
+      - name: Checkout fork vLLM-benchmarks repo
+        uses: actions/checkout@v6
+        with:
+          repository: Meihan-chen/vllm-benchmarks
+          token: ${{ secrets.PAT_TOKEN }}
+          path: vllm-benchmarks
+          fetch-depth: 0
+
+
+      - name: Configure git identity
+        run: |
+          git config user.name "Meihan-chen"
+          git config user.email "jcccx.cmh@gmail.com"
+
+      # ── Permission and credential validation ──
+      - name: Validate GitHub token scopes
+        run: |
+          gh auth status
+          gh api graphql -f query='query { organization(login: "nv-action") { login } }' >/dev/null
+
+      - name: Validate Claude gateway configuration
+        run: |
+          test -n "$ANTHROPIC_BASE_URL" || { echo "::error::ANTHROPIC_BASE_URL is empty"; exit 1; }
+          test -n "$ANTHROPIC_AUTH_TOKEN" || { echo "::error::ANTHROPIC_AUTH_TOKEN is empty"; exit 1; }
+
+      - name: Checkout upstream vLLM source
+        uses: actions/checkout@v6
+        with:
+          repository: vllm-project/vllm
+          ref: ${{ inputs.target_commit != '' && inputs.target_commit || 'main' }}
+          path: vllm-upstream
+          fetch-depth: 0
+
+      - name: Detect vLLM version change
+        id: detect
+        run: |
+          OLD_COMMIT=$(grep -oE '[0-9a-f]{40}' docs/source/community/versioning_policy.md | head -1)
+          if [ -z "$OLD_COMMIT" ]; then
+            echo "::error::Could not extract pinned vLLM commit from versioning_policy.md"
+            exit 1
+          fi
+          echo "old_commit=$OLD_COMMIT" >> "$GITHUB_OUTPUT"
+
+          TARGET="${{ inputs.target_commit }}"
+          if [ -n "$TARGET" ]; then
+            if ! echo "$TARGET" | grep -Eq '^[0-9a-f]{40}$'; then
+              echo "::error::Invalid target_commit format: '$TARGET' (expected 40-char SHA)"
+              exit 1
+            fi
+            SOURCE="workflow_dispatch.input"
+          else
+            TARGET=$(git -C "$GITHUB_WORKSPACE/vllm-upstream" rev-parse HEAD)
+            if [ -z "$TARGET" ]; then
+              echo "::error::Failed to resolve vllm-upstream HEAD"
+              exit 1
+            fi
+            SOURCE="checkout.main"
+          fi
+          echo "new_commit=$TARGET" >> "$GITHUB_OUTPUT"
+          echo "target_source=$SOURCE" >> "$GITHUB_OUTPUT"
+
+          if [ "$OLD_COMMIT" = "$TARGET" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::No vLLM changes detected (source=${SOURCE}, pinned=${OLD_COMMIT:0:12}). Skipping."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::vLLM changed (source=${SOURCE}): ${OLD_COMMIT:0:12} -> ${TARGET:0:12}"
+          fi
+
+      - name: Check for existing main2main PR
+        if: steps.detect.outputs.skip != 'true'
+        id: dedup
+        run: |
+          EXISTING=$(gh pr list \
+            --repo "${{ env.UPSTREAM_REPO }}" \
+            --label main2main \
+            --state open \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::Active main2main PR #${EXISTING} already exists. Skipping."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create working branch
+        if: steps.detect.outputs.skip != 'true' && steps.dedup.outputs.skip != 'true'
+        id: branch
+        run: |
+          BRANCH="main2main_auto_$(date +%Y-%m-%d_%H-%M)"
+          git checkout -b "$BRANCH"
+          echo "name=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: "Prepare Claude settings (Phase 1)"
+        if: steps.branch.outputs.name
+        run: |
+          # Avoid project-level settings conflicts with the action-managed user settings.
+          rm -f .claude/settings.json .claude/settings.local.json
+          if [ -f "$HOME/.claude/settings.json" ]; then
+            python3 -m json.tool "$HOME/.claude/settings.json" >/dev/null || rm -f "$HOME/.claude/settings.json"
+          fi
+
+      - name: "Claude — adapt to new vLLM"
+        if: steps.branch.outputs.name
+        uses: anthropics/claude-code-action/base-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          prompt: |
+            Use the main2main skill to adapt vllm-benchmarks to the latest vLLM main branch.
+            The NEW_COMMIT environment variable is set to ${{ steps.detect.outputs.new_commit }}.
+            The upstream vLLM source is checked out at ../vllm-upstream.
+            Analyze the upstream diff, apply adaptation fixes, and update all commit references.
+            Commit your changes with '-s' but do NOT create a PR — the orchestrator handles that.
+          claude_args: "--max-budget-usd 20.0 --dangerously-skip-permissions --allowed-tools 'Bash(git *),Bash(gh *),Bash(grep *),Bash(sed *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
+          show_full_output: true
+        env:
+          OLD_COMMIT: ${{ steps.detect.outputs.old_commit }}
+          NEW_COMMIT: ${{ steps.detect.outputs.new_commit }}
+          VLLM_UPSTREAM_DIR: ${{ github.workspace }}/vllm-upstream
+          CLAUDE_WORKING_DIR: ${{ github.workspace }}/vllm-benchmarks
+
+      - name: Finalize branch and create cross-fork PR
+        if: steps.branch.outputs.name
+        id: pr
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git add -A
+            git commit -s -m "feat: adapt to vLLM main (${{ steps.detect.outputs.old_commit }}...${{ steps.detect.outputs.new_commit }})"
+          fi
+
+          git push --force-with-lease -u origin "${{ steps.branch.outputs.name }}"
+
+          PR_TITLE="feat: adapt to vLLM main ($(date +%Y-%m))"
+
+          cat > /tmp/pr_body.md <<'BODY_EOF'
+          ## Summary
+
+          Automated adaptation to upstream vLLM main branch changes.
+          BODY_EOF
+
+          echo "" >> /tmp/pr_body.md
+          echo "**Commit range:** \`${{ steps.detect.outputs.old_commit }}\`...\`${{ steps.detect.outputs.new_commit }}\`" >> /tmp/pr_body.md
+          echo "### Phase 1: detect-and-adapt" >> /tmp/pr_body.md
+          echo "**Pipeline:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> /tmp/pr_body.md
+          echo "" >> /tmp/pr_body.md
+          git log -1 --pretty=%B >> /tmp/pr_body.md
+
+          HEAD_REF="${{ env.FORK_OWNER }}:${{ steps.branch.outputs.name }}"
+          PR_URL=$(gh pr create \
+            --repo "${{ env.UPSTREAM_REPO }}" \
+            --head "$HEAD_REF" \
+            --base main \
+            --title "$PR_TITLE" \
+            --body-file /tmp/pr_body.md \
+            --draft)
+          PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+          echo "::notice::Created PR #${PR_NUMBER}: ${PR_URL}"
+
+          echo "number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "url=$PR_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Add labels to trigger E2E-Full
+        if: steps.pr.outputs.number
+        run: |
+          gh pr edit "${{ steps.pr.outputs.number }}" \
+            --repo "${{ env.UPSTREAM_REPO }}" \
+            --add-label "main2main,ready,ready-for-test"
+
+      - name: Publish registration comment for orchestrator
+        if: steps.pr.outputs.number
+        run: |
+          HEAD_SHA=$(git rev-parse HEAD)
+          cat > /tmp/main2main_register_comment.md <<EOF
+          <!-- main2main-register
+          pr_number=${{ steps.pr.outputs.number }}
+          branch=${{ steps.branch.outputs.name }}
+          head_sha=$(git rev-parse HEAD)
+          old_commit=${{ steps.detect.outputs.old_commit }}
+          new_commit=${{ steps.detect.outputs.new_commit }}
+          phase=2
+          -->
+          EOF
+
+          gh pr comment "${{ steps.pr.outputs.number }}" \
+            --repo "${{ env.UPSTREAM_REPO }}" \
+            --body-file /tmp/main2main_register_comment.md
+
+  # ================================================================
+  # Fixup: Explicit Phase 2 & Phase 3 executor
+  #
+  # Triggered explicitly by the external orchestrator after E2E-Full
+  # completes. This job validates the provided context and executes
+  # the requested outcome for phase 2 / phase 3 / done.
+  # ================================================================
+  fixup:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'fixup'
+    runs-on: ubuntu-latest
+    timeout-minutes: 420  # 7 hours (bisect can be slow)
+    env:
+      GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+      MAIN2MAIN_CI_MODE: "1"
+      API_TIMEOUT_MS: 3000000
+      ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+      ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+
+    steps:
+      # ── Permission and credential validation ──
+      - name: Validate GitHub token scopes
+        run: |
+          gh auth status
+          gh api graphql -f query='query { organization(login: "nv-action") { login } }' >/dev/null
+
+      # ── Load explicit fixup context ──
+      - name: Load fixup context
+        id: ctx
+        run: |
+          PR_NUMBER="${{ github.event.inputs.pr_number }}"
+          PR_BRANCH="${{ github.event.inputs.branch }}"
+          RUN_HEAD="${{ github.event.inputs.head_sha }}"
+          RUN_ID="${{ github.event.inputs.run_id }}"
+          RUN_URL="${{ github.event.inputs.run_url }}"
+          RUN_CONCLUSION="${{ github.event.inputs.conclusion }}"
+          PHASE="${{ github.event.inputs.phase }}"
+          OLD_COMMIT="${{ github.event.inputs.old_commit }}"
+          NEW_COMMIT="${{ github.event.inputs.new_commit }}"
+          DISPATCH_TOKEN="${{ github.event.inputs.dispatch_token }}"
+
+          for value_name in PR_NUMBER PR_BRANCH RUN_HEAD RUN_ID RUN_URL RUN_CONCLUSION PHASE OLD_COMMIT NEW_COMMIT DISPATCH_TOKEN; do
+            if [ -z "${!value_name}" ]; then
+              echo "::error::Missing required fixup input: ${value_name}"
+              exit 1
+            fi
+          done
+
+          case "$PHASE" in
+            2|3|done)
+              ;;
+            *)
+              echo "::error::Invalid fixup phase: $PHASE"
+              exit 1
+              ;;
+          esac
+
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "branch=$PR_BRANCH" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$RUN_HEAD" >> "$GITHUB_OUTPUT"
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "run_url=$RUN_URL" >> "$GITHUB_OUTPUT"
+          echo "conclusion=$RUN_CONCLUSION" >> "$GITHUB_OUTPUT"
+          case "$RUN_CONCLUSION" in
+            success)
+              NORMALIZED_CONCLUSION="success"
+              ;;
+            failure|cancelled|timed_out|startup_failure|action_required|stale)
+              NORMALIZED_CONCLUSION="failure"
+              ;;
+            *)
+              NORMALIZED_CONCLUSION="skip"
+              ;;
+          esac
+          echo "normalized_conclusion=$NORMALIZED_CONCLUSION" >> "$GITHUB_OUTPUT"
+          echo "old_commit=${OLD_COMMIT}" >> "$GITHUB_OUTPUT"
+          echo "new_commit=${NEW_COMMIT}" >> "$GITHUB_OUTPUT"
+          echo "dispatch_token=${DISPATCH_TOKEN}" >> "$GITHUB_OUTPUT"
+          echo "phase=$PHASE" >> "$GITHUB_OUTPUT"
+
+          echo "::notice::PR #${PR_NUMBER} | run=${RUN_ID} | conclusion=${RUN_CONCLUSION} | normalized=${NORMALIZED_CONCLUSION} | phase=${PHASE}"
+
+      # ── CI passed → mark PR ready ──
+      - name: "Report: Mark PR ready for review"
+        if: steps.ctx.outputs.skip != 'true' && steps.ctx.outputs.normalized_conclusion == 'success'
+        run: |
+          gh pr ready "${{ steps.ctx.outputs.pr_number }}" --repo "${{ env.UPSTREAM_REPO }}"
+          gh pr comment "${{ steps.ctx.outputs.pr_number }}" --repo "${{ env.UPSTREAM_REPO }}" \
+            --body "## Main2Main Auto — All Tests Passed
+
+          The automated pipeline successfully adapted vllm-benchmarks to the latest
+          upstream vLLM main branch. All E2E-Full tests are green.
+
+          This PR is ready for human review."
+          echo "::notice::PR #${{ steps.ctx.outputs.pr_number }} marked ready for review"
+
+      # ── CI failed, all phases exhausted → create issue ──
+      - name: "Report: Create issue (all phases exhausted)"
+        if: >-
+          steps.ctx.outputs.skip != 'true'
+          && steps.ctx.outputs.normalized_conclusion == 'failure'
+          && steps.ctx.outputs.phase == 'done'
+        run: |
+          cat > /tmp/issue_body.md <<'ISSUE_EOF'
+          ## Main2Main Auto — Manual Review Required
+
+          The automated pipeline could not resolve CI failures after Phase 2 and Phase 3.
+          ISSUE_EOF
+
+          echo "" >> /tmp/issue_body.md
+          echo "| Item | Value |" >> /tmp/issue_body.md
+          echo "|:--|:--|" >> /tmp/issue_body.md
+          echo "| **PR** | #${{ steps.ctx.outputs.pr_number }} |" >> /tmp/issue_body.md
+          echo "| **Failed Run** | ${{ steps.ctx.outputs.run_url }} |" >> /tmp/issue_body.md
+          echo "| **Old vLLM Commit** | \`${{ steps.ctx.outputs.old_commit }}\` |" >> /tmp/issue_body.md
+          echo "| **New vLLM Commit** | \`${{ steps.ctx.outputs.new_commit }}\` |" >> /tmp/issue_body.md
+          echo "" >> /tmp/issue_body.md
+          echo "Please review the PR, check the pipeline logs, and apply remaining fixes manually." >> /tmp/issue_body.md
+
+          gh issue create \
+            --repo "${{ env.UPSTREAM_REPO }}" \
+            --title "main2main: manual review needed ($(date +%Y-%m-%d))" \
+            --label "main2main" \
+            --body-file /tmp/issue_body.md
+          echo "::warning::Created issue for manual review"
+
+      # ── Phase 2/3 shared setup for automated fixes ──
+      - name: "Phase 2/3: Checkout fork branch"
+        if: >-
+          steps.ctx.outputs.skip != 'true'
+          && steps.ctx.outputs.normalized_conclusion == 'failure'
+          && (steps.ctx.outputs.phase == '2' || steps.ctx.outputs.phase == '3')
+        uses: actions/checkout@v6
+        with:
+          repository: Meihan-chen/vllm-benchmarks
+          ref: ${{ steps.ctx.outputs.branch }}
+          token: ${{ secrets.PAT_TOKEN }}
+          path: vllm-benchmarks
+          fetch-depth: 0
+
+      - name: "Phase 2/3: Configure git"
+        if: >-
+          steps.ctx.outputs.skip != 'true'
+          && steps.ctx.outputs.normalized_conclusion == 'failure'
+          && (steps.ctx.outputs.phase == '2' || steps.ctx.outputs.phase == '3')
+        working-directory: vllm-benchmarks
+        run: |
+          git config user.name "main2main-bot"
+          git config user.email "main2main-bot@noreply.github.com"
+
+      - name: "Phase 2/3: Validate Claude gateway configuration"
+        if: >-
+          steps.ctx.outputs.skip != 'true'
+          && steps.ctx.outputs.normalized_conclusion == 'failure'
+          && (steps.ctx.outputs.phase == '2' || steps.ctx.outputs.phase == '3')
+        run: |
+          test -n "$ANTHROPIC_BASE_URL" || { echo "::error::ANTHROPIC_BASE_URL is empty"; exit 1; }
+          test -n "$ANTHROPIC_AUTH_TOKEN" || { echo "::error::ANTHROPIC_AUTH_TOKEN is empty"; exit 1; }
+
+      - name: "Phase 2/3: Prepare Claude settings"
+        if: >-
+          steps.ctx.outputs.skip != 'true'
+          && steps.ctx.outputs.normalized_conclusion == 'failure'
+          && (steps.ctx.outputs.phase == '2' || steps.ctx.outputs.phase == '3')
+        working-directory: vllm-benchmarks
+        run: |
+          # Avoid project-level settings conflicts with the action-managed user settings.
+          rm -f .claude/settings.json .claude/settings.local.json
+          if [ -f "$HOME/.claude/settings.json" ]; then
+            python3 -m json.tool "$HOME/.claude/settings.json" >/dev/null || rm -f "$HOME/.claude/settings.json"
+          fi
+
+      - name: "Phase 2: Claude — fix with error-analysis skill"
+        if: >-
+          steps.ctx.outputs.skip != 'true'
+          && steps.ctx.outputs.normalized_conclusion == 'failure'
+          && steps.ctx.outputs.phase == '2'
+        uses: anthropics/claude-code-action/base-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          prompt: |
+            Use the main2main skill to diagnose and fix CI failures.
+
+            The E2E-Full CI has failed. Details:
+            - Run ID: ${{ steps.ctx.outputs.run_id }}
+            - Good commit (pinned): ${{ steps.ctx.outputs.old_commit }}
+            - Bad commit (upstream): ${{ steps.ctx.outputs.new_commit }}
+
+            The skill will handle log extraction and error analysis via ci_log_summary.py.
+            Commit all fixes with '-s' but do NOT create a PR or branch — the orchestrator handles that.
+          claude_args: "--max-budget-usd 20.0 --dangerously-skip-permissions --allowed-tools 'Bash(git *),Bash(gh *),Bash(grep *),Bash(sed *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
+          show_full_output: true
+        env:
+          CLAUDE_WORKING_DIR: ${{ github.workspace }}/vllm-benchmarks
+
+      # ── Phase 3: Bisect & targeted fix ──
+      - name: "Phase 3: Trigger bisect workflow"
+        if: >-
+          steps.ctx.outputs.skip != 'true'
+          && steps.ctx.outputs.normalized_conclusion == 'failure'
+          && steps.ctx.outputs.phase == '3'
+        id: bisect_trigger
+        run: |
+          TEST_CMDS=""
+
+          # Let the error-analysis skill's output guide bisect test commands
+          # Fall back to failed run logs and then to a default set.
+          if [ -f /tmp/ci_analysis.json ]; then
+            TEST_CMDS=$(python3 -c "
+          import json
+          d = json.load(open('/tmp/ci_analysis.json'))
+          bugs = d.get('code_bugs', [])
+          tests = []
+          for b in bugs:
+              tests.extend(b.get('affected_tests', []))
+          if tests:
+              print('; '.join(f'pytest -sv {t}' for t in list(set(tests))[:5]))
+          " 2>/dev/null)
+          fi
+
+          # If no cached analysis output, extract candidate tests from failed run logs.
+          if [ -z "$TEST_CMDS" ]; then
+            RUN_LOG="/tmp/e2e_failed_run_${{ steps.ctx.outputs.run_id }}.log"
+            gh run view "${{ steps.ctx.outputs.run_id }}" \
+              --repo "${{ env.UPSTREAM_REPO }}" \
+              --log > "$RUN_LOG" 2>/dev/null || true
+            TEST_CMDS=$(python3 - "$RUN_LOG" <<'PY'
+          import re
+          import sys
+          from collections import OrderedDict
+
+          run_log = sys.argv[1]
+          try:
+              text = open(run_log, encoding="utf-8", errors="ignore").read()
+          except OSError:
+              print("")
+              raise SystemExit(0)
+
+          pattern = re.compile(r"(tests/[A-Za-z0-9_./-]+\.py(?:::[A-Za-z0-9_./\-\[\]]+)*)")
+          tests = list(OrderedDict.fromkeys(pattern.findall(text)))
+          if tests:
+              print("; ".join(f"pytest -sv {t}" for t in tests[:5]))
+          PY
+          )
+          fi
+
+          # Final fallback: stable default commands to guarantee bisect dispatch.
+          if [ -z "$TEST_CMDS" ]; then
+            echo "::notice::No extracted tests found. Falling back to default bisect test commands."
+            TEST_CMDS="pytest -sv tests/e2e/singlecard/test_aclgraph_accuracy.py; pytest -sv tests/e2e/multicard/4-cards/long_sequence/test_accuracy.py"
+          fi
+
+          gh workflow run bisect_vllm.yaml \
+            --repo "${{ env.UPSTREAM_REPO }}" \
+            -f good_commit="${{ steps.ctx.outputs.old_commit }}" \
+            -f bad_commit="${{ steps.ctx.outputs.new_commit }}" \
+            -f test_cmd="$TEST_CMDS" \
+            -f caller_run_id="${{ steps.ctx.outputs.run_id }}"
+
+          echo "triggered=true" >> "$GITHUB_OUTPUT"
+          echo "::notice::Bisect workflow dispatched"
+
+      - name: "Phase 3: Wait for bisect to complete"
+        if: steps.bisect_trigger.outputs.triggered == 'true'
+        id: bisect_wait
+        run: |
+          BISECT_RUN=""
+          for attempt in $(seq 1 40); do
+            BISECT_RUN=$(gh run list \
+              --repo "${{ env.UPSTREAM_REPO }}" \
+              --workflow bisect_vllm.yaml \
+              -L 20 \
+              --json databaseId,status,displayTitle \
+              --jq '[.[] | select(.displayTitle | contains("caller-${{ steps.ctx.outputs.run_id }}"))][0].databaseId // empty')
+            if [ -n "$BISECT_RUN" ]; then
+              break
+            fi
+            sleep 30
+          done
+
+          if [ -z "$BISECT_RUN" ]; then
+            echo "::error::Timed out waiting for bisect run to appear"
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "::notice::Watching bisect run ${BISECT_RUN}"
+          gh run watch "$BISECT_RUN" --repo "${{ env.UPSTREAM_REPO }}" --exit-status || true
+
+          # Download bisect results
+          gh run download "$BISECT_RUN" \
+            --repo "${{ env.UPSTREAM_REPO }}" \
+            --name bisect-summary \
+            --dir /tmp/bisect_output 2>/dev/null || true
+
+          if [ -f /tmp/bisect_output/bisect_summary.md ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Bisect summary artifact not found"
+          fi
+
+      - name: "Phase 3: Claude — bisect-guided fix with error-analysis skill"
+        if: >-
+          steps.ctx.outputs.skip != 'true'
+          && steps.ctx.outputs.normalized_conclusion == 'failure'
+          && steps.ctx.outputs.phase == '3'
+        uses: anthropics/claude-code-action/base-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          prompt: |
+            Use the main2main skill to apply targeted fixes based on bisect results.
+
+            The E2E-Full CI has failed after Phase 2 fix. Now using bisect to identify culprit commits.
+
+            Context:
+            - Run ID: ${{ steps.ctx.outputs.run_id }}
+            - Good commit (pinned): ${{ steps.ctx.outputs.old_commit }}
+            - Bad commit (upstream): ${{ steps.ctx.outputs.new_commit }}
+            - Bisect results: read /tmp/bisect_output/bisect_summary.md (if available)
+
+            Follow the error-analysis skill phases:
+            - Phase 2: Use bisect results to identify culprit commits. Analyze their diffs.
+            - Phase 3: Update vllm_error_analyze.md with bisect-refined analysis.
+            - Phase 4: Apply targeted fixes using the documented error patterns.
+
+            Commit all fixes with '-s' but do NOT create a PR or branch.
+          claude_args: "--max-budget-usd 10.0 --dangerously-skip-permissions --allowed-tools 'Bash(git *),Bash(gh *),Bash(grep *),Bash(sed *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
+          show_full_output: true
+        env:
+          CLAUDE_WORKING_DIR: ${{ github.workspace }}/vllm-benchmarks
+
+      - name: "Phase 2/3: Push fixes and mark phase complete"
+        id: push_fix
+        if: >-
+          steps.ctx.outputs.skip != 'true'
+          && steps.ctx.outputs.normalized_conclusion == 'failure'
+          && (steps.ctx.outputs.phase == '2' || steps.ctx.outputs.phase == '3')
+        working-directory: vllm-benchmarks
+        run: |
+          if [ "${{ steps.ctx.outputs.phase }}" = "2" ]; then
+            COMMIT_MSG="fix: address E2E-Full CI failures (Phase 2)"
+            NOTICE="Phase 2 fixes pushed. External orchestration should trigger the next E2E-Full cycle."
+            NEXT_PHASE="3"
+          else
+            COMMIT_MSG="fix: bisect-guided adaptation fixes (Phase 3)"
+            NOTICE="Phase 3 fixes pushed. External orchestration should trigger the next E2E-Full cycle."
+            NEXT_PHASE="done"
+          fi
+
+          if [ -n "$(git status --porcelain)" ]; then
+            git add -A
+            git commit -s -m "$COMMIT_MSG"
+          fi
+
+          if ! git diff --quiet origin/${{ steps.ctx.outputs.branch }}..HEAD 2>/dev/null; then
+            git push --force-with-lease
+            echo "changes_pushed=true" >> "$GITHUB_OUTPUT"
+            echo "next_phase=${NEXT_PHASE}" >> "$GITHUB_OUTPUT"
+            echo "::notice::${NOTICE}"
+          else
+            echo "changes_pushed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No changes after phase ${{ steps.ctx.outputs.phase }} fix attempt."
+          fi
+
+      - name: Update registration comment for orchestrator
+        if: >-
+          steps.push_fix.outputs.changes_pushed == 'true'
+          && (steps.ctx.outputs.phase == '2' || steps.ctx.outputs.phase == '3')
+        run: |
+          cat > /tmp/main2main_register_comment.md <<EOF
+          <!-- main2main-register
+          pr_number=${{ steps.ctx.outputs.pr_number }}
+          branch=${{ steps.ctx.outputs.branch }}
+          head_sha=$(git -C vllm-benchmarks rev-parse HEAD)
+          old_commit=${{ steps.ctx.outputs.old_commit }}
+          new_commit=${{ steps.ctx.outputs.new_commit }}
+          phase=${NEXT_PHASE}
+          -->
+          EOF
+
+          COMMENT_ID=$(gh api "repos/${{ env.UPSTREAM_REPO }}/issues/${{ steps.ctx.outputs.pr_number }}/comments" \
+            --jq '.[] | select(.body | contains("main2main-register")) | .id' | tail -n1)
+
+          if [ -n "$COMMENT_ID" ]; then
+            gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/${COMMENT_ID}" \
+              -f body="$(cat /tmp/main2main_register_comment.md)" >/dev/null
+          else
+            gh pr comment "${{ steps.ctx.outputs.pr_number }}" \
+              --repo "${{ env.UPSTREAM_REPO }}" \
+              --body-file /tmp/main2main_register_comment.md
+          fi
+        env:
+          NEXT_PHASE: ${{ steps.push_fix.outputs.next_phase }}
