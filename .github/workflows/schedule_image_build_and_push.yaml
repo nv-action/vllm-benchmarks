@@ -11,6 +11,9 @@
 #   - Publish when tag with v* (pep440 version)  ===>  vllm-ascend:v1.2.3 / vllm-ascend:v1.2.3rc1
 name: Image Build and Push
 on:
+  schedule:
+    # UTC+8: 8am, 12pm, 16pm, 21pm
+    - cron: '0 0,4,8,13 * * *'
   push:
     tags:
       - 'v*'
@@ -27,6 +30,8 @@ on:
         type: choice
         options:
           - main
+          - v0.17.0rc1
+          - v0.16.0rc1
           - v0.15.0rc1
           - v0.14.0rc1
           - v0.13.0rc3
@@ -61,7 +66,7 @@ jobs:
       dockerfile: ${{ matrix.build_meta.dockerfile }}
       suffix: ${{ matrix.build_meta.suffix }}
       quay_username: ${{ vars.QUAY_USERNAME }}
-      should_push: ${{ github.event_name != 'pull_request' }}
+      should_push: ${{ github.repository_owner == 'vllm-project' && (github.event_name != 'pull_request') }}
       workflow_dispatch_tag: ${{ inputs.tag }}
     secrets:
       QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}

@@ -39,7 +39,7 @@ concurrency:
 
 jobs:
   changes:
-    runs-on: linux-aarch64-a2-2
+    runs-on: linux-aarch64-a2b3-0
     if: ${{ contains(github.event.pull_request.labels.*.name, 'ready') && contains(github.event.pull_request.labels.*.name, 'ready-for-test') }}
     outputs:
       e2e_tracker: ${{ steps.filter.outputs.e2e_tracker }}
@@ -75,7 +75,7 @@ jobs:
     name: e2e-full
     strategy:
       matrix:
-        vllm_version: [4034c3d32e30d01639459edd3ab486f56993876d, v0.16.0]
+        vllm_version: [ed359c497a728f08b5b41456c07a688ccd510fbc, v0.18.0]
     needs: [changes]
     if: ${{ needs.changes.outputs.e2e_tracker == 'true' || needs.changes.outputs.e2e_tracker == true }}
     uses: ./.github/workflows/_e2e_test.yaml

@@ -18,12 +18,12 @@
 name: Release Code and Wheel
 
 on:
-  # schedule:
-  #   # UTC+8: 10am, 16pm
-  #   - cron: '0 2,8 * * *'
-  # push:
-  #   tags:
-  #     - 'v*'
+  schedule:
+    # UTC+8: 10am, 16pm
+    - cron: '0 2,8 * * *'
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       tag:
@@ -83,10 +83,10 @@ jobs:
           name: vllm-ascend-src
           path: dist/*
 
-      # - name: Release
-      #   if: ${{ github.event_name == 'push' }}
-      #   run: |
-      #     python3 -m twine upload dist/* -u __token__ -p ${{ secrets.PYPI_TOKEN }}
+      - name: Release
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          python3 -m twine upload dist/* -u __token__ -p ${{ secrets.PYPI_TOKEN }}
 
   build_and_release_wheel:
     name: build and release wheel
@@ -189,11 +189,11 @@ jobs:
           name: vllm-ascend-${{ matrix.os }}-py${{ matrix.python-version }}-wheel
           path: dist/
 
-      # - name: Release
-      #   if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
-      #   run: |
-      #     python3 -m pip install twine
-      #     python3 -m twine upload --verbose dist/*.whl -u __token__ -p ${{ secrets.PYPI_TOKEN }}
+      - name: Release
+        if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+        run: |
+          python3 -m pip install twine
+          python3 -m twine upload --verbose dist/*.whl -u __token__ -p ${{ secrets.PYPI_TOKEN }}
 
 
   build_and_release_wheel_a3:
