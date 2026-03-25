@@ -66,7 +66,7 @@ jobs:
       contains(github.event.pull_request.labels.*.name, 'nightly-test')
     uses: ./.github/workflows/_parse_trigger.yaml
     with:
-      runner: linux-aarch64-a2b3-0
+      runner: linux-amd64-cpu-8-hk
       branch: ${{ inputs.branch || '' }}
 
   build-image:
@@ -102,7 +102,7 @@ jobs:
             tests: tests/e2e/nightly/single_node/ops/multicard_ops_a2/
           # YAML-driven tests
           - name: qwen3-32b
-            os: linux-aarch64-a2b3-4
+            os: linux-aarch64-a2-4
             config_file_path: Qwen3-32B.yaml
           - name: qwen3-next-80b-a3b-instruct
             os: linux-aarch64-a2b3-4
