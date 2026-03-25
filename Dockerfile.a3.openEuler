@@ -52,7 +52,7 @@ RUN yum update -y && \
 ARG VLLM_REPO=https://github.com/vllm-project/vllm.git
 ARG VLLM_TAG=v0.16.0
 RUN git clone https://github.com/vllm-project/vllm.git /vllm-workspace/vllm && \
-    cd /vllm-workspace/vllm && git checkout 4034c3d32e30d01639459edd3ab486f56993876d
+    cd /vllm-workspace/vllm && git checkout 14771f715085f5026919d30048329c3e822d4b3c
 # In x86, triton will be installed by vllm. But in Ascend, triton doesn't work correctly. we need to uninstall it.
 RUN VLLM_TARGET_DEVICE="empty" python3 -m pip install -e /vllm-workspace/vllm/[audio] --extra-index https://download.pytorch.org/whl/cpu/ && \
     python3 -m pip uninstall -y triton && \
