@@ -43,11 +43,10 @@ _FAILURE_CONCLUSIONS = {
 
 _ANALYSIS_SCRIPT_PATH = (
     Path(__file__).resolve().parent
-    / ".claude"
-    / "skills"
-    / "main2main-error-analysis"
+    / ".github"
+    / "workflows"
     / "scripts"
-    / "extract_and_analyze.py"
+    / "ci_log_summary.py"
 )
 
 
@@ -102,7 +101,8 @@ def extract_e2e_failure_analysis(*, repo: str, run_id: str) -> dict[str, object]
             repo,
             "--run-id",
             str(run_id),
-            "--llm-output",
+            "--format",
+            "llm-json",
         ],
         capture_output=True,
         text=True,
@@ -123,7 +123,7 @@ def summarize_manual_review_issue(
     base_url = os.environ["ANTHROPIC_BASE_URL"].rstrip("/")
     auth_token = os.environ["ANTHROPIC_AUTH_TOKEN"]
     payload = {
-        "model": os.environ.get("MAIN2MAIN_ISSUE_MODEL", "claude-sonnet-4-5"),
+        "model": os.environ.get("MAIN2MAIN_ISSUE_MODEL", "glm-5"),
         "max_tokens": 800,
         "messages": [
             {

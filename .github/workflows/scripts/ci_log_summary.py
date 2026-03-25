@@ -19,6 +19,13 @@ Examples:
     python3 .github/workflows/scripts/ci_log_summary.py --run-id 23127187822 --format json
 """
 
+"""
+Generate CI failure summaries from a local pytest log or a GitHub Actions run.
+Examples:
+    python3 .github/workflows/scripts/ci_log_summary.py --log-file /tmp/unit-test.log --mode ut --step-name "Unit test"
+    python3 .github/workflows/scripts/ci_log_summary.py --run-id 23127187822 --format json
+"""
+
 REPO = "vllm-project/vllm-ascend"
 _RUN_SUITE_START_RE = re.compile(r"\[\d+/\d+\]\s+START\s+(tests/\S+)")
 _RUN_SUITE_END_RE = re.compile(r"\[\d+/\d+\]\s+(?:PASSED|FAILED \(exit code \d+\))\s+(tests/\S+)")

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from pathlib import Path
 import sys
 import tempfile
@@ -6,6 +7,7 @@ import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from state_store import JsonStore
+import terminal_worker
 from terminal_worker import TerminalJob, TerminalWorker
 
 
@@ -209,3 +211,35 @@ def test_reload_pending_jobs_on_init():
         )
         worker = _make_worker(store)
         assert worker.pending_count() == 1
+
+
+def test_run_loop_logs_exception_when_job_processing_fails(monkeypatch):
+    class BoomWorker:
+        def __init__(self):
+            self.calls = 0
+
+        async def process_one(self):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("boom")
+            raise asyncio.CancelledError
+
+    worker = BoomWorker()
+    logs = []
+
+    class FakeLogger:
+        def exception(self, msg):
+            logs.append(msg)
+
+    monkeypatch.setattr(terminal_worker, "_LOG", FakeLogger())
+    sleep_calls = []
+
+    async def fake_sleep(seconds):
+        sleep_calls.append(seconds)
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+    asyncio.run(TerminalWorker.run_loop(worker))
+
+    assert logs == ["terminal worker error"]
+    assert sleep_calls == [10]

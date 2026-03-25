@@ -4,16 +4,15 @@ from pathlib import Path
 
 SCRIPT_PATH = (
     Path(__file__).resolve().parents[2]
-    / ".claude"
-    / "skills"
-    / "main2main-error-analysis"
+    / ".github"
+    / "workflows"
     / "scripts"
-    / "extract_and_analyze.py"
+    / "ci_log_summary.py"
 )
 
 
 def load_module():
-    spec = importlib.util.spec_from_file_location("extract_and_analyze", SCRIPT_PATH)
+    spec = importlib.util.spec_from_file_location("ci_log_summary", SCRIPT_PATH)
     module = importlib.util.module_from_spec(spec)
     assert spec is not None
     assert spec.loader is not None
@@ -54,15 +53,26 @@ def test_main_uses_repo_flag_with_explicit_run_id(monkeypatch, capsys):
             "run_url": "https://example/runs/456",
             "good_commit": "good",
             "bad_commit": "bad",
-            "total_jobs": 0,
-            "failed_jobs_count": 0,
-            "failed_tests": [],
+            "failed_test_files": [],
+            "failed_test_cases": [],
             "code_bugs": [],
             "env_flakes": [],
         }
 
     monkeypatch.setattr(module, "process_run", fake_process_run)
-    monkeypatch.setattr(module.sys, "argv", ["extract_and_analyze.py", "--repo", "nv-action/vllm-benchmarks", "--run-id", "456"])
+    monkeypatch.setattr(
+        module.sys,
+        "argv",
+        [
+            "ci_log_summary.py",
+            "--repo",
+            "nv-action/vllm-benchmarks",
+            "--run-id",
+            "456",
+            "--format",
+            "json",
+        ],
+    )
 
     module.main()
 

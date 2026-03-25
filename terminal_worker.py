@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import asdict, dataclass
+import logging
 from typing import Callable
 
 from state_store import JsonStore
 
 _JOBS_KEY = "_terminal_jobs"
+_LOG = logging.getLogger("main2main-service")
 
 
 @dataclass
@@ -144,4 +146,5 @@ class TerminalWorker:
             except asyncio.CancelledError:
                 break
             except Exception:
+                _LOG.exception("terminal worker error")
                 await asyncio.sleep(10)

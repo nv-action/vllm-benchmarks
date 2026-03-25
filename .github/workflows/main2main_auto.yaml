@@ -235,7 +235,7 @@ jobs:
             The upstream vLLM source is checked out at ../vllm-upstream.
             Analyze the upstream diff, apply adaptation fixes, and update all commit references.
             Commit your changes with '-s' but do NOT create a PR — the orchestrator handles that.
-          claude_args: "--max-budget-usd 20.0 --dangerously-skip-permissions --allowed-tools 'Bash(git *),Bash(gh *),Bash(grep *),Bash(sed *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
+          claude_args: "--model glm-5 --max-budget-usd 20.0 --dangerously-skip-permissions --allowed-tools 'Bash(git *),Bash(gh *),Bash(grep *),Bash(sed *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
           show_full_output: true
         env:
           OLD_COMMIT: ${{ steps.detect.outputs.old_commit }}
@@ -499,7 +499,7 @@ jobs:
 
             The skill will handle log extraction and error analysis via ci_log_summary.py.
             Commit all fixes with '-s' but do NOT create a PR or branch — the orchestrator handles that.
-          claude_args: "--max-budget-usd 20.0 --dangerously-skip-permissions --allowed-tools 'Bash(git *),Bash(gh *),Bash(grep *),Bash(sed *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
+          claude_args: "--model glm-5 --max-budget-usd 20.0 --dangerously-skip-permissions --allowed-tools 'Bash(git *),Bash(gh *),Bash(grep *),Bash(sed *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
           show_full_output: true
         env:
           CLAUDE_WORKING_DIR: ${{ github.workspace }}/vllm-benchmarks
@@ -636,7 +636,7 @@ jobs:
             - Phase 4: Apply targeted fixes using the documented error patterns.
 
             Commit all fixes with '-s' but do NOT create a PR or branch.
-          claude_args: "--max-budget-usd 10.0 --dangerously-skip-permissions --allowed-tools 'Bash(git *),Bash(gh *),Bash(grep *),Bash(sed *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
+          claude_args: "--model glm-5 --max-budget-usd 10.0 --dangerously-skip-permissions --allowed-tools 'Bash(git *),Bash(gh *),Bash(grep *),Bash(sed *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
           show_full_output: true
         env:
           CLAUDE_WORKING_DIR: ${{ github.workspace }}/vllm-benchmarks

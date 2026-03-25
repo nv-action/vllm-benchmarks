@@ -114,7 +114,10 @@ def test_extract_e2e_failure_analysis_invokes_script_with_repo_and_run_id(monkey
     assert "nv-action/vllm-benchmarks" in calls[0]
     assert "--run-id" in calls[0]
     assert "123" in calls[0]
-    assert "--llm-output" in calls[0]
+    assert "--format" in calls[0]
+    format_index = calls[0].index("--format")
+    assert calls[0][format_index + 1] == "llm-json"
+    assert str(calls[0][1]).endswith(".github/workflows/scripts/ci_log_summary.py")
 
 
 def test_summarize_manual_review_issue_uses_claude_gateway(monkeypatch):
