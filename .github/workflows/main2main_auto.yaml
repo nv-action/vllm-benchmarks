@@ -490,7 +490,7 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
           prompt: |
-            Use the main2main skill to diagnose and fix CI failures.
+            Use the main2main-error-analysis skill to diagnose and fix CI failures.
 
             The E2E-Full CI has failed. Details:
             - Run ID: ${{ steps.ctx.outputs.run_id }}
@@ -514,50 +514,29 @@ jobs:
         run: |
           TEST_CMDS=""
 
-          # Let the error-analysis skill's output guide bisect test commands
-          # Fall back to failed run logs and then to a default set.
-          if [ -f /tmp/ci_analysis.json ]; then
-            TEST_CMDS=$(python3 -c "
+          python3 .github/workflows/scripts/ci_log_summary.py \
+            --repo "${{ env.UPSTREAM_REPO }}" \
+            --run-id "${{ steps.ctx.outputs.run_id }}" \
+            --format json \
+            --output /tmp/ci_analysis.json
+
+          TEST_CMDS=$(python3 -c "
           import json
-          d = json.load(open('/tmp/ci_analysis.json'))
-          bugs = d.get('code_bugs', [])
-          tests = []
-          for b in bugs:
-              tests.extend(b.get('affected_tests', []))
-          if tests:
-              print('; '.join(f'pytest -sv {t}' for t in list(set(tests))[:5]))
-          " 2>/dev/null)
-          fi
-
-          # If no cached analysis output, extract candidate tests from failed run logs.
-          if [ -z "$TEST_CMDS" ]; then
-            RUN_LOG="/tmp/e2e_failed_run_${{ steps.ctx.outputs.run_id }}.log"
-            gh run view "${{ steps.ctx.outputs.run_id }}" \
-              --repo "${{ env.UPSTREAM_REPO }}" \
-              --log > "$RUN_LOG" 2>/dev/null || true
-            TEST_CMDS=$(python3 - "$RUN_LOG" <<'PY'
-          import re
-          import sys
-          from collections import OrderedDict
-
-          run_log = sys.argv[1]
           try:
-              text = open(run_log, encoding="utf-8", errors="ignore").read()
-          except OSError:
-              print("")
+              with open('/tmp/ci_analysis.json', encoding='utf-8') as fh:
+                  data = json.load(fh)
+          except (OSError, json.JSONDecodeError):
+              print('')
               raise SystemExit(0)
 
-          pattern = re.compile(r"(tests/[A-Za-z0-9_./-]+\.py(?:::[A-Za-z0-9_./\-\[\]]+)*)")
-          tests = list(OrderedDict.fromkeys(pattern.findall(text)))
+          tests = list(dict.fromkeys(data.get('failed_test_cases', [])))
           if tests:
-              print("; ".join(f"pytest -sv {t}" for t in tests[:5]))
-          PY
-          )
-          fi
+              print('; '.join(f'pytest -sv {t}' for t in tests[:5]))
+          " 2>/dev/null)
 
           # Final fallback: stable default commands to guarantee bisect dispatch.
           if [ -z "$TEST_CMDS" ]; then
-            echo "::notice::No extracted tests found. Falling back to default bisect test commands."
+            echo "::notice::No failed_test_cases found in ci_analysis.json. Falling back to default bisect test commands."
             TEST_CMDS="pytest -sv tests/e2e/singlecard/test_aclgraph_accuracy.py; pytest -sv tests/e2e/multicard/4-cards/long_sequence/test_accuracy.py"
           fi
 
@@ -620,7 +599,7 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
           prompt: |
-            Use the main2main skill to apply targeted fixes based on bisect results.
+            Use the main2main-error-analysis skill to apply targeted fixes based on bisect results.
 
             The E2E-Full CI has failed after Phase 2 fix. Now using bisect to identify culprit commits.
 
