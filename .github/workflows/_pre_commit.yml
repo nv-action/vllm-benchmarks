@@ -49,7 +49,7 @@ jobs:
       # Build it from https://github.com/nv-action/vllm-benchmarks/blob/main/Dockerfile
       image: quay.io/ascend-ci/vllm-ascend:lint
     steps:
-    - name: Checkout vllm-project/vllm-ascend repo
+    - name: Checkout nv-action/vllm-benchmark repo
       uses: actions/checkout@v6
 
     # With problem matchers in a container, the output of $GITHUB_WORKSPACE and ${{ github.workspace }} are different.
@@ -90,7 +90,7 @@ jobs:
         UV_SYSTEM_PYTHON: 1
       run: |
         pip install uv
-        git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
         pip install uc-manager
         uv pip install -r requirements-dev.txt --extra-index-url https://download.pytorch.org/whl/cpu
 
@@ -101,14 +101,14 @@ jobs:
         TERM: xterm-256color
         SHELLCHECK_OPTS: "--exclude=SC2046,SC2006,SC2086" # Exclude SC2046, SC2006, SC2086 for actionlint
       run: |
-        git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
         pre-commit run --all-files --hook-stage manual --show-diff-on-failure
 
     - name: Run mypy
       run: |
         PYTHONPATH="$PYTHONPATH:$(pwd)/vllm-empty"
         export PYTHONPATH
-        git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
         # Run mypy for Python 3.10, 3.11, 3.12 manually
         # Note: We are now separating mypy from pre-commit hooks for performance reasons.
         for python_version in "3.10" "3.11" "3.12"; do

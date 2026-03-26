@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
 import fcntl
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
 
 
 class JsonStore:

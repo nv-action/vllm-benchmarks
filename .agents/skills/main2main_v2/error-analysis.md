@@ -72,7 +72,7 @@ Load `/tmp/ci_analysis.json` and extract:
 ```json
 {
   "run_id": 12345678,
-  "run_url": "https://github.com/vllm-project/vllm-ascend/actions/runs/12345678",
+  "run_url": "https://github.com/nv-action/vllm-benchmark/actions/runs/12345678",
   "good_commit": "15d76f74e2fdb12a95ea00f0ca283acf6219a2b7",
   "bad_commit": "6d4f9d3ad5aa3750697edcf013ad080619ae25e9",
   "failed_test_files_count": 3,

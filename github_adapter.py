@@ -84,8 +84,6 @@ class GitHubCliAdapter:
         branch: str,
         head_sha: str,
         run_id: str,
-        run_url: str,
-        conclusion: str,
         phase: str,
         old_commit: str,
         new_commit: str,
@@ -109,10 +107,6 @@ class GitHubCliAdapter:
                 f"head_sha={head_sha}",
                 "-f",
                 f"run_id={run_id}",
-                "-f",
-                f"run_url={run_url}",
-                "-f",
-                f"conclusion={conclusion}",
                 "-f",
                 f"phase={phase}",
                 "-f",
@@ -254,7 +248,7 @@ class GitHubCliAdapter:
         }
 
     def get_fixup_outcome(self, *, repo: str, run_id: str, phase: str):
-        from main2main_orchestrator import parse_fixup_job_output
+        from main2main_orchestrator import normalize_conclusion, parse_fixup_job_output
 
         output = self._runner(
             [
@@ -273,6 +267,10 @@ class GitHubCliAdapter:
         fixup_job = next((job for job in jobs if job.get("name") == "fixup"), None)
         if fixup_job is None:
             raise ValueError(f"fixup job not found in run {run_id}")
+        if normalize_conclusion(str(fixup_job.get("conclusion") or "")) == "failure":
+            from main2main_orchestrator import FixupOutcome
+
+            return FixupOutcome(result="failed", phase=phase)
         job_output = self._runner(
             [
                 "gh",
@@ -304,8 +302,6 @@ class GitHubCliAdapter:
                 details.append(f"stdout: {exc.output.strip()}")
             if details:
                 command = " ".join(str(arg) for arg in args)
-                raise RuntimeError(
-                    f"GitHub CLI command failed: {command}; {'; '.join(details)}"
-                ) from exc
+                raise RuntimeError(f"GitHub CLI command failed: {command}; {'; '.join(details)}") from exc
             raise
         return completed.stdout
