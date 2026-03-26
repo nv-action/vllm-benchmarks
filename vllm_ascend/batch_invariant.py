@@ -28,6 +28,16 @@ from vllm.triton_utils import HAS_TRITON
 torch_sum = torch.sum
 
 
+def vllm_is_batch_invariant() -> bool:
+    """Check if batch invariant mode is enabled.
+
+    This function provides backward compatibility for code that was using
+    the now-removed vllm.model_executor.layers.batch_invariant.vllm_is_batch_invariant
+    function from upstream vLLM.
+    """
+    return envs.VLLM_BATCH_INVARIANT
+
+
 if HAS_TRITON:
     from vllm_ascend.ops.triton.batch_invariant.matmul import (
         addmm_batch_invariant,
