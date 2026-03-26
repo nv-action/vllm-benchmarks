@@ -1,4 +1,4 @@
-# Adapt from https://github.com/vllm-project/vllm/blob/main/vllm/v1/worker/gpu/aclgraph_utils.py
+# Adapt from https://github.com/vllm-project/vllm/blob/main/vllm/v1/worker/gpu/cudagraph_utils.py
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 # Copyright (c) 2025 Huawei Technologies Co., Ltd. All Rights Reserved.
@@ -22,11 +22,11 @@ from typing import Any
 import torch
 import torch.nn as nn
 from vllm.config import VllmConfig
+from vllm.config.compilation import CUDAGraphMode
 from vllm.v1.attention.backend import AttentionMetadataBuilder
 from vllm.v1.kv_cache_interface import KVCacheConfig
 from vllm.v1.worker.gpu.block_table import BlockTables
 from vllm.v1.worker.gpu.cudagraph_utils import CudaGraphManager
-from vllm.v1.worker.gpu.cudagraph_utils import prepare_inputs_to_capture as prepare_inputs_to_capture_gpu
 from vllm.v1.worker.gpu.input_batch import InputBuffers
 
 from vllm_ascend.worker.v2.utils import torch_cuda_wrapper
@@ -38,54 +38,21 @@ class AclGraphManager(CudaGraphManager):
     def __init__(
         self,
         vllm_config: VllmConfig,
-        use_mrope: bool,
         device: torch.device,
     ):
+        # Get cudagraph_mode and decode_query_len from config
+        cudagraph_mode = vllm_config.compilation_config.cudagraph_mode
+        # Calculate decode_query_len similar to GPUModelRunner
+        decode_query_len = 1
+        spec_config = vllm_config.speculative_config
+        if spec_config is not None:
+            decode_query_len += spec_config.num_speculative_tokens
+
         with torch_cuda_wrapper():
-            super().__init__(vllm_config, use_mrope, device)
+            super().__init__(vllm_config, device, cudagraph_mode, decode_query_len)
 
-    def capture_graph(
-        self,
-        num_tokens: int,
-        model: nn.Module,
-        input_buffers: InputBuffers,
-        block_tables: BlockTables,
-        attn_metadata_builders: list[AttentionMetadataBuilder],
-        kv_cache_config: KVCacheConfig,
-    ) -> None:
-        with torch_cuda_wrapper(), prepare_capture_inputs_wrapper():
-            super().capture_graph(
-                num_tokens,
-                model,
-                input_buffers,
-                block_tables,
-                attn_metadata_builders,
-                kv_cache_config,
-            )
-
-
-@contextmanager
-def prepare_capture_inputs_wrapper():
-    """Context manager to override input preparation for NPU graph capture."""
-    # TODO(Ronald1995): make prepare_inputs_to_capture as static method
-    # in CudaGraphManager.
-    global prepare_inputs_to_capture_gpu
-    try:
-        ori_func = prepare_inputs_to_capture_gpu
-        prepare_inputs_to_capture_gpu = prepare_inputs_to_capture
-        yield
-    finally:
-        prepare_inputs_to_capture_gpu = ori_func
-
-
-def prepare_inputs_to_capture(
-    num_reqs: int,
-    num_tokens: int,
-    input_buffers: InputBuffers,
-    block_tables: BlockTables,
-    attn_metadata_builders: list[AttentionMetadataBuilder],
-    max_model_len: int,
-    kv_cache_config: KVCacheConfig,
-) -> dict[str, Any]:
-    # TODO(Ronald1995): Implement NPU specific input preparation.
-    return {}
+    # Note: The capture_graph method has been removed in the new vLLM API.
+    # The parent CudaGraphManager now uses a different capture mechanism
+    # via the capture() method that takes a create_forward_fn factory.
+    # If NPU-specific capture logic is needed, override the capture() method
+    # or provide a custom create_forward_fn to the parent's capture() method.

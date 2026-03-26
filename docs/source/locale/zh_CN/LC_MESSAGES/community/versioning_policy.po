@@ -382,8 +382,8 @@ msgid "main"
 msgstr "main"
 
 #: ../../source/community/versioning_policy.md:53
-msgid "4034c3d32e30d01639459edd3ab486f56993876d, v0.16.0 tag"
-msgstr "4034c3d32e30d01639459edd3ab486f56993876d, v0.16.0 标签"
+msgid "e2db2b42347ae27da3083c530c71b251861ed220, v0.16.0 tag"
+msgstr "e2db2b42347ae27da3083c530c71b251861ed220, v0.16.0 标签"
 
 #: ../../source/community/versioning_policy.md:53
 msgid "2.9.0 / 2.9.0"
