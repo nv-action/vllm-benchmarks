@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import asdict, dataclass
 import logging
-from typing import Callable
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
 
 from state_store import JsonStore
 
@@ -69,10 +69,7 @@ class TerminalWorker:
         pr_number = entry["pr_number"]
         repo = entry["repo"]
         reason = entry["terminal_reason"]
-        marker = (
-            f"main2main-manual-review repo={repo} pr={pr_number} "
-            f"fixup_run_id={entry.get('fixup_run_id')}"
-        )
+        marker = f"main2main-manual-review repo={repo} pr={pr_number} fixup_run_id={entry.get('fixup_run_id')}"
 
         existing = await asyncio.to_thread(
             self._find_existing_issue_fn,
