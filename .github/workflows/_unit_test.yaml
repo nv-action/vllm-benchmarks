@@ -42,7 +42,7 @@ jobs:
           pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
           apt-get update -y
           apt-get install -y python3-pip git vim wget net-tools gcc g++ cmake libnuma-dev curl gnupg2
-          git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           pip install uv
 
       - name: Checkout vllm-project/vllm repo
@@ -58,10 +58,10 @@ jobs:
           VLLM_TARGET_DEVICE=empty uv pip install . --extra-index-url https://download.pytorch.org/whl/cpu/
           uv pip uninstall triton
 
-      - name: Checkout vllm-project/vllm-ascend repo
+      - name: Checkout nv-action/vllm-benchmark repo
         uses: actions/checkout@v6
 
-      - name: Install vllm-project/vllm-ascend
+      - name: Install nv-action/vllm-benchmark
         run: |
           pip install uc-manager
           export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/Ascend/ascend-toolkit/latest/x86_64-linux/devlib

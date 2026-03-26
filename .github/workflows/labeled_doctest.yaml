@@ -68,12 +68,12 @@ jobs:
           cd /vllm-workspace/vllm
           git --no-pager log -1 || true
 
-      - name: Checkout vllm-project/vllm-ascend repo
+      - name: Checkout nv-action/vllm-benchmark repo
         uses: actions/checkout@v6
 
       - name: Run vllm-ascend/tests/e2e/run_doctests.sh
         run: |
-          # PWD: /__w/vllm-ascend/vllm-ascend
+          # PWD: "$GITHUB_WORKSPACE"
           # Make sure e2e tests are latest
           echo "Replacing /vllm-workspace/vllm-ascend/tests/e2e ..."
           rm -rf /vllm-workspace/vllm-ascend/tests/e2e

@@ -101,7 +101,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 .github/workflows/scripts/extract_failures.py \
-            --repo vllm-project/vllm-ascend \
+            --repo nv-action/vllm-benchmark \
             --run-id 22414687320 > /tmp/result.json
 
           cat /tmp/result.json
@@ -169,7 +169,7 @@ jobs:
         COMPILE_CUSTOM_KERNELS: ${{ matrix.cenv_COMPILE_CUSTOM_KERNELS }}
         HCCL_BUFFSIZE: ${{ matrix.cenv_HCCL_BUFFSIZE }}
     steps:
-      - name: Checkout vllm-project/vllm-ascend repo
+      - name: Checkout nv-action/vllm-benchmark repo
         uses: actions/checkout@v6
         with:
           path: ./vllm-ascend

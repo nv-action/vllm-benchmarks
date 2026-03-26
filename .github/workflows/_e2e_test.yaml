@@ -88,7 +88,7 @@ jobs:
         VLLM_USE_MODELSCOPE: True
         HF_HUB_OFFLINE: 1
     steps:
-      - name: Checkout vllm-project/vllm-ascend repo
+      - name: Checkout nv-action/vllm-benchmark repo
         uses: actions/checkout@v6
       - name: Check npu and CANN info
         run: |
@@ -102,7 +102,7 @@ jobs:
           pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
           apt-get update -y
           apt install git -y
-          git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Install system dependencies
         run: |
@@ -158,7 +158,7 @@ jobs:
             uv pip install -v -e .
           fi
 
-      - name: Run vllm-project/vllm-ascend test
+      - name: Run nv-action/vllm-benchmark test
         env:
           PYTORCH_NPU_ALLOC_CONF: max_split_size_mb:256
           VLLM_WORKER_MULTIPROC_METHOD: spawn
@@ -216,7 +216,7 @@ jobs:
         HF_HUB_OFFLINE: 1
         MODELSCOPE_HUB_FILE_LOCK: False
     steps:
-      - name: Checkout vllm-project/vllm-ascend repo
+      - name: Checkout nv-action/vllm-benchmark repo
         uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
@@ -233,7 +233,7 @@ jobs:
           pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
           apt-get update -y
           apt install git -y
-          git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Install system dependencies
         run: |
@@ -277,7 +277,7 @@ jobs:
           restore-keys: |
             vllm-ascend-build-v1-${{ runner.os }}-${{ inputs.image }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
 
-      - name: Install vllm-project/vllm-ascend
+      - name: Install nv-action/vllm-benchmark
         env:
           PIP_EXTRA_INDEX_URL: https://mirrors.huaweicloud.com/ascend/repos/pypi
         run: |
@@ -354,7 +354,7 @@ jobs:
         HCCL_BUFFSIZE: 1024
         HF_HUB_OFFLINE: 1
     steps:
-      - name: Checkout vllm-project/vllm-ascend repo
+      - name: Checkout nv-action/vllm-benchmark repo
         uses: actions/checkout@v6
       - name: Check npu and CANN info
         run: |
@@ -368,7 +368,7 @@ jobs:
           pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
           apt-get update -y
           apt install git -y
-          git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Install system dependencies
         run: |
@@ -423,7 +423,7 @@ jobs:
           else
             uv pip install -v -e .
           fi
-      - name: Run vllm-project/vllm-ascend test (light)
+      - name: Run nv-action/vllm-benchmark test (light)
         env:
           VLLM_WORKER_MULTIPROC_METHOD: spawn
         shell: bash
@@ -480,7 +480,7 @@ jobs:
         HCCL_BUFFSIZE: 1024
         HF_HUB_OFFLINE: 1
     steps:
-      - name: Checkout vllm-project/vllm-ascend repo
+      - name: Checkout nv-action/vllm-benchmark repo
         uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
@@ -496,7 +496,7 @@ jobs:
           pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
           apt-get update -y
           apt install git -y
-          git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Install system dependencies
         run: |
@@ -540,7 +540,7 @@ jobs:
           restore-keys: |
             vllm-ascend-build-v1-${{ runner.os }}-${{ inputs.image_a3_2 }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
 
-      - name: Install vllm-project/vllm-ascend
+      - name: Install nv-action/vllm-benchmark
         env:
           PIP_EXTRA_INDEX_URL: https://mirrors.huaweicloud.com/ascend/repos/pypi
         run: |
@@ -551,7 +551,7 @@ jobs:
           else
             uv pip install -v -e .
           fi
-      - name: Run vllm-project/vllm-ascend test (full)
+      - name: Run nv-action/vllm-benchmark test (full)
         if: ${{ inputs.type == 'full' }}
         env:
           VLLM_WORKER_MULTIPROC_METHOD: spawn
@@ -600,7 +600,7 @@ jobs:
         run: |
           pytest -sv --durations=0 ${{ inputs.multicard_2_tests }}
 
-      - name: Run vllm-project/vllm-ascend test (non triton)
+      - name: Run nv-action/vllm-benchmark test (non triton)
         if: ${{ inputs.type == 'full' && matrix.part == 0 }}
         env:
           VLLM_WORKER_MULTIPROC_METHOD: spawn
@@ -635,7 +635,7 @@ jobs:
         VLLM_USE_MODELSCOPE: True
         HF_HUB_OFFLINE: 1
     steps:
-      - name: Checkout vllm-project/vllm-ascend repo
+      - name: Checkout nv-action/vllm-benchmark repo
         uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
@@ -651,7 +651,7 @@ jobs:
           pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
           apt-get update -y
           apt install git -y
-          git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Install system dependencies
         run: |
@@ -695,7 +695,7 @@ jobs:
           restore-keys: |
             vllm-ascend-build-v1-${{ runner.os }}-${{ inputs.image_a3_4 }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
 
-      - name: Install vllm-project/vllm-ascend
+      - name: Install nv-action/vllm-benchmark
         env:
           PIP_EXTRA_INDEX_URL: https://mirrors.huaweicloud.com/ascend/repos/pypi
         run: |
@@ -707,7 +707,7 @@ jobs:
             uv pip install -v -e .
           fi
 
-      - name: Run vllm-project/vllm-ascend test for V1 Engine
+      - name: Run nv-action/vllm-benchmark test for V1 Engine
         if: ${{ inputs.type == 'full' }}
         env:
           VLLM_WORKER_MULTIPROC_METHOD: spawn
@@ -735,7 +735,7 @@ jobs:
         if: ${{ always() && inputs.type == 'full' }}
         run: |
           python3 .github/workflows/scripts/ci_log_summary.py \
-            --step-name "Run vllm-project/vllm-ascend test for V1 Engine" \
+            --step-name "Run nv-action/vllm-benchmark test for V1 Engine" \
             --log-file /tmp/e2e-4card-full-part${{ matrix.part }}.log \
             --output "$GITHUB_STEP_SUMMARY"
 
@@ -778,9 +778,9 @@ jobs:
           pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
           apt-get update -y
           apt install git -y
-          git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Checkout vllm-project/vllm-ascend repo
+      - name: Checkout nv-action/vllm-benchmark repo
         uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
@@ -824,7 +824,7 @@ jobs:
           restore-keys: |
             vllm-ascend-build-v1-${{ runner.os }}-${{ inputs.image_310p }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
 
-      - name: Install vllm-project/vllm-ascend
+      - name: Install nv-action/vllm-benchmark
         env:
           PIP_EXTRA_INDEX_URL: https://mirrors.huaweicloud.com/ascend/repos/pypi
         run: |
@@ -836,7 +836,7 @@ jobs:
             uv pip install -v -e .
           fi
 
-      - name: Run vllm-project/vllm-ascend test
+      - name: Run nv-action/vllm-benchmark test
         if: ${{ inputs.contains_310 }}
         env:
           PYTORCH_NPU_ALLOC_CONF: max_split_size_mb:256
@@ -853,7 +853,7 @@ jobs:
         if: ${{ always() && inputs.contains_310 }}
         run: |
           python3 .github/workflows/scripts/ci_log_summary.py \
-            --step-name "Run vllm-project/vllm-ascend test" \
+            --step-name "Run nv-action/vllm-benchmark test" \
             --log-file /tmp/e2e-310p-singlecard.log \
             --output "$GITHUB_STEP_SUMMARY"
 
@@ -887,9 +887,9 @@ jobs:
           pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
           apt-get update -y
           apt install git -y
-          git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Checkout vllm-project/vllm-ascend repo
+      - name: Checkout nv-action/vllm-benchmark repo
         uses: actions/checkout@v6
 
       - name: Install system dependencies
@@ -931,7 +931,7 @@ jobs:
           restore-keys: |
             vllm-ascend-build-v1-${{ runner.os }}-${{ inputs.image_310p }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
 
-      - name: Install vllm-project/vllm-ascend
+      - name: Install nv-action/vllm-benchmark
         env:
           PIP_EXTRA_INDEX_URL: https://mirrors.huaweicloud.com/ascend/repos/pypi
         run: |
@@ -943,7 +943,7 @@ jobs:
             uv pip install -v -e .
           fi
 
-      - name: Run vllm-project/vllm-ascend test
+      - name: Run nv-action/vllm-benchmark test
         env:
           PYTORCH_NPU_ALLOC_CONF: max_split_size_mb:256
           VLLM_WORKER_MULTIPROC_METHOD: spawn
@@ -961,6 +961,6 @@ jobs:
         if: ${{ always() && inputs.contains_310 }}
         run: |
           python3 .github/workflows/scripts/ci_log_summary.py \
-            --step-name "Run vllm-project/vllm-ascend test" \
+            --step-name "Run nv-action/vllm-benchmark test" \
             --log-file /tmp/e2e-310p-4cards.log \
             --output "$GITHUB_STEP_SUMMARY"
