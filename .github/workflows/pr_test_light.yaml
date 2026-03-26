@@ -43,7 +43,7 @@ jobs:
     with:
       vllm: 35141a7eeda941a60ad5a4956670c60fd5a77029
   changes:
-    runs-on: linux-aarch64-a2b3-0
+    runs-on: linux-aarch64-a2-1
     outputs:
       e2e_tracker: ${{ steps.filter.outputs.e2e_tracker }}
       ut_tracker: ${{ steps.filter.outputs.ut_tracker }}
