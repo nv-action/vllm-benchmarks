@@ -16,6 +16,7 @@
 import os
 from typing import TYPE_CHECKING
 
+import vllm.envs as envs_vllm
 from vllm.logger import logger
 from vllm.utils.math_utils import cdiv
 
@@ -129,10 +130,8 @@ class AscendConfig:
         # when enable_async_exponential is True, AscendSampler will be different from vllm Sampler,
         # which make batch_invariant mode not working.
         # so we disable async exponential when batch_invariant mode is enabled.
-        from vllm.model_executor.layers.batch_invariant import vllm_is_batch_invariant
-
         self.enable_async_exponential = (
-            bool(additional_config.get("enable_async_exponential", False)) and not vllm_is_batch_invariant()
+            bool(additional_config.get("enable_async_exponential", False)) and not envs_vllm.VLLM_BATCH_INVARIANT
         )
 
         use_sparse = hasattr(vllm_config.model_config, "hf_text_config") and hasattr(
