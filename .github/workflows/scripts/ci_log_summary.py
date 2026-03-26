@@ -19,7 +19,7 @@ Examples:
     python3 .github/workflows/scripts/ci_log_summary.py --run-id 23127187822 --format json
 """
 
-REPO = "vllm-project/vllm-ascend"
+REPO = "nv-action/vllm-benchmark"
 _RUN_SUITE_START_RE = re.compile(r"\[\d+/\d+\]\s+START\s+(tests/\S+)")
 _RUN_SUITE_END_RE = re.compile(r"\[\d+/\d+\]\s+(?:PASSED|FAILED \(exit code \d+\))\s+(tests/\S+)")
 _PYTEST_FAILURE_HEADER_RE = re.compile(r"^_+\s+test_\S+.*_+$")

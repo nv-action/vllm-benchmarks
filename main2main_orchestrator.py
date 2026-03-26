@@ -1,20 +1,20 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass, replace
 import json
 import os
-from pathlib import Path
-import re
 import subprocess
 import sys
 import time
 import urllib.request
 import uuid
+from dataclasses import dataclass, replace
+from pathlib import Path
+
+import regex as re
 
 from github_adapter import GitHubCliAdapter
 from state_store import JsonStore
-
 
 _COMMIT_RANGE_RE = re.compile(
     r"^\*\*Commit range:\*\* `([0-9a-f]{40})`\.\.\.`([0-9a-f]{40})`$",
@@ -41,13 +41,7 @@ _FAILURE_CONCLUSIONS = {
     "timed_out",
 }
 
-_ANALYSIS_SCRIPT_PATH = (
-    Path(__file__).resolve().parent
-    / ".github"
-    / "workflows"
-    / "scripts"
-    / "ci_log_summary.py"
-)
+_ANALYSIS_SCRIPT_PATH = Path(__file__).resolve().parent / ".github" / "workflows" / "scripts" / "ci_log_summary.py"
 
 
 @dataclass(frozen=True)
@@ -238,8 +232,6 @@ class _LegacyGitHubCliAdapter:
         branch: str,
         head_sha: str,
         run_id: str,
-        run_url: str,
-        conclusion: str,
         phase: str,
         old_commit: str,
         new_commit: str,
@@ -263,10 +255,6 @@ class _LegacyGitHubCliAdapter:
                 f"head_sha={head_sha}",
                 "-f",
                 f"run_id={run_id}",
-                "-f",
-                f"run_url={run_url}",
-                "-f",
-                f"conclusion={conclusion}",
                 "-f",
                 f"phase={phase}",
                 "-f",
@@ -496,9 +484,7 @@ class Main2MainStateStore:
         if current is None:
             raise KeyError(f"unknown main2main PR: {repo}#{pr_number}")
         if current.head_sha != expected_head_sha:
-            raise ValueError(
-                f"stale fixup result for {expected_head_sha}, expected {current.head_sha}"
-            )
+            raise ValueError(f"stale fixup result for {expected_head_sha}, expected {current.head_sha}")
         updated = apply_fixup_result(current, new_head_sha=new_head_sha)
         self.register(updated)
         return updated
@@ -514,9 +500,7 @@ class Main2MainStateStore:
         if current is None:
             raise KeyError(f"unknown main2main PR: {repo}#{pr_number}")
         if current.head_sha != expected_head_sha:
-            raise ValueError(
-                f"stale fixup result for {expected_head_sha}, expected {current.head_sha}"
-            )
+            raise ValueError(f"stale fixup result for {expected_head_sha}, expected {current.head_sha}")
         updated = apply_no_change_fixup_result(current)
         self.register(updated)
         return updated
@@ -565,9 +549,7 @@ class Main2MainStateStore:
             phase=str(raw["phase"]),
             status=str(raw["status"]),
             active_fixup_run_id=(
-                str(raw["active_fixup_run_id"])
-                if raw.get("active_fixup_run_id") is not None
-                else None
+                str(raw["active_fixup_run_id"]) if raw.get("active_fixup_run_id") is not None else None
             ),
         )
 
@@ -606,10 +588,12 @@ class OrchestratorService:
     ) -> dict[str, str]:
         if e2e_run_id is None and terminal_reason == "done_failure":
             raise ValueError("e2e_run_id is required for done_failure manual review")
-        analysis = extract_e2e_failure_analysis(
-            repo=state.repo,
-            run_id=str(e2e_run_id),
-        )
+        analysis: dict[str, object] = {}
+        if e2e_run_id is not None:
+            analysis = extract_e2e_failure_analysis(
+                repo=state.repo,
+                run_id=str(e2e_run_id),
+            )
         body = summarize_manual_review_issue(
             analysis=analysis,
             state=state,
@@ -684,8 +668,6 @@ class OrchestratorService:
                 branch=state.branch,
                 head_sha=state.head_sha,
                 run_id=e2e_result["run_id"],
-                run_url=e2e_result["run_url"],
-                conclusion=e2e_result["conclusion"],
                 phase=state.phase,
                 old_commit=state.old_commit,
                 new_commit=state.new_commit,
@@ -696,9 +678,7 @@ class OrchestratorService:
                 dispatch_token=dispatch_token,
             )
             if fixup_run is None:
-                raise ValueError(
-                    f"unable to locate dispatched fixup run for token {dispatch_token}"
-                )
+                raise ValueError(f"unable to locate dispatched fixup run for token {dispatch_token}")
             self.store.mark_fixup_dispatched(
                 repo=repo,
                 pr_number=pr_number,
@@ -794,6 +774,37 @@ class OrchestratorService:
             raise KeyError(f"unknown main2main PR: {repo}#{pr_number}")
 
         outcome = self.github.get_fixup_outcome(repo=repo, run_id=fixup_run_id, phase=state.phase)
+        if outcome.result == "failed":
+            cleared = replace(state, active_fixup_run_id=None)
+            if self.terminal_enqueue_fn is not None:
+                self.store.register(replace(cleared, status="pending_terminal"))
+                self.terminal_enqueue_fn(
+                    pr_number=pr_number,
+                    repo=repo,
+                    terminal_reason="fixup_failure",
+                    e2e_run_id=None,
+                    e2e_run_url=None,
+                    fixup_run_id=fixup_run_id,
+                )
+            else:
+                issue = self._build_manual_review_issue(
+                    state=state,
+                    pr_number=pr_number,
+                    terminal_reason="fixup_failure",
+                    fixup_run_id=fixup_run_id,
+                )
+                self.store.register(replace(cleared, status="manual_review"))
+                self.github.create_manual_review_issue(
+                    repo=repo,
+                    title=issue["title"],
+                    body=issue["body"],
+                )
+            return {
+                "action": "create_manual_review",
+                "phase": state.phase,
+                "reason": "fixup workflow failed",
+            }
+
         if outcome.result == "changes_pushed":
             pr_context = self.github.get_pr_context(repo, pr_number)
             new_head_sha = pr_context["head_sha"]
@@ -1022,6 +1033,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _build_github_adapter():
     if os.environ.get("MAIN2MAIN_TEST_RUN_ONCE") == "1":
+
         class _TestRunOnceAdapter:
             def list_open_main2main_pr_numbers(self, repo: str) -> list[int]:
                 assert repo == "nv-action/vllm-benchmarks"

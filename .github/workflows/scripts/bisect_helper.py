@@ -29,10 +29,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
+
+import regex as re
 
 # =============================================================================
 # Common install commands shared across e2e environments
