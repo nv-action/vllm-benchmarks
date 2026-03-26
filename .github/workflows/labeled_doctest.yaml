@@ -51,7 +51,7 @@ jobs:
       matrix:
         vllm_version: [nightly-releases-v0.18.0, nightly-releases-v0.18.0-openeuler, nightly-main, nightly-main-openeuler]
     name: vLLM Ascend test
-    runs-on: linux-aarch64-a2b3-1
+    runs-on: linux-aarch64-a2-1
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:${{ matrix.vllm_version }}
     steps:
