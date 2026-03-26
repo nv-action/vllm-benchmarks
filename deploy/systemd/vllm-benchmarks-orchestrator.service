@@ -1,0 +1,15 @@
+[Unit]
+Description=vllm-benchmarks main2main orchestrator
+After=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/vllm-benchmarks-orchestrator/orchestrator.env
+WorkingDirectory=/opt/vllm-benchmarks-orchestrator/current
+ExecStart=/opt/vllm-benchmarks-orchestrator/venv/bin/python service_main.py
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

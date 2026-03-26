@@ -1,0 +1,51 @@
+{
+  "skill_name": "main2main",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "我想把 vllm-ascend 升级适配到最新的 vLLM main 分支，vLLM 仓库在 ../vllm。请帮我分析下有哪些变更需要适配。",
+      "expected_output": "Agent should: 1) Identify this as 'proactive upgrade' scenario, 2) Read proactive-upgrade.md, 3) Follow Step 1-6 workflow, 4) Output structured 'Proactive Upgrade Summary' with Changes Adapted table, 5) NOT create branches, commits, or PRs",
+      "files": [],
+      "assertions": [
+        {"name": "routes_to_proactive_upgrade", "type": "transcript_contains", "value": "proactive-upgrade.md"},
+        {"name": "reads_skill_md", "type": "transcript_contains", "value": "SKILL.md"},
+        {"name": "outputs_structured_summary", "type": "output_contains", "value": "Proactive Upgrade Summary"},
+        {"name": "outputs_changes_adapted_table", "type": "output_contains", "value": "Changes Adapted"},
+        {"name": "outputs_files_changed", "type": "output_contains", "value": "Files Changed"},
+        {"name": "no_git_checkout", "type": "transcript_not_contains", "value": "git checkout -b"},
+        {"name": "no_git_push", "type": "transcript_not_contains", "value": "git push"},
+        {"name": "no_gh_pr_create", "type": "transcript_not_contains", "value": "gh pr create"}
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "schedule_test_vllm_main CI 挂了，run ID 是 23456789012，帮我看看什么问题，修一下。",
+      "expected_output": "Agent should: 1) Identify this as 'CI failure diagnosis' scenario, 2) Read error-analysis.md, 3) Run ci_log_summary.py with --format llm-json, 4) Follow Phase 1-4, 5) Output structured 'CI Fix Summary' with Issues Fixed table, 6) NOT create branches, commits, or PRs",
+      "files": [],
+      "assertions": [
+        {"name": "routes_to_error_analysis", "type": "transcript_contains", "value": "error-analysis.md"},
+        {"name": "runs_ci_script", "type": "transcript_contains", "value": "ci_log_summary.py"},
+        {"name": "outputs_ci_fix_summary", "type": "output_contains", "value": "CI Fix Summary"},
+        {"name": "outputs_issues_fixed_table", "type": "output_contains", "value": "Issues Fixed"},
+        {"name": "outputs_files_changed", "type": "output_contains", "value": "Files Changed"},
+        {"name": "no_git_checkout", "type": "transcript_not_contains", "value": "git checkout -b"},
+        {"name": "no_git_push", "type": "transcript_not_contains", "value": "git push"},
+        {"name": "no_gh_pr_create", "type": "transcript_not_contains", "value": "gh pr create"}
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "vllm 上游改了 attention 的接口，我们的 CI 报了 TypeError: forward_oot() got an unexpected keyword argument，能帮我修一下吗？",
+      "expected_output": "Agent should: 1) Route to CI failure diagnosis (error-analysis.md), 2) Read error-patterns.md for 'Method Signature Change', 3) Use vllm_version_is() guard, 4) Output structured CI Fix Summary, 5) NOT do any git/PR operations",
+      "files": [],
+      "assertions": [
+        {"name": "routes_to_error_analysis", "type": "transcript_contains", "value": "error-analysis.md"},
+        {"name": "reads_error_patterns", "type": "transcript_contains", "value": "error-patterns.md"},
+        {"name": "mentions_version_guard", "type": "output_contains", "value": "vllm_version_is"},
+        {"name": "outputs_ci_fix_summary", "type": "output_contains", "value": "CI Fix Summary"},
+        {"name": "no_git_checkout", "type": "transcript_not_contains", "value": "git checkout -b"},
+        {"name": "no_gh_pr_create", "type": "transcript_not_contains", "value": "gh pr create"}
+      ]
+    }
+  ]
+}
