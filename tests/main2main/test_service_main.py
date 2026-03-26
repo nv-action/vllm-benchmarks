@@ -1,7 +1,7 @@
 import asyncio
-from contextlib import asynccontextmanager
-from pathlib import Path
 import sys
+from contextlib import asynccontextmanager, suppress
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -23,10 +23,8 @@ def test_poll_loop_calls_run_once_and_records_last_poll_time():
         task = asyncio.create_task(poll_loop(FakeService(), "test-repo", 0.01, lock, state))
         await asyncio.sleep(0.05)
         task.cancel()
-        try:
+        with suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass
 
     asyncio.run(run())
     assert len(calls) >= 1

@@ -56,7 +56,7 @@ def main():
         "file", nargs="?", help="input file (default stdin), output from collect_user_first_contribution.sh"
     )
     ap.add_argument("--start", type=int, default=1, help="minimum number for table (oldest row will have this number)")
-    ap.add_argument("--repo", default="vllm-project/vllm-ascend", help="repo used for commit links")
+    ap.add_argument("--repo", default="nv-action/vllm-benchmark", help="repo used for commit links")
     args = ap.parse_args()
 
     if args.file:
