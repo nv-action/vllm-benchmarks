@@ -59,7 +59,7 @@ Rejected: doubles deployment complexity, file-lock coordination is error-prone, 
 
 Single asyncio process hosting three concurrent tasks:
 
-```
+```text
 asyncio event loop
   ├── MCP server (SSE on port 8080)
   ├── reconcile poller (run_once every N seconds)
@@ -93,7 +93,7 @@ No async rewrite of `OrchestratorService` is needed. The service remains synchro
 
 Extract genuinely reusable layers from `main2main_orchestrator.py` into flat sibling files:
 
-```
+```text
 github_adapter.py      # GitHubCliAdapter with generalized method names
 state_store.py         # Generic JSON persistence + file locking
 terminal_worker.py     # Async job queue + terminal analysis worker
@@ -236,6 +236,7 @@ Transport: SSE on a configurable port (default 8080). Default bind address: `127
 **Error handling:**
 
 MCP tools return errors using the MCP SDK's standard error response mechanism. Specifically:
+
 - Service exceptions (`KeyError`, `ValueError`) → MCP error with the exception message
 - GitHub CLI failures (`subprocess.CalledProcessError`) → MCP error with stderr content
 - State file missing/corrupt → MCP error with descriptive message
@@ -322,7 +323,7 @@ WantedBy=multi-user.target
 
 ### Environment variables
 
-```
+```bash
 GITHUB_TOKEN=...
 ANTHROPIC_BASE_URL=...
 ANTHROPIC_AUTH_TOKEN=...
@@ -342,7 +343,8 @@ MCP_PORT=8080
 ## Terminal Analysis Async Flow
 
 Current (blocking):
-```
+
+```text
 reconcile → _build_manual_review_issue → extract_e2e_failure_analysis (subprocess, slow)
                                        → summarize_manual_review_issue (HTTP to Claude, slow)
                                        → create_manual_review_issue
@@ -350,7 +352,8 @@ reconcile → _build_manual_review_issue → extract_e2e_failure_analysis (subpr
 ```
 
 New (async):
-```
+
+```text
 reconcile → set status = "pending_terminal"
           → enqueue TerminalJob
           → return immediately
@@ -388,6 +391,7 @@ Terminal jobs are persisted to the state file under a `_terminal_jobs` key:
 ```
 
 On startup:
+
 1. Load `_terminal_jobs` from state file
 2. Resume any jobs with `status: "pending"`
 3. Mark completed jobs as `"done"` and remove from the list
@@ -397,6 +401,7 @@ On startup:
 The dangerous crash window is: issue created on GitHub, but job not yet marked done in state. On restart, the worker would create a duplicate issue.
 
 To prevent this:
+
 1. Every manual-review issue body includes a machine-readable marker comment, for example: `<!-- main2main-manual-review repo=nv-action/vllm-benchmarks pr=154 phase=done fixup_run_id=12345 -->`.
 2. Before creating an issue, the worker queries GitHub for an existing issue containing that exact marker.
 3. If a matching issue exists, the worker skips creation and marks the job done.

@@ -27,16 +27,16 @@ Requirements:
 
 Usage:
   # Auto-find the latest failed schedule_test_vllm_main run:
-  python3 .github/workflows/scripts/extract_failures.py --repo vllm-project/vllm-ascend
+  python3 .github/workflows/scripts/extract_failures.py --repo nv-action/vllm-benchmark
 
   # Specify a run ID:
-  python3 .github/workflows/scripts/extract_failures.py --repo vllm-project/vllm-ascend --run-id 22414687320
+  python3 .github/workflows/scripts/extract_failures.py --repo nv-action/vllm-benchmark --run-id 22414687320
 
   # Only process runs from a specific UTC hour (for dedup in cron):
-  python3 .github/workflows/scripts/extract_failures.py --repo vllm-project/vllm-ascend --only-hour 20
+  python3 .github/workflows/scripts/extract_failures.py --repo nv-action/vllm-benchmark --only-hour 20
 
   # Check if a bisect is already running before triggering:
-  python3 .github/workflows/scripts/extract_failures.py --repo vllm-project/vllm-ascend --check-duplicate
+  python3 .github/workflows/scripts/extract_failures.py --repo nv-action/vllm-benchmark --check-duplicate
 """
 
 from __future__ import annotations
@@ -45,10 +45,11 @@ import argparse
 import json
 import logging
 import os
-import re
 import subprocess
 import sys
 from datetime import datetime
+
+import regex as re
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -449,7 +450,7 @@ def main():
     parser.add_argument(
         "--repo",
         required=True,
-        help="GitHub repository (e.g. vllm-project/vllm-ascend)",
+        help="GitHub repository (e.g. nv-action/vllm-benchmark)",
     )
     parser.add_argument(
         "--run-id",

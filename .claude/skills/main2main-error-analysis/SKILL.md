@@ -2,9 +2,10 @@
 name: main2main-error-analysis
 description: |
   Automates root-cause analysis of vLLM-Ascend CI failures triggered by upstream vLLM main branch updates.
-  Given a GitHub Actions workflow run, this skill extracts failed test cases,
-  mines error logs for true root causes, traces failures to specific upstream vLLM commits, generates a
-  structured diagnostic report (vllm_error_analyze.md), applies adaptation fixes, and creates a PR.
+  Given a GitHub Actions workflow run, this skill uses `.github/workflows/scripts/ci_log_summary.py`
+  to extract failed test cases, summarize distinct root-cause errors, and recover the good/bad vLLM commits.
+  It then manually correlates code bugs to specific upstream vLLM commits, generates a
+  structured diagnostic report (`vllm_error_analyze.md`), applies adaptation fixes, and creates a PR when appropriate.
 
   Use this skill whenever:
   - The user shares a GitHub Actions URL or run ID related to vLLM-Ascend CI failures
@@ -16,7 +17,7 @@ description: |
 
 # main2main-error-analysis
 
-Diagnose and fix vLLM-Ascend CI failures caused by upstream vLLM main branch evolution. This skill implements a 4-phase pipeline: context acquisition, log mining, change analysis, report generation, and automated fix with PR submission.
+Diagnose and fix vLLM-Ascend CI failures caused by upstream vLLM main branch evolution. This skill implements a 4-phase pipeline: context acquisition, log summarization, change analysis, report generation, and automated fix with PR submission.
 
 ## Prerequisites
 
@@ -49,41 +50,43 @@ git cat-file -t <BAD_COMMIT>
 
 CI logs can be enormous (10K+ lines per job). To avoid exhausting your context on raw log text:
 
-1. **Always use the bundled script** for Phases 1-2. It processes logs in a subprocess and returns only the structured results — keeping your context clean for the higher-value Phase 3 analysis.
+1. **Always use the repository summary script** for Phase 1. It processes logs in a subprocess and returns only the structured results — keeping your context clean for the higher-value Phase 2/3 analysis.
 2. **Write a partial report early.** After Phase 1, immediately write a skeleton `vllm_error_analyze.md` with the Overview table, failed jobs, and error list. Then fill in the upstream commit details as you complete Phase 2. This ensures the user gets a useful report even if you run low on budget.
 3. **Use the local vLLM repo** for all upstream code analysis (Phase 2). Run `git log`, `git diff`, `git show`, and read files directly from `$VLLM_LOCAL_DIR` — this is faster and more reliable than GitHub API calls, and avoids rate limits.
 4. **If falling back to manual mode**, never pipe full logs into context. Always filter through `grep` with `head` limits first.
 
 ---
 
-## Phase 1: Fault Context Acquisition — Use the Script
+## Phase 1: Fault Context Acquisition — Use the Repository Script
 
-This skill bundles `scripts/extract_and_analyze.py` which handles Phases 1 and 2 automatically. **Always run the script first** to avoid wasting tokens on manual log parsing.
+This skill relies on `.github/workflows/scripts/ci_log_summary.py` to summarize failed jobs, failed tests, and distinct root-cause errors from a GitHub Actions run or local pytest log. **Always run the script first** to avoid wasting tokens on manual log parsing. The script prepares the failure inventory for Phase 1; Phase 2 upstream commit correlation is still manual.
 
-### 1.1 Run the Extraction Script
+### 1.1 Run the Summary Script
 
-Determine the skill's own directory path (where this SKILL.md is located), then run:
+Run one of the following commands from the `vllm-ascend` repository root:
 
 ```bash
 # With a specific run ID:
-python3 <SKILL_DIR>/scripts/extract_and_analyze.py --run-id <RUN_ID> --llm-output -o /tmp/ci_analysis.json
+python3 <VLLM_ASCEND_DIR>/.github/workflows/scripts/ci_log_summary.py \
+  --run-id <RUN_ID> \
+  --format llm-json \
+  --output /tmp/ci_analysis.json
 
-# Or auto-find latest failed run:
-python3 <SKILL_DIR>/scripts/extract_and_analyze.py --llm-output -o /tmp/ci_analysis.json
-```
 
 The script will:
 
-- Find the failed workflow run and download logs for each failed job
+- Download logs for each completed non-skipped job when `--run-id` is provided
 - Extract the **bad commit** from the vLLM version string in the logs (e.g., `vLLM 0.1.dev1+g6d4f9d3ad.empty` → `6d4f9d3ad`)
 - Extract the **good commit** from `.github/workflows/pr_test_full.yaml` (the `vllm_version` matrix field)
-- Parse all failed test identifiers using three regex patterns (inline, summary block, pytest FAILED line)
+- Parse failed test files and failed test cases from pytest summary output
 - Extract root-cause exceptions (TypeError, AttributeError, ImportError, etc.)
 - Skip wrapper errors (`Engine core initialization failed`, `Worker failed with error`)
 - Filter downstream effects (`KeyError: 'choices'` caused by upstream engine crash)
 - Detect environment flakes (`Stale file handle`, `ConnectionResetError`, `filelock` errors) — even when embedded inside assertion messages
 - Deduplicate errors by normalized signature (stripping PIDs, timestamps, addresses, errno numbers)
-- Output a structured JSON report
+- Output a structured JSON summary for LLM consumption
+
+If the user does not provide a run ID or a log file, obtain the run ID first using `gh` commands, then invoke the script. Do not pretend the script can auto-discover the latest failed run by itself.
 
 ### 1.2 Read the Script Output
 
@@ -94,13 +97,23 @@ Load `/tmp/ci_analysis.json` and extract the key fields:
   "run_id": 21646698906,
   "good_commit": "15d76f74e2fdb12a95ea00f0ca283acf6219a2b7",
   "bad_commit": "6d4f9d3ad5aa3750697edcf013ad080619ae25e9",
+  "failed_test_files": ["tests/..."],
+  "failed_test_cases": ["tests/...::test_xxx"],
   "code_bugs": [
-    {"error_type": "TypeError", "error_message": "...", "context": [...], "affected_tests": [...]}
+    {
+      "error_type": "TypeError",
+      "error_message": "...",
+      "category": "Code Bug",
+      "context": [...],
+      "error_failed_test_files": ["tests/..."],
+      "error_failed_test_cases": ["tests/...::test_xxx"]
+    }
   ],
+  "env_flakes": []
 }
 ```
 
-**Phase 1 outputs:** `RUN_ID`, `GOOD_COMMIT`, `BAD_COMMIT`and list of `code_bugs`
+**Phase 1 outputs:** `RUN_ID`,`GOOD_COMMIT`, `BAD_COMMIT`, `failed_test_cases`, `code_bugs`, and `env_flakes`
 
 ---
 
