@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import asdict
 import json
 import time
+from dataclasses import asdict
 
 _START_TIME = time.time()
 

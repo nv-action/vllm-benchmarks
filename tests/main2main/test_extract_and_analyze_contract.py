@@ -1,14 +1,7 @@
 import importlib.util
 from pathlib import Path
 
-
-SCRIPT_PATH = (
-    Path(__file__).resolve().parents[2]
-    / ".github"
-    / "workflows"
-    / "scripts"
-    / "ci_log_summary.py"
-)
+SCRIPT_PATH = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "scripts" / "ci_log_summary.py"
 
 
 def load_module():

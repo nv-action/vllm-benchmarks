@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
 import logging
 import os
 import signal
+from datetime import datetime, timezone
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -38,11 +38,11 @@ async def run_mcp_sse(
     mount_cls=None,
     response_cls=None,
 ) -> None:
+    import uvicorn
     from mcp.server.sse import SseServerTransport
     from starlette.applications import Starlette
     from starlette.responses import Response
     from starlette.routing import Mount, Route
-    import uvicorn
 
     uvicorn_module = uvicorn if uvicorn_module is None else uvicorn_module
     sse_transport_cls = SseServerTransport if sse_transport_cls is None else sse_transport_cls
@@ -79,6 +79,10 @@ async def _run(
     mcp_host: str,
     mcp_port: int,
 ) -> None:
+    import json
+    import subprocess
+    from dataclasses import replace
+
     from github_adapter import GitHubCliAdapter
     from main2main_orchestrator import (
         Main2MainStateStore,
@@ -89,9 +93,6 @@ async def _run(
     from mcp_server import build_mcp_server, create_mcp_protocol_server
     from state_store import JsonStore
     from terminal_worker import TerminalJob, TerminalWorker
-    from dataclasses import replace
-    import json
-    import subprocess
 
     store = Main2MainStateStore(state_path)
     github = GitHubCliAdapter()

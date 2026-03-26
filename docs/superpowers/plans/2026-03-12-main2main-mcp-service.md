@@ -32,6 +32,7 @@
 ### Task 1: Create `JsonStore` with file locking
 
 **Files:**
+
 - Create: `state_store.py`
 - Create: `tests/main2main/test_state_store.py`
 
@@ -169,6 +170,7 @@ git commit -m "feat: add JsonStore with file-locked persistence"
 ### Task 2: Wire `Main2MainStateStore` to use `JsonStore`
 
 **Files:**
+
 - Modify: `main2main_orchestrator.py:451-561`
 
 - [ ] **Step 1: Run existing tests to confirm baseline**
@@ -218,6 +220,7 @@ git commit -m "refactor: wire Main2MainStateStore to use JsonStore"
 ### Task 3: Move `GitHubCliAdapter` to its own file
 
 **Files:**
+
 - Create: `github_adapter.py`
 - Create: `tests/main2main/test_github_adapter.py`
 - Modify: `main2main_orchestrator.py:162-448`
@@ -283,12 +286,14 @@ import subprocess
 Import `RegistrationMetadata`, `FixupOutcome`, `parse_pr_metadata`, `parse_registration_comment`, and `parse_fixup_job_output` from `main2main_orchestrator.py`. `PrMetadata`, `RegistrationMetadata`, `FixupOutcome`, and `parse_*` remain owned by the orchestrator module.
 
 2. Rename `list_open_main2main_pr_numbers` → `list_open_pr_numbers(self, repo, label="main2main")` and replace the hardcoded `"main2main"` string in the `--label` arg with the `label` parameter. Add backward-compat alias:
+
 ```python
 # At end of GitHubCliAdapter class:
 list_open_main2main_pr_numbers = list_open_pr_numbers  # backward compat
 ```
 
 3. In `main2main_orchestrator.py`, replace the inline class with a direct import:
+
 ```python
 from github_adapter import GitHubCliAdapter
 ```
@@ -316,6 +321,7 @@ git commit -m "refactor: extract GitHubCliAdapter to github_adapter.py"
 ### Task 4: Create `TerminalJob` and `TerminalWorker` with persistence
 
 **Files:**
+
 - Create: `terminal_worker.py`
 - Create: `tests/main2main/test_terminal_worker.py`
 
@@ -682,6 +688,7 @@ git commit -m "feat: add TerminalWorker with async job queue and idempotency"
 ### Task 5: Wire `OrchestratorService` to enqueue terminal jobs instead of blocking
 
 **Files:**
+
 - Modify: `main2main_orchestrator.py:578-605, 683-692, 712-713, 780-796`
 
 - [ ] **Step 1: Write a test that verifies `pending_terminal` status is set and `run_once` skips it**
@@ -743,6 +750,7 @@ git commit -m "feat: add pending_terminal status and skip in run_once"
 ### Task 5b: Add optional `terminal_enqueue_fn` to `OrchestratorService`
 
 **Files:**
+
 - Modify: `main2main_orchestrator.py:564-576, 683-692, 780-796`
 
 The `OrchestratorService` needs an optional callback so the async service can enqueue terminal jobs instead of blocking. The CLI path passes no callback and continues using the existing blocking behavior.
@@ -812,6 +820,7 @@ class OrchestratorService:
 ```
 
 In `reconcile`, replace the `create_manual_review` branch (lines 683-692):
+
 ```python
 elif decision.action == "create_manual_review":
     if self.terminal_enqueue_fn is not None:
@@ -834,6 +843,7 @@ elif decision.action == "create_manual_review":
 ```
 
 In `apply_fixup_outcome`, replace the phase3 manual review branch (lines 780-796):
+
 ```python
 if state.phase == "3":
     if self.terminal_enqueue_fn is not None:
@@ -877,6 +887,7 @@ git commit -m "feat: add terminal_enqueue_fn to OrchestratorService for async te
 ### Task 6: Create MCP server with 6 tools
 
 **Files:**
+
 - Create: `mcp_server.py`
 - Create: `tests/main2main/test_mcp_server.py`
 
@@ -1211,6 +1222,7 @@ git commit -m "feat: add MCP server with 6 orchestrator tools"
 ### Task 7: Create the service entrypoint
 
 **Files:**
+
 - Create: `service_main.py`
 - Create: `tests/main2main/test_service_main.py`
 
@@ -1471,6 +1483,7 @@ git commit -m "feat: add asyncio service entrypoint with poll loop"
 ### Task 8: Create deployment files
 
 **Files:**
+
 - Create: `deploy/systemd/vllm-benchmarks-orchestrator.service`
 - Create: `deploy/systemd/orchestrator.env.example`
 
@@ -1550,11 +1563,13 @@ git commit -m "feat: add systemd deployment assets"
 ### Task 9: Run full test suite
 
 **Files:**
+
 - Modify: any failing files from previous chunks
 
 - [ ] **Step 1: Run the complete test suite**
 
 Run:
+
 ```bash
 ./.venv/bin/pytest \
   tests/main2main/test_orchestrator.py \
@@ -1566,11 +1581,13 @@ Run:
   tests/main2main/test_deploy_assets.py \
   -q
 ```
+
 Expected: ALL PASS.
 
 - [ ] **Step 2: Verify Python compilation**
 
 Run:
+
 ```bash
 python3 -m py_compile main2main_orchestrator.py && \
 python3 -m py_compile github_adapter.py && \
@@ -1579,11 +1596,13 @@ python3 -m py_compile terminal_worker.py && \
 python3 -m py_compile mcp_server.py && \
 python3 -m py_compile service_main.py
 ```
+
 Expected: no errors.
 
 - [ ] **Step 3: Verify CLI still works**
 
 Run:
+
 ```bash
 python3 main2main_orchestrator.py register \
   --state-file /tmp/test-mcp-migration.json \
@@ -1595,6 +1614,7 @@ python3 main2main_orchestrator.py register \
   --new-commit cccccccccccccccccccccccccccccccccccccccc \
   --phase 2
 ```
+
 Expected: prints JSON state, exit code 0.
 
 - [ ] **Step 4: Clean up temp file and commit any fixes**
