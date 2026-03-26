@@ -1,18 +1,17 @@
 import json
 import os
-from pathlib import Path
-import pytest
+import subprocess
 import sys
 import tempfile
-import subprocess
-from urllib.error import HTTPError
+from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import main2main_orchestrator as orchestrator
-
 from main2main_orchestrator import (
-    GitHubCliAdapter,
     FixupOutcome,
+    GitHubCliAdapter,
     Main2MainState,
     Main2MainStateStore,
     OrchestratorService,
@@ -657,7 +656,9 @@ def test_cli_reconcile_parses_pr_metadata_correctly_in_script_mode():
             """#!/bin/sh
 if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
   cat <<'EOF'
-{"number":156,"headRefOid":"887b94f5d89a73e2b5704c1baca8b4730376f5aa","headRefName":"main2main_auto_2026-03-12_12-00","body":"## Summary\\n\\n**Commit range:** `4034c3d32e30d01639459edd3ab486f56993876d`...`5282c7d4d0d1487eb283f09d322b0140dea5a968`\\n","labels":[{"name":"main2main"}],"state":"OPEN"}
+{"number":156,"headRefOid":"887b94f5d89a73e2b5704c1baca8b4730376f5aa","headRefName":"main2main_auto_2026-03-12_12-00", \
+    "body":"## Summary\\n\\n**Commit range:** `4034c3d`...`5282c7d`\\n",\
+    "labels":[{"name":"main2main"}],"state":"OPEN"}
 EOF
   exit 0
 fi
@@ -1232,44 +1233,40 @@ def test_github_cli_adapter_dispatches_fixup_workflow():
         branch="main2main_auto_2026-03-11_12-30",
         head_sha="abc123",
         run_id="22901040063",
-        run_url="https://github.com/nv-action/vllm-benchmarks/actions/runs/22901040063",
-        conclusion="failure",
         phase="2",
         old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
         new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
         dispatch_token="dispatch-148",
     )
 
-    assert commands == [[
-        "gh",
-        "workflow",
-        "run",
-        "main2main_auto.yaml",
-        "--repo",
-        "nv-action/vllm-benchmarks",
-        "-f",
-        "mode=fixup",
-        "-f",
-        "pr_number=148",
-        "-f",
-        "branch=main2main_auto_2026-03-11_12-30",
-        "-f",
-        "head_sha=abc123",
-        "-f",
-        "run_id=22901040063",
-        "-f",
-        "run_url=https://github.com/nv-action/vllm-benchmarks/actions/runs/22901040063",
-        "-f",
-        "conclusion=failure",
-        "-f",
-        "phase=2",
-        "-f",
-        "old_commit=4034c3d32e30d01639459edd3ab486f56993876d",
-        "-f",
-        "new_commit=4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
-        "-f",
-        "dispatch_token=dispatch-148",
-    ]]
+    assert commands == [
+        [
+            "gh",
+            "workflow",
+            "run",
+            "main2main_auto.yaml",
+            "--repo",
+            "nv-action/vllm-benchmarks",
+            "-f",
+            "mode=fixup",
+            "-f",
+            "pr_number=148",
+            "-f",
+            "branch=main2main_auto_2026-03-11_12-30",
+            "-f",
+            "head_sha=abc123",
+            "-f",
+            "run_id=22901040063",
+            "-f",
+            "phase=2",
+            "-f",
+            "old_commit=4034c3d32e30d01639459edd3ab486f56993876d",
+            "-f",
+            "new_commit=4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
+            "-f",
+            "dispatch_token=dispatch-148",
+        ]
+    ]
 
 
 def test_github_cli_adapter_finds_fixup_run_by_dispatch_token():
@@ -1311,19 +1308,59 @@ def test_github_cli_adapter_finds_fixup_run_by_dispatch_token():
         "conclusion": "",
         "run_url": "https://example/runs/11",
     }
-    assert commands == [[
-        "gh",
-        "run",
-        "list",
-        "--repo",
-        "nv-action/vllm-benchmarks",
-        "--workflow",
-        "main2main_auto.yaml",
-        "--json",
-        "databaseId,status,conclusion,url,event,displayTitle",
-        "-L",
-        "20",
-    ]]
+    assert commands == [
+        [
+            "gh",
+            "run",
+            "list",
+            "--repo",
+            "nv-action/vllm-benchmarks",
+            "--workflow",
+            "main2main_auto.yaml",
+            "--json",
+            "databaseId,status,conclusion,url,event,displayTitle",
+            "-L",
+            "20",
+        ]
+    ]
+
+
+def test_github_cli_adapter_marks_failed_fixup_job_as_failed_outcome():
+    commands = []
+
+    def fake_runner(args):
+        commands.append(args)
+        if "--json" in args:
+            return json.dumps(
+                {
+                    "jobs": [
+                        {
+                            "name": "fixup",
+                            "databaseId": 123,
+                            "conclusion": "failure",
+                        }
+                    ]
+                }
+            )
+        raise AssertionError("job output should not be fetched for failed fixup runs")
+
+    adapter = GitHubCliAdapter(fake_runner)
+
+    outcome = adapter.get_fixup_outcome(repo="nv-action/vllm-benchmarks", run_id="123", phase="2")
+
+    assert outcome == FixupOutcome(result="failed", phase="2")
+    assert commands == [
+        [
+            "gh",
+            "run",
+            "view",
+            "123",
+            "--repo",
+            "nv-action/vllm-benchmarks",
+            "--json",
+            "jobs",
+        ]
+    ]
 
 
 def test_github_cli_adapter_marks_pr_ready():
@@ -1336,14 +1373,16 @@ def test_github_cli_adapter_marks_pr_ready():
     adapter = GitHubCliAdapter(fake_runner)
     adapter.mark_pr_ready("nv-action/vllm-benchmarks", 148)
 
-    assert commands == [[
-        "gh",
-        "pr",
-        "ready",
-        "148",
-        "--repo",
-        "nv-action/vllm-benchmarks",
-    ]]
+    assert commands == [
+        [
+            "gh",
+            "pr",
+            "ready",
+            "148",
+            "--repo",
+            "nv-action/vllm-benchmarks",
+        ]
+    ]
 
 
 def test_github_cli_adapter_creates_manual_review_issue():
@@ -1361,19 +1400,21 @@ def test_github_cli_adapter_creates_manual_review_issue():
     )
 
     assert url.endswith("/issues/1")
-    assert commands == [[
-        "gh",
-        "issue",
-        "create",
-        "--repo",
-        "nv-action/vllm-benchmarks",
-        "--title",
-        "main2main: manual review needed (2026-03-11)",
-        "--label",
-        "main2main",
-        "--body",
-        "manual review body",
-    ]]
+    assert commands == [
+        [
+            "gh",
+            "issue",
+            "create",
+            "--repo",
+            "nv-action/vllm-benchmarks",
+            "--title",
+            "main2main: manual review needed (2026-03-11)",
+            "--label",
+            "main2main",
+            "--body",
+            "manual review body",
+        ]
+    ]
 
 
 def test_github_cli_adapter_waits_for_completed_e2e_full_run():
@@ -1992,6 +2033,69 @@ def test_run_once_skips_terminal_manual_review_state_without_creating_duplicate_
             "fixup_outcomes": {},
             "reconciled": {},
         }
+
+
+def test_orchestrator_service_creates_manual_review_when_fixup_workflow_fails():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        state_path = Path(tmp_dir) / "state.json"
+        store = Main2MainStateStore(state_path)
+        store.register(
+            Main2MainState(
+                repo="nv-action/vllm-benchmarks",
+                pr_number=150,
+                branch="main2main_auto_2026-03-11_02-02",
+                head_sha="ghi789",
+                old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                new_commit="81939e7733642f583d1731e5c9ef69dcd457b5e5",
+                phase="3",
+                status="fixing",
+                active_fixup_run_id="22936816138",
+            )
+        )
+
+        class FailedFixupGitHub(FakeGitHubAdapter):
+            def get_fixup_outcome(self, *, repo, run_id, phase):
+                self.calls.append(("get_fixup_outcome", repo, run_id, phase))
+                return FixupOutcome(result="failed", phase=phase)
+
+        adapter = FailedFixupGitHub(
+            pr_context={
+                "pr_number": 150,
+                "head_sha": "ghi789",
+                "branch": "main2main_auto_2026-03-11_02-02",
+                "state": "OPEN",
+                "labels": ["main2main"],
+                "metadata": PrMetadata(
+                    old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                    new_commit="81939e7733642f583d1731e5c9ef69dcd457b5e5",
+                ),
+                "body": "",
+            },
+        )
+
+        service = OrchestratorService(store, adapter)
+        service._build_manual_review_issue = lambda **kwargs: {
+            "title": "main2main: manual review needed",
+            "body": "fixup workflow failed",
+        }
+
+        result = service.apply_fixup_outcome(
+            repo="nv-action/vllm-benchmarks",
+            pr_number=150,
+            fixup_run_id="22936816138",
+        )
+
+        updated = store.get("nv-action/vllm-benchmarks", 150)
+        issue_calls = [call for call in adapter.calls if call[0] == "create_manual_review_issue"]
+        assert result == {
+            "action": "create_manual_review",
+            "phase": "3",
+            "reason": "fixup workflow failed",
+        }
+        assert updated is not None
+        assert updated.status == "manual_review"
+        assert updated.active_fixup_run_id is None
+        assert len(issue_calls) == 1
 
 
 def test_run_once_skips_pending_terminal_status():

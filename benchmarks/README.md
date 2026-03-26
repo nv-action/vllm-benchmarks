@@ -45,8 +45,8 @@ Before running the benchmarks, ensure the following:
   pip install -r benchmarks/requirements-bench.txt
   ```
   
-- For performance benchmark, it is recommended to set the [load-format](https://github.com/vllm-project/vllm-ascend/blob/5897dc5bbe321ca90c26225d0d70bff24061d04b/benchmarks/tests/latency-tests.json#L7) as `dummy`, It will construct random weights based on the passed model without downloading the weights from internet, which can greatly reduce the benchmark time.
-- If you want to run benchmark customized, feel free to add your own models and parameters in the [JSON](https://github.com/vllm-project/vllm-ascend/tree/main/benchmarks/tests), let's take `Qwen2.5-VL-7B-Instruct`as an example:
+- For performance benchmark, it is recommended to set the [load-format](https://github.com/nv-action/vllm-benchmark/blob/5897dc5bbe321ca90c26225d0d70bff24061d04b/benchmarks/tests/latency-tests.json#L7) as `dummy`, It will construct random weights based on the passed model without downloading the weights from internet, which can greatly reduce the benchmark time.
+- If you want to run benchmark customized, feel free to add your own models and parameters in the [JSON](https://github.com/nv-action/vllm-benchmark/tree/main/benchmarks/tests), let's take `Qwen2.5-VL-7B-Instruct`as an example:
 
   ```json
   [

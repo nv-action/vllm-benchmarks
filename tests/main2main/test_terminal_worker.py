@@ -1,13 +1,12 @@
 import asyncio
-import logging
-from pathlib import Path
 import sys
 import tempfile
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from state_store import JsonStore
 import terminal_worker
+from state_store import JsonStore
 from terminal_worker import TerminalJob, TerminalWorker
 
 
