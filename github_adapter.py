@@ -289,10 +289,23 @@ class GitHubCliAdapter:
 
     @staticmethod
     def _run(args: list[str]) -> str:
-        completed = subprocess.run(
-            args,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        try:
+            completed = subprocess.run(
+                args,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            details = []
+            if exc.stderr:
+                details.append(f"stderr: {exc.stderr.strip()}")
+            if exc.output:
+                details.append(f"stdout: {exc.output.strip()}")
+            if details:
+                command = " ".join(str(arg) for arg in args)
+                raise RuntimeError(
+                    f"GitHub CLI command failed: {command}; {'; '.join(details)}"
+                ) from exc
+            raise
         return completed.stdout

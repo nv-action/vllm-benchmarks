@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+import pytest
 import sys
 import tempfile
 import subprocess
@@ -118,6 +119,21 @@ def test_extract_e2e_failure_analysis_invokes_script_with_repo_and_run_id(monkey
     format_index = calls[0].index("--format")
     assert calls[0][format_index + 1] == "llm-json"
     assert str(calls[0][1]).endswith(".github/workflows/scripts/ci_log_summary.py")
+
+
+def test_github_cli_adapter_run_includes_stderr_on_failure(monkeypatch):
+    def fake_run(args, check, capture_output, text):
+        raise subprocess.CalledProcessError(
+            returncode=1,
+            cmd=args,
+            output="",
+            stderr="authentication failed",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(RuntimeError, match="authentication failed"):
+        GitHubCliAdapter._run(["gh", "pr", "list"])
 
 
 def test_summarize_manual_review_issue_uses_claude_gateway(monkeypatch):
@@ -1567,6 +1583,10 @@ class FakeGitHubAdapter:
         self.e2e_result = e2e_result
         self.calls = []
 
+    def list_open_main2main_pr_numbers(self, repo):
+        self.calls.append(("list_open_main2main_pr_numbers", repo))
+        return [self.pr_context["pr_number"]]
+
     def get_pr_context(self, repo, pr_number):
         self.calls.append(("get_pr_context", repo, pr_number))
         return self.pr_context
@@ -1652,6 +1672,54 @@ def test_orchestrator_service_marks_pr_ready_on_success():
 
         assert result["action"] == "mark_ready"
         assert ("mark_pr_ready", "nv-action/vllm-benchmarks", 148) in adapter.calls
+        updated = store.get("nv-action/vllm-benchmarks", 148)
+        assert updated is not None
+        assert updated.status == "ready"
+
+
+def test_run_once_skips_ready_prs():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        state_path = Path(tmp_dir) / "state.json"
+        store = Main2MainStateStore(state_path)
+        state = Main2MainState(
+            repo="nv-action/vllm-benchmarks",
+            pr_number=148,
+            branch="main2main_auto_2026-03-11_12-30",
+            head_sha="abc123",
+            old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+            new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
+            phase="2",
+            status="ready",
+        )
+        store.register(state)
+        adapter = FakeGitHubAdapter(
+            pr_context={
+                "pr_number": 148,
+                "head_sha": "abc123",
+                "branch": "main2main_auto_2026-03-11_12-30",
+                "state": "OPEN",
+                "labels": ["main2main"],
+                "metadata": PrMetadata(
+                    old_commit="4034c3d32e30d01639459edd3ab486f56993876d",
+                    new_commit="4ff8c3c8f9ece010a1d0e376f5cc1b468b95f366",
+                ),
+                "body": "",
+            },
+            e2e_result={
+                "run_id": "22901040063",
+                "head_sha": "abc123",
+                "conclusion": "success",
+                "run_url": "https://github.com/nv-action/vllm-benchmarks/actions/runs/22901040063",
+            },
+        )
+
+        service = OrchestratorService(store, adapter)
+        result = service.run_once("nv-action/vllm-benchmarks")
+
+        assert result["registered"] == []
+        assert result["fixup_outcomes"] == {}
+        assert result["reconciled"] == {}
+        assert adapter.calls == [("list_open_main2main_pr_numbers", "nv-action/vllm-benchmarks")]
 
 
 def test_orchestrator_service_dispatches_fixup_on_failure():

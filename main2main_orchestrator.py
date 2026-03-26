@@ -471,6 +471,19 @@ class Main2MainStateStore:
     def load_all(self) -> dict[str, dict[str, str | int]]:
         return self._load_all()
 
+    def mark_ready(
+        self,
+        *,
+        repo: str,
+        pr_number: int,
+    ) -> Main2MainState:
+        current = self.get(repo, pr_number)
+        if current is None:
+            raise KeyError(f"unknown main2main PR: {repo}#{pr_number}")
+        updated = replace(current, status="ready", active_fixup_run_id=None)
+        self.register(updated)
+        return updated
+
     def update_after_fixup(
         self,
         *,
@@ -662,6 +675,7 @@ class OrchestratorService:
         )
         if decision.action == "mark_ready":
             self.github.mark_pr_ready(repo, pr_number)
+            self.store.mark_ready(repo=repo, pr_number=pr_number)
         elif decision.action == "dispatch_fixup":
             dispatch_token = self.token_factory()
             self.github.dispatch_fixup(
@@ -733,6 +747,8 @@ class OrchestratorService:
             if state.status == "manual_review":
                 continue
             if state.status == "pending_terminal":
+                continue
+            if state.status == "ready":
                 continue
             if state.status == "fixing" and state.active_fixup_run_id is not None:
                 run = self.github.get_workflow_run(repo=repo, run_id=state.active_fixup_run_id)
