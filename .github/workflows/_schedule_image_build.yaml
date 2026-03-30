@@ -23,6 +23,21 @@ on:
         description: 'The tag to use for workflow dispatch'
         required: false
         type: string
+      branch_ref:
+        description: 'Branch/ref to check out for non-workflow_dispatch events'
+        required: false
+        type: string
+        default: 'main'
+      schedule_tag_pattern:
+        description: 'Pattern used for the schedule Docker tag'
+        required: false
+        type: string
+        default: 'main'
+      artifact_prefix:
+        description: 'Prefix for digest artifact names'
+        required: false
+        type: string
+        default: 'digests'
     secrets:
         QUAY_PASSWORD:
             description: 'Quay password for pushing images'
@@ -47,13 +62,21 @@ jobs:
       with:
         fetch-depth: 0
         persist-credentials: false
+        ref: ${{ inputs.branch_ref }}
 
     - uses: actions/checkout@v6
-      if: ${{ github.event_name == 'workflow_dispatch' }}
+      if: ${{ github.event_name == 'workflow_dispatch' && inputs.workflow_dispatch_tag != '' }}
       with:
         fetch-depth: 0
         persist-credentials: false
         ref: ${{ inputs.workflow_dispatch_tag }}
+
+    - uses: actions/checkout@v6
+      if: ${{ github.event_name == 'workflow_dispatch' && inputs.workflow_dispatch_tag == '' }}
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+        ref: ${{ inputs.branch_ref }}
 
     - name: Free up disk space
       uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
@@ -86,7 +109,7 @@ jobs:
         file: ${{ inputs.dockerfile || 'Dockerfile' }}
         # only trigger when tag, branch/main push
         push: ${{ inputs.should_push }}
-        outputs: type=image,name=quay.io/ascend/vllm-ascend,push-by-digest=true,name-canonical=true,push=${{ inputs.should_push }}
+        outputs: type=image,name=quay.io/ascend/,push-by-digest=true,name-canonical=true,push=${{ inputs.should_push }}
         build-args: |
           PIP_INDEX_URL=https://pypi.org/simple
         provenance: false
@@ -100,7 +123,7 @@ jobs:
     - name: Upload digest
       uses: actions/upload-artifact@v7
       with:
-        name: digests-${{ inputs.suffix }}-${{ matrix.tag }}
+        name: ${{ inputs.artifact_prefix }}-${{ inputs.suffix }}-${{ matrix.tag }}
         path: ${{ runner.temp }}/digests/*
         if-no-files-found: error
         retention-days: 1
@@ -109,23 +132,32 @@ jobs:
   merge-image:
     runs-on: ubuntu-latest
     needs: build-push-digest
-    if: ${{ inputs.should_push }}
+    # if: ${{ inputs.should_push }}
     steps:
-      - name: Checkout
+      - name: Checkout branch
         uses: actions/checkout@v6
+        if: ${{ github.event_name != 'workflow_dispatch' || (github.event_name == 'workflow_dispatch' && inputs.workflow_dispatch_tag == '') }}
+        with:
+          ref: ${{ inputs.branch_ref }}
+
+      - name: Checkout tag
+        uses: actions/checkout@v6
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.workflow_dispatch_tag != '' }}
+        with:
+          ref: ${{ inputs.workflow_dispatch_tag }}
 
       - name: Download arm64 digests
         uses: actions/download-artifact@v8
         with:
           path: ${{ runner.temp }}/digests
-          pattern: digests-${{ inputs.suffix }}-arm64
+          pattern: ${{ inputs.artifact_prefix }}-${{ inputs.suffix }}-arm64
           merge-multiple: true
 
       - name: Download amd64 digests
         uses: actions/download-artifact@v8
         with:
           path: ${{ runner.temp }}/digests
-          pattern: digests-${{ inputs.suffix }}-amd64
+          pattern: ${{ inputs.artifact_prefix }}-${{ inputs.suffix }}-amd64
           merge-multiple: true
 
       - name: Prepare suffix
@@ -155,8 +187,9 @@ jobs:
           # TODO(yikun): the post release might be considered as latest release
           tags: |
             type=pep440,pattern={{raw}},suffix=${{ env.SUFFIX }}
-            type=schedule,pattern=main,suffix=${{ env.SUFFIX }}
-            type=raw,value=${{ inputs.workflow_dispatch_tag }},enable=${{ github.event_name == 'workflow_dispatch' }},suffix=${{ env.SUFFIX }}
+            type=schedule,pattern=${{ inputs.schedule_tag_pattern }},prefix=nightly-,suffix=${{ env.SUFFIX }}
+            type=raw,value=${{ inputs.workflow_dispatch_tag }},enable=${{ github.event_name == 'workflow_dispatch' && inputs.workflow_dispatch_tag != '' }},suffix=${{ env.SUFFIX }}
+            type=raw,value=${{ inputs.branch_ref }},enable=${{ github.event_name == 'workflow_dispatch' && inputs.workflow_dispatch_tag == '' }},prefix=nightly-,suffix=${{ env.SUFFIX }}
           flavor:
             latest=false
 
@@ -170,20 +203,20 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Merge and push multi-arch image
-        env:
-          IMAGE: quay.io/ascend/vllm-ascend
-          TAGS: ${{ steps.meta.outputs.tags }}
-        run: |
-          DIGESTS=$(printf "$IMAGE@sha256:%s " $(ls ${{ runner.temp }}/digests))
+      # - name: Merge and push multi-arch image
+      #   env:
+      #     IMAGE: quay.io/ascend/vllm-ascend
+      #     TAGS: ${{ steps.meta.outputs.tags }}
+      #   run: |
+      #     DIGESTS=$(printf "$IMAGE@sha256:%s " $(ls ${{ runner.temp }}/digests))
 
-          echo "Digests: $DIGESTS"
-          echo "Current tags:"
-          echo "$TAGS"
+      #     echo "Digests: $DIGESTS"
+      #     echo "Current tags:"
+      #     echo "$TAGS"
 
-          for tag in $TAGS; do
-            echo "Creating tag $tag"
-            docker buildx imagetools create \
-              -t "$tag" \
-              $DIGESTS
-          done
+      #     for tag in $TAGS; do
+      #       echo "Creating tag $tag"
+      #       docker buildx imagetools create \
+      #         -t "$tag" \
+      #         $DIGESTS
+      #     done
