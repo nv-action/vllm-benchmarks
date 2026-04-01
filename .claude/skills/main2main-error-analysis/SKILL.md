@@ -71,7 +71,7 @@ python3 <VLLM_ASCEND_DIR>/.github/workflows/scripts/ci_log_summary.py \
   --run-id <RUN_ID> \
   --format llm-json \
   --output /tmp/ci_analysis.json
-
+```
 
 The script will:
 

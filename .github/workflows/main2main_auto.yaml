@@ -516,7 +516,7 @@ jobs:
           python3 .github/workflows/scripts/ci_log_summary.py \
             --repo "${{ env.UPSTREAM_REPO }}" \
             --run-id "${{ steps.ctx.outputs.run_id }}" \
-            --format json \
+            --format bisect-json \
             --output /tmp/ci_analysis.json
 
           TEST_CMDS=$(python3 -c "
@@ -528,14 +528,12 @@ jobs:
               print('')
               raise SystemExit(0)
 
-          tests = list(dict.fromkeys(data.get('failed_test_cases', [])))
-          if tests:
-              print('; '.join(f'pytest -sv {t}' for t in tests[:5]))
+          print(data.get('test_cmd', ''))
           " 2>/dev/null)
 
           # Final fallback: stable default commands to guarantee bisect dispatch.
           if [ -z "$TEST_CMDS" ]; then
-            echo "::notice::No failed_test_cases found in ci_analysis.json. Falling back to default bisect test commands."
+            echo "::notice::No representative test_cmd found in ci_analysis.json. Falling back to default bisect test commands."
             TEST_CMDS="pytest -sv tests/e2e/singlecard/test_aclgraph_accuracy.py; pytest -sv tests/e2e/multicard/4-cards/long_sequence/test_accuracy.py"
           fi
 

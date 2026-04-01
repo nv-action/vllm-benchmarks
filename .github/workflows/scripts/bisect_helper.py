@@ -19,7 +19,6 @@
 Helper script for bisect_vllm.sh.
 
 Subcommands:
-  detect-env   - Detect runner and image based on test command path.
   get-commit   - Extract vllm commit hash from a workflow yaml file.
   report       - Generate a markdown bisect report.
 """
@@ -45,7 +44,10 @@ _E2E_SYS_DEPS = (
     " && update-alternatives --install /usr/bin/clang clang /usr/bin/clang-15 20"
     " && update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-15 20"
 )
-_E2E_VLLM_INSTALL = "VLLM_TARGET_DEVICE=empty pip install -e ."
+_E2E_VLLM_INSTALL = ( 
+    "VLLM_TARGET_DEVICE=empty pip install -e ."
+    " && pip uninstall triton"
+)
 _E2E_ASCEND_INSTALL = (
     "export PIP_EXTRA_INDEX_URL=https://mirrors.huaweicloud.com/ascend/repos/pypi"
     " && pip install --no-cache-dir -r requirements-dev.txt"
@@ -182,8 +184,8 @@ COMMIT_HASH_RE = re.compile(r"^[0-9a-f]{7,40}$")
 TEST_PATH_RE = re.compile(r"\b(tests/[-\w/]+\.py(?:::[\w_]+)*)")
 
 
-def detect_env(test_cmd: str) -> dict:
-    """Detect full environment config based on the test file path in test_cmd."""
+def _resolve_env_for_test_cmd(test_cmd: str) -> dict:
+    """Resolve full environment config based on the test file path in test_cmd."""
     for rule in ENV_RULES:
         if re.search(rule["pattern"], test_cmd):
             return {k: v for k, v in rule.items() if k != "pattern"}
@@ -343,7 +345,7 @@ def build_batch_matrix(test_cmds_str: str) -> dict:
     groups: dict[tuple[str, str, str], list[str]] = {}
     group_env: dict[tuple[str, str, str], dict] = {}
     for cmd in cmds:
-        env = detect_env(cmd)
+        env = _resolve_env_for_test_cmd(cmd)
         key = (env["runner"], env["image"], env["test_type"])
         groups.setdefault(key, []).append(cmd)
         if key not in group_env:
@@ -389,25 +391,6 @@ def build_batch_matrix(test_cmds_str: str) -> dict:
         )
     )
     return {"include": include}
-
-
-def cmd_detect_env(args):
-    env = detect_env(args.test_cmd)
-    if args.output_format == "github":
-        # Write to GITHUB_OUTPUT if available
-        github_output = os.environ.get("GITHUB_OUTPUT")
-        if github_output:
-            with open(github_output, "a") as f:
-                f.write(f"runner={env['runner']}\n")
-                f.write(f"image={env['image']}\n")
-                f.write(f"test_type={env['test_type']}\n")
-        # Also print for human readability
-        print(f"runner={env['runner']}")
-        print(f"image={env['image']}")
-        print(f"test_type={env['test_type']}")
-    else:
-        print(json.dumps(env))
-
 
 def cmd_batch_matrix(args):
     matrix = build_batch_matrix(args.test_cmds)
@@ -507,17 +490,6 @@ def cmd_vllm_location(args):
 def main():
     parser = argparse.ArgumentParser(description="Helper for vllm bisect automation")
     subparsers = parser.add_subparsers(dest="command", required=True)
-
-    # detect-env
-    p_env = subparsers.add_parser("detect-env", help="Detect runner and image for a test command")
-    p_env.add_argument("--test-cmd", required=True, help="The pytest command")
-    p_env.add_argument(
-        "--output-format",
-        choices=["json", "github"],
-        default="github",
-        help="Output format (default: github)",
-    )
-    p_env.set_defaults(func=cmd_detect_env)
 
     # batch-matrix
     p_batch = subparsers.add_parser(
