@@ -344,7 +344,7 @@ jobs:
   e2e-2-cards-full:
     name: multicard-2-full
     if: ${{ inputs.type == 'full' }}
-    runs-on: linux-aarch64-a3-2
+    runs-on: linux-aarch64-a3-4
     strategy:
       fail-fast: false
       matrix:

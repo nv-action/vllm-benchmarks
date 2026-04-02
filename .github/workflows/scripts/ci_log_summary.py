@@ -1029,7 +1029,7 @@ def select_representative_test_cases(distinct_errors: list[dict]) -> list[str]:
     used_cases: set[str] = set()
 
     for error in distinct_errors:
-        cases = [test_case for test_case in error.get("failed_test_cases", []) if test_case]
+        cases = [_base_case_name(test_case) for test_case in error.get("failed_test_cases", []) if test_case]
         if not cases:
             continue
 

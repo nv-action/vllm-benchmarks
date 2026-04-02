@@ -1,12 +1,24 @@
 import importlib.util
+import os
 from pathlib import Path
 import subprocess
 
 SCRIPT_PATH = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "scripts" / "ci_log_summary.py"
+BISECT_SCRIPT_PATH = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "scripts" / "bisect_vllm.sh"
+BISECT_HELPER_PATH = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "scripts" / "bisect_helper.py"
 
 
 def load_module():
     spec = importlib.util.spec_from_file_location("ci_log_summary", SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    assert spec is not None
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_bisect_helper(path: Path = BISECT_HELPER_PATH):
+    spec = importlib.util.spec_from_file_location("bisect_helper", path)
     module = importlib.util.module_from_spec(spec)
     assert spec is not None
     assert spec.loader is not None
@@ -131,6 +143,45 @@ def test_build_bisect_payload_selects_representative_cases_per_error():
         "pytest -sv tests/e2e/b/test_beta.py::test_case_c; "
         "pytest -sv tests/e2e/a/test_alpha.py::test_case_a"
     )
+
+
+def test_build_bisect_payload_strips_parametrized_case_suffixes():
+    module = load_module()
+
+    result = {
+        "run_id": 456,
+        "run_url": "https://example/runs/456",
+        "good_commit": "good",
+        "bad_commit": "bad",
+        "distinct_errors": [
+            {
+                "error_type": "ValueError",
+                "error_message": "first",
+                "failed_test_cases": [
+                    "tests/e2e/singlecard/test_sampler.py::test_qwen3_topk[test]",
+                    "tests/e2e/singlecard/test_sampler.py::test_qwen3_topk[other]",
+                ],
+            },
+            {
+                "error_type": "RuntimeError",
+                "error_message": "second",
+                "failed_test_cases": [
+                    "tests/e2e/singlecard/test_sampler.py::test_qwen3_topk[other]",
+                ],
+            },
+        ],
+    }
+
+    payload = module.build_bisect_payload(result)
+
+    assert payload["representative_test_cases"] == [
+        "tests/e2e/singlecard/test_sampler.py::test_qwen3_topk",
+        "tests/e2e/singlecard/test_sampler.py::test_qwen3_topk",
+    ]
+    assert payload["test_cmds"] == [
+        "pytest -sv tests/e2e/singlecard/test_sampler.py::test_qwen3_topk",
+        "pytest -sv tests/e2e/singlecard/test_sampler.py::test_qwen3_topk",
+    ]
 
 
 def test_main_supports_bisect_json_format(monkeypatch, capsys):
@@ -447,3 +498,172 @@ def test_gh_api_json_retries_eof_once(monkeypatch, capsys):
     assert result == {"ok": True}
     assert len(calls) == 2
     assert capsys.readouterr().err == ""
+
+
+def test_bisect_script_does_not_exit_during_parse_args_for_test_cmds_file(tmp_path):
+    cmds_file = tmp_path / "cmds.txt"
+    cmds_file.write_text("pytest -sv tests/ut/spec_decode/test_eagle_proposer.py::TestEagleProposerInitialization::test_initialization_eagle_graph\n")
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(BISECT_SCRIPT_PATH),
+            "--test-cmds-file",
+            str(cmds_file),
+            "--vllm-repo",
+            "/nonexistent/vllm",
+            "--ascend-repo",
+            "/nonexistent/ascend",
+            "--no-fetch",
+            "--good",
+            "35141a7eeda941a60ad5a4956670c60fd5a77029",
+            "--bad",
+            "c6f722b93e8e795065751172812ee6a5540e5901",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "Batch bisect: 1 test command(s)" in result.stdout
+
+
+def test_bisect_script_does_not_exit_during_detect_commits_when_commits_are_provided():
+    result = subprocess.run(
+        [
+            "bash",
+            str(BISECT_SCRIPT_PATH),
+            "--test-cmd",
+            "pytest -sv tests/ut/spec_decode/test_eagle_proposer.py::TestEagleProposerInitialization::test_initialization_eagle_graph",
+            "--vllm-repo",
+            "/nonexistent/vllm",
+            "--ascend-repo",
+            "/nonexistent/ascend",
+            "--no-fetch",
+            "--good",
+            "35141a7eeda941a60ad5a4956670c60fd5a77029",
+            "--bad",
+            "c6f722b93e8e795065751172812ee6a5540e5901",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "Preparing vllm repo for bisect" in result.stdout
+
+
+def test_bisect_helper_finds_repo_root_from_cwd_when_copied(tmp_path):
+    helper_copy = tmp_path / "bisect_helper.py"
+    helper_copy.write_text(BISECT_HELPER_PATH.read_text())
+    module = load_bisect_helper(helper_copy)
+
+    assert module._get_repo_root(cwd=BISECT_HELPER_PATH.parents[3]) == BISECT_HELPER_PATH.parents[3]
+
+
+def test_bisect_script_prefers_editable_project_location_for_ascend_repo(tmp_path):
+    editable_repo = tmp_path / "vllm-ascend-editable"
+    location_repo = tmp_path / "site-packages"
+    editable_repo.mkdir()
+    location_repo.mkdir()
+
+    fake_pip = tmp_path / "pip"
+    fake_pip.write_text(
+        "\n".join(
+            [
+                "#!/bin/sh",
+                'if [ \"$1\" = \"show\" ] && [ \"$2\" = \"vllm-ascend\" ]; then',
+                "  cat <<'EOF'",
+                "Name: vllm_ascend",
+                f"Location: {location_repo}",
+                f"Editable project location: {editable_repo}",
+                "EOF",
+                "  exit 0",
+                "fi",
+                "exec /usr/bin/env pip \"$@\"",
+            ]
+        )
+        + "\n"
+    )
+    fake_pip.chmod(0o755)
+
+    env = dict(os.environ)
+    env["PATH"] = f"{tmp_path}:{env['PATH']}"
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(BISECT_SCRIPT_PATH),
+            "--test-cmd",
+            "pytest -sv tests/ut/spec_decode/test_eagle_proposer.py::TestEagleProposerInitialization::test_initialization_eagle_graph",
+            "--vllm-repo",
+            "/nonexistent/vllm",
+            "--no-fetch",
+            "--good",
+            "35141a7eeda941a60ad5a4956670c60fd5a77029",
+            "--bad",
+            "c6f722b93e8e795065751172812ee6a5540e5901",
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode != 0
+    assert f"Auto-detected vllm-ascend repo via pip show: {editable_repo}" in result.stdout
+
+
+def test_bisect_script_exits_cleanly_when_commit_cannot_be_resolved():
+    result = subprocess.run(
+        [
+            "bash",
+            str(BISECT_SCRIPT_PATH),
+            "--test-cmd",
+            "pytest -sv tests/ut/spec_decode/test_eagle_proposer.py::TestEagleProposerInitialization::test_initialization_eagle_graph",
+            "--vllm-repo",
+            "/Users/antarctica/Work/PR/vllm",
+            "--ascend-repo",
+            "/Users/antarctica/Work/PR/vllm-benchmarks",
+            "--no-fetch",
+            "--good",
+            "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+            "--bad",
+            "c6f722b93e8e795065751172812ee6a5540e5901",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "Cannot resolve good commit" in result.stderr
+    assert "Good commit resolved" not in result.stdout
+
+
+def test_bisect_script_refuses_dirty_vllm_repo(tmp_path):
+    dirty_repo = tmp_path / "vllm"
+    dirty_repo.mkdir()
+    subprocess.run(["git", "init"], cwd=dirty_repo, check=True, capture_output=True, text=True)
+    (dirty_repo / "README.md").write_text("dirty\n")
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(BISECT_SCRIPT_PATH),
+            "--test-cmd",
+            "pytest -sv tests/ut/spec_decode/test_eagle_proposer.py::TestEagleProposerInitialization::test_initialization_eagle_graph",
+            "--vllm-repo",
+            str(dirty_repo),
+            "--ascend-repo",
+            "/Users/antarctica/Work/PR/vllm-benchmarks",
+            "--no-fetch",
+            "--good",
+            "35141a7eeda941a60ad5a4956670c60fd5a77029",
+            "--bad",
+            "c6f722b93e8e795065751172812ee6a5540e5901",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "vllm repo has uncommitted or unmerged changes" in result.stderr

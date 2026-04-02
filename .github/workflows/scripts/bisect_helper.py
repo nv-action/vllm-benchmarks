@@ -28,7 +28,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_ENV = {
     "kind": "",
     "runner": "linux-aarch64-a3-4",
@@ -84,6 +83,33 @@ KIND_SOURCES = {
 COMMIT_HASH_RE = re.compile(r"^[0-9a-f]{7,40}$")
 TEST_PATH_RE = re.compile(r"\b(tests/[-\w/]+\.py(?:::[\w_]+)*)")
 _MANIFEST_CACHE: dict[str, dict] | None = None
+_REPO_ROOT: Path | None = None
+
+
+def _get_repo_root(cwd: Path | None = None) -> Path:
+    global _REPO_ROOT
+    if _REPO_ROOT is not None and cwd is None:
+        return _REPO_ROOT
+    candidates = []
+    if env_root := os.environ.get("VLLM_BENCHMARKS_REPO_ROOT"):
+        candidates.append(Path(env_root).expanduser().resolve())
+    start = (cwd or Path.cwd()).resolve()
+    candidates.extend([start, *start.parents])
+    script_path = Path(__file__).resolve()
+    candidates.extend(script_path.parents)
+    seen: set[Path] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if (candidate / ".github" / "workflows" / "pr_test_light.yaml").is_file():
+            if cwd is None:
+                _REPO_ROOT = candidate
+            return candidate
+    raise RuntimeError(
+        "Cannot detect repo root. Run from the repository, set VLLM_BENCHMARKS_REPO_ROOT, "
+        "or keep bisect_helper.py under .github/workflows/scripts."
+    )
 
 
 def _load_yaml(path: Path) -> dict:
@@ -134,14 +160,14 @@ def _get_step(job: dict, step_name: str) -> dict:
 def _get_caller_inputs(workflow_path: str | None, job_name: str | None) -> dict[str, object]:
     if not workflow_path or not job_name:
         return {}
-    job = _get_job(_load_yaml(REPO_ROOT / workflow_path), job_name)
+    job = _get_job(_load_yaml(_get_repo_root() / workflow_path), job_name)
     with_inputs = job.get("with", {})
     return with_inputs if isinstance(with_inputs, dict) else {}
 
 
 def _extract_profile(kind: str, config: dict) -> dict:
     # Emit only the fields consumed by bisect_vllm.yaml.
-    workflow = _load_yaml(REPO_ROOT / config["workflow"])
+    workflow = _load_yaml(_get_repo_root() / config["workflow"])
     caller_inputs = _get_caller_inputs(config.get("caller_workflow"), config.get("caller_job"))
     job = _get_job(workflow, config["job"])
     container = job.get("container", {}) if isinstance(job.get("container"), dict) else {}
