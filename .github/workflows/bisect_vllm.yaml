@@ -57,6 +57,10 @@ jobs:
       - name: Checkout vllm-ascend repo
         uses: actions/checkout@v6
 
+      - name: Install Python deps for bisect helper
+        # set-params runs with system python, so install the YAML parser explicitly.
+        run: python3 -m pip install --user 'pyyaml==6.0.2'
+
       - name: Resolve parameters and build matrix
         id: resolve
         run: |
@@ -122,6 +126,7 @@ jobs:
           ref: ${{ inputs.bad_commit }}
           path: ./vllm-empty
           fetch-depth: 500
+          
       - name: Install vllm from source
         working-directory: ./vllm-empty
         run: ${{ matrix.vllm_install }}
@@ -132,10 +137,6 @@ jobs:
 
       - name: Run bisect
         working-directory: ./vllm-ascend
-        env:
-          VLLM_WORKER_MULTIPROC_METHOD: spawn
-          VLLM_USE_MODELSCOPE: True
-          PYTORCH_NPU_ALLOC_CONF: max_split_size_mb:256
         run: |
           # Apply runtime_env from matrix (JSON string → export each key)
           RUNTIME_ENV='${{ matrix.runtime_env }}'
