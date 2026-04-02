@@ -28,154 +28,88 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import subprocess
 import sys
 from pathlib import Path
 
 import re
 
-# =============================================================================
-# Common install commands shared across e2e environments
-# =============================================================================
-_E2E_SYS_DEPS = (
-    "apt install git -y"
-    " && apt-get -y install $(cat packages.txt)"
-    " && apt-get -y install gcc g++ cmake libnuma-dev clang-15"
-    " && update-alternatives --install /usr/bin/clang clang /usr/bin/clang-15 20"
-    " && update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-15 20"
-)
-_E2E_VLLM_INSTALL = ( 
-    "VLLM_TARGET_DEVICE=empty pip install -e ."
-    " && pip uninstall triton"
-)
-_E2E_ASCEND_INSTALL = (
-    "export PIP_EXTRA_INDEX_URL=https://mirrors.huaweicloud.com/ascend/repos/pypi"
-    " && pip install --no-cache-dir -r requirements-dev.txt"
-    " && pip install --no-cache-dir -v -e ."
-)
-_E2E_CONTAINER_ENV = {
-    "VLLM_LOGGING_LEVEL": "ERROR",
-    "VLLM_USE_MODELSCOPE": "True",
-    "HF_HUB_OFFLINE": "1",
-}
-_E2E_RUNTIME_ENV = {
-    "VLLM_WORKER_MULTIPROC_METHOD": "spawn",
-    "PYTORCH_NPU_ALLOC_CONF": "max_split_size_mb:256",
-}
-
-# =============================================================================
-# Environment rules: one entry per (test path pattern → full env config).
-#
-# To add a new test type or modify an existing one, edit ONLY this list.
-# The workflow YAML is a generic template that reads all values from the matrix.
-# =============================================================================
-ENV_RULES = [
-    {
-        "pattern": r"tests/e2e/310p/multicard/",
-        "runner": "linux-aarch64-310p-4",
-        "image": "swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-310p-ubuntu22.04-py3.11",
-        "test_type": "e2e",
-        "container_env": {**_E2E_CONTAINER_ENV},
-        "sys_deps": (
-            "apt install git -y"
-            " && apt-get -y install $(cat packages.txt)"
-            " && apt-get -y install gcc g++ cmake libnuma-dev"
-        ),
-        "vllm_install": _E2E_VLLM_INSTALL,
-        "ascend_install": _E2E_ASCEND_INSTALL,
-        "runtime_env": {**_E2E_RUNTIME_ENV},
-    },
-    {
-        "pattern": r"tests/e2e/310p/",
-        "runner": "linux-aarch64-310p-1",
-        "image": "swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-310p-ubuntu22.04-py3.11",
-        "test_type": "e2e",
-        "container_env": {**_E2E_CONTAINER_ENV},
-        "sys_deps": (
-            "apt install git -y"
-            " && apt-get -y install $(cat packages.txt)"
-            " && apt-get -y install gcc g++ cmake libnuma-dev"
-        ),
-        "vllm_install": _E2E_VLLM_INSTALL,
-        "ascend_install": _E2E_ASCEND_INSTALL,
-        "runtime_env": {**_E2E_RUNTIME_ENV},
-    },
-    {
-        "pattern": r"tests/e2e/multicard/4-cards/",
-        "runner": "linux-aarch64-a3-4",
-        "image": "m.daocloud.io/quay.io/ascend/cann:8.5.1-a3-ubuntu22.04-py3.11",
-        "test_type": "e2e",
-        "container_env": {**_E2E_CONTAINER_ENV},
-        "sys_deps": _E2E_SYS_DEPS,
-        "vllm_install": _E2E_VLLM_INSTALL,
-        "ascend_install": _E2E_ASCEND_INSTALL,
-        "runtime_env": {**_E2E_RUNTIME_ENV},
-    },
-    {
-        "pattern": r"tests/e2e/multicard/2-cards/",
-        "runner": "linux-aarch64-a3-2",
-        "image": "swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-a3-ubuntu22.04-py3.11",
-        "test_type": "e2e",
-        "container_env": {**_E2E_CONTAINER_ENV, "HCCL_BUFFSIZE": "1024"},
-        "sys_deps": _E2E_SYS_DEPS,
-        "vllm_install": _E2E_VLLM_INSTALL,
-        "ascend_install": _E2E_ASCEND_INSTALL,
-        "runtime_env": {**_E2E_RUNTIME_ENV},
-    },
-    {
-        "pattern": r"tests/e2e/singlecard/",
-        "runner": "linux-aarch64-a2-2",
-        "image": "swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-910b-ubuntu22.04-py3.11",
-        "test_type": "e2e",
-        "container_env": {**_E2E_CONTAINER_ENV},
-        "sys_deps": _E2E_SYS_DEPS,
-        "vllm_install": _E2E_VLLM_INSTALL,
-        "ascend_install": _E2E_ASCEND_INSTALL,
-        "runtime_env": {**_E2E_RUNTIME_ENV},
-    },
-    {
-        "pattern": r"tests/ut/",
-        "runner": "linux-amd64-cpu-8-hk",
-        "image": "quay.nju.edu.cn/ascend/cann:8.5.1-910b-ubuntu22.04-py3.11",
-        "test_type": "ut",
-        "container_env": {
-            "VLLM_LOGGING_LEVEL": "ERROR",
-            "VLLM_USE_MODELSCOPE": "True",
-            "HF_HUB_OFFLINE": "1",
-            "SOC_VERSION": "ascend910b1",
-            "MAX_JOBS": "4",
-            "COMPILE_CUSTOM_KERNELS": "0",
-        },
-        "sys_deps": ("apt-get install -y python3-pip git vim wget net-tools gcc g++ cmake libnuma-dev curl gnupg2"),
-        "vllm_install": (
-            "VLLM_TARGET_DEVICE=empty python3 -m pip install ."
-            " --extra-index https://download.pytorch.org/whl/cpu/"
-            " && python3 -m pip uninstall -y triton"
-        ),
-        "ascend_install": (
-            "export PIP_EXTRA_INDEX_URL=https://mirrors.huaweicloud.com/ascend/repos/pypi"
-            " && export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/Ascend/ascend-toolkit/latest/x86_64-linux/devlib"
-            " && python3 -m pip install -v . --extra-index https://download.pytorch.org/whl/cpu/"
-            " && python3 -m pip install -r requirements-dev.txt --extra-index https://download.pytorch.org/whl/cpu/"
-        ),
-        "runtime_env": {
-            "VLLM_WORKER_MULTIPROC_METHOD": "spawn",
-            "PYTORCH_NPU_ALLOC_CONF": "max_split_size_mb:256",
-            "TORCH_DEVICE_BACKEND_AUTOLOAD": "0",
-            "LD_LIBRARY_PATH": "/usr/local/Ascend/ascend-toolkit/latest/x86_64-linux/devlib",
-        },
-    },
-]
-
-# Default fallback
+REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_RUNNER = "linux-aarch64-a3-4"
 DEFAULT_IMAGE = "m.daocloud.io/quay.io/ascend/cann:8.5.1-a3-ubuntu22.04-py3.11"
 
-# All possible container_env keys across all rules (used by workflow YAML)
-ALL_CONTAINER_ENV_KEYS = sorted({k for rule in ENV_RULES for k in rule.get("container_env", {})})
+PATH_KIND_RULES = [
+    {"pattern": r"tests/e2e/310p/multicard/", "kind": "e2e_310p_4cards"},
+    {"pattern": r"tests/e2e/310p/singlecard/", "kind": "e2e_310p_singlecard"},
+    {"pattern": r"tests/e2e/multicard/4-cards/", "kind": "e2e_4cards"},
+    {"pattern": r"tests/e2e/multicard/2-cards/", "kind": "e2e_2cards"},
+    {"pattern": r"tests/e2e/singlecard/", "kind": "e2e_singlecard_full"},
+    {"pattern": r"tests/ut/", "kind": "ut"},
+]
 
-# All possible runtime_env keys across all rules
-ALL_RUNTIME_ENV_KEYS = sorted({k for rule in ENV_RULES for k in rule.get("runtime_env", {})})
+KIND_SOURCES = {
+    "ut": {
+        "test_type": "ut",
+        "workflow": ".github/workflows/_unit_test.yaml",
+        "job": "unit-test",
+        "caller_workflow": ".github/workflows/pr_test_light.yaml",
+        "caller_job": "ut",
+        "prepare_steps": ["Install packages"],
+        "vllm_install_step": "Install vllm-project/vllm from source",
+        "ascend_install_step": "Install nv-action/vllm-benchmark",
+        "test_step": "Run unit test",
+    },
+    "e2e_singlecard_full": {
+        "test_type": "e2e",
+        "workflow": ".github/workflows/_e2e_test.yaml",
+        "job": "e2e-full",
+        "caller_workflow": ".github/workflows/pr_test_full.yaml",
+        "caller_job": "e2e-test",
+        "prepare_steps": ["Config mirrors", "Install system dependencies"],
+        "vllm_install_step": "Install vllm-project/vllm from source",
+        "ascend_install_step": "Install nv-action/vllm-benchmark",
+        "test_step": "Run e2e test",
+    },
+    "e2e_2cards": {
+        "test_type": "e2e",
+        "workflow": ".github/workflows/_e2e_test.yaml",
+        "job": "e2e-2-cards-full",
+        "prepare_steps": ["Config mirrors", "Install system dependencies"],
+        "vllm_install_step": "Install vllm-project/vllm from source",
+        "ascend_install_step": "Install nv-action/vllm-benchmark",
+        "test_step": "Run nv-action/vllm-benchmark test (full)",
+    },
+    "e2e_4cards": {
+        "test_type": "e2e",
+        "workflow": ".github/workflows/_e2e_test.yaml",
+        "job": "e2e-4-cards-full",
+        "prepare_steps": ["Config mirrors", "Install system dependencies"],
+        "vllm_install_step": "Install vllm-project/vllm from source",
+        "ascend_install_step": "Install nv-action/vllm-benchmark",
+        "test_step": "Run nv-action/vllm-benchmark test for V1 Engine",
+    },
+    "e2e_310p_singlecard": {
+        "test_type": "e2e",
+        "workflow": ".github/workflows/_e2e_test.yaml",
+        "job": "e2e_310p",
+        "prepare_steps": ["Config mirrors", "Install system dependencies"],
+        "vllm_install_step": "Install vllm-project/vllm from source",
+        "ascend_install_step": "Install nv-action/vllm-benchmark",
+        "test_step": "Run nv-action/vllm-benchmark test",
+    },
+    "e2e_310p_4cards": {
+        "test_type": "e2e",
+        "workflow": ".github/workflows/_e2e_test.yaml",
+        "job": "e2e_310p-4cards",
+        "prepare_steps": ["Config mirrors", "Install system dependencies"],
+        "vllm_install_step": "Install vllm-project/vllm from source",
+        "ascend_install_step": "Install nv-action/vllm-benchmark",
+        "test_step": "Run nv-action/vllm-benchmark test",
+    },
+}
+
+_MANIFEST_CACHE: dict[str, dict] | None = None
 
 # Regex to match a 7+ hex-char commit hash (not a vX.Y.Z tag)
 COMMIT_HASH_RE = re.compile(r"^[0-9a-f]{7,40}$")
@@ -186,14 +120,273 @@ TEST_PATH_RE = re.compile(r"\b(tests/[-\w/]+\.py(?:::[\w_]+)*)")
 
 def _resolve_env_for_test_cmd(test_cmd: str) -> dict:
     """Resolve full environment config based on the test file path in test_cmd."""
-    for rule in ENV_RULES:
+    manifest = load_runtime_env_manifest()
+    for rule in PATH_KIND_RULES:
         if re.search(rule["pattern"], test_cmd):
-            return {k: v for k, v in rule.items() if k != "pattern"}
-    # Default fallback: use singlecard e2e config
-    for rule in ENV_RULES:
-        if rule.get("test_type") == "e2e" and "singlecard" in rule["pattern"]:
-            return {k: v for k, v in rule.items() if k != "pattern"}
+            env = manifest.get(rule["kind"])
+            if env:
+                return env
     return {"runner": DEFAULT_RUNNER, "image": DEFAULT_IMAGE, "test_type": "e2e"}
+
+
+def _line_indent(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def _parse_scalar(value: str):
+    value = value.strip()
+    if value == "":
+        return ""
+    if (value.startswith("'") and value.endswith("'")) or (value.startswith('"') and value.endswith('"')):
+        return value[1:-1]
+    if value in {"true", "True"}:
+        return True
+    if value in {"false", "False"}:
+        return False
+    if re.fullmatch(r"\[[^\]]*\]", value):
+        inner = value[1:-1].strip()
+        if not inner:
+            return []
+        return [_parse_scalar(part.strip()) for part in inner.split(",")]
+    return value
+
+
+def _next_content_line(lines: list[str], start: int) -> tuple[int | None, str | None]:
+    i = start
+    while i < len(lines):
+        stripped = lines[i].strip()
+        if stripped and not stripped.startswith("#"):
+            return i, lines[i]
+        i += 1
+    return None, None
+
+
+def _parse_block_scalar(lines: list[str], start: int, indent: int) -> tuple[str, int]:
+    collected: list[str] = []
+    i = start
+    while i < len(lines):
+        raw = lines[i]
+        stripped = raw.strip()
+        current_indent = _line_indent(raw)
+        if stripped == "":
+            collected.append("")
+            i += 1
+            continue
+        if current_indent < indent:
+            break
+        collected.append(raw[indent:])
+        i += 1
+    return "\n".join(collected).rstrip(), i
+
+
+def _parse_mapping(lines: list[str], start: int, indent: int) -> tuple[dict, int]:
+    data: dict = {}
+    i = start
+    while i < len(lines):
+        raw = lines[i]
+        stripped = raw.strip()
+        current_indent = _line_indent(raw)
+        if stripped == "" or stripped.startswith("#"):
+            i += 1
+            continue
+        if current_indent < indent or raw[current_indent:].startswith("- "):
+            break
+        if current_indent != indent:
+            break
+
+        key, sep, remainder = raw[indent:].partition(":")
+        if not sep:
+            break
+        remainder = remainder.lstrip()
+        if remainder == "|":
+            value, i = _parse_block_scalar(lines, i + 1, indent + 2)
+        elif remainder == "":
+            next_idx, next_line = _next_content_line(lines, i + 1)
+            if next_idx is None:
+                value = {}
+                i += 1
+            else:
+                next_indent = _line_indent(next_line)
+                if next_indent <= indent:
+                    value = {}
+                    i += 1
+                elif next_line[next_indent:].startswith("- "):
+                    value, i = _parse_sequence(lines, i + 1, indent + 2)
+                else:
+                    value, i = _parse_mapping(lines, i + 1, indent + 2)
+        else:
+            value = _parse_scalar(remainder)
+            i += 1
+        data[key.strip()] = value
+    return data, i
+
+
+def _parse_sequence(lines: list[str], start: int, indent: int) -> tuple[list, int]:
+    items: list = []
+    i = start
+    while i < len(lines):
+        raw = lines[i]
+        stripped = raw.strip()
+        current_indent = _line_indent(raw)
+        if stripped == "" or stripped.startswith("#"):
+            i += 1
+            continue
+        if current_indent < indent or not raw[indent:].startswith("- "):
+            break
+
+        inline = raw[indent + 2 :]
+        item: dict | str
+        if ":" in inline:
+            key, _, remainder = inline.partition(":")
+            key = key.strip()
+            remainder = remainder.lstrip()
+            item = {}
+            if remainder == "|":
+                value, i = _parse_block_scalar(lines, i + 1, indent + 4)
+            elif remainder == "":
+                next_idx, next_line = _next_content_line(lines, i + 1)
+                if next_idx is None:
+                    value = {}
+                    i += 1
+                else:
+                    next_indent = _line_indent(next_line)
+                    if next_indent <= indent + 2:
+                        value = {}
+                        i += 1
+                    elif next_line[next_indent:].startswith("- "):
+                        value, i = _parse_sequence(lines, i + 1, indent + 4)
+                    else:
+                        value, i = _parse_mapping(lines, i + 1, indent + 4)
+            else:
+                value = _parse_scalar(remainder)
+                i += 1
+            item[key] = value
+            extra, i = _parse_mapping(lines, i, indent + 2)
+            item.update(extra)
+        else:
+            item = _parse_scalar(inline)
+            i += 1
+        items.append(item)
+    return items, i
+
+
+def _load_yaml(path: Path) -> dict:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    data, _ = _parse_mapping(lines, 0, 0)
+    return data
+
+
+def _resolve_inputs(value, with_inputs: dict[str, object] | None):
+    if isinstance(value, str) and with_inputs:
+        match = re.fullmatch(r"\${{\s*inputs\.([A-Za-z0-9_]+)\s*}}", value)
+        if match:
+            return with_inputs.get(match.group(1), value)
+    if isinstance(value, dict):
+        return {k: _resolve_inputs(v, with_inputs) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_resolve_inputs(v, with_inputs) for v in value]
+    return value
+
+
+def _normalize_env(env: dict | None) -> dict[str, str]:
+    if not isinstance(env, dict):
+        return {}
+    return {str(k): str(v) for k, v in env.items()}
+
+
+def _merge_envs(*envs: dict[str, str]) -> dict[str, str]:
+    merged: dict[str, str] = {}
+    for env in envs:
+        merged.update(env)
+    return merged
+
+
+def _format_run_with_env(run: str | None, env: dict[str, str] | None = None) -> str:
+    if not run:
+        return ""
+    env = env or {}
+    exports = [f"export {key}={shlex.quote(value)}" for key, value in env.items()]
+    body = run.strip()
+    return "\n".join(exports + [body]) if exports else body
+
+
+def _get_job(workflow: dict, job_name: str) -> dict:
+    jobs = workflow.get("jobs", {})
+    if not isinstance(jobs, dict) or job_name not in jobs:
+        raise KeyError(f"job not found: {job_name}")
+    job = jobs[job_name]
+    if not isinstance(job, dict):
+        raise TypeError(f"job is not a mapping: {job_name}")
+    return job
+
+
+def _get_step(job: dict, step_name: str) -> dict:
+    for step in job.get("steps", []):
+        if isinstance(step, dict) and step.get("name") == step_name:
+            return step
+    raise KeyError(f"step not found: {step_name}")
+
+
+def _get_caller_inputs(caller_workflow_path: str | None, caller_job_name: str | None) -> dict[str, object]:
+    if not caller_workflow_path or not caller_job_name:
+        return {}
+    workflow = _load_yaml(REPO_ROOT / caller_workflow_path)
+    job = _get_job(workflow, caller_job_name)
+    with_inputs = job.get("with", {})
+    return with_inputs if isinstance(with_inputs, dict) else {}
+
+
+def _extract_profile(kind: str, config: dict) -> dict:
+    workflow = _load_yaml(REPO_ROOT / config["workflow"])
+    caller_inputs = _get_caller_inputs(config.get("caller_workflow"), config.get("caller_job"))
+    job = _get_job(workflow, config["job"])
+    workflow_env = _normalize_env(workflow.get("env"))
+    container = job.get("container", {}) if isinstance(job.get("container"), dict) else {}
+    container_env = _normalize_env(_resolve_inputs(container.get("env", {}), caller_inputs))
+    effective_container_env = _merge_envs(workflow_env, container_env)
+
+    prepare_runs = []
+    for step_name in config.get("prepare_steps", []):
+        prepare_step = _get_step(job, step_name)
+        prepare_runs.append(_format_run_with_env(_resolve_inputs(prepare_step.get("run", ""), caller_inputs)))
+    vllm_install_step = _get_step(job, config["vllm_install_step"])
+    ascend_install_step = _get_step(job, config["ascend_install_step"])
+    test_step = _get_step(job, config["test_step"])
+
+    step_env = _normalize_env(_resolve_inputs(test_step.get("env", {}), caller_inputs))
+    runtime_env = _merge_envs(effective_container_env, step_env)
+
+    profile = {
+        "kind": kind,
+        "test_type": config["test_type"],
+        "runner": str(_resolve_inputs(job.get("runs-on", DEFAULT_RUNNER), caller_inputs)),
+        "image": str(_resolve_inputs(container.get("image", DEFAULT_IMAGE), caller_inputs)),
+        "workflow_env": workflow_env,
+        "container_env": container_env,
+        "effective_container_env": effective_container_env,
+        "sys_deps": "\n".join(part for part in prepare_runs if part),
+        "vllm_install": _format_run_with_env(_resolve_inputs(vllm_install_step.get("run", ""), caller_inputs)),
+        "ascend_install": _format_run_with_env(
+            _resolve_inputs(ascend_install_step.get("run", ""), caller_inputs),
+            _normalize_env(_resolve_inputs(ascend_install_step.get("env", {}), caller_inputs)),
+        ),
+        "runtime_env": runtime_env,
+        "test_step": {
+            "name": str(test_step.get("name", "")),
+            # "if": str(test_step.get("if", "")) if test_step.get("if") is not None else "",
+            "shell": str(test_step.get("shell", "")) if test_step.get("shell") is not None else "",
+            "env": step_env,
+            "run": str(_resolve_inputs(test_step.get("run", ""), caller_inputs)),
+        },
+    }
+    return profile
+
+
+def load_runtime_env_manifest() -> dict[str, dict]:
+    global _MANIFEST_CACHE
+    if _MANIFEST_CACHE is None:
+        _MANIFEST_CACHE = {kind: _extract_profile(kind, config) for kind, config in KIND_SOURCES.items()}
+    return _MANIFEST_CACHE
 
 
 def get_commit_from_yaml(yaml_path: str, ref: str | None = None) -> str | None:
@@ -341,6 +534,15 @@ def build_batch_matrix(test_cmds_str: str) -> dict:
     if not cmds:
         return {"include": []}
 
+    manifest = load_runtime_env_manifest()
+    all_container_env_keys = sorted(
+        {
+            key
+            for profile in manifest.values()
+            for key in profile.get("effective_container_env", {})
+        }
+    )
+
     # Group by (runner, image, test_type) — commands sharing the same env
     groups: dict[tuple[str, str, str], list[str]] = {}
     group_env: dict[tuple[str, str, str], dict] = {}
@@ -352,7 +554,7 @@ def build_batch_matrix(test_cmds_str: str) -> dict:
             group_env[key] = env
         else:
             # Merge container_env and runtime_env from all commands in group
-            for field in ("container_env", "runtime_env"):
+            for field in ("effective_container_env", "runtime_env"):
                 existing = group_env[key].get(field, {})
                 existing.update(env.get(field, {}))
                 group_env[key][field] = existing
@@ -363,9 +565,9 @@ def build_batch_matrix(test_cmds_str: str) -> dict:
         env = group_env[(runner, image, test_type)]
         group_name = f"{test_type}-{runner.split('-')[-1]}"
 
-        # Flatten container_env into individual matrix keys (for YAML static refs)
+        # Flatten effective container env into individual matrix keys (for YAML static refs)
         # Fill all known keys with empty string if not present in this env
-        container_env = env.get("container_env", {})
+        container_env = env.get("effective_container_env", {})
         entry = {
             "group": group_name,
             "runner": runner,
@@ -378,7 +580,7 @@ def build_batch_matrix(test_cmds_str: str) -> dict:
             "runtime_env": json.dumps(env.get("runtime_env", {})),
         }
         # Add each container_env key as a top-level matrix field (cenv_XXX)
-        for k in ALL_CONTAINER_ENV_KEYS:
+        for k in all_container_env_keys:
             entry[f"cenv_{k}"] = container_env.get(k, "")
 
         include.append(entry)
