@@ -266,6 +266,37 @@ class _LegacyGitHubCliAdapter:
             ]
         )
 
+    def dispatch_manual_review(
+        self,
+        *,
+        repo: str,
+        pr_number: int,
+        terminal_reason: str,
+        e2e_run_id: str,
+        fixup_run_id: str,
+        dispatch_token: str,
+    ) -> None:
+        self._runner(
+            [
+                "gh",
+                "workflow",
+                "run",
+                "main2main_manual_review.yaml",
+                "--repo",
+                repo,
+                "-f",
+                f"pr_number={pr_number}",
+                "-f",
+                f"terminal_reason={terminal_reason}",
+                "-f",
+                f"e2e_run_id={e2e_run_id}",
+                "-f",
+                f"fixup_run_id={fixup_run_id}",
+                "-f",
+                f"dispatch_token={dispatch_token}",
+            ]
+        )
+
     def find_latest_fixup_run(
         self,
         *,
@@ -626,6 +657,27 @@ class OrchestratorService:
                 self.sleep_fn(interval_seconds)
         return None
 
+    def _dispatch_manual_review(
+        self,
+        *,
+        state: Main2MainState,
+        terminal_reason: str,
+        e2e_run_url: str | None = None,
+        e2e_run_id: str | None = None,
+        fixup_run_id: str | None = None,
+    ) -> None:
+        dispatch_token = self.token_factory()
+        self.github.dispatch_manual_review(
+            repo=state.repo,
+            pr_number=state.pr_number,
+            terminal_reason=terminal_reason,
+            e2e_run_id=str(e2e_run_id or ""),
+            fixup_run_id=str(fixup_run_id or ""),
+            dispatch_token=dispatch_token,
+        )
+        updated = replace(state, status="manual_review", active_fixup_run_id=None)
+        self.store.register(updated)
+
     def reconcile(self, repo: str, pr_number: int) -> dict[str, str]:
         state = self.store.get(repo, pr_number)
         if state is None:
@@ -685,26 +737,12 @@ class OrchestratorService:
                 run_id=fixup_run["run_id"],
             )
         elif decision.action == "create_manual_review":
-            if self.terminal_enqueue_fn is not None:
-                self.store.register(replace(state, status="pending_terminal", active_fixup_run_id=None))
-                self.terminal_enqueue_fn(
-                    pr_number=pr_number,
-                    repo=repo,
-                    terminal_reason="done_failure",
-                    e2e_run_id=e2e_result["run_id"],
-                    e2e_run_url=e2e_result["run_url"],
-                    fixup_run_id=None,
-                )
-            else:
-                issue = self._build_manual_review_issue(
-                    state=state,
-                    pr_number=pr_number,
-                    terminal_reason="done_failure",
-                    e2e_run_url=e2e_result["run_url"],
-                    e2e_run_id=e2e_result["run_id"],
-                )
-                self.store.register(replace(state, status="manual_review", active_fixup_run_id=None))
-                self.github.create_manual_review_issue(repo=repo, title=issue["title"], body=issue["body"])
+            self._dispatch_manual_review(
+                state=state,
+                terminal_reason="done_failure",
+                e2e_run_url=e2e_result["run_url"],
+                e2e_run_id=e2e_result["run_id"],
+            )
         return {
             "action": decision.action,
             "phase": decision.phase,
@@ -775,30 +813,11 @@ class OrchestratorService:
 
         outcome = self.github.get_fixup_outcome(repo=repo, run_id=fixup_run_id, phase=state.phase)
         if outcome.result == "failed":
-            cleared = replace(state, active_fixup_run_id=None)
-            if self.terminal_enqueue_fn is not None:
-                self.store.register(replace(cleared, status="pending_terminal"))
-                self.terminal_enqueue_fn(
-                    pr_number=pr_number,
-                    repo=repo,
-                    terminal_reason="fixup_failure",
-                    e2e_run_id=None,
-                    e2e_run_url=None,
-                    fixup_run_id=fixup_run_id,
-                )
-            else:
-                issue = self._build_manual_review_issue(
-                    state=state,
-                    pr_number=pr_number,
-                    terminal_reason="fixup_failure",
-                    fixup_run_id=fixup_run_id,
-                )
-                self.store.register(replace(cleared, status="manual_review"))
-                self.github.create_manual_review_issue(
-                    repo=repo,
-                    title=issue["title"],
-                    body=issue["body"],
-                )
+            self._dispatch_manual_review(
+                state=replace(state, active_fixup_run_id=None),
+                terminal_reason="fixup_failure",
+                fixup_run_id=fixup_run_id,
+            )
             return {
                 "action": "create_manual_review",
                 "phase": state.phase,
@@ -828,31 +847,14 @@ class OrchestratorService:
         cleared = replace(updated, active_fixup_run_id=None)
         self.store.register(cleared)
         if state.phase == "3":
-            if self.terminal_enqueue_fn is not None:
-                self.store.register(replace(cleared, status="pending_terminal"))
-                self.terminal_enqueue_fn(
-                    pr_number=pr_number,
-                    repo=repo,
-                    terminal_reason="phase3_no_changes",
-                    e2e_run_id=None,
-                    e2e_run_url=None,
-                    fixup_run_id=fixup_run_id,
-                )
-            else:
-                issue = self._build_manual_review_issue(
-                    state=state,
-                    pr_number=pr_number,
-                    terminal_reason="phase3_no_changes",
-                    fixup_run_id=fixup_run_id,
-                )
-                self.github.create_manual_review_issue(
-                    repo=repo,
-                    title=issue["title"],
-                    body=issue["body"],
-                )
+            self._dispatch_manual_review(
+                state=cleared,
+                terminal_reason="phase3_no_changes",
+                fixup_run_id=fixup_run_id,
+            )
             return {
                 "action": "create_manual_review",
-                "phase": cleared.phase,
+                "phase": "done",
                 "reason": "phase 3 completed without code changes",
             }
         return {

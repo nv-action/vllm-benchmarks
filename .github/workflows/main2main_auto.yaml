@@ -96,6 +96,7 @@ env:
 # ====================================================================
 
 jobs:
+  # Manual review issue creation is handled by main2main_manual_review.yaml.
   # ================================================================
   # Phase 1: Detect & Adapt
   # ================================================================
@@ -298,6 +299,7 @@ jobs:
           gh pr comment "${{ steps.pr.outputs.number }}" \
             --repo "${{ env.UPSTREAM_REPO }}" \
             --body-file /tmp/main2main_register_comment.md
+
 
   # ================================================================
   # Fixup: Explicit Phase 2 & Phase 3 executor

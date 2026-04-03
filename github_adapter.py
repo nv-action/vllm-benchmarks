@@ -118,6 +118,37 @@ class GitHubCliAdapter:
             ]
         )
 
+    def dispatch_manual_review(
+        self,
+        *,
+        repo: str,
+        pr_number: int,
+        terminal_reason: str,
+        e2e_run_id: str,
+        fixup_run_id: str,
+        dispatch_token: str,
+    ) -> None:
+        self._runner(
+            [
+                "gh",
+                "workflow",
+                "run",
+                "main2main_manual_review.yaml",
+                "--repo",
+                repo,
+                "-f",
+                f"pr_number={pr_number}",
+                "-f",
+                f"terminal_reason={terminal_reason}",
+                "-f",
+                f"e2e_run_id={e2e_run_id}",
+                "-f",
+                f"fixup_run_id={fixup_run_id}",
+                "-f",
+                f"dispatch_token={dispatch_token}",
+            ]
+        )
+
     def find_latest_fixup_run(
         self,
         *,
