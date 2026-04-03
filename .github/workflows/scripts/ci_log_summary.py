@@ -19,7 +19,7 @@ Examples:
     python3 .github/workflows/scripts/ci_log_summary.py --run-id 23127187822 --format json
 """
 
-REPO = "nv-action/vllm-benchmark"
+REPO = "nv-action/vllm-benchmarks"
 _RUN_SUITE_START_RE = re.compile(r"\[\d+/\d+\]\s+START\s+(tests/\S+)")
 _RUN_SUITE_END_RE = re.compile(r"\[\d+/\d+\]\s+(?:PASSED|FAILED \(exit code \d+\))\s+(tests/\S+)")
 _RUN_SUITE_FAILED_TARGET_RE = re.compile(r"\[\d+/\d+\]\s+FAILED \(exit code \d+\)\s+(tests/\S+)")
@@ -1032,9 +1032,7 @@ def select_representative_test_cases(distinct_errors: list[dict]) -> list[str]:
         if not cases:
             continue
 
-        selected = next((test_case for test_case in cases if test_case not in used_cases), None)
-        if selected is None:
-            continue
+        selected = next((test_case for test_case in cases if test_case not in used_cases), cases[0])
         representatives.append(selected)
         used_cases.add(selected)
 
