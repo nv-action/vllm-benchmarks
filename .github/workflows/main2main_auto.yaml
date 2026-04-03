@@ -225,7 +225,7 @@ jobs:
             The upstream vLLM source is checked out at ../vllm-upstream.
             Analyze the upstream diff, apply adaptation fixes, and update all commit references.
             Commit your changes with '-s' but do NOT create a PR — the orchestrator handles that.
-          claude_args: "--model glm-5 --max-budget-usd 20.0 --dangerously-skip-permissions --allowed-tools 'Bash(git *),Bash(gh *),Bash(grep *),Bash(sed *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
+          claude_args: "--model qwen/qwen3.6-plus:free --dangerously-skip-permissions --allowed-tools 'Bash(git *),Bash(gh *),Bash(grep *),Bash(sed *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
           show_full_output: true
         env:
           OLD_COMMIT: ${{ steps.detect.outputs.old_commit }}
@@ -497,7 +497,7 @@ jobs:
 
             The skill will handle log extraction and error analysis via ci_log_summary.py.
             Commit all fixes with '-s' but do NOT create a PR or branch — the orchestrator handles that.
-          claude_args: "--model glm-5 --max-budget-usd 20.0 --dangerously-skip-permissions --allowed-tools 'Bash(git *),Bash(gh *),Bash(grep *),Bash(sed *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
+          claude_args: "--model qwen/qwen3.6-plus:free --dangerously-skip-permissions --allowed-tools 'Bash(git *),Bash(gh *),Bash(grep *),Bash(sed *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
           show_full_output: true
         env:
           CLAUDE_WORKING_DIR: ${{ github.workspace }}/vllm-benchmarks
@@ -516,7 +516,7 @@ jobs:
           python3 .github/workflows/scripts/ci_log_summary.py \
             --repo "${{ env.UPSTREAM_REPO }}" \
             --run-id "${{ steps.ctx.outputs.run_id }}" \
-            --format json \
+            --format bisect-json \
             --output /tmp/ci_analysis.json
 
           TEST_CMDS=$(python3 -c "
@@ -528,14 +528,12 @@ jobs:
               print('')
               raise SystemExit(0)
 
-          tests = list(dict.fromkeys(data.get('failed_test_cases', [])))
-          if tests:
-              print('; '.join(f'pytest -sv {t}' for t in tests[:5]))
+          print(data.get('test_cmd', ''))
           " 2>/dev/null)
 
           # Final fallback: stable default commands to guarantee bisect dispatch.
           if [ -z "$TEST_CMDS" ]; then
-            echo "::notice::No failed_test_cases found in ci_analysis.json. Falling back to default bisect test commands."
+            echo "::notice::No representative test_cmd found in ci_analysis.json. Falling back to default bisect test commands."
             TEST_CMDS="pytest -sv tests/e2e/singlecard/test_aclgraph_accuracy.py; pytest -sv tests/e2e/multicard/4-cards/long_sequence/test_accuracy.py"
           fi
 
@@ -614,7 +612,7 @@ jobs:
             - Phase 4: Apply targeted fixes using the documented error patterns.
 
             Commit all fixes with '-s' but do NOT create a PR or branch.
-          claude_args: "--model glm-5 --max-budget-usd 10.0 --dangerously-skip-permissions --allowed-tools 'Bash(git *),Bash(gh *),Bash(grep *),Bash(sed *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
+          claude_args: "--model qwen/qwen3.6-plus:free --dangerously-skip-permissions --allowed-tools 'Bash(git *),Bash(gh *),Bash(grep *),Bash(sed *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
           show_full_output: true
         env:
           CLAUDE_WORKING_DIR: ${{ github.workspace }}/vllm-benchmarks
