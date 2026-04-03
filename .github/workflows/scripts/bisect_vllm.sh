@@ -15,322 +15,249 @@
 # limitations under the License.
 # This file is a part of the vllm-ascend project.
 #
-# bisect_vllm.sh - Automatically bisect vllm commits to find the first
-# commit that breaks a given vllm-ascend test case.
-#
-# Usage:
-#   bisect_vllm.sh \
-#     --good <commit>          # Known good vllm commit (default: auto from origin/main)
-#     --bad  <commit>          # Known bad vllm commit  (default: auto from current branch)
-#     --test-cmd "<cmd>"       # The pytest command that is failing
-#     [--vllm-repo <path>]     # vllm repo path (default: auto-detect via pip show, fallback ./vllm-empty)
-#     [--ascend-repo <path>]   # vllm-ascend repo path (default: .)
-#     [--fetch-depth 500]      # git fetch depth (default: 500, increase if commits not reachable)
-#     [--step-timeout 600]     # Per-step timeout in seconds (default: 600)
-#     [--total-timeout 7200]   # Total timeout in seconds (default: 7200)
-#     [--env "K1=V1 K2=V2"]   # Extra environment variables for the test command
-#     [--test-cmds-file <path>]# File with semicolon-separated test commands (batch mode)
-#
-# Examples:
-#   # With environment variables in --test-cmd (inline style):
-#   ./.github/workflows/scripts/bisect_vllm.sh \
-#     --test-cmd "VLLM_WORKER_MULTIPROC_METHOD=spawn VLLM_USE_MODELSCOPE=true pytest -sv tests/e2e/multicard/4-cards/long_sequence/test_accuracy.py"
-#
-#   # Or use --env to set environment variables separately:
-#   ./.github/workflows/scripts/bisect_vllm.sh \
-#     --env "VLLM_WORKER_MULTIPROC_METHOD=spawn VLLM_USE_MODELSCOPE=true" \
-#     --test-cmd "pytest -sv tests/e2e/multicard/4-cards/long_sequence/test_accuracy.py"
-#
-#   # Specify commits explicitly:
-#   ./.github/workflows/scripts/bisect_vllm.sh \
-#     --good abc1234 --bad def5678 \
-#     --test-cmd "pytest -sv tests/e2e/singlecard/test_models.py"
-#
-#   # Use branch/tag names (resolved via git rev-parse):
-#   ./tools/bisect_vllm.sh --good v0.14.1 --bad main \
-#     --test-cmd "pytest -sv tests/ut/worker/"
-#
-#   # Batch mode - bisect multiple test commands sequentially:
-#   ./tools/bisect_vllm.sh --no-fetch \
-#     --good abc1234 --bad def5678 \
-#     --vllm-repo /path/to/vllm \
-#     --test-cmds-file /tmp/cmds.txt
+# Automatically bisect vllm commits to find the first commit that breaks a
+# vllm-ascend test case. Supports both local and CI execution.
 
 set -euo pipefail
 
-# ============================================================================
-# Constants
-# ============================================================================
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HELPER_SCRIPT="${SCRIPT_DIR}/bisect_helper.py"
 BISECT_LOG_FILE="/tmp/bisect_log.json"
 BISECT_VERDICT_FILE="/tmp/bisect_verdict.txt"
-
-# Detect if running in CI or locally
 IS_GITHUB_ACTIONS="${GITHUB_ACTIONS:-false}"
 
-# Colors for terminal output (disable if not a terminal or in CI log)
 if [[ -t 1 ]] || [[ "${IS_GITHUB_ACTIONS}" == "true" ]]; then
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    YELLOW='\033[1;33m'
-    BLUE='\033[0;34m'
-    BOLD='\033[1m'
-    NC='\033[0m'
+    RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+    BLUE='\033[0;34m'; BOLD='\033[1m'; NC='\033[0m'
 else
-    RED=''
-    GREEN=''
-    YELLOW=''
-    BLUE=''
-    BOLD=''
-    NC=''
+    RED=''; GREEN=''; YELLOW=''; BLUE=''; BOLD=''; NC=''
 fi
 
-# ============================================================================
-# Default values
-# ============================================================================
 GOOD_COMMIT=""
 BAD_COMMIT=""
 TEST_CMD=""
 VLLM_REPO=""
 ASCEND_REPO=""
-FETCH_DEPTH=500
-STEP_TIMEOUT=600
-TOTAL_TIMEOUT=7200
+FETCH_DEPTH=0
+STEP_TIMEOUT=1800
+TOTAL_TIMEOUT=20400
 EXTRA_ENV=""
 NO_FETCH=false
 TEST_CMDS_FILE=""
+SKIPPED_COMMITS=""
+FORCE_REINSTALL=false
 
-# ============================================================================
-# Logging helpers
-# ============================================================================
 log_info()  { echo -e "${BLUE}[INFO]${NC} $*"; }
 log_ok()    { echo -e "${GREEN}[OK]${NC} $*"; }
-log_warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
+log_warn()  { echo -e "${YELLOW}[WARN]${NC} $*" >&2; }
+log_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 log_step()  { echo -e "${BOLD}${BLUE}==>${NC}${BOLD} $*${NC}"; }
+die()       { log_error "$*"; exit 1; }
+reset_bisect() { git -C "${VLLM_REPO}" bisect reset --quiet 2>/dev/null || true; }
+canonicalize_dir() { (cd "$1" && pwd -P) 2>/dev/null; }
 
-# ============================================================================
-# Usage
-# ============================================================================
 usage() {
     cat <<'EOF'
 Usage: bisect_vllm.sh [OPTIONS]
 
 Required (one of):
   --test-cmd <cmd>          The failing pytest command (single mode)
-  --test-cmds-file <path>   File with semicolon-separated test commands (batch mode).
-                            Environment variables can be included inline:
-                            "VLLM_WORKER_MULTIPROC_METHOD=spawn pytest -sv ..."
+  --test-cmds-file <path>   File with semicolon-separated test commands (batch mode)
 
 Optional:
   --good <commit>           Known good vllm commit (default: auto from origin/main)
   --bad  <commit>           Known bad vllm commit  (default: auto from current branch)
-  --vllm-repo <path>        Path to vllm repo (default: auto-detect via pip show, fallback ./vllm-empty)
-  --ascend-repo <path>      Path to vllm-ascend repo (default: auto-detect via pip show, fallback .)
+  --vllm-repo <path>        Path to vllm repo (auto-detect via pip show, fallback ./vllm-empty)
+  --ascend-repo <path>      Path to vllm-ascend repo (auto-detect via pip show, fallback .)
   --env "K=V K2=V2"         Extra environment variables for the test command
-  --fetch-depth <N>         Git fetch depth (default: 500, increase if commits not reachable)
-  --no-fetch                Skip git fetch (use local repo history as-is, useful for local runs)
-  --step-timeout <seconds>  Per-step timeout (default: 600)
-  --total-timeout <seconds> Total timeout (default: 7200)
+  --fetch-depth <N>         Git fetch depth (default: 500)
+  --no-fetch                Skip git fetch and use local repo history as-is
+  --step-timeout <seconds>  Per-step timeout (default: 1800)
+  --total-timeout <seconds> Total timeout (default: 14400)
   -h, --help                Show this help message
+
+Examples:
+  ./.github/workflows/scripts/bisect_vllm.sh \
+    --test-cmd "VLLM_WORKER_MULTIPROC_METHOD=spawn pytest -sv tests/e2e/multicard/4-cards/long_sequence/test_accuracy.py"
+  ./.github/workflows/scripts/bisect_vllm.sh \
+    --good abc1234 --bad def5678 --test-cmd "pytest -sv tests/e2e/singlecard/test_models.py"
+  ./.github/workflows/scripts/bisect_vllm.sh \
+    --no-fetch --good abc1234 --bad def5678 --vllm-repo /path/to/vllm --test-cmds-file /tmp/cmds.txt
 
 Commit can be specified as: hash, branch name, tag (e.g. v0.15.0), or HEAD~N.
 EOF
     exit 0
 }
 
-# ============================================================================
-# Parse arguments
-# ============================================================================
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --good)          GOOD_COMMIT="$2"; shift 2 ;;
-            --bad)           BAD_COMMIT="$2";  shift 2 ;;
-            --test-cmd)      TEST_CMD="$2";    shift 2 ;;
+            --good) GOOD_COMMIT="$2"; shift 2 ;;
+            --bad) BAD_COMMIT="$2"; shift 2 ;;
+            --test-cmd) TEST_CMD="$2"; shift 2 ;;
             --test-cmds-file) TEST_CMDS_FILE="$2"; shift 2 ;;
-            --vllm-repo)     VLLM_REPO="$2";   shift 2 ;;
-            --ascend-repo)   ASCEND_REPO="$2";  shift 2 ;;
-            --env)           EXTRA_ENV="$2";    shift 2 ;;
-            --fetch-depth)   FETCH_DEPTH="$2";  shift 2 ;;
-            --no-fetch)      NO_FETCH=true;     shift ;;
-            --step-timeout)  STEP_TIMEOUT="$2"; shift 2 ;;
+            --vllm-repo) VLLM_REPO="$2"; shift 2 ;;
+            --ascend-repo) ASCEND_REPO="$2"; shift 2 ;;
+            --env) EXTRA_ENV="$2"; shift 2 ;;
+            --fetch-depth) FETCH_DEPTH="$2"; shift 2 ;;
+            --no-fetch) NO_FETCH=true; shift ;;
+            --step-timeout) STEP_TIMEOUT="$2"; shift 2 ;;
             --total-timeout) TOTAL_TIMEOUT="$2"; shift 2 ;;
-            -h|--help)       usage ;;
-            *)
-                log_error "Unknown option: $1"
-                usage
-                ;;
+            -h|--help) usage ;;
+            *) die "Unknown option: $1" ;;
         esac
     done
 
     if [[ -z "${TEST_CMD}" && -z "${TEST_CMDS_FILE}" ]]; then
-        log_error "--test-cmd or --test-cmds-file is required"
-        usage
+        die "--test-cmd or --test-cmds-file is required"
     fi
-
     if [[ -n "${TEST_CMDS_FILE}" && ! -f "${TEST_CMDS_FILE}" ]]; then
-        log_error "Test commands file not found: ${TEST_CMDS_FILE}"
-        exit 1
+        die "Test commands file not found: ${TEST_CMDS_FILE}"
     fi
 }
 
-# ============================================================================
-# Auto-detect paths
-# ============================================================================
+# Repo auto-detection keeps local usage simple while still matching the CI layout.
 detect_vllm_repo() {
+    local resolved
     if [[ -n "${VLLM_REPO}" ]]; then
+        resolved=$(canonicalize_dir "${VLLM_REPO}") || die "vllm repo path does not exist: ${VLLM_REPO}"
+        VLLM_REPO="${resolved}"
         log_info "Using specified vllm repo: ${VLLM_REPO}"
         return
     fi
-
-    # Try pip show first (helper prefers Editable project location)
     local pip_location
     pip_location=$(python3 "${HELPER_SCRIPT}" vllm-location 2>/dev/null || true)
     if [[ -n "${pip_location}" && -d "${pip_location}" ]]; then
-        VLLM_REPO="${pip_location}"
+        VLLM_REPO=$(canonicalize_dir "${pip_location}") || die "Auto-detected vllm repo path does not exist: ${pip_location}"
         log_info "Auto-detected vllm repo via pip show: ${VLLM_REPO}"
         return
     fi
-
-    # Fallback to ./vllm-empty (CI convention)
-    if [[ -d "./vllm-empty" ]]; then
-        VLLM_REPO="./vllm-empty"
-        log_info "Using default vllm repo path: ${VLLM_REPO}"
-    else
-        log_error "Cannot detect vllm repo path. Use --vllm-repo to specify."
-        exit 1
-    fi
+    [[ -d "./vllm-empty" ]] || die "Cannot detect vllm repo path. Use --vllm-repo to specify."
+    VLLM_REPO=$(canonicalize_dir "./vllm-empty") || die "Default vllm repo path does not exist: ./vllm-empty"
+    log_info "Using default vllm repo path: ${VLLM_REPO}"
 }
 
 detect_ascend_repo() {
+    local resolved
     if [[ -n "${ASCEND_REPO}" ]]; then
+        resolved=$(canonicalize_dir "${ASCEND_REPO}") || die "vllm-ascend repo path does not exist: ${ASCEND_REPO}"
+        ASCEND_REPO="${resolved}"
         log_info "Using specified vllm-ascend repo: ${ASCEND_REPO}"
         return
     fi
-
-    # Try pip show (prefer Editable project location, fallback to Location)
     local pip_location
     pip_location=$(pip show vllm-ascend 2>/dev/null \
-        | grep -E "^(Editable project location|Location):" \
-        | head -1 | sed 's/^[^:]*: *//' || true)
+        | awk -F': ' '
+            /^Editable project location:/ { editable=$2 }
+            /^Location:/ && !location { location=$2 }
+            END { print editable ? editable : location }
+        ' || true)
     if [[ -n "${pip_location}" && -d "${pip_location}" ]]; then
-        ASCEND_REPO="${pip_location}"
+        ASCEND_REPO=$(canonicalize_dir "${pip_location}") || die "Auto-detected vllm-ascend repo path does not exist: ${pip_location}"
         log_info "Auto-detected vllm-ascend repo via pip show: ${ASCEND_REPO}"
         return
     fi
-
-    # Default to current directory
-    ASCEND_REPO="."
+    ASCEND_REPO=$(canonicalize_dir ".") || die "Cannot resolve current directory for vllm-ascend repo"
     log_info "Using default vllm-ascend repo path: ${ASCEND_REPO}"
 }
 
-# ============================================================================
-# Auto-detect commits
-# ============================================================================
-detect_commits() {
-    local yaml_path="${ASCEND_REPO}/.github/workflows/pr_test_light.yaml"
-
-    if [[ -z "${GOOD_COMMIT}" ]]; then
-        log_info "Auto-detecting good commit from origin/main..."
-        GOOD_COMMIT=$(python3 "${HELPER_SCRIPT}" get-commit \
-            --yaml-path "${yaml_path}" --ref origin/main 2>/dev/null || true)
-        if [[ -z "${GOOD_COMMIT}" ]]; then
+detect_commit_from_yaml() {
+    local target_var="$1" label="$2" yaml_path="$3" ref="${4:-}"
+    local args=(--yaml-path "${yaml_path}")
+    [[ -n "${ref}" ]] && args+=(--ref "${ref}")
+    local commit
+    commit=$(python3 "${HELPER_SCRIPT}" get-commit "${args[@]}" 2>/dev/null || true)
+    if [[ -z "${commit}" ]]; then
+        if [[ "${label}" == "good" ]]; then
             log_error "Cannot auto-detect good commit."
             log_warn "This can happen when running locally without origin/main."
             log_warn "Use --good <commit> to specify the known good vllm commit."
-            exit 1
-        fi
-        log_ok "Good commit (from origin/main): ${GOOD_COMMIT}"
-    fi
-
-    if [[ -z "${BAD_COMMIT}" ]]; then
-        log_info "Auto-detecting bad commit from current branch..."
-        BAD_COMMIT=$(python3 "${HELPER_SCRIPT}" get-commit \
-            --yaml-path "${yaml_path}" 2>/dev/null || true)
-        if [[ -z "${BAD_COMMIT}" ]]; then
+        else
             log_error "Cannot auto-detect bad commit."
             log_warn "Use --bad <commit> to specify the known bad vllm commit."
-            exit 1
         fi
-        log_ok "Bad commit (from current branch): ${BAD_COMMIT}"
+        exit 1
+    fi
+    printf -v "${target_var}" '%s' "${commit}"
+    log_ok "${label^} commit${ref:+ (${ref})}: ${commit}"
+}
+
+detect_commits() {
+    local yaml_path="${ASCEND_REPO}/.github/workflows/pr_test_light.yaml"
+    if [[ -z "${GOOD_COMMIT}" ]]; then
+        log_info "Auto-detecting good commit from origin/main..."
+        detect_commit_from_yaml GOOD_COMMIT "good" "${yaml_path}" "origin/main"
+    fi
+    if [[ -z "${BAD_COMMIT}" ]]; then
+        log_info "Auto-detecting bad commit from current branch..."
+        detect_commit_from_yaml BAD_COMMIT "bad" "${yaml_path}"
     fi
 }
 
-# ============================================================================
-# Resolve commit references (branch/tag/HEAD~N) to full hash.
-# Validates that the resolved object is actually a commit.
-# ============================================================================
+# Resolve branch/tag/HEAD~N inputs to concrete commits and validate reachability.
 resolve_commit() {
-    local ref="$1"
-    local label="$2"
-    local resolved
-
-    # First try rev-parse directly
+    local ref="$1" label="$2" resolved obj_type
     resolved=$(git -C "${VLLM_REPO}" rev-parse --verify "${ref}^{commit}" 2>/dev/null || true)
-    if [[ -z "${resolved}" ]]; then
-        # Try with origin/ prefix for remote branches
-        resolved=$(git -C "${VLLM_REPO}" rev-parse --verify "origin/${ref}^{commit}" 2>/dev/null || true)
-    fi
-
+    [[ -z "${resolved}" ]] && resolved=$(git -C "${VLLM_REPO}" rev-parse --verify "origin/${ref}^{commit}" 2>/dev/null || true)
     if [[ -z "${resolved}" ]]; then
         log_error "Cannot resolve ${label} commit '${ref}'."
-        log_error "The commit is not reachable in the current repo history."
         log_warn "Possible causes:"
         log_warn "  - The commit hash is incorrect"
         log_warn "  - The commit is outside --fetch-depth ${FETCH_DEPTH} (try --fetch-depth 0 for full history)"
         log_warn "  - Running locally without remote; use --no-fetch and ensure history is available"
-        exit 1
+        return 1
     fi
-
-    # Double-check it's a commit object
-    local obj_type
     obj_type=$(git -C "${VLLM_REPO}" cat-file -t "${resolved}" 2>/dev/null || true)
-    if [[ "${obj_type}" != "commit" ]]; then
-        log_error "'${ref}' resolves to a ${obj_type:-unknown} object, not a commit."
-        exit 1
-    fi
-
+    [[ "${obj_type}" == "commit" ]] || die "'${ref}' resolves to a ${obj_type:-unknown} object, not a commit."
     echo "${resolved}"
 }
 
-# ============================================================================
-# Prepare vllm repo for bisect
-# ============================================================================
-prepare_vllm_repo() {
-    log_step "Preparing vllm repo for bisect"
-
-    # Fetch enough history for bisect (skip if --no-fetch)
+fetch_vllm_history() {
     if [[ "${NO_FETCH}" == "true" ]]; then
         log_info "Skipping git fetch (--no-fetch specified)"
-    else
-        log_info "Fetching vllm history (depth=${FETCH_DEPTH})..."
-        if [[ "${FETCH_DEPTH}" == "0" ]]; then
-            git -C "${VLLM_REPO}" fetch origin --unshallow 2>/dev/null \
-                || git -C "${VLLM_REPO}" fetch origin 2>/dev/null \
-                || log_warn "git fetch failed; continuing with existing history"
-        else
-            git -C "${VLLM_REPO}" fetch origin --depth="${FETCH_DEPTH}" 2>/dev/null \
-                || git -C "${VLLM_REPO}" fetch origin 2>/dev/null \
-                || log_warn "git fetch failed; continuing with existing history"
-        fi
+        return
     fi
+    log_info "Fetching vllm history (depth=${FETCH_DEPTH})..."
+    if [[ "${FETCH_DEPTH}" == "0" ]]; then
+        git -C "${VLLM_REPO}" fetch origin --unshallow 2>/dev/null \
+            || git -C "${VLLM_REPO}" fetch origin 2>/dev/null \
+            || log_warn "git fetch failed; continuing with existing history"
+    else
+        git -C "${VLLM_REPO}" fetch origin --depth="${FETCH_DEPTH}" 2>/dev/null \
+            || git -C "${VLLM_REPO}" fetch origin 2>/dev/null \
+            || log_warn "git fetch failed; continuing with existing history"
+    fi
+}
 
-    # Resolve commits to full hashes
-    GOOD_COMMIT=$(resolve_commit "${GOOD_COMMIT}" "good")
-    BAD_COMMIT=$(resolve_commit "${BAD_COMMIT}" "bad")
+ensure_clean_vllm_repo() {
+    local git_dir
+    git_dir=$(git -C "${VLLM_REPO}" rev-parse --git-dir 2>/dev/null) \
+        || die "vllm repo is not a valid git repository: ${VLLM_REPO}"
+    if [[ -d "${git_dir}/rebase-merge" || -d "${git_dir}/rebase-apply" ]]; then
+        die "vllm repo has an in-progress rebase. Abort or finish it before bisecting."
+    fi
+    if [[ -n "$(git -C "${VLLM_REPO}" diff --name-only --diff-filter=U 2>/dev/null || true)" ]]; then
+        die "vllm repo has uncommitted or unmerged changes. Clean the worktree before bisecting."
+    fi
+    if [[ -n "$(git -C "${VLLM_REPO}" status --porcelain 2>/dev/null || true)" ]]; then
+        die "vllm repo has uncommitted or unmerged changes. Clean the worktree before bisecting."
+    fi
+}
 
-    log_ok "Good commit resolved: ${GOOD_COMMIT}"
-    log_ok "Bad commit resolved:  ${BAD_COMMIT}"
-
-    # Verify good != bad
-    if [[ "${GOOD_COMMIT}" == "${BAD_COMMIT}" ]]; then
-        log_error "Good and bad commits are the same (${GOOD_COMMIT:0:12}). Nothing to bisect."
+prepare_vllm_repo() {
+    log_step "Preparing vllm repo for bisect"
+    ensure_clean_vllm_repo
+    fetch_vllm_history
+    if ! GOOD_COMMIT=$(resolve_commit "${GOOD_COMMIT}" "good"); then
         exit 1
     fi
+    if ! BAD_COMMIT=$(resolve_commit "${BAD_COMMIT}" "bad"); then
+        exit 1
+    fi
+    log_ok "Good commit resolved: ${GOOD_COMMIT}"
+    log_ok "Bad commit resolved:  ${BAD_COMMIT}"
+    [[ "${GOOD_COMMIT}" != "${BAD_COMMIT}" ]] || die "Good and bad commits are the same (${GOOD_COMMIT:0:12}). Nothing to bisect."
 
-    # Verify commits are in ancestor relationship
     local commit_count
     commit_count=$(git -C "${VLLM_REPO}" rev-list --count "${GOOD_COMMIT}..${BAD_COMMIT}" 2>/dev/null || echo "0")
     if [[ "${commit_count}" == "0" ]]; then
@@ -342,244 +269,79 @@ prepare_vllm_repo() {
     log_info "Commits in range: ${commit_count}"
 }
 
-# ============================================================================
-# Check if setup files changed between two commits
-# ============================================================================
 setup_files_changed() {
-    local commit="$1"
-    local prev_commit="$2"
-
-    local changed
+    local commit="$1" prev_commit="$2" changed
     changed=$(git -C "${VLLM_REPO}" diff --name-only "${prev_commit}" "${commit}" -- \
         setup.py pyproject.toml setup.cfg requirements*.txt 2>/dev/null || true)
-
     [[ -n "${changed}" ]]
 }
 
-# ============================================================================
-# Run the test command.
-# Pytest output goes directly to the terminal (stdout/stderr) so that
-# ``pytest -sv`` logs are visible in real time.
-# The verdict ("good", "bad", or "skip") is written to BISECT_VERDICT_FILE
-# so the caller can read it without swallowing pytest output via $().
-# ============================================================================
+# Pytest output stays attached to the terminal. The verdict is written to a file
+# so callers can inspect it without swallowing test output.
 run_test() {
-    local exit_code=0
-    local saved_dir
+    local exit_code=0 saved_dir full_cmd
     saved_dir="$(pwd)"
-
     cd "${ASCEND_REPO}"
-
-    # Build the command with optional extra env vars
-    local full_cmd="${TEST_CMD}"
-    if [[ -n "${EXTRA_ENV}" ]]; then
-        full_cmd="${EXTRA_ENV} ${full_cmd}"
-    fi
-
+    full_cmd="${TEST_CMD}"
+    [[ -n "${EXTRA_ENV}" ]] && full_cmd="${EXTRA_ENV} ${full_cmd}"
     log_info "Running: ${full_cmd}"
-
-    # Run test with timeout; output goes directly to terminal
     timeout "${STEP_TIMEOUT}" bash -c "${full_cmd}" || exit_code=$?
-
     cd "${saved_dir}"
 
-    # Write verdict to file (NOT stdout) so pytest output is not swallowed
-    if [[ ${exit_code} -eq 0 ]]; then
-        echo "good" > "${BISECT_VERDICT_FILE}"
-    elif [[ ${exit_code} -eq 124 ]]; then
-        # timeout exit code
-        log_warn "Test timed out after ${STEP_TIMEOUT}s"
-        echo "skip" > "${BISECT_VERDICT_FILE}"
+    case "${exit_code}" in
+        0) echo "good" > "${BISECT_VERDICT_FILE}" ;;
+        124)
+            log_warn "Test timed out after ${STEP_TIMEOUT}s"
+            echo "skip" > "${BISECT_VERDICT_FILE}"
+            ;;
+        *) echo "bad" > "${BISECT_VERDICT_FILE}" ;;
+    esac
+}
+
+get_vllm_install_cmd() {
+    python3 "${HELPER_SCRIPT}" vllm-install --test-cmd "${TEST_CMD}" 2>/dev/null || true
+}
+
+get_ascend_install_cmd() {
+    python3 "${HELPER_SCRIPT}" ascend-install --test-cmd "${TEST_CMD}" 2>/dev/null || true
+}
+
+fix_triton_install() {
+    python3 -m pip uninstall -y triton triton-ascend >/dev/null 2>&1 || true
+    python3 -m pip install -q triton-ascend==3.2.0
+}
+
+print_install_failure_log() {
+    local label="$1" log_file="$2"
+    log_warn "${label} log tail:"
+    if [[ -f "${log_file}" ]]; then
+        tail -n 100 "${log_file}" >&2 || true
     else
-        echo "bad" > "${BISECT_VERDICT_FILE}"
+        log_warn "No reinstall log captured at ${log_file}"
     fi
-    return 0
 }
 
-# ============================================================================
-# Main bisect loop
-# ============================================================================
-run_bisect() {
-    log_step "Starting bisect: good=${GOOD_COMMIT:0:12} bad=${BAD_COMMIT:0:12}"
-
-    # Initialize bisect
-    if ! git -C "${VLLM_REPO}" bisect start "${BAD_COMMIT}" "${GOOD_COMMIT}" --no-checkout 2>/dev/null; then
-        log_error "Failed to initialize git bisect. Check that good/bad commits are valid."
-        exit 1
-    fi
-
-    # Track state for reporting
-    local step=0
-    local skipped_commits=""
-    local prev_commit="${GOOD_COMMIT}"
-    local start_time
-    start_time=$(date +%s)
-
-    # Initialize log file
-    echo "[]" > "${BISECT_LOG_FILE}"
-
-    while true; do
-        step=$((step + 1))
-
-        # Check total timeout
-        local elapsed=$(( $(date +%s) - start_time ))
-        if [[ ${elapsed} -ge ${TOTAL_TIMEOUT} ]]; then
-            log_error "Total timeout (${TOTAL_TIMEOUT}s) reached after ${step} steps"
-            git -C "${VLLM_REPO}" bisect reset 2>/dev/null || true
-            exit 1
-        fi
-
-        # Get current bisect commit
-        local current_commit
-        current_commit=$(git -C "${VLLM_REPO}" rev-parse BISECT_HEAD 2>/dev/null || true)
-
-        if [[ -z "${current_commit}" ]]; then
-            log_info "Bisect completed (no more BISECT_HEAD)"
-            break
-        fi
-
-        local short_commit="${current_commit:0:12}"
-        local commit_msg
-        commit_msg=$(git -C "${VLLM_REPO}" log -1 --format="%s" "${current_commit}" 2>/dev/null || echo "(unable to read commit message)")
-
-        echo ""
-        log_step "Step ${step}: testing commit ${short_commit} - ${commit_msg}"
-        echo ""
-
-        # Checkout the commit
-        if ! git -C "${VLLM_REPO}" checkout "${current_commit}" --quiet 2>/dev/null; then
-            log_warn "Failed to checkout ${short_commit}, skipping"
-            git -C "${VLLM_REPO}" bisect skip 2>/dev/null || true
-            _append_log "${step}" "${short_commit}" "skip"
-            skipped_commits="${skipped_commits:+${skipped_commits},}${short_commit}"
-            prev_commit="${current_commit}"
-            continue
-        fi
-
-        # Check if setup files changed → reinstall if needed
-        if setup_files_changed "${current_commit}" "${prev_commit}"; then
-            log_warn "Setup files changed, reinstalling vllm..."
-            local saved_dir
-            saved_dir="$(pwd)"
-            cd "${VLLM_REPO}"
-            VLLM_TARGET_DEVICE=empty pip install -e . --quiet 2>/dev/null || {
-                log_warn "pip install failed for ${short_commit}, skipping"
-                cd "${saved_dir}"
-                git -C "${VLLM_REPO}" bisect skip 2>/dev/null || true
-
-                _append_log "${step}" "${short_commit}" "skip"
-                skipped_commits="${skipped_commits:+${skipped_commits},}${short_commit}"
-                prev_commit="${current_commit}"
-                continue
-            }
-            cd "${saved_dir}"
-        fi
-
-        # Run the test — output goes directly to terminal
-        run_test
-
-        # Read verdict from file
-        local result
-        result=$(cat "${BISECT_VERDICT_FILE}" 2>/dev/null || echo "bad")
-
-        echo ""
-        log_info "Step ${step}: commit ${short_commit} → ${result}"
-
-        # Feed result back to git bisect and capture exit code
-        local bisect_output
-        local bisect_rc=0
-        case "${result}" in
-            good)
-                bisect_output=$(git -C "${VLLM_REPO}" bisect good 2>&1) || bisect_rc=$?
-                ;;
-            bad)
-                bisect_output=$(git -C "${VLLM_REPO}" bisect bad 2>&1) || bisect_rc=$?
-                ;;
-            skip)
-                bisect_output=$(git -C "${VLLM_REPO}" bisect skip 2>&1) || bisect_rc=$?
-                skipped_commits="${skipped_commits:+${skipped_commits},}${short_commit}"
-                ;;
-            *)
-                log_error "Unexpected test result: '${result}' for commit ${short_commit}"
-                git -C "${VLLM_REPO}" bisect reset --quiet 2>/dev/null || true
-                return 1
-                ;;
-        esac
-
-        # Log entry
-        _append_log "${step}" "${short_commit}" "${result}"
-
-        # Check if bisect is done
-        if echo "${bisect_output}" | grep -q "is the first bad commit"; then
-            echo ""
-            log_ok "===== Bisect completed! ====="
-            echo "${bisect_output}"
-
-            # Extract the first bad commit
-            local first_bad
-            first_bad=$(echo "${bisect_output}" | head -1 | awk '{print $1}')
-
-            _generate_report "${first_bad}" "${step}" "${skipped_commits}"
-
-            # Reset bisect state
-            git -C "${VLLM_REPO}" bisect reset --quiet 2>/dev/null || true
-            return 0
-        fi
-
-        # Check for bisect errors via exit code (avoids false positives from commit messages)
-        if [[ ${bisect_rc} -ne 0 ]]; then
-            log_error "git bisect ${result} failed with exit code ${bisect_rc}:"
-            echo "${bisect_output}"
-            git -C "${VLLM_REPO}" bisect reset --quiet 2>/dev/null || true
-            return 1
-        fi
-
-        prev_commit="${current_commit}"
-    done
-
-    # If we reach here without finding the bad commit
-    log_error "Bisect did not converge. Check the commit range and test command."
-    git -C "${VLLM_REPO}" bisect reset --quiet 2>/dev/null || true
-    return 1
-}
-
-# ============================================================================
-# Helper: append entry to bisect log JSON
-# ============================================================================
 _append_log() {
-    local step="$1"
-    local commit="$2"
-    local result="$3"
-
-    python3 -c "
-import json
-with open('${BISECT_LOG_FILE}', 'r') as f:
-    log = json.load(f)
-log.append({'step': ${step}, 'commit': '${commit}', 'result': '${result}'})
-with open('${BISECT_LOG_FILE}', 'w') as f:
-    json.dump(log, f)
-"
+    local step="$1" commit="$2" result="$3"
+    python3 -c "import json; p='${BISECT_LOG_FILE}'; log=json.load(open(p)); log.append({'step': ${step}, 'commit': '${commit}', 'result': '${result}'}); json.dump(log, open(p, 'w'))"
 }
 
-# ============================================================================
-# Helper: generate final report
-# ============================================================================
-_generate_report() {
-    local first_bad="$1"
-    local total_steps="$2"
-    local skipped="$3"
-    local first_bad_info_file="/tmp/bisect_first_bad_info.txt"
+skip_current_commit() {
+    local step="$1" short_commit="$2"
+    git -C "${VLLM_REPO}" bisect skip 2>/dev/null || true
+    _append_log "${step}" "${short_commit}" "skip"
+    SKIPPED_COMMITS="${SKIPPED_COMMITS:+${SKIPPED_COMMITS},}${short_commit}"
+}
 
+_generate_report() {
+    local first_bad="$1" total_steps="$2" skipped="$3"
+    local first_bad_info_file="/tmp/bisect_first_bad_info.txt"
     git -C "${VLLM_REPO}" log -1 --format="commit %H%nAuthor: %an <%ae>%nDate:   %ad%n%n    %s%n%n    %b" \
         "${first_bad}" > "${first_bad_info_file}" 2>/dev/null || echo "N/A" > "${first_bad_info_file}"
-    local total_commits
-    total_commits=$(git -C "${VLLM_REPO}" rev-list --count "${GOOD_COMMIT}..${BAD_COMMIT}" 2>/dev/null || echo "0")
 
-    # Include extra env in reported test command for clarity
-    local reported_cmd="${TEST_CMD}"
-    if [[ -n "${EXTRA_ENV}" ]]; then
-        reported_cmd="${EXTRA_ENV} ${reported_cmd}"
-    fi
+    local total_commits reported_cmd="${TEST_CMD}"
+    total_commits=$(git -C "${VLLM_REPO}" rev-list --count "${GOOD_COMMIT}..${BAD_COMMIT}" 2>/dev/null || echo "0")
+    [[ -n "${EXTRA_ENV}" ]] && reported_cmd="${EXTRA_ENV} ${reported_cmd}"
 
     python3 "${HELPER_SCRIPT}" report \
         --good-commit "${GOOD_COMMIT}" \
@@ -593,92 +355,186 @@ _generate_report() {
         --log-file "${BISECT_LOG_FILE}"
 }
 
-# ============================================================================
-# Run a single bisect for one test command
-# ============================================================================
+# Main bisect loop. Keep the per-step logs explicit so CI output stays readable.
+run_bisect() {
+    log_step "Starting bisect: good=${GOOD_COMMIT:0:12} bad=${BAD_COMMIT:0:12}"
+    git -C "${VLLM_REPO}" bisect start "${BAD_COMMIT}" "${GOOD_COMMIT}" --no-checkout 2>/dev/null \
+        || die "Failed to initialize git bisect. Check that good/bad commits are valid."
+
+    local step=0 prev_commit="${GOOD_COMMIT}" start_time current_commit short_commit commit_msg
+    local result bisect_output bisect_rc first_bad
+    start_time=$(date +%s)
+    SKIPPED_COMMITS=""
+    echo "[]" > "${BISECT_LOG_FILE}"
+
+    while true; do
+        step=$((step + 1))
+        if [[ $(( $(date +%s) - start_time )) -ge ${TOTAL_TIMEOUT} ]]; then
+            log_error "Total timeout (${TOTAL_TIMEOUT}s) reached after ${step} steps"
+            reset_bisect
+            exit 1
+        fi
+
+        current_commit=$(git -C "${VLLM_REPO}" rev-parse BISECT_HEAD 2>/dev/null || true)
+        [[ -z "${current_commit}" ]] && { log_info "Bisect completed (no more BISECT_HEAD)"; break; }
+
+        short_commit="${current_commit:0:12}"
+        commit_msg=$(git -C "${VLLM_REPO}" log -1 --format="%s" "${current_commit}" 2>/dev/null || echo "(unable to read commit message)")
+        echo ""
+        log_step "Step ${step}: testing commit ${short_commit} - ${commit_msg}"
+        echo ""
+
+        if ! git -C "${VLLM_REPO}" checkout "${current_commit}" --quiet 2>/dev/null; then
+            log_warn "Failed to checkout ${short_commit}, skipping"
+            skip_current_commit "${step}" "${short_commit}"
+            prev_commit="${current_commit}"
+            continue
+        fi
+
+        if [[ "${FORCE_REINSTALL}" == "true" ]] || setup_files_changed "${current_commit}" "${prev_commit}"; then
+            local saved_dir vllm_install_cmd ascend_install_cmd
+            local vllm_reinstall_log="/tmp/bisect_vllm_reinstall_${short_commit}.log"
+            local ascend_reinstall_log="/tmp/bisect_ascend_reinstall_${short_commit}.log"
+            log_warn "Setup files changed, reinstalling vllm..."
+            vllm_install_cmd="$(get_vllm_install_cmd)"
+            ascend_install_cmd="$(get_ascend_install_cmd)"
+            FORCE_REINSTALL=false
+            if [[ -z "${vllm_install_cmd}" || -z "${ascend_install_cmd}" ]]; then
+                log_warn "Failed to determine reinstall commands for ${short_commit}, skipping"
+                FORCE_REINSTALL=true
+                skip_current_commit "${step}" "${short_commit}"
+                prev_commit="${current_commit}"
+                continue
+            fi
+            saved_dir="$(pwd)"
+            python3 -m pip uninstall -y vllm vllm_ascend>/dev/null 2>&1 || true
+            cd "${VLLM_REPO}"
+            bash -lc "${vllm_install_cmd}" >"${vllm_reinstall_log}" 2>&1 || {
+                log_warn "vllm reinstall failed for ${short_commit}, skipping"
+                print_install_failure_log "vllm reinstall" "${vllm_reinstall_log}"
+                FORCE_REINSTALL=true
+                cd "${saved_dir}"
+                skip_current_commit "${step}" "${short_commit}"
+                prev_commit="${current_commit}"
+                continue
+            }
+            cd "${ASCEND_REPO}"
+            bash -lc "${ascend_install_cmd}" >"${ascend_reinstall_log}" 2>&1 || {
+                log_warn "vllm-ascend reinstall failed for ${short_commit}, skipping"
+                print_install_failure_log "vllm-ascend reinstall" "${ascend_reinstall_log}"
+                FORCE_REINSTALL=true
+                cd "${saved_dir}"
+                skip_current_commit "${step}" "${short_commit}"
+                prev_commit="${current_commit}"
+                continue
+            }
+            fix_triton_install >"${ascend_reinstall_log}.triton" 2>&1 || {
+                log_warn "triton fixup failed for ${short_commit}, skipping"
+                print_install_failure_log "triton fixup" "${ascend_reinstall_log}.triton"
+                FORCE_REINSTALL=true
+                cd "${saved_dir}"
+                skip_current_commit "${step}" "${short_commit}"
+                prev_commit="${current_commit}"
+                continue
+            }
+            cd "${saved_dir}"
+        fi
+
+        run_test
+        result=$(cat "${BISECT_VERDICT_FILE}" 2>/dev/null || echo "bad")
+        echo ""
+        log_info "Step ${step}: commit ${short_commit} → ${result}"
+
+        bisect_rc=0
+        case "${result}" in
+            good) bisect_output=$(git -C "${VLLM_REPO}" bisect good 2>&1) || bisect_rc=$? ;;
+            bad)  bisect_output=$(git -C "${VLLM_REPO}" bisect bad 2>&1) || bisect_rc=$? ;;
+            skip)
+                bisect_output=$(git -C "${VLLM_REPO}" bisect skip 2>&1) || bisect_rc=$?
+                SKIPPED_COMMITS="${SKIPPED_COMMITS:+${SKIPPED_COMMITS},}${short_commit}"
+                ;;
+            *)
+                log_error "Unexpected test result: '${result}' for commit ${short_commit}"
+                reset_bisect
+                return 1
+                ;;
+        esac
+
+        _append_log "${step}" "${short_commit}" "${result}"
+
+        if echo "${bisect_output}" | grep -q "is the first bad commit"; then
+            echo ""
+            log_ok "===== Bisect completed! ====="
+            echo "${bisect_output}"
+            first_bad=$(echo "${bisect_output}" | head -1 | awk '{print $1}')
+            _generate_report "${first_bad}" "${step}" "${SKIPPED_COMMITS}"
+            reset_bisect
+            return 0
+        fi
+
+        if [[ ${bisect_rc} -ne 0 ]]; then
+            log_error "git bisect ${result} failed with exit code ${bisect_rc}:"
+            echo "${bisect_output}"
+            reset_bisect
+            return 1
+        fi
+
+        prev_commit="${current_commit}"
+    done
+
+    log_error "Bisect did not converge. Check the commit range and test command."
+    reset_bisect
+    return 1
+}
+
 run_single_bisect() {
     log_step "vllm bisect automation"
     log_info "Test command: ${TEST_CMD}"
-    if [[ -n "${EXTRA_ENV}" ]]; then
-        log_info "Extra env:    ${EXTRA_ENV}"
-    fi
-
-    # Detect paths
+    [[ -n "${EXTRA_ENV}" ]] && log_info "Extra env:    ${EXTRA_ENV}"
     detect_vllm_repo
     detect_ascend_repo
-
-    # Detect commits
     detect_commits
-
-    # Prepare vllm repo
     prepare_vllm_repo
-
-    # Run bisect
     run_bisect
-    return $?
 }
 
-# ============================================================================
-# Main
-# ============================================================================
+# Batch mode reuses the same single-command flow so local and CI behavior stay aligned.
+run_batch_bisect() {
+    local cmds_content passed=0 failed=0 idx=0 cmd
+    cmds_content=$(cat "${TEST_CMDS_FILE}")
+    IFS=';' read -ra CMD_ARRAY <<< "${cmds_content}"
+    local total=${#CMD_ARRAY[@]}
+
+    log_step "Batch bisect: ${total} test command(s)"
+    for cmd in "${CMD_ARRAY[@]}"; do
+        cmd=$(echo "${cmd}" | xargs)
+        [[ -z "${cmd}" ]] && continue
+        idx=$((idx + 1))
+        echo ""
+        log_step "========== [${idx}/${total}] =========="
+        log_info "Test command: ${cmd}"
+        TEST_CMD="${cmd}"
+        if run_single_bisect; then
+            log_ok "[${idx}/${total}] Bisect completed successfully"
+            passed=$((passed + 1))
+        else
+            log_error "[${idx}/${total}] Bisect failed"
+            failed=$((failed + 1))
+        fi
+    done
+
+    echo ""
+    log_step "Batch bisect summary: ${passed} passed, ${failed} failed out of ${total}"
+    [[ ${failed} -eq 0 ]]
+}
+
 main() {
     parse_args "$@"
-
-    # Batch mode: read semicolon-separated commands from file
     if [[ -n "${TEST_CMDS_FILE}" ]]; then
-        local cmds_content
-        cmds_content=$(cat "${TEST_CMDS_FILE}")
-
-        # Split by semicolons into an array
-        IFS=';' read -ra CMD_ARRAY <<< "${cmds_content}"
-
-        local total=${#CMD_ARRAY[@]}
-        local passed=0
-        local failed=0
-        local idx=0
-
-        log_step "Batch bisect: ${total} test command(s)"
-
-        for cmd in "${CMD_ARRAY[@]}"; do
-            # Trim whitespace
-            cmd=$(echo "${cmd}" | xargs)
-            [[ -z "${cmd}" ]] && continue
-
-            idx=$((idx + 1))
-            echo ""
-            log_step "========== [${idx}/${total}] =========="
-            log_info "Test command: ${cmd}"
-
-            TEST_CMD="${cmd}"
-            run_single_bisect
-            local rc=$?
-
-            if [[ ${rc} -eq 0 ]]; then
-                log_ok "[${idx}/${total}] Bisect completed successfully"
-                passed=$((passed + 1))
-            else
-                log_error "[${idx}/${total}] Bisect failed"
-                failed=$((failed + 1))
-            fi
-        done
-
-        echo ""
-        log_step "Batch bisect summary: ${passed} passed, ${failed} failed out of ${total}"
-        [[ ${failed} -gt 0 ]] && return 1
-        return 0
-    fi
-
-    # Single mode
-    run_single_bisect
-    local exit_code=$?
-
-    if [[ ${exit_code} -eq 0 ]]; then
-        log_ok "Bisect completed successfully"
+        run_batch_bisect
     else
-        log_error "Bisect failed"
+        run_single_bisect
     fi
-
-    return ${exit_code}
 }
 
 main "$@"

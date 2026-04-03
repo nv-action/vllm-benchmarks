@@ -15,208 +15,219 @@
 # limitations under the License.
 # This file is a part of the vllm-ascend project.
 #
-"""
-Helper script for bisect_vllm.sh.
-
-Subcommands:
-  detect-env   - Detect runner and image based on test command path.
-  get-commit   - Extract vllm commit hash from a workflow yaml file.
-  report       - Generate a markdown bisect report.
-"""
+"""Helpers for translating test commands into bisect workflow inputs."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
 
-import re
-
-# =============================================================================
-# Common install commands shared across e2e environments
-# =============================================================================
-_E2E_SYS_DEPS = (
-    "apt install git -y"
-    " && apt-get -y install $(cat packages.txt)"
-    " && apt-get -y install gcc g++ cmake libnuma-dev clang-15"
-    " && update-alternatives --install /usr/bin/clang clang /usr/bin/clang-15 20"
-    " && update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-15 20"
-)
-_E2E_VLLM_INSTALL = "VLLM_TARGET_DEVICE=empty pip install -e ."
-_E2E_ASCEND_INSTALL = (
-    "export PIP_EXTRA_INDEX_URL=https://mirrors.huaweicloud.com/ascend/repos/pypi"
-    " && pip install --no-cache-dir -r requirements-dev.txt"
-    " && pip install --no-cache-dir -v -e ."
-)
-_E2E_CONTAINER_ENV = {
-    "VLLM_LOGGING_LEVEL": "ERROR",
-    "VLLM_USE_MODELSCOPE": "True",
-    "HF_HUB_OFFLINE": "1",
+DEFAULT_ENV = {
+    "kind": "",
+    "runner": "linux-aarch64-a3-4",
+    "image": "m.daocloud.io/quay.io/ascend/cann:8.5.1-a3-ubuntu22.04-py3.11",
+    "test_type": "e2e",
 }
-_E2E_RUNTIME_ENV = {
-    "VLLM_WORKER_MULTIPROC_METHOD": "spawn",
-    "PYTORCH_NPU_ALLOC_CONF": "max_split_size_mb:256",
-}
-
-# =============================================================================
-# Environment rules: one entry per (test path pattern → full env config).
-#
-# To add a new test type or modify an existing one, edit ONLY this list.
-# The workflow YAML is a generic template that reads all values from the matrix.
-# =============================================================================
-ENV_RULES = [
-    {
-        "pattern": r"tests/e2e/310p/multicard/",
-        "runner": "linux-aarch64-310p-4",
-        "image": "swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-310p-ubuntu22.04-py3.11",
-        "test_type": "e2e",
-        "container_env": {**_E2E_CONTAINER_ENV},
-        "sys_deps": (
-            "apt install git -y"
-            " && apt-get -y install $(cat packages.txt)"
-            " && apt-get -y install gcc g++ cmake libnuma-dev"
-        ),
-        "vllm_install": _E2E_VLLM_INSTALL,
-        "ascend_install": _E2E_ASCEND_INSTALL,
-        "runtime_env": {**_E2E_RUNTIME_ENV},
-    },
-    {
-        "pattern": r"tests/e2e/310p/",
-        "runner": "linux-aarch64-310p-1",
-        "image": "swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-310p-ubuntu22.04-py3.11",
-        "test_type": "e2e",
-        "container_env": {**_E2E_CONTAINER_ENV},
-        "sys_deps": (
-            "apt install git -y"
-            " && apt-get -y install $(cat packages.txt)"
-            " && apt-get -y install gcc g++ cmake libnuma-dev"
-        ),
-        "vllm_install": _E2E_VLLM_INSTALL,
-        "ascend_install": _E2E_ASCEND_INSTALL,
-        "runtime_env": {**_E2E_RUNTIME_ENV},
-    },
-    {
-        "pattern": r"tests/e2e/multicard/4-cards/",
-        "runner": "linux-aarch64-a3-4",
-        "image": "m.daocloud.io/quay.io/ascend/cann:8.5.1-a3-ubuntu22.04-py3.11",
-        "test_type": "e2e",
-        "container_env": {**_E2E_CONTAINER_ENV},
-        "sys_deps": _E2E_SYS_DEPS,
-        "vllm_install": _E2E_VLLM_INSTALL,
-        "ascend_install": _E2E_ASCEND_INSTALL,
-        "runtime_env": {**_E2E_RUNTIME_ENV},
-    },
-    {
-        "pattern": r"tests/e2e/multicard/2-cards/",
-        "runner": "linux-aarch64-a3-2",
-        "image": "swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-a3-ubuntu22.04-py3.11",
-        "test_type": "e2e",
-        "container_env": {**_E2E_CONTAINER_ENV, "HCCL_BUFFSIZE": "1024"},
-        "sys_deps": _E2E_SYS_DEPS,
-        "vllm_install": _E2E_VLLM_INSTALL,
-        "ascend_install": _E2E_ASCEND_INSTALL,
-        "runtime_env": {**_E2E_RUNTIME_ENV},
-    },
-    {
-        "pattern": r"tests/e2e/singlecard/",
-        "runner": "linux-aarch64-a2-2",
-        "image": "swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-910b-ubuntu22.04-py3.11",
-        "test_type": "e2e",
-        "container_env": {**_E2E_CONTAINER_ENV},
-        "sys_deps": _E2E_SYS_DEPS,
-        "vllm_install": _E2E_VLLM_INSTALL,
-        "ascend_install": _E2E_ASCEND_INSTALL,
-        "runtime_env": {**_E2E_RUNTIME_ENV},
-    },
-    {
-        "pattern": r"tests/ut/",
-        "runner": "linux-amd64-cpu-8-hk",
-        "image": "quay.nju.edu.cn/ascend/cann:8.5.1-910b-ubuntu22.04-py3.11",
-        "test_type": "ut",
-        "container_env": {
-            "VLLM_LOGGING_LEVEL": "ERROR",
-            "VLLM_USE_MODELSCOPE": "True",
-            "HF_HUB_OFFLINE": "1",
-            "SOC_VERSION": "ascend910b1",
-            "MAX_JOBS": "4",
-            "COMPILE_CUSTOM_KERNELS": "0",
-        },
-        "sys_deps": ("apt-get install -y python3-pip git vim wget net-tools gcc g++ cmake libnuma-dev curl gnupg2"),
-        "vllm_install": (
-            "VLLM_TARGET_DEVICE=empty python3 -m pip install ."
-            " --extra-index https://download.pytorch.org/whl/cpu/"
-            " && python3 -m pip uninstall -y triton"
-        ),
-        "ascend_install": (
-            "export PIP_EXTRA_INDEX_URL=https://mirrors.huaweicloud.com/ascend/repos/pypi"
-            " && export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/Ascend/ascend-toolkit/latest/x86_64-linux/devlib"
-            " && python3 -m pip install -v . --extra-index https://download.pytorch.org/whl/cpu/"
-            " && python3 -m pip install -r requirements-dev.txt --extra-index https://download.pytorch.org/whl/cpu/"
-        ),
-        "runtime_env": {
-            "VLLM_WORKER_MULTIPROC_METHOD": "spawn",
-            "PYTORCH_NPU_ALLOC_CONF": "max_split_size_mb:256",
-            "TORCH_DEVICE_BACKEND_AUTOLOAD": "0",
-            "LD_LIBRARY_PATH": "/usr/local/Ascend/ascend-toolkit/latest/x86_64-linux/devlib",
-        },
-    },
+PATH_KIND_RULES = [
+    (r"tests/e2e/310p/multicard/", "e2e_310p_4cards"),
+    (r"tests/e2e/310p/singlecard/", "e2e_310p_singlecard"),
+    (r"tests/e2e/multicard/4-cards/", "e2e_4cards"),
+    (r"tests/e2e/multicard/2-cards/", "e2e_2cards"),
+    (r"tests/e2e/singlecard/", "e2e_singlecard"),
+    (r"tests/ut/", "ut"),
 ]
 
-# Default fallback
-DEFAULT_RUNNER = "linux-aarch64-a3-4"
-DEFAULT_IMAGE = "m.daocloud.io/quay.io/ascend/cann:8.5.1-a3-ubuntu22.04-py3.11"
+# Environment details come from the canonical unit/full workflows at runtime.
+COMMON_E2E_SOURCE = {
+    "test_type": "e2e",
+    "workflow": ".github/workflows/_e2e_test.yaml",
+    "prepare_steps": ["Config mirrors", "Install system dependencies"],
+    "vllm_install_step": "Install vllm-project/vllm from source",
+    "ascend_install_step": "Install nv-action/vllm-benchmark",
+}
+KIND_SOURCES = {
+    "ut": {
+        "test_type": "ut",
+        "workflow": ".github/workflows/_unit_test.yaml",
+        "job": "unit-test",
+        "caller_workflow": ".github/workflows/pr_test_light.yaml",
+        "caller_job": "ut",
+        "prepare_steps": ["Install packages"],
+        "vllm_install_step": "Install vllm-project/vllm from source",
+        "ascend_install_step": "Install nv-action/vllm-benchmark",
+        "test_step": "Run unit test",
+    },
+    "e2e_singlecard": {
+        **COMMON_E2E_SOURCE,
+        "job": "e2e-full",
+        "caller_workflow": ".github/workflows/pr_test_full.yaml",
+        "caller_job": "e2e-test",
+        "test_step": "Run e2e test",
+    },
+    "e2e_2cards": {**COMMON_E2E_SOURCE, "job": "e2e-2-cards-full", "test_step": "Run nv-action/vllm-benchmark test (full)"},
+    "e2e_4cards": {
+        **COMMON_E2E_SOURCE,
+        "job": "e2e-4-cards-full",
+        "test_step": "Run nv-action/vllm-benchmark test for V1 Engine",
+    },
+    "e2e_310p_singlecard": {**COMMON_E2E_SOURCE, "job": "e2e_310p", "test_step": "Run nv-action/vllm-benchmark test"},
+    "e2e_310p_4cards": {**COMMON_E2E_SOURCE, "job": "e2e_310p-4cards", "test_step": "Run nv-action/vllm-benchmark test"},
+}
 
-# All possible container_env keys across all rules (used by workflow YAML)
-ALL_CONTAINER_ENV_KEYS = sorted({k for rule in ENV_RULES for k in rule.get("container_env", {})})
-
-# All possible runtime_env keys across all rules
-ALL_RUNTIME_ENV_KEYS = sorted({k for rule in ENV_RULES for k in rule.get("runtime_env", {})})
-
-# Regex to match a 7+ hex-char commit hash (not a vX.Y.Z tag)
 COMMIT_HASH_RE = re.compile(r"^[0-9a-f]{7,40}$")
-
-# Regex to extract test file path from pytest command
 TEST_PATH_RE = re.compile(r"\b(tests/[-\w/]+\.py(?:::[\w_]+)*)")
+_MANIFEST_CACHE: dict[str, dict] | None = None
+_REPO_ROOT: Path | None = None
 
 
-def detect_env(test_cmd: str) -> dict:
-    """Detect full environment config based on the test file path in test_cmd."""
-    for rule in ENV_RULES:
-        if re.search(rule["pattern"], test_cmd):
-            return {k: v for k, v in rule.items() if k != "pattern"}
-    # Default fallback: use singlecard e2e config
-    for rule in ENV_RULES:
-        if rule.get("test_type") == "e2e" and "singlecard" in rule["pattern"]:
-            return {k: v for k, v in rule.items() if k != "pattern"}
-    return {"runner": DEFAULT_RUNNER, "image": DEFAULT_IMAGE, "test_type": "e2e"}
+def _get_repo_root(cwd: Path | None = None) -> Path:
+    global _REPO_ROOT
+    if _REPO_ROOT is not None and cwd is None:
+        return _REPO_ROOT
+    candidates = []
+    if env_root := os.environ.get("VLLM_BENCHMARKS_REPO_ROOT"):
+        candidates.append(Path(env_root).expanduser().resolve())
+    start = (cwd or Path.cwd()).resolve()
+    candidates.extend([start, *start.parents])
+    script_path = Path(__file__).resolve()
+    candidates.extend(script_path.parents)
+    seen: set[Path] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if (candidate / ".github" / "workflows" / "pr_test_light.yaml").is_file():
+            if cwd is None:
+                _REPO_ROOT = candidate
+            return candidate
+    raise RuntimeError(
+        "Cannot detect repo root. Run from the repository, set VLLM_BENCHMARKS_REPO_ROOT, "
+        "or keep bisect_helper.py under .github/workflows/scripts."
+    )
+
+
+def _load_yaml(path: Path) -> dict:
+    try:
+        import yaml
+    except ModuleNotFoundError as exc:
+        raise RuntimeError("PyYAML is required for workflow parsing paths") from exc
+    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+
+
+def _resolve_inputs(value, with_inputs: dict[str, object] | None):
+    if isinstance(value, str) and with_inputs:
+        match = re.fullmatch(r"\${{\s*inputs\.([A-Za-z0-9_]+)\s*}}", value)
+        if match:
+            return with_inputs.get(match.group(1), value)
+    if isinstance(value, dict):
+        return {k: _resolve_inputs(v, with_inputs) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_resolve_inputs(v, with_inputs) for v in value]
+    return value
+
+
+def _normalize_env(env: dict | None) -> dict[str, str]:
+    return {} if not isinstance(env, dict) else {str(k): str(v) for k, v in env.items()}
+
+
+def _format_run_with_env(run: str | None, env: dict[str, str] | None = None) -> str:
+    if not run:
+        return ""
+    exports = [f"export {k}={shlex.quote(v)}" for k, v in (env or {}).items()]
+    return "\n".join(exports + [run.strip()]) if exports else run.strip()
+
+
+def _get_job(workflow: dict, job_name: str) -> dict:
+    job = workflow.get("jobs", {}).get(job_name)
+    if not isinstance(job, dict):
+        raise KeyError(f"job not found: {job_name}")
+    return job
+
+
+def _get_step(job: dict, step_name: str) -> dict:
+    step = next((step for step in job.get("steps", []) if isinstance(step, dict) and step.get("name") == step_name), None)
+    if step is None:
+        raise KeyError(f"step not found: {step_name}")
+    return step
+
+
+def _get_caller_inputs(workflow_path: str | None, job_name: str | None) -> dict[str, object]:
+    if not workflow_path or not job_name:
+        return {}
+    job = _get_job(_load_yaml(_get_repo_root() / workflow_path), job_name)
+    with_inputs = job.get("with", {})
+    return with_inputs if isinstance(with_inputs, dict) else {}
+
+
+def _extract_profile(kind: str, config: dict) -> dict:
+    # Emit only the fields consumed by bisect_vllm.yaml.
+    workflow = _load_yaml(_get_repo_root() / config["workflow"])
+    caller_inputs = _get_caller_inputs(config.get("caller_workflow"), config.get("caller_job"))
+    job = _get_job(workflow, config["job"])
+    container = job.get("container", {}) if isinstance(job.get("container"), dict) else {}
+    workflow_env = _normalize_env(workflow.get("env"))
+    container_env = _normalize_env(_resolve_inputs(container.get("env", {}), caller_inputs))
+    effective_container_env = {**workflow_env, **container_env}
+    prepare_runs = [
+        _format_run_with_env(_resolve_inputs(_get_step(job, step_name).get("run", ""), caller_inputs))
+        for step_name in config.get("prepare_steps", [])
+    ]
+    vllm_install_step = _get_step(job, config["vllm_install_step"])
+    ascend_install_step = _get_step(job, config["ascend_install_step"])
+    test_step = _get_step(job, config["test_step"])
+    return {
+        "kind": kind,
+        "test_type": config["test_type"],
+        "runner": str(_resolve_inputs(job.get("runs-on", DEFAULT_ENV["runner"]), caller_inputs)),
+        "image": str(_resolve_inputs(container.get("image", DEFAULT_ENV["image"]), caller_inputs)),
+        "effective_container_env": effective_container_env,
+        "sys_deps": "\n".join(run for run in prepare_runs if run),
+        "vllm_install": _format_run_with_env(_resolve_inputs(vllm_install_step.get("run", ""), caller_inputs)),
+        "ascend_install": _format_run_with_env(
+            _resolve_inputs(ascend_install_step.get("run", ""), caller_inputs),
+            _normalize_env(_resolve_inputs(ascend_install_step.get("env", {}), caller_inputs)),
+        ),
+        "runtime_env": _normalize_env(_resolve_inputs(test_step.get("env", {}), caller_inputs)),
+    }
+
+
+def load_runtime_env_manifest() -> dict[str, dict]:
+    global _MANIFEST_CACHE
+    if _MANIFEST_CACHE is None:
+        _MANIFEST_CACHE = {kind: _extract_profile(kind, cfg) for kind, cfg in KIND_SOURCES.items()}
+    return _MANIFEST_CACHE
+
+
+def _detect_kind(test_cmd: str) -> str:
+    return next((kind for pattern, kind in PATH_KIND_RULES if re.search(pattern, test_cmd)), "")
+
+
+def _resolve_env_for_test_cmd(test_cmd: str) -> dict:
+    manifest = load_runtime_env_manifest()
+    return manifest.get(_detect_kind(test_cmd), DEFAULT_ENV.copy())
+
+
+def get_vllm_install_for_test_cmd(test_cmd: str) -> str:
+    return str(_resolve_env_for_test_cmd(test_cmd).get("vllm_install", "")).strip()
+
+
+def get_ascend_install_for_test_cmd(test_cmd: str) -> str:
+    return str(_resolve_env_for_test_cmd(test_cmd).get("ascend_install", "")).strip()
 
 
 def get_commit_from_yaml(yaml_path: str, ref: str | None = None) -> str | None:
-    """Extract vllm commit hash from a workflow yaml file.
-
-    Reads the file content either from disk (ref=None) or from a git ref
-    (e.g. ref='origin/main') via ``git show ref:path``.
-
-    Looks for the vllm_version matrix pattern like:
-        vllm_version: [<commit_hash>, v0.15.0]
-    and returns the commit hash entry (the one that is NOT a vX.Y.Z tag).
-    """
     if ref:
-        # Read from git ref
         try:
-            # Compute relative path from repo root
-            repo_root = subprocess.check_output(
-                ["git", "rev-parse", "--show-toplevel"],
-                text=True,
-            ).strip()
+            repo_root = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip()
             rel_path = os.path.relpath(yaml_path, repo_root)
             content = subprocess.check_output(
-                ["git", "show", f"{ref}:{rel_path}"],
-                text=True,
-                stderr=subprocess.DEVNULL,
+                ["git", "show", f"{ref}:{rel_path}"], text=True, stderr=subprocess.DEVNULL
             )
         except subprocess.CalledProcessError:
             return None
@@ -225,48 +236,24 @@ def get_commit_from_yaml(yaml_path: str, ref: str | None = None) -> str | None:
             content = Path(yaml_path).read_text()
         except FileNotFoundError:
             return None
-
-    # Match patterns like: vllm_version: [abc123, v0.15.0]
-    # or multi-line matrix definitions
-    match = re.search(
-        r"vllm_version:\s*\[([^\]]+)\]",
-        content,
-    )
+    match = re.search(r"vllm_version:\s*\[([^\]]+)\]", content)
     if not match:
         return None
-
-    entries = [e.strip().strip("'\"") for e in match.group(1).split(",")]
-    for entry in entries:
-        if COMMIT_HASH_RE.match(entry):
-            return entry
-    return None
+    return next((entry for entry in (e.strip().strip("'\"") for e in match.group(1).split(",")) if COMMIT_HASH_RE.match(entry)), None)
 
 
 def get_pkg_location(pkg_name: str) -> str | None:
-    """Get package install location via pip show.
-
-    For editable installs, prefers ``Editable project location`` which
-    points directly to the source tree.  Falls back to ``Location``
-    (site-packages directory) for regular installs.
-    """
     try:
-        output = subprocess.check_output(
-            ["pip", "show", pkg_name],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        )
-        editable_loc = None
-        location = None
-        for line in output.splitlines():
-            if line.startswith("Editable project location:"):
-                editable_loc = line.split(":", 1)[1].strip()
-            elif line.startswith("Location:"):
-                location = line.split(":", 1)[1].strip()
-        # Prefer editable location (source tree) over site-packages
-        return editable_loc or location
+        output = subprocess.check_output(["pip", "show", pkg_name], text=True, stderr=subprocess.DEVNULL)
     except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
-    return None
+        return None
+    editable_loc = location = None
+    for line in output.splitlines():
+        if line.startswith("Editable project location:"):
+            editable_loc = line.split(":", 1)[1].strip()
+        elif line.startswith("Location:"):
+            location = line.split(":", 1)[1].strip()
+    return editable_loc or location
 
 
 def generate_report(
@@ -280,7 +267,6 @@ def generate_report(
     skipped: list[str] | None = None,
     log_entries: list[dict] | None = None,
 ) -> str:
-    """Generate a markdown bisect report."""
     lines = [
         "## Bisect Result",
         "",
@@ -298,175 +284,99 @@ def generate_report(
         first_bad_info,
         "```",
     ]
-
     if skipped:
-        lines += [
-            "",
-            "### Skipped Commits",
-            "",
-        ]
-        for s in skipped:
-            lines.append(f"- `{s}`")
-
+        lines.extend(["", "### Skipped Commits", ""] + [f"- `{commit}`" for commit in skipped])
     if log_entries:
-        lines += [
-            "",
-            "### Bisect Log",
-            "",
-            "| Step | Commit | Result |",
-            "|------|--------|--------|",
-        ]
-        for i, entry in enumerate(log_entries, 1):
-            lines.append(f"| {i} | `{entry.get('commit', '?')[:12]}` | {entry.get('result', '?')} |")
-
-    lines += [
-        "",
-        "---",
-        "*Generated by `.github/workflows/scripts/bisect_vllm.sh`*",
-    ]
+        lines.extend(["", "### Bisect Log", "", "| Step | Commit | Result |", "|------|--------|--------|"])
+        lines.extend(
+            f"| {idx} | `{entry.get('commit', '?')[:12]}` | {entry.get('result', '?')} |"
+            for idx, entry in enumerate(log_entries, 1)
+        )
+    lines.extend(["", "---", "*Generated by `.github/workflows/scripts/bisect_vllm.sh`*"])
     return "\n".join(lines)
 
 
 def build_batch_matrix(test_cmds_str: str) -> dict:
-    """Parse semicolon-separated test commands and group by (runner, image, test_type).
-
-    Returns a GitHub Actions matrix JSON object with an "include" array.
-    Each element contains the full environment config needed by the workflow:
-    group, runner, image, test_type, test_cmds, container_env, sys_deps,
-    vllm_install, ascend_install, runtime_env.
-    """
-    cmds = [c.strip() for c in test_cmds_str.split(";") if c.strip()]
+    # Group by kind so distinct workflow profiles never collapse together.
+    cmds = [cmd.strip() for cmd in test_cmds_str.split(";") if cmd.strip()]
     if not cmds:
         return {"include": []}
-
-    # Group by (runner, image, test_type) — commands sharing the same env
-    groups: dict[tuple[str, str, str], list[str]] = {}
-    group_env: dict[tuple[str, str, str], dict] = {}
+    manifest = load_runtime_env_manifest()
+    all_container_env_keys = sorted({key for profile in manifest.values() for key in profile["effective_container_env"]})
+    grouped: dict[tuple[str, str, str, str], dict] = {}
     for cmd in cmds:
-        env = detect_env(cmd)
-        key = (env["runner"], env["image"], env["test_type"])
-        groups.setdefault(key, []).append(cmd)
-        if key not in group_env:
-            group_env[key] = env
-        else:
-            # Merge container_env and runtime_env from all commands in group
-            for field in ("container_env", "runtime_env"):
-                existing = group_env[key].get(field, {})
-                existing.update(env.get(field, {}))
-                group_env[key][field] = existing
-
-    # Build matrix include array
+        env = _resolve_env_for_test_cmd(cmd)
+        key = (env["kind"], env["runner"], env["image"], env["test_type"])
+        if key not in grouped:
+            grouped[key] = {**env, "test_cmds": [cmd]}
+            continue
+        grouped[key]["test_cmds"].append(cmd)
+        grouped[key]["effective_container_env"].update(env.get("effective_container_env", {}))
+        grouped[key]["runtime_env"].update(env.get("runtime_env", {}))
     include = []
-    for (runner, image, test_type), group_cmds in groups.items():
-        env = group_env[(runner, image, test_type)]
-        group_name = f"{test_type}-{runner.split('-')[-1]}"
-
-        # Flatten container_env into individual matrix keys (for YAML static refs)
-        # Fill all known keys with empty string if not present in this env
-        container_env = env.get("container_env", {})
+    for (_, runner, image, test_type), env in grouped.items():
         entry = {
-            "group": group_name,
+            "group": env["kind"].replace("_", "-"),
             "runner": runner,
             "image": image,
             "test_type": test_type,
-            "test_cmds": ";".join(group_cmds),
+            "test_cmds": ";".join(env["test_cmds"]),
             "sys_deps": env.get("sys_deps", "echo 'no sys_deps configured'"),
             "vllm_install": env.get("vllm_install", "echo 'no vllm_install configured'"),
             "ascend_install": env.get("ascend_install", "echo 'no ascend_install configured'"),
             "runtime_env": json.dumps(env.get("runtime_env", {})),
         }
-        # Add each container_env key as a top-level matrix field (cenv_XXX)
-        for k in ALL_CONTAINER_ENV_KEYS:
-            entry[f"cenv_{k}"] = container_env.get(k, "")
-
+        entry.update({f"cenv_{key}": env["effective_container_env"].get(key, "") for key in all_container_env_keys})
         include.append(entry)
-
-    include.sort(
-        key=lambda e: (
-            e["test_type"],
-            int(re.search(r"-(\d+)$", e["group"]).group(1)) if re.search(r"-(\\d+)$", e["group"]) else 9999,
-            e["group"],
-        )
-    )
+    include.sort(key=lambda entry: entry["group"])
     return {"include": include}
-
-
-def cmd_detect_env(args):
-    env = detect_env(args.test_cmd)
-    if args.output_format == "github":
-        # Write to GITHUB_OUTPUT if available
-        github_output = os.environ.get("GITHUB_OUTPUT")
-        if github_output:
-            with open(github_output, "a") as f:
-                f.write(f"runner={env['runner']}\n")
-                f.write(f"image={env['image']}\n")
-                f.write(f"test_type={env['test_type']}\n")
-        # Also print for human readability
-        print(f"runner={env['runner']}")
-        print(f"image={env['image']}")
-        print(f"test_type={env['test_type']}")
-    else:
-        print(json.dumps(env))
 
 
 def cmd_batch_matrix(args):
     matrix = build_batch_matrix(args.test_cmds)
     matrix_json = json.dumps(matrix, separators=(",", ":"))
     if args.output_format == "github":
-        github_output = os.environ.get("GITHUB_OUTPUT")
-        if github_output:
-            with open(github_output, "a") as f:
-                f.write(f"matrix={matrix_json}\n")
+        if github_output := os.environ.get("GITHUB_OUTPUT"):
+            with open(github_output, "a", encoding="utf-8") as file:
+                file.write(f"matrix={matrix_json}\n")
         print(f"matrix={matrix_json}")
-        total_cmds = sum(len(g["test_cmds"].split(";")) for g in matrix["include"])
+        total_cmds = sum(len(group["test_cmds"].split(";")) for group in matrix["include"])
         print(f"Total: {len(matrix['include'])} group(s) from {total_cmds} command(s)")
-    else:
-        print(json.dumps(matrix, indent=2))
+        return
+    print(json.dumps(matrix, indent=2))
 
 
 def cmd_get_commit(args):
+    # Default yaml_path keeps the helper usable for local/manual invocation.
     yaml_path = args.yaml_path
     if not yaml_path:
-        # Default: pr_test_light.yaml relative to this script's repo
         try:
-            repo_root = subprocess.check_output(
-                ["git", "rev-parse", "--show-toplevel"],
-                text=True,
-            ).strip()
-            yaml_path = os.path.join(repo_root, ".github/workflows/pr_test_light.yaml")
+            repo_root = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip()
         except subprocess.CalledProcessError:
             print("ERROR: Cannot determine repo root", file=sys.stderr)
             sys.exit(1)
-
-    commit = get_commit_from_yaml(yaml_path, ref=args.ref)
-    if commit:
+        yaml_path = os.path.join(repo_root, ".github/workflows/pr_test_light.yaml")
+    if commit := get_commit_from_yaml(yaml_path, ref=args.ref):
         print(commit)
-    else:
-        print(
-            f"ERROR: Could not extract vllm commit from {yaml_path}" + (f" at ref {args.ref}" if args.ref else ""),
-            file=sys.stderr,
-        )
-        sys.exit(1)
+        return
+    suffix = f" at ref {args.ref}" if args.ref else ""
+    print(f"ERROR: Could not extract vllm commit from {yaml_path}{suffix}", file=sys.stderr)
+    sys.exit(1)
 
 
 def cmd_report(args):
+    # The report command appends to /tmp/bisect_summary.md for artifact collection.
     skipped = args.skipped.split(",") if args.skipped else None
-    log_entries = None
-    if args.log_file:
-        try:
-            with open(args.log_file) as f:
-                log_entries = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            pass
-
-    # Read first_bad_info from file or argument
+    try:
+        log_entries = json.loads(Path(args.log_file).read_text()) if args.log_file else None
+    except (FileNotFoundError, json.JSONDecodeError):
+        log_entries = None
     first_bad_info = args.first_bad_info or ""
     if args.first_bad_info_file:
         try:
             first_bad_info = Path(args.first_bad_info_file).read_text().strip()
         except FileNotFoundError:
             first_bad_info = "N/A"
-
     report = generate_report(
         bad_commit=args.bad_commit,
         good_commit=args.good_commit,
@@ -479,97 +389,80 @@ def cmd_report(args):
         log_entries=log_entries,
     )
     print(report)
-
-    # Write to unified bisect_summary.md file (for artifact upload)
     summary_md_path = Path("/tmp/bisect_summary.md")
-    with open(summary_md_path, "a" if summary_md_path.exists() else "w", encoding="utf-8") as f:
+    with open(summary_md_path, "a" if summary_md_path.exists() else "w", encoding="utf-8") as file:
         match = TEST_PATH_RE.search(args.test_cmd)
-        test_path = match.group(1) if match else args.test_cmd
-        f.write(f"\n# bisect {test_path}\n\n")
-        f.write(report + "\n")
-
-    # Write to GITHUB_STEP_SUMMARY if available
-    summary_file = os.environ.get("GITHUB_STEP_SUMMARY")
-    if summary_file:
-        with open(summary_file, "a") as f:
-            f.write(report + "\n")
+        file.write(f"\n# bisect {(match.group(1) if match else args.test_cmd)}\n\n{report}\n")
+    if summary_file := os.environ.get("GITHUB_STEP_SUMMARY"):
+        with open(summary_file, "a", encoding="utf-8") as file:
+            file.write(report + "\n")
 
 
-def cmd_vllm_location(args):
-    loc = get_pkg_location("vllm")
-    if loc:
+def cmd_vllm_location(_args):
+    if loc := get_pkg_location("vllm"):
         print(loc)
-    else:
-        print("ERROR: vllm not installed or pip show failed", file=sys.stderr)
-        sys.exit(1)
+        return
+    print("ERROR: vllm not installed or pip show failed", file=sys.stderr)
+    sys.exit(1)
+
+
+def cmd_vllm_install(args):
+    if install_cmd := get_vllm_install_for_test_cmd(args.test_cmd):
+        print(install_cmd)
+        return
+    print(f"ERROR: No vllm install command found for test command: {args.test_cmd}", file=sys.stderr)
+    sys.exit(1)
+
+
+def cmd_ascend_install(args):
+    if install_cmd := get_ascend_install_for_test_cmd(args.test_cmd):
+        print(install_cmd)
+        return
+    print(f"ERROR: No vllm-ascend install command found for test command: {args.test_cmd}", file=sys.stderr)
+    sys.exit(1)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Helper for vllm bisect automation")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # detect-env
-    p_env = subparsers.add_parser("detect-env", help="Detect runner and image for a test command")
-    p_env.add_argument("--test-cmd", required=True, help="The pytest command")
-    p_env.add_argument(
-        "--output-format",
-        choices=["json", "github"],
-        default="github",
-        help="Output format (default: github)",
-    )
-    p_env.set_defaults(func=cmd_detect_env)
-
-    # batch-matrix
-    p_batch = subparsers.add_parser(
-        "batch-matrix",
-        help="Build a GitHub Actions matrix from semicolon-separated test commands",
-    )
-    p_batch.add_argument(
-        "--test-cmds",
-        required=True,
-        help="Semicolon-separated test commands",
-    )
-    p_batch.add_argument(
-        "--output-format",
-        choices=["json", "github"],
-        default="github",
-        help="Output format (default: github)",
-    )
+    # Used by bisect_vllm.yaml set-params.
+    p_batch = subparsers.add_parser("batch-matrix", help="Build a GitHub Actions matrix from semicolon-separated test commands")
+    p_batch.add_argument("--test-cmds", required=True, help="Semicolon-separated test commands")
+    p_batch.add_argument("--output-format", choices=["json", "github"], default="github", help="Output format")
     p_batch.set_defaults(func=cmd_batch_matrix)
 
-    # get-commit
+    # Used by bisect_vllm.sh when good/bad commits are not passed explicitly.
     p_commit = subparsers.add_parser("get-commit", help="Extract vllm commit from workflow yaml")
-    p_commit.add_argument(
-        "--yaml-path",
-        default="",
-        help="Path to workflow yaml (default: pr_test_light.yaml)",
-    )
-    p_commit.add_argument(
-        "--ref",
-        default=None,
-        help="Git ref to read from (e.g. origin/main). If unset, reads from disk.",
-    )
+    p_commit.add_argument("--yaml-path", default="", help="Path to workflow yaml (default: pr_test_light.yaml)")
+    p_commit.add_argument("--ref", default=None, help="Git ref to read from (e.g. origin/main)")
     p_commit.set_defaults(func=cmd_get_commit)
 
-    # report
+    # Used by bisect_vllm.sh to render the final markdown summary.
     p_report = subparsers.add_parser("report", help="Generate bisect result report")
     p_report.add_argument("--good-commit", required=True)
     p_report.add_argument("--bad-commit", required=True)
     p_report.add_argument("--first-bad", required=True)
-    p_report.add_argument(
-        "--first-bad-info", default=None, help="Commit info string (mutually exclusive with --first-bad-info-file)"
-    )
-    p_report.add_argument("--first-bad-info-file", default=None, help="File containing commit info")
+    p_report.add_argument("--first-bad-info", default=None)
+    p_report.add_argument("--first-bad-info-file", default=None)
     p_report.add_argument("--test-cmd", required=True)
     p_report.add_argument("--total-steps", type=int, required=True)
     p_report.add_argument("--total-commits", type=int, required=True)
-    p_report.add_argument("--skipped", default=None, help="Comma-separated skipped commits")
-    p_report.add_argument("--log-file", default=None, help="Path to bisect log JSON file")
+    p_report.add_argument("--skipped", default=None)
+    p_report.add_argument("--log-file", default=None)
     p_report.set_defaults(func=cmd_report)
 
-    # vllm-location
+    # Used by bisect_vllm.sh to locate an editable/local vllm checkout.
     p_loc = subparsers.add_parser("vllm-location", help="Get vllm install location via pip show")
     p_loc.set_defaults(func=cmd_vllm_location)
+
+    p_vllm_install = subparsers.add_parser("vllm-install", help="Get vllm install command for a test command")
+    p_vllm_install.add_argument("--test-cmd", required=True)
+    p_vllm_install.set_defaults(func=cmd_vllm_install)
+
+    p_ascend_install = subparsers.add_parser("ascend-install", help="Get vllm-ascend install command for a test command")
+    p_ascend_install.add_argument("--test-cmd", required=True)
+    p_ascend_install.set_defaults(func=cmd_ascend_install)
 
     args = parser.parse_args()
     args.func(args)
