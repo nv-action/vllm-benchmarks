@@ -1417,6 +1417,45 @@ def test_github_cli_adapter_creates_manual_review_issue():
     ]
 
 
+def test_github_cli_adapter_dispatches_manual_review_workflow():
+    commands = []
+
+    def fake_runner(args):
+        commands.append(args)
+        return ""
+
+    adapter = GitHubCliAdapter(fake_runner)
+    adapter.dispatch_manual_review(
+        repo="nv-action/vllm-benchmarks",
+        pr_number=148,
+        terminal_reason="done_failure",
+        e2e_run_id="22901040063",
+        fixup_run_id="",
+        dispatch_token="manual-148",
+    )
+
+    assert commands == [
+        [
+            "gh",
+            "workflow",
+            "run",
+            "main2main_manual_review.yaml",
+            "--repo",
+            "nv-action/vllm-benchmarks",
+            "-f",
+            "pr_number=148",
+            "-f",
+            "terminal_reason=done_failure",
+            "-f",
+            "e2e_run_id=22901040063",
+            "-f",
+            "fixup_run_id=",
+            "-f",
+            "dispatch_token=manual-148",
+        ]
+    ]
+
+
 def test_github_cli_adapter_waits_for_completed_e2e_full_run():
     commands = []
 
@@ -1655,6 +1694,9 @@ class FakeGitHubAdapter:
         self.calls.append(("create_manual_review_issue", kwargs))
         return "https://github.com/nv-action/vllm-benchmarks/issues/1"
 
+    def dispatch_manual_review(self, **kwargs):
+        self.calls.append(("dispatch_manual_review", kwargs))
+
     def update_pr_phase(self, **kwargs):
         self.calls.append(("update_pr_phase", kwargs))
 
@@ -1854,9 +1896,10 @@ def test_orchestrator_service_creates_manual_review_when_done_phase_fails():
         result = service.reconcile("nv-action/vllm-benchmarks", 148)
 
         assert result["action"] == "create_manual_review"
-        issue_calls = [call for call in adapter.calls if call[0] == "create_manual_review_issue"]
-        assert len(issue_calls) == 1
-        assert issue_calls[0][1]["body"] == "AI summary for terminal E2E failure"
+        dispatch_calls = [call for call in adapter.calls if call[0] == "dispatch_manual_review"]
+        assert len(dispatch_calls) == 1
+        assert dispatch_calls[0][1]["terminal_reason"] == "done_failure"
+        assert dispatch_calls[0][1]["e2e_run_id"] == "22901040063"
         updated = store.get("nv-action/vllm-benchmarks", 148)
         assert updated is not None
         assert updated.status == "manual_review"
@@ -1988,13 +2031,14 @@ def test_orchestrator_service_creates_issue_when_phase3_fixup_has_no_changes():
         )
 
         updated = store.get("nv-action/vllm-benchmarks", 149)
-        issue_calls = [call for call in adapter.calls if call[0] == "create_manual_review_issue"]
+        dispatch_calls = [call for call in adapter.calls if call[0] == "dispatch_manual_review"]
         assert result["action"] == "create_manual_review"
         assert updated is not None
         assert updated.phase == "done"
         assert updated.status == "manual_review"
-        assert len(issue_calls) == 1
-        assert issue_calls[0][1]["body"] == "AI summary for phase 3 no-change terminal failure"
+        assert len(dispatch_calls) == 1
+        assert dispatch_calls[0][1]["terminal_reason"] == "phase3_no_changes"
+        assert dispatch_calls[0][1]["fixup_run_id"] == "22936816137"
 
 
 def test_run_once_skips_terminal_manual_review_state_without_creating_duplicate_issue():
@@ -2086,7 +2130,7 @@ def test_orchestrator_service_creates_manual_review_when_fixup_workflow_fails():
         )
 
         updated = store.get("nv-action/vllm-benchmarks", 150)
-        issue_calls = [call for call in adapter.calls if call[0] == "create_manual_review_issue"]
+        dispatch_calls = [call for call in adapter.calls if call[0] == "dispatch_manual_review"]
         assert result == {
             "action": "create_manual_review",
             "phase": "3",
@@ -2095,7 +2139,8 @@ def test_orchestrator_service_creates_manual_review_when_fixup_workflow_fails():
         assert updated is not None
         assert updated.status == "manual_review"
         assert updated.active_fixup_run_id is None
-        assert len(issue_calls) == 1
+        assert len(dispatch_calls) == 1
+        assert dispatch_calls[0][1]["terminal_reason"] == "fixup_failure"
 
 
 def test_run_once_skips_pending_terminal_status():

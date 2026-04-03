@@ -96,6 +96,7 @@ env:
 # ====================================================================
 
 jobs:
+  # Manual review issue creation is handled by main2main_manual_review.yaml.
   # ================================================================
   # Phase 1: Detect & Adapt
   # ================================================================
@@ -108,7 +109,6 @@ jobs:
         working-directory: vllm-benchmarks
     env:
       GH_TOKEN: ${{ secrets.PAT_TOKEN }}
-      MAIN2MAIN_CI_MODE: "1"
       API_TIMEOUT_MS: 3000000
       ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
       ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
@@ -232,6 +232,7 @@ jobs:
           NEW_COMMIT: ${{ steps.detect.outputs.new_commit }}
           VLLM_UPSTREAM_DIR: ${{ github.workspace }}/vllm-upstream
           CLAUDE_WORKING_DIR: ${{ github.workspace }}/vllm-benchmarks
+          CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1"
 
       - name: Finalize branch and create cross-fork PR
         if: steps.branch.outputs.name
@@ -299,6 +300,7 @@ jobs:
             --repo "${{ env.UPSTREAM_REPO }}" \
             --body-file /tmp/main2main_register_comment.md
 
+
   # ================================================================
   # Fixup: Explicit Phase 2 & Phase 3 executor
   #
@@ -312,7 +314,6 @@ jobs:
     timeout-minutes: 420  # 7 hours (bisect can be slow)
     env:
       GH_TOKEN: ${{ secrets.PAT_TOKEN }}
-      MAIN2MAIN_CI_MODE: "1"
       API_TIMEOUT_MS: 3000000
       ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
       ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
@@ -501,6 +502,7 @@ jobs:
           show_full_output: true
         env:
           CLAUDE_WORKING_DIR: ${{ github.workspace }}/vllm-benchmarks
+          CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1"
 
       # ── Phase 3: Bisect & targeted fix ──
       - name: "Phase 3: Trigger bisect workflow"
@@ -616,6 +618,7 @@ jobs:
           show_full_output: true
         env:
           CLAUDE_WORKING_DIR: ${{ github.workspace }}/vllm-benchmarks
+          CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1"
 
       - name: "Phase 2/3: Push fixes and mark phase complete"
         id: push_fix
