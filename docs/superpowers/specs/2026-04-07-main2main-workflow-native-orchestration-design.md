@@ -140,7 +140,7 @@ Each PR uses two structured comments:
 | `e2e_run_id` | Current E2E run being consumed |
 | `fix_run_id` | Current fix workflow run |
 | `bisect_run_id` | Current bisect workflow run |
-| `dispatch_token` | Guards against stale fix/bisect callbacks |
+| `dispatch_token` | Current action-attempt token; guards against stale fix/bisect/terminal callbacks |
 | `terminal_reason` | Reason for `manual_review` |
 | `manual_review_issue_url` | Created issue link |
 | `last_transition`, `updated_at`, `updated_by` | Audit/debugging |
@@ -155,6 +155,21 @@ Each PR uses two structured comments:
 - `error`
 
 `waiting_bisect` is a first-class persistent state. It is required because bisect can run for hours and must not be coupled to the same run that later performs Claude-based Phase 3 repair.
+
+### Token rotation rule
+
+`dispatch_token` is not minted once at detect time and then reused forever.
+
+A fresh `dispatch_token` must be generated and persisted in `main2main-state` before every outbound action attempt:
+
+- reconcile -> `fix_phase2`
+- reconcile -> `fix_phase3_prepare`
+- reconcile -> terminal `make_ready`
+- reconcile -> terminal `manual_review`
+- `fix_phase3_prepare` -> `bisect_vllm.yaml`
+- `bisect_vllm.yaml` callback -> `fix_phase3_finalize`
+
+Every callback or terminal workflow must match the exact current token in state before mutating state or performing side effects.
 
 ## Workflow Contracts
 
@@ -176,6 +191,8 @@ Responsibilities:
 - Prepare Phase 3 bisect dispatch
 - Finalize Phase 3 using bisect outputs and Claude repair
 
+Fix modes do not receive `e2e_run_id` as a dispatch input. They read the persisted `e2e_run_id` from `main2main-state`.
+
 ### `main2main_reconcile.yaml`
 
 Triggers:
@@ -193,6 +210,7 @@ Responsibilities:
 
 - List open `main2main` PRs
 - Initialize missing `main2main-state` comments from `main2main-register`
+- Recover missing comments for a newly created detect PR by parsing PR body/labels when the detect run created the PR but failed before writing structured comments
 - Resolve E2E runs for `waiting_e2e`
 - Dispatch next action
 - Recover `waiting_bisect` if bisect finished but finalize did not run
@@ -213,6 +231,8 @@ Responsibilities:
 - Create issue
 - Patch `main2main-state` to `ready` or `manual_review`
 
+Terminal actions also read `e2e_run_id`, `fix_run_id`, and other context from `main2main-state` rather than from long workflow-dispatch inputs.
+
 ### `bisect_vllm.yaml`
 
 Retains standalone use. New optional inputs:
@@ -226,6 +246,7 @@ Retains standalone use. New optional inputs:
 Callback rule:
 
 - Only if `caller_type == main2main`
+- Mint and persist a fresh `dispatch_token` in `main2main-state`
 - Dispatch `main2main_auto.yaml mode=fix_phase3_finalize`
 - Pass only `pr_number`, `dispatch_token`, `bisect_run_id`
 
@@ -250,6 +271,8 @@ This avoids polluting standalone bisect use with main2main-only behavior.
    - fresh `dispatch_token`
 8. Exit
 
+Detect must treat PR creation plus comment creation as one failure-checked transaction. If the PR is created but one or both structured comments are missing, reconcile must be able to recover the state from PR metadata/body on a later pass instead of leaving an unrecoverable orphan PR.
+
 E2E is not waited on here. It is triggered by PR labels and future PR synchronize events via [`pr_test_full.yaml`](../../../.github/workflows/pr_test_full.yaml).
 
 ### 2. Reconcile path
@@ -260,18 +283,20 @@ For each open `main2main` PR:
 
 1. Load/initialize `main2main-state`
 2. If mergeability is explicitly conflicting (`mergeable=CONFLICTING` or an equivalent dirty/conflict status):
+   - persist the current failed/terminal context, including `e2e_run_id` when available
+   - mint and persist a fresh `dispatch_token`
    - dispatch terminal manual review with `terminal_reason=merge_conflict`
    - stop automatic processing for that PR
 3. If `status=waiting_e2e`:
    - resolve latest E2E run for the exact `head_sha`
    - if run absent/in-progress: keep `waiting_e2e`
-   - if success: dispatch terminal `make_ready`
-   - if failure and `phase=2`: patch to `phase=2,status=fixing`; dispatch `fix_phase2`
-   - if failure and `phase=3`: patch to `phase=3,status=fixing`; dispatch `fix_phase3_prepare`
-   - if failure and `phase=done`: dispatch terminal manual review with `terminal_reason=done_failure`
+   - if success: persist `e2e_run_id`, mint a fresh `dispatch_token`, then dispatch terminal `make_ready`
+   - if failure and `phase=2`: persist `e2e_run_id`, patch to `phase=2,status=fixing`, mint a fresh `dispatch_token`, then dispatch `fix_phase2`
+   - if failure and `phase=3`: persist `e2e_run_id`, patch to `phase=3,status=fixing`, mint a fresh `dispatch_token`, then dispatch `fix_phase3_prepare`
+   - if failure and `phase=done`: persist `e2e_run_id`, mint a fresh `dispatch_token`, then dispatch terminal manual review with `terminal_reason=done_failure`
 4. If `status=waiting_bisect`:
    - check `bisect_run_id`
-   - if bisect finished but finalize callback is missing/failed: re-dispatch `fix_phase3_finalize`
+   - if bisect finished but finalize callback is missing/failed: mint a fresh `dispatch_token`, persist it, then re-dispatch `fix_phase3_finalize`
 5. Skip `fixing`, `ready`, `manual_review`, and `error` unless explicitly targeted by recovery logic
 
 ### 3. Phase 2 fix path
@@ -279,7 +304,7 @@ For each open `main2main` PR:
 `main2main_auto.yaml mode=fix_phase2`
 
 1. Validate stale guard: `phase=2,status=fixing`, matching `dispatch_token`
-2. Record `fix_run_id`
+2. Record `fix_run_id=${github.run_id}`
 3. Run Claude with `main2main-error-analysis`
 4. Parse result
 5. If changes were pushed:
@@ -287,9 +312,11 @@ For each open `main2main` PR:
    - patch register comment with new `head_sha`
    - patch state to `phase=3,status=waiting_e2e`
 6. If no changes:
-   - patch state to `phase=3,status=fixing`
-   - immediately dispatch `fix_phase3_prepare` as the next step of the same failed-repair path
+   - preserve the existing behavior by patching state to `phase=3,status=waiting_e2e`
+   - keep the same `head_sha`
+   - allow the next reconcile pass to consume the already-failed E2E under Phase 3 semantics
 7. If workflow fails:
+   - mint and persist a fresh `dispatch_token`
    - dispatch terminal manual review with `terminal_reason=fixup_failure`
 
 This preserves the current semantic that after Phase 2 execution, the next failed E2E should route into Phase 3.
@@ -299,20 +326,22 @@ This preserves the current semantic that after Phase 2 execution, the next faile
 `main2main_auto.yaml mode=fix_phase3_prepare`
 
 1. Validate stale guard: `phase=3,status=fixing`
-2. Run `ci_log_summary.py --format bisect-json`
-3. Extract representative `test_cmd`
-4. If no `test_cmd`, use the existing stable fallback commands
-5. Dispatch `bisect_vllm.yaml` with:
+2. Record `fix_run_id=${github.run_id}`
+3. Run `ci_log_summary.py --format bisect-json`
+4. Extract representative `test_cmd`
+5. If no `test_cmd`, use the existing stable fallback commands
+6. Mint and persist a fresh `dispatch_token`
+7. Dispatch `bisect_vllm.yaml` with:
    - `caller_type=main2main`
    - `main2main_pr_number`
    - `main2main_dispatch_token`
    - existing `good_commit`, `bad_commit`, `test_cmd`, `caller_run_id`
-6. Resolve the bisect run id
-7. Patch state to:
+8. Resolve the bisect run id
+9. Patch state to:
    - `phase=3`
    - `status=waiting_bisect`
    - `bisect_run_id=<run>`
-8. Exit
+10. Exit
 
 ### 5. Phase 3 finalize path
 
@@ -322,18 +351,20 @@ This preserves the current semantic that after Phase 2 execution, the next faile
    - `phase=3,status=waiting_bisect`
    - matching `dispatch_token`
    - matching `bisect_run_id`
-2. Download `bisect-summary` and `bisect_result.json`
-3. Run Claude with bisect-guided repair
-4. If changes were pushed:
+2. Record `fix_run_id=${github.run_id}`
+3. Download `bisect-summary` and `bisect_result.json`
+4. Run Claude with bisect-guided repair using the top-level summary plus full `group_results`
+5. If changes were pushed:
    - commit and push
    - patch register comment with new `head_sha`
    - patch state to `phase=done,status=waiting_e2e`
-5. If no changes:
+6. If no changes:
    - dispatch terminal manual review with `terminal_reason=phase3_no_changes`
-6. If bisect artifacts are missing:
+7. If bisect artifacts are missing:
    - still allow best-effort Claude repair
    - only escalate to manual review if finalize still produces no useful result
-7. If finalize workflow itself fails:
+8. If finalize workflow itself fails:
+   - mint and persist a fresh `dispatch_token`
    - dispatch terminal manual review with `terminal_reason=workflow_error`
 
 ### 6. Terminal path
@@ -344,8 +375,9 @@ This preserves the current semantic that after Phase 2 execution, the next faile
 
 1. Validate guard: PR still matches state `head_sha`
 2. Validate PR is not conflicting
-3. Run `gh pr ready`
-4. Patch state to:
+3. Check whether the PR is already non-draft; if so, treat that as converged success
+4. Otherwise run `gh pr ready`
+5. Patch state to:
    - `phase=done`
    - `status=ready`
 
@@ -476,6 +508,13 @@ Minimum fields:
 
 This supplements, not replaces, the existing markdown summary artifact.
 
+Aggregation semantics:
+
+- If all successful groups report the same `first_bad_commit`, top-level `status=success` and `first_bad_commit` is that value.
+- If successful groups disagree on `first_bad_commit`, top-level `status=ambiguous`, top-level `first_bad_commit` is empty, and finalize must inspect `group_results`.
+- If some groups succeed and some fail, top-level `status=partial_success`; finalize still runs with both top-level summary and `group_results`.
+- If no group yields a usable culprit, top-level `status=failed`.
+
 ## File Changes
 
 ### Create
@@ -490,7 +529,10 @@ This supplements, not replaces, the existing markdown summary artifact.
 - [`main2main_auto.yaml`](../../../.github/workflows/main2main_auto.yaml)
 - [`bisect_vllm.yaml`](../../../.github/workflows/bisect_vllm.yaml)
 - [`bisect_helper.py`](../../../.github/workflows/scripts/bisect_helper.py)
+- `deploy/systemd/vllm-benchmarks-orchestrator.service`
+- `deploy/systemd/orchestrator.env.example`
 - existing tests under `tests/main2main/`
+- `tests/main2main/test_deploy_assets.py`
 
 ### Delete
 
@@ -500,6 +542,8 @@ This supplements, not replaces, the existing markdown summary artifact.
 - `mcp_server.py`
 - `terminal_worker.py`
 - `state_store.py`
+- `tests/main2main/test_service_main.py`
+- `tests/main2main/test_github_adapter.py`
 - legacy tests that only cover the removed local control plane
 
 ### Rename
@@ -522,14 +566,16 @@ This supplements, not replaces, the existing markdown summary artifact.
 - `main2main_reconcile.yaml` state-handling contract
 - `main2main_terminal.yaml` action contract
 - `bisect_vllm.yaml` callback only when `caller_type=main2main`
+- `make_ready` idempotency when the PR is already non-draft
 
 ### Integration tests
 
 - detect -> `waiting_e2e`
-- phase2 failure -> `fix_phase2` -> phase3 or `waiting_e2e`
+- phase2 failure -> `fix_phase2` -> `phase=3,status=waiting_e2e`
 - phase3 prepare -> `waiting_bisect` -> finalize -> `waiting_e2e` or `manual_review`
 - done failure -> `manual_review`
 - success -> `ready`
+- detect-created PR with missing comments -> reconcile recovery
 
 ### GitHub smoke tests
 
@@ -569,3 +615,4 @@ The migration is complete when all of the following are true:
 5. Manual review issues are created entirely by workflows
 6. All live state is visible in PR comments
 7. Local orchestrator/service files are removed from the production path
+8. A PR that becomes already-ready before state patch can still converge to `ready`
