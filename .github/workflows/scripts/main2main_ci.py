@@ -204,8 +204,25 @@ def check_state_guard(
         return GuardResult(False, f"phase mismatch: expected {expected_phase}, got {state.phase}")
     if expected_status and state.status != expected_status:
         return GuardResult(False, f"status mismatch: expected {expected_status}, got {state.status}")
-    if dispatch_token and state.dispatch_token != dispatch_token:
+    if dispatch_token is not None and state.dispatch_token != dispatch_token:
         return GuardResult(False, "dispatch token mismatch")
+    return GuardResult(True)
+
+
+def check_pr_consistency(
+    state: Main2MainState,
+    *,
+    branch: str,
+    head_sha: str,
+    old_commit: str,
+    new_commit: str,
+) -> GuardResult:
+    if state.branch != branch:
+        return GuardResult(False, f"branch mismatch: expected {state.branch}, got {branch}")
+    if state.head_sha != head_sha:
+        return GuardResult(False, f"head_sha mismatch: expected {state.head_sha}, got {head_sha}")
+    if state.old_commit != old_commit or state.new_commit != new_commit:
+        return GuardResult(False, "commit range mismatch")
     return GuardResult(True)
 
 
@@ -394,6 +411,20 @@ def _command_guard_check(args: argparse.Namespace) -> int:
     return 0 if result.ok else 1
 
 
+def _command_pr_consistency_check(args: argparse.Namespace) -> int:
+    payload = _load_json(args.state_file)
+    state = Main2MainState(**_normalize_state_payload(payload))
+    result = check_pr_consistency(
+        state,
+        branch=args.branch,
+        head_sha=args.head_sha,
+        old_commit=args.old_commit,
+        new_commit=args.new_commit,
+    )
+    _write_json(asdict(result))
+    return 0 if result.ok else 1
+
+
 def _command_reconcile_decision(args: argparse.Namespace) -> int:
     payload = _load_json(args.state_file)
     state = Main2MainState(**_normalize_state_payload(payload))
@@ -470,6 +501,14 @@ def _build_parser() -> argparse.ArgumentParser:
     guard.add_argument("--expected-status", default=None)
     guard.add_argument("--dispatch-token", default=None)
     guard.set_defaults(func=_command_guard_check)
+
+    consistency = subparsers.add_parser("pr-consistency-check")
+    consistency.add_argument("--state-file", required=True)
+    consistency.add_argument("--branch", required=True)
+    consistency.add_argument("--head-sha", required=True)
+    consistency.add_argument("--old-commit", required=True)
+    consistency.add_argument("--new-commit", required=True)
+    consistency.set_defaults(func=_command_pr_consistency_check)
 
     reconcile = subparsers.add_parser("reconcile-decision")
     reconcile.add_argument("--state-file", required=True)

@@ -190,6 +190,47 @@ jobs:
                 --comment-file /tmp/main2main_state_comment.md > /tmp/main2main_state.json
             fi
 
+            PR_BRANCH=$(python3 - <<'PY'
+            import json
+            from pathlib import Path
+            print(json.loads(Path("/tmp/main2main_pr.json").read_text(encoding="utf-8"))["headRefName"])
+            PY
+            )
+            PR_HEAD_SHA=$(python3 - <<'PY'
+            import json
+            from pathlib import Path
+            print(json.loads(Path("/tmp/main2main_pr.json").read_text(encoding="utf-8"))["headRefOid"])
+            PY
+            )
+            PR_OLD_COMMIT=$(python3 - <<'PY'
+            import json, re
+            from pathlib import Path
+            pr = json.loads(Path("/tmp/main2main_pr.json").read_text(encoding="utf-8"))
+            body = pr.get("body") or ""
+            match = re.search(r"\*\*Commit range:\*\* `([0-9a-f]{40})`\.\.\.`([0-9a-f]{40})`", body)
+            print(match.group(1) if match else "")
+            PY
+            )
+            PR_NEW_COMMIT=$(python3 - <<'PY'
+            import json, re
+            from pathlib import Path
+            pr = json.loads(Path("/tmp/main2main_pr.json").read_text(encoding="utf-8"))
+            body = pr.get("body") or ""
+            match = re.search(r"\*\*Commit range:\*\* `([0-9a-f]{40})`\.\.\.`([0-9a-f]{40})`", body)
+            print(match.group(2) if match else "")
+            PY
+            )
+            if ! python3 .github/workflows/scripts/main2main_ci.py pr-consistency-check \
+              --state-file /tmp/main2main_state.json \
+              --branch "${PR_BRANCH}" \
+              --head-sha "${PR_HEAD_SHA}" \
+              --old-commit "${PR_OLD_COMMIT}" \
+              --new-commit "${PR_NEW_COMMIT}" >/tmp/main2main_pr_guard.json; then
+              echo "::warning::PR ${PR_NUMBER} metadata drifted away from stored state; skipping reconcile."
+              echo "::endgroup::"
+              continue
+            fi
+
             STATUS=$(python3 - <<'PY'
             import json
             from pathlib import Path
