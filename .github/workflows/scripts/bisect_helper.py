@@ -332,6 +332,75 @@ def build_batch_matrix(test_cmds_str: str) -> dict:
     return {"include": include}
 
 
+def _coalesce_first_bad(group_results: list[dict]) -> tuple[str, str, str]:
+    successes = [group for group in group_results if group.get("status") == "success" and group.get("first_bad_commit")]
+    if not successes:
+        return "failed", "", ""
+    unique_commits = {group.get("first_bad_commit", "") for group in successes}
+    if len(unique_commits) > 1:
+        return "ambiguous", "", ""
+    first_bad_commit = successes[0].get("first_bad_commit", "")
+    first_bad_commit_url = successes[0].get("first_bad_commit_url", "")
+    if len(successes) == len(group_results):
+        return "success", first_bad_commit, first_bad_commit_url
+    return "partial_success", first_bad_commit, first_bad_commit_url
+
+
+def build_bisect_result_json(
+    *,
+    caller_type: str,
+    caller_run_id: str,
+    bisect_run_id: str,
+    good_commit: str,
+    bad_commit: str,
+    test_cmd: str,
+    group_results: list[dict],
+    skipped_commits: list[str] | None = None,
+    log_entries: list[dict] | None = None,
+) -> dict:
+    status, first_bad_commit, first_bad_commit_url = _coalesce_first_bad(group_results)
+    return {
+        "caller_type": caller_type,
+        "caller_run_id": caller_run_id,
+        "bisect_run_id": bisect_run_id,
+        "status": status,
+        "good_commit": good_commit,
+        "bad_commit": bad_commit,
+        "test_cmd": test_cmd,
+        "first_bad_commit": first_bad_commit,
+        "first_bad_commit_url": first_bad_commit_url,
+        "total_steps": 0,
+        "total_commits": 0,
+        "skipped_commits": skipped_commits or [],
+        "log_entries": log_entries or [],
+        "group_results": group_results,
+    }
+
+
+def _parse_summary_file(summary_path: Path, *, group: str) -> dict:
+    if not summary_path.is_file():
+        return {"group": group, "status": "failed", "first_bad_commit": "", "first_bad_commit_url": ""}
+    text = summary_path.read_text(encoding="utf-8")
+    first_bad_match = re.search(r"\| First bad commit \| `([^`]+)` \|", text)
+    url_match = re.search(r"\| Link \| ([^|]+) \|", text)
+    if first_bad_match:
+        return {
+            "group": group,
+            "status": "success",
+            "first_bad_commit": first_bad_match.group(1).strip(),
+            "first_bad_commit_url": url_match.group(1).strip() if url_match else "",
+        }
+    return {"group": group, "status": "failed", "first_bad_commit": "", "first_bad_commit_url": ""}
+
+
+def collect_group_results(results_dir: Path) -> list[dict]:
+    group_results = []
+    for artifact_dir in sorted(path for path in results_dir.iterdir() if path.is_dir()):
+        group = artifact_dir.name.removeprefix("bisect-result-")
+        group_results.append(_parse_summary_file(artifact_dir / "bisect_summary.md", group=group))
+    return group_results
+
+
 def cmd_batch_matrix(args):
     matrix = build_batch_matrix(args.test_cmds)
     matrix_json = json.dumps(matrix, separators=(",", ":"))
@@ -422,6 +491,25 @@ def cmd_ascend_install(args):
     sys.exit(1)
 
 
+def cmd_result_json(args):
+    results_dir = Path(args.results_dir)
+    group_results = collect_group_results(results_dir) if results_dir.exists() else []
+    result = build_bisect_result_json(
+        caller_type=args.caller_type,
+        caller_run_id=args.caller_run_id,
+        bisect_run_id=args.bisect_run_id,
+        good_commit=args.good_commit,
+        bad_commit=args.bad_commit,
+        test_cmd=args.test_cmd,
+        group_results=group_results,
+    )
+    output = json.dumps(result, ensure_ascii=True, indent=2)
+    if args.output:
+        Path(args.output).write_text(output + "\n", encoding="utf-8")
+    else:
+        print(output)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Helper for vllm bisect automation")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -463,6 +551,18 @@ def main():
     p_ascend_install = subparsers.add_parser("ascend-install", help="Get vllm-ascend install command for a test command")
     p_ascend_install.add_argument("--test-cmd", required=True)
     p_ascend_install.set_defaults(func=cmd_ascend_install)
+
+    p_result = subparsers.add_parser("result-json", help="Build a machine-readable bisect result payload")
+    p_result.add_argument("--caller-type", required=True)
+    p_result.add_argument("--caller-run-id", required=True)
+    p_result.add_argument("--bisect-run-id", required=True)
+    p_result.add_argument("--good-commit", required=True)
+    p_result.add_argument("--bad-commit", required=True)
+    p_result.add_argument("--test-cmd", required=True)
+    p_result.add_argument("--results-dir", required=True)
+    p_result.add_argument("--summary-file", default="")
+    p_result.add_argument("--output", default="")
+    p_result.set_defaults(func=cmd_result_json)
 
     args = parser.parse_args()
     args.func(args)
