@@ -384,9 +384,10 @@ This preserves the current semantic that after Phase 2 execution, the next faile
 #### `action=manual_review`
 
 1. Validate state is not already terminal
-2. Generate issue content using current manual-review analysis flow
-3. Create issue
-4. Patch state to:
+2. Check whether a manual-review issue for the current terminal attempt already exists; if so, treat that as converged success
+3. Otherwise generate issue content using current manual-review analysis flow
+4. Create issue
+5. Patch state to:
    - `phase=done`
    - `status=manual_review`
    - `terminal_reason=<reason>`
@@ -567,6 +568,7 @@ Aggregation semantics:
 - `main2main_terminal.yaml` action contract
 - `bisect_vllm.yaml` callback only when `caller_type=main2main`
 - `make_ready` idempotency when the PR is already non-draft
+- `manual_review` idempotency when an issue already exists but state was not yet patched
 
 ### Integration tests
 
@@ -576,6 +578,7 @@ Aggregation semantics:
 - done failure -> `manual_review`
 - success -> `ready`
 - detect-created PR with missing comments -> reconcile recovery
+- existing manual-review issue with stale non-terminal state -> terminal run converges without creating a duplicate issue
 
 ### GitHub smoke tests
 
