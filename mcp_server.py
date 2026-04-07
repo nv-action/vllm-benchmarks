@@ -102,15 +102,12 @@ class McpOrchestrator:
 
             if name == "orchestrator_get_health":
                 data = self._store.load_all() if self._store.path.exists() else {}
-                terminal_jobs = data.get("_terminal_jobs", [])
-                pending = sum(1 for job in terminal_jobs if job.get("status") == "pending")
                 pr_count = sum(1 for key in data if not key.startswith("_"))
                 return json.dumps(
                     {
                         "state_file_exists": self._store.path.exists(),
                         "state_file_path": str(self._store.path),
                         "tracked_pr_count": pr_count,
-                        "terminal_jobs_pending": pending,
                         "last_poll_time": self._poll_state.get("last_poll_time"),
                         "last_poll_result": self._poll_state.get("last_poll_result"),
                         "uptime_seconds": round(time.time() - _START_TIME, 1),
