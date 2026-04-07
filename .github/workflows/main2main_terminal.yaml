@@ -1,0 +1,249 @@
+#
+# Copyright (c) 2025 Huawei Technologies Co., Ltd. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+name: Main2Main Terminal
+run-name: >-
+  ${{
+    format(
+      'Main2Main Terminal action={0} pr={1} token={2}',
+      github.event.inputs.action,
+      github.event.inputs.pr_number,
+      github.event.inputs.dispatch_token
+    )
+  }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Terminal action: make_ready or manual_review'
+        required: true
+      pr_number:
+        description: 'PR number for the associated main2main run'
+        required: true
+      dispatch_token:
+        description: 'Current guarded token from main2main-state'
+        required: true
+      terminal_reason:
+        description: 'Terminal reason for manual_review'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  actions: read
+
+concurrency:
+  group: main2main-pr-${{ github.event.inputs.pr_number }}
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: nv-action/vllm-benchmarks
+
+jobs:
+  terminal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+      API_TIMEOUT_MS: 3000000
+      ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+      ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+    defaults:
+      run:
+        working-directory: vllm-benchmarks
+    steps:
+      - name: Validate GitHub token scopes
+        run: |
+          gh auth status
+          gh api graphql -f query='query { organization(login: "nv-action") { login } }' >/dev/null
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          repository: Meihan-chen/vllm-benchmarks
+          token: ${{ secrets.PAT_TOKEN }}
+          path: vllm-benchmarks
+          fetch-depth: 0
+
+      - name: Load state comment
+        id: state
+        run: |
+          gh api "repos/${{ env.UPSTREAM_REPO }}/issues/${{ github.event.inputs.pr_number }}/comments" > /tmp/main2main_comments.json
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          comments = json.loads(Path("/tmp/main2main_comments.json").read_text(encoding="utf-8"))
+          match = next((item for item in comments if "main2main-state:v1" in item.get("body", "")), None)
+          if match is None:
+              raise SystemExit("missing main2main-state comment")
+          Path("/tmp/main2main_state_comment.md").write_text(match["body"], encoding="utf-8")
+          Path("/tmp/main2main_state_comment_id.txt").write_text(str(match["id"]), encoding="utf-8")
+          PY
+          python3 .github/workflows/scripts/main2main_ci.py state-read \
+            --comment-file /tmp/main2main_state_comment.md > /tmp/main2main_state.json
+          if ! python3 .github/workflows/scripts/main2main_ci.py guard-check \
+            --state-file /tmp/main2main_state.json \
+            --dispatch-token "${{ github.event.inputs.dispatch_token }}" >/tmp/main2main_guard.json; then
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Stale terminal dispatch detected; skipping."
+            exit 0
+          fi
+          echo "stale=false" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare Claude settings
+        if: steps.state.outputs.stale != 'true' && github.event.inputs.action == 'manual_review'
+        run: |
+          rm -f .claude/settings.json .claude/settings.local.json
+          if [ -f "$HOME/.claude/settings.json" ]; then
+            python3 -m json.tool "$HOME/.claude/settings.json" >/dev/null || rm -f "$HOME/.claude/settings.json"
+          fi
+
+      - name: Validate Claude gateway configuration
+        if: steps.state.outputs.stale != 'true' && github.event.inputs.action == 'manual_review'
+        run: |
+          test -n "$ANTHROPIC_BASE_URL" || { echo "::error::ANTHROPIC_BASE_URL is empty"; exit 1; }
+          test -n "$ANTHROPIC_AUTH_TOKEN" || { echo "::error::ANTHROPIC_AUTH_TOKEN is empty"; exit 1; }
+
+      - name: Make PR ready
+        if: steps.state.outputs.stale != 'true' && github.event.inputs.action == 'make_ready'
+        run: |
+          gh pr ready "${{ github.event.inputs.pr_number }}" --repo "${{ env.UPSTREAM_REPO }}"
+
+      - name: Collect manual review context
+        if: steps.state.outputs.stale != 'true' && github.event.inputs.action == 'manual_review'
+        run: |
+          PR_JSON=$(gh pr view "${{ github.event.inputs.pr_number }}" \
+            --repo "${{ env.UPSTREAM_REPO }}" \
+            --json number,headRefName,headRefOid,body,url)
+          echo "${PR_JSON}" > /tmp/manual_review_pr.json
+
+          E2E_RUN_ID=$(python3 - <<'PY'
+          import json
+          from pathlib import Path
+          state = json.loads(Path("/tmp/main2main_state.json").read_text(encoding="utf-8"))
+          print(state.get("e2e_run_id", ""))
+          PY
+          )
+          FIX_RUN_ID=$(python3 - <<'PY'
+          import json
+          from pathlib import Path
+          state = json.loads(Path("/tmp/main2main_state.json").read_text(encoding="utf-8"))
+          print(state.get("fix_run_id", ""))
+          PY
+          )
+
+          if [ -n "${E2E_RUN_ID}" ]; then
+            python3 .github/workflows/scripts/ci_log_summary.py \
+              --repo "${{ env.UPSTREAM_REPO }}" \
+              --run-id "${E2E_RUN_ID}" \
+              --format llm-json \
+              --output /tmp/manual_review_analysis.json
+          else
+            echo '{}' > /tmp/manual_review_analysis.json
+          fi
+
+          python3 <<'PY'
+          import json
+          import re
+          from pathlib import Path
+
+          pr = json.loads(Path("/tmp/manual_review_pr.json").read_text(encoding="utf-8"))
+          analysis = json.loads(Path("/tmp/manual_review_analysis.json").read_text(encoding="utf-8"))
+          state = json.loads(Path("/tmp/main2main_state.json").read_text(encoding="utf-8"))
+          body = pr.get("body") or ""
+          match = re.search(r"\*\*Commit range:\*\* `([0-9a-f]{40})`\.\.\.`([0-9a-f]{40})`", body)
+          context = {
+              "pr_number": pr.get("number"),
+              "pr_url": pr.get("url"),
+              "branch": pr.get("headRefName"),
+              "head_sha": pr.get("headRefOid"),
+              "terminal_reason": "${{ github.event.inputs.terminal_reason }}",
+              "e2e_run_id": state.get("e2e_run_id", ""),
+              "fix_run_id": state.get("fix_run_id", ""),
+              "bisect_run_id": state.get("bisect_run_id", ""),
+              "dispatch_token": state.get("dispatch_token", ""),
+              "old_commit": match.group(1) if match else state.get("old_commit", ""),
+              "new_commit": match.group(2) if match else state.get("new_commit", ""),
+              "analysis": analysis,
+          }
+          Path("manual_review_context.json").write_text(json.dumps(context, ensure_ascii=False, indent=2), encoding="utf-8")
+          PY
+
+      - name: Generate manual review issue body with Claude
+        if: steps.state.outputs.stale != 'true' && github.event.inputs.action == 'manual_review'
+        uses: anthropics/claude-code-action/base-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          prompt: |
+            Write the final GitHub issue body for a terminal main2main failure.
+
+            Read `manual_review_context.json` from the working directory.
+            Produce a concise but actionable issue body in markdown.
+            Include:
+            - a short summary
+            - evidence
+            - likely root cause
+            - suggested next manual steps
+
+            Write the final body to `manual_review_issue.md`.
+            Do not create branches, commits, or pull requests.
+          claude_args: "--model qwen/qwen3.6-plus:free --dangerously-skip-permissions --allowed-tools 'Bash(cat *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
+          show_full_output: true
+        env:
+          CLAUDE_WORKING_DIR: ${{ github.workspace }}/vllm-benchmarks
+          CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1"
+
+      - name: Create manual review issue
+        if: steps.state.outputs.stale != 'true' && github.event.inputs.action == 'manual_review'
+        run: |
+          test -s manual_review_issue.md || { echo "::error::manual_review_issue.md was not created"; exit 1; }
+          gh issue create \
+            --repo "${{ env.UPSTREAM_REPO }}" \
+            --title "main2main: manual review needed ($(date +%Y-%m-%d))" \
+            --label "main2main" \
+            --body-file manual_review_issue.md > /tmp/manual_review_issue_url.txt
+
+      - name: Update state comment
+        if: steps.state.outputs.stale != 'true'
+        run: |
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          state = json.loads(Path("/tmp/main2main_state.json").read_text(encoding="utf-8"))
+          if "${{ github.event.inputs.action }}" == "make_ready":
+              state["phase"] = "done"
+              state["status"] = "ready"
+              state["terminal_reason"] = ""
+              state["last_transition"] = "terminal/make_ready"
+          else:
+              state["phase"] = "done"
+              state["status"] = "manual_review"
+              state["terminal_reason"] = "${{ github.event.inputs.terminal_reason }}"
+              state["last_transition"] = "terminal/manual_review"
+          state["updated_by"] = "main2main_terminal.yaml/${{ github.event.inputs.action }}"
+          Path("/tmp/main2main_state_next.json").write_text(json.dumps(state, ensure_ascii=True, indent=2), encoding="utf-8")
+          PY
+          python3 .github/workflows/scripts/main2main_ci.py state-write \
+            --json-file /tmp/main2main_state_next.json > /tmp/main2main_state_next_comment.md
+
+          COMMENT_ID=$(cat /tmp/main2main_state_comment_id.txt)
+          gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/${COMMENT_ID}" \
+            -f body="$(cat /tmp/main2main_state_next_comment.md)" >/dev/null
