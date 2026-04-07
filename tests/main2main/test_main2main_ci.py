@@ -90,6 +90,35 @@ def test_guard_check_rejects_mismatched_dispatch_token():
     assert "dispatch token" in result.reason.lower()
 
 
+def test_guard_check_rejects_empty_dispatch_token_when_state_has_live_token():
+    state = make_state(dispatch_token="live-token", phase="2", status="fixing")
+
+    result = ci.check_state_guard(
+        state,
+        expected_phase="2",
+        expected_status="fixing",
+        dispatch_token="",
+    )
+
+    assert result.ok is False
+    assert "dispatch token" in result.reason.lower()
+
+
+def test_pr_consistency_rejects_head_sha_mismatch():
+    state = make_state()
+
+    result = ci.check_pr_consistency(
+        state,
+        branch=state.branch,
+        head_sha="ffffffffffffffffffffffffffffffffffffffff",
+        old_commit=state.old_commit,
+        new_commit=state.new_commit,
+    )
+
+    assert result.ok is False
+    assert "head_sha" in result.reason
+
+
 def test_phase2_no_changes_moves_to_phase3_waiting_e2e_without_new_head():
     state = make_state(phase="2", status="fixing")
 
