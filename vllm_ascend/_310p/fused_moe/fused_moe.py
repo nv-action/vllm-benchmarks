@@ -115,6 +115,11 @@ class AscendFusedMoE310(FusedMoE):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+        # Upstream FusedMoE no longer stores _gate/_shared_experts after __init__.
+        # Store them for our Ascend-specific _init_runner() below.
+        self._gate = kwargs.get("gate", None)
+        self._shared_experts = kwargs.get("shared_experts", None)
+
         self.global_num_experts = kwargs["num_experts"]
 
         if self.quant_config is None:
@@ -162,12 +167,12 @@ class AscendFusedMoE310(FusedMoE):
         from vllm_ascend.ops.fused_moe.fused_moe import AscendMoERunner
 
         return AscendMoERunner(
-            layer=self,
+            layer_name=self.layer_name,
             moe_config=self.moe_config,
             router=self.router,
             routed_input_transform=self._routed_input_transform,
-            gate=self.gate,
-            shared_experts=self.shared_experts,
+            gate=self._gate,
+            shared_experts=self._shared_experts,
             quant_method=self.quant_method,
             reduce_results=self.reduce_results,
             enable_dbo=self.vllm_config.parallel_config.enable_dbo,

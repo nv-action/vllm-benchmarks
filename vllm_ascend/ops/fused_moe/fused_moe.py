@@ -233,7 +233,7 @@ class AscendMoERunner(DefaultMoERunner):
 
     def __init__(
         self,
-        layer: torch.nn.Module,
+        layer_name: str,
         moe_config: FusedMoEConfig,
         router: FusedMoERouter,
         routed_input_transform: torch.nn.Module | None,
@@ -244,7 +244,7 @@ class AscendMoERunner(DefaultMoERunner):
         enable_dbo: bool,
     ):
         super().__init__(
-            layer,
+            layer_name,
             moe_config,
             router,
             routed_input_transform,
@@ -293,6 +293,10 @@ class AscendFusedMoE(FusedMoE):
 
         num_experts = kwargs["num_experts"]
         intermediate_size = kwargs["intermediate_size"]
+        # Upstream FusedMoE no longer stores _gate/_shared_experts after __init__.
+        # Store them for our Ascend-specific _init_runner() below.
+        self._gate = kwargs.get("gate", None)
+        self._shared_experts = kwargs.get("shared_experts", None)
 
         AscendFusedMoE.moe_counter += 1
         self.moe_instance_id = AscendFusedMoE.moe_counter
@@ -379,12 +383,12 @@ class AscendFusedMoE(FusedMoE):
         # the runner will own the FusedMoE layer and provide the execution interface
         # for MoE ops.
         return AscendMoERunner(
-            layer=self,
+            layer_name=self.layer_name,
             moe_config=self.moe_config,
             router=self.router,
             routed_input_transform=self._routed_input_transform,
-            gate=self.gate,
-            shared_experts=self.shared_experts,
+            gate=None,
+            shared_experts=self._shared_experts,
             quant_method=self.quant_method,
             reduce_results=self.reduce_results,
             enable_dbo=self.vllm_config.parallel_config.enable_dbo,
