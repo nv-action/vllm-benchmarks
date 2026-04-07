@@ -7,9 +7,18 @@
 The current `main2main` system is split across:
 
 - [`main2main_auto.yaml`](../../../.github/workflows/main2main_auto.yaml) for detect-and-adapt and explicit fixup execution
-- [`main2main_manual_review.yaml`](../../../.github/workflows/main2main_manual_review.yaml) for terminal issue creation
+- [`main2main_terminal.yaml`](../../../.github/workflows/main2main_terminal.yaml) for terminal ready/manual-review actions
+- [`main2main_reconcile.yaml`](../../../.github/workflows/main2main_reconcile.yaml) for `waiting_e2e` polling and state progression
 - [`bisect_vllm.yaml`](../../../.github/workflows/bisect_vllm.yaml) for long-running bisect
-- `main2main_orchestrator.py`, `github_adapter.py`, `service_main.py`, `mcp_server.py`, `terminal_worker.py`, and `state_store.py` for local polling, state persistence, and terminal actions
+- [`.github/workflows/scripts/main2main_ci.py`](../../../.github/workflows/scripts/main2main_ci.py) for workflow-side state/comment helpers and reconcile decisions
+
+Before this migration, the production control plane also included local Python services for polling, state persistence, and terminal actions:
+
+- `main2main_orchestrator.py`
+- `github_adapter.py`
+- `service_main.py`
+- `mcp_server.py`
+- `state_store.py`
 
 Today the production control plane is local:
 
