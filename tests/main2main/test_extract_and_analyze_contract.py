@@ -2,6 +2,7 @@ import importlib.util
 import os
 from pathlib import Path
 import subprocess
+import tempfile
 
 SCRIPT_PATH = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "scripts" / "ci_log_summary.py"
 BISECT_SCRIPT_PATH = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "scripts" / "bisect_vllm.sh"
@@ -529,28 +530,37 @@ def test_bisect_script_does_not_exit_during_parse_args_for_test_cmds_file(tmp_pa
 
 
 def test_bisect_script_does_not_exit_during_detect_commits_when_commits_are_provided():
-    result = subprocess.run(
-        [
-            "bash",
-            str(BISECT_SCRIPT_PATH),
-            "--test-cmd",
-            "pytest -sv tests/ut/spec_decode/test_eagle_proposer.py::TestEagleProposerInitialization::test_initialization_eagle_graph",
-            "--vllm-repo",
-            "/nonexistent/vllm",
-            "--ascend-repo",
-            "/nonexistent/ascend",
-            "--no-fetch",
-            "--good",
-            "35141a7eeda941a60ad5a4956670c60fd5a77029",
-            "--bad",
-            "c6f722b93e8e795065751172812ee6a5540e5901",
-        ],
-        capture_output=True,
-        text=True,
-    )
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        vllm_repo = Path(tmp_dir) / "vllm"
+        ascend_repo = Path(tmp_dir) / "ascend"
+        vllm_repo.mkdir()
+        ascend_repo.mkdir()
+        subprocess.run(["git", "init", str(vllm_repo)], check=True, capture_output=True, text=True)
+
+        result = subprocess.run(
+            [
+                "bash",
+                str(BISECT_SCRIPT_PATH),
+                "--test-cmd",
+                "pytest -sv tests/ut/spec_decode/test_eagle_proposer.py::TestEagleProposerInitialization::test_initialization_eagle_graph",
+                "--vllm-repo",
+                str(vllm_repo),
+                "--ascend-repo",
+                str(ascend_repo),
+                "--no-fetch",
+                "--good",
+                "35141a7eeda941a60ad5a4956670c60fd5a77029",
+                "--bad",
+                "c6f722b93e8e795065751172812ee6a5540e5901",
+            ],
+            capture_output=True,
+            text=True,
+        )
 
     assert result.returncode != 0
     assert "Preparing vllm repo for bisect" in result.stdout
+    assert "Auto-detecting good commit" not in result.stdout
+    assert "Auto-detecting bad commit" not in result.stdout
 
 
 def test_bisect_helper_finds_repo_root_from_cwd_when_copied(tmp_path):
@@ -564,8 +574,11 @@ def test_bisect_helper_finds_repo_root_from_cwd_when_copied(tmp_path):
 def test_bisect_script_prefers_editable_project_location_for_ascend_repo(tmp_path):
     editable_repo = tmp_path / "vllm-ascend-editable"
     location_repo = tmp_path / "site-packages"
+    vllm_repo = tmp_path / "vllm"
     editable_repo.mkdir()
     location_repo.mkdir()
+    vllm_repo.mkdir()
+    subprocess.run(["git", "init", str(vllm_repo)], check=True, capture_output=True, text=True)
 
     fake_pip = tmp_path / "pip"
     fake_pip.write_text(
@@ -597,7 +610,7 @@ def test_bisect_script_prefers_editable_project_location_for_ascend_repo(tmp_pat
             "--test-cmd",
             "pytest -sv tests/ut/spec_decode/test_eagle_proposer.py::TestEagleProposerInitialization::test_initialization_eagle_graph",
             "--vllm-repo",
-            "/nonexistent/vllm",
+            str(vllm_repo),
             "--no-fetch",
             "--good",
             "35141a7eeda941a60ad5a4956670c60fd5a77029",

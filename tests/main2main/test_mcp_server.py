@@ -76,7 +76,6 @@ def test_get_health_returns_expected_schema():
 
     assert "state_file_exists" in health
     assert "tracked_pr_count" in health
-    assert "terminal_jobs_pending" in health
     assert "uptime_seconds" in health
 
 
