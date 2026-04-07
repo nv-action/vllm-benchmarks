@@ -96,6 +96,7 @@ env:
 # ====================================================================
 
 jobs:
+  # Manual review issue creation is handled by main2main_manual_review.yaml.
   # ================================================================
   # Phase 1: Detect & Adapt
   # ================================================================
@@ -108,7 +109,6 @@ jobs:
         working-directory: vllm-benchmarks
     env:
       GH_TOKEN: ${{ secrets.PAT_TOKEN }}
-      MAIN2MAIN_CI_MODE: "1"
       API_TIMEOUT_MS: 3000000
       ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
       ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
@@ -232,6 +232,7 @@ jobs:
           NEW_COMMIT: ${{ steps.detect.outputs.new_commit }}
           VLLM_UPSTREAM_DIR: ${{ github.workspace }}/vllm-upstream
           CLAUDE_WORKING_DIR: ${{ github.workspace }}/vllm-benchmarks
+          CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1"
 
       - name: Finalize branch and create cross-fork PR
         if: steps.branch.outputs.name
@@ -299,6 +300,7 @@ jobs:
             --repo "${{ env.UPSTREAM_REPO }}" \
             --body-file /tmp/main2main_register_comment.md
 
+
   # ================================================================
   # Fixup: Explicit Phase 2 & Phase 3 executor
   #
@@ -312,7 +314,6 @@ jobs:
     timeout-minutes: 420  # 7 hours (bisect can be slow)
     env:
       GH_TOKEN: ${{ secrets.PAT_TOKEN }}
-      MAIN2MAIN_CI_MODE: "1"
       API_TIMEOUT_MS: 3000000
       ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
       ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
@@ -389,50 +390,6 @@ jobs:
 
           echo "::notice::PR #${PR_NUMBER} | run=${RUN_ID} | conclusion=${RUN_CONCLUSION} | normalized=${NORMALIZED_CONCLUSION} | phase=${PHASE}"
 
-      # ── CI passed → mark PR ready ──
-      - name: "Report: Mark PR ready for review"
-        if: steps.ctx.outputs.skip != 'true' && steps.ctx.outputs.normalized_conclusion == 'success'
-        run: |
-          gh pr ready "${{ steps.ctx.outputs.pr_number }}" --repo "${{ env.UPSTREAM_REPO }}"
-          gh pr comment "${{ steps.ctx.outputs.pr_number }}" --repo "${{ env.UPSTREAM_REPO }}" \
-            --body "## Main2Main Auto — All Tests Passed
-
-          The automated pipeline successfully adapted vllm-benchmarks to the latest
-          upstream vLLM main branch. All E2E-Full tests are green.
-
-          This PR is ready for human review."
-          echo "::notice::PR #${{ steps.ctx.outputs.pr_number }} marked ready for review"
-
-      # ── CI failed, all phases exhausted → create issue ──
-      - name: "Report: Create issue (all phases exhausted)"
-        if: >-
-          steps.ctx.outputs.skip != 'true'
-          && steps.ctx.outputs.normalized_conclusion == 'failure'
-          && steps.ctx.outputs.phase == 'done'
-        run: |
-          cat > /tmp/issue_body.md <<'ISSUE_EOF'
-          ## Main2Main Auto — Manual Review Required
-
-          The automated pipeline could not resolve CI failures after Phase 2 and Phase 3.
-          ISSUE_EOF
-
-          echo "" >> /tmp/issue_body.md
-          echo "| Item | Value |" >> /tmp/issue_body.md
-          echo "|:--|:--|" >> /tmp/issue_body.md
-          echo "| **PR** | #${{ steps.ctx.outputs.pr_number }} |" >> /tmp/issue_body.md
-          echo "| **Failed Run** | ${{ steps.ctx.outputs.run_url }} |" >> /tmp/issue_body.md
-          echo "| **Old vLLM Commit** | \`${{ steps.ctx.outputs.old_commit }}\` |" >> /tmp/issue_body.md
-          echo "| **New vLLM Commit** | \`${{ steps.ctx.outputs.new_commit }}\` |" >> /tmp/issue_body.md
-          echo "" >> /tmp/issue_body.md
-          echo "Please review the PR, check the pipeline logs, and apply remaining fixes manually." >> /tmp/issue_body.md
-
-          gh issue create \
-            --repo "${{ env.UPSTREAM_REPO }}" \
-            --title "main2main: manual review needed ($(date +%Y-%m-%d))" \
-            --label "main2main" \
-            --body-file /tmp/issue_body.md
-          echo "::warning::Created issue for manual review"
-
       # ── Phase 2/3 shared setup for automated fixes ──
       - name: "Phase 2/3: Checkout fork branch"
         if: >-
@@ -501,6 +458,7 @@ jobs:
           show_full_output: true
         env:
           CLAUDE_WORKING_DIR: ${{ github.workspace }}/vllm-benchmarks
+          CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1"
 
       # ── Phase 3: Bisect & targeted fix ──
       - name: "Phase 3: Trigger bisect workflow"
@@ -616,6 +574,7 @@ jobs:
           show_full_output: true
         env:
           CLAUDE_WORKING_DIR: ${{ github.workspace }}/vllm-benchmarks
+          CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1"
 
       - name: "Phase 2/3: Push fixes and mark phase complete"
         id: push_fix
