@@ -21,12 +21,10 @@ from main2main_orchestrator import (
     apply_fixup_result,
     apply_no_change_fixup_result,
     decide_next_action,
-    extract_e2e_failure_analysis,
     parse_fixup_job_output,
     parse_pr_metadata,
     parse_registration_comment,
     run_loop,
-    summarize_manual_review_issue,
 )
 
 
@@ -91,35 +89,6 @@ phase=2
         phase="2",
     )
 
-
-def test_extract_e2e_failure_analysis_invokes_script_with_repo_and_run_id(monkeypatch):
-    calls = []
-
-    class Completed:
-        stdout = '{"run_id": 123, "code_bugs": []}'
-
-    def fake_run(args, capture_output, text, check):
-        calls.append(args)
-        return Completed()
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-
-    result = extract_e2e_failure_analysis(
-        repo="nv-action/vllm-benchmarks",
-        run_id="123",
-    )
-
-    assert result == {"run_id": 123, "code_bugs": []}
-    assert "--repo" in calls[0]
-    assert "nv-action/vllm-benchmarks" in calls[0]
-    assert "--run-id" in calls[0]
-    assert "123" in calls[0]
-    assert "--format" in calls[0]
-    format_index = calls[0].index("--format")
-    assert calls[0][format_index + 1] == "llm-json"
-    assert str(calls[0][1]).endswith(".github/workflows/scripts/ci_log_summary.py")
-
-
 def test_github_cli_adapter_run_includes_stderr_on_failure(monkeypatch):
     def fake_run(args, check, capture_output, text):
         raise subprocess.CalledProcessError(
@@ -133,65 +102,6 @@ def test_github_cli_adapter_run_includes_stderr_on_failure(monkeypatch):
 
     with pytest.raises(RuntimeError, match="authentication failed"):
         GitHubCliAdapter._run(["gh", "pr", "list"])
-
-
-def test_summarize_manual_review_issue_uses_claude_gateway(monkeypatch):
-    requests = []
-
-    class FakeResponse:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def read(self):
-            return json.dumps(
-                {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "Summary line\\n- cause\\n- next step",
-                        }
-                    ]
-                }
-            ).encode("utf-8")
-
-    def fake_urlopen(request):
-        requests.append(request)
-        return FakeResponse()
-
-    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://gateway.example")
-    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "secret-token")
-    monkeypatch.setattr(orchestrator.urllib.request, "urlopen", fake_urlopen)
-
-    summary = summarize_manual_review_issue(
-        analysis={"run_id": 123, "code_bugs": [{"error_type": "TypeError", "error_message": "bad"}]},
-        state=Main2MainState(
-            repo="nv-action/vllm-benchmarks",
-            pr_number=154,
-            branch="main2main_auto_branch",
-            head_sha="abc",
-            old_commit="0" * 40,
-            new_commit="1" * 40,
-            phase="done",
-            status="waiting_e2e",
-        ),
-        terminal_reason="done_failure",
-        e2e_run_url="https://example/e2e/123",
-        e2e_run_id="123",
-        fixup_run_id="456",
-    )
-
-    assert "Summary line" in summary
-    assert len(requests) == 1
-    request = requests[0]
-    assert request.full_url == "https://gateway.example/v1/messages"
-    assert request.headers["Authorization"] == "Bearer secret-token"
-    payload = json.loads(request.data.decode("utf-8"))
-    assert payload["model"] == "claude-sonnet-4-5"
-    assert "done_failure" in payload["messages"][0]["content"]
-
 
 def test_decide_next_action_marks_ready_on_success():
     state = Main2MainState(
@@ -657,7 +567,7 @@ def test_cli_reconcile_parses_pr_metadata_correctly_in_script_mode():
 if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
   cat <<'EOF'
 {"number":156,"headRefOid":"887b94f5d89a73e2b5704c1baca8b4730376f5aa","headRefName":"main2main_auto_2026-03-12_12-00", \
-    "body":"## Summary\\n\\n**Commit range:** `4034c3d`...`5282c7d`\\n",\
+    "body":"## Summary\\n\\n**Commit range:** `4034c3d32e30d01639459edd3ab486f56993876d`...`5282c7d4d0d1487eb283f09d322b0140dea5a968`\\n",\
     "labels":[{"name":"main2main"}],"state":"OPEN"}
 EOF
   exit 0
@@ -1385,34 +1295,41 @@ def test_github_cli_adapter_marks_pr_ready():
     ]
 
 
-def test_github_cli_adapter_creates_manual_review_issue():
+def test_github_cli_adapter_dispatches_manual_review_workflow():
     commands = []
 
     def fake_runner(args):
         commands.append(args)
-        return "https://github.com/nv-action/vllm-benchmarks/issues/1"
+        return ""
 
     adapter = GitHubCliAdapter(fake_runner)
-    url = adapter.create_manual_review_issue(
+    adapter.dispatch_manual_review(
         repo="nv-action/vllm-benchmarks",
-        title="main2main: manual review needed (2026-03-11)",
-        body="manual review body",
+        pr_number=148,
+        terminal_reason="done_failure",
+        e2e_run_id="22901040063",
+        fixup_run_id="",
+        dispatch_token="manual-148",
     )
 
-    assert url.endswith("/issues/1")
     assert commands == [
         [
             "gh",
-            "issue",
-            "create",
+            "workflow",
+            "run",
+            "main2main_manual_review.yaml",
             "--repo",
             "nv-action/vllm-benchmarks",
-            "--title",
-            "main2main: manual review needed (2026-03-11)",
-            "--label",
-            "main2main",
-            "--body",
-            "manual review body",
+            "-f",
+            "pr_number=148",
+            "-f",
+            "terminal_reason=done_failure",
+            "-f",
+            "e2e_run_id=22901040063",
+            "-f",
+            "fixup_run_id=",
+            "-f",
+            "dispatch_token=manual-148",
         ]
     ]
 
@@ -1651,9 +1568,8 @@ class FakeGitHubAdapter:
             "run_url": "https://github.com/nv-action/vllm-benchmarks/actions/runs/fixup-1",
         }
 
-    def create_manual_review_issue(self, **kwargs):
-        self.calls.append(("create_manual_review_issue", kwargs))
-        return "https://github.com/nv-action/vllm-benchmarks/issues/1"
+    def dispatch_manual_review(self, **kwargs):
+        self.calls.append(("dispatch_manual_review", kwargs))
 
     def update_pr_phase(self, **kwargs):
         self.calls.append(("update_pr_phase", kwargs))
@@ -1854,9 +1770,10 @@ def test_orchestrator_service_creates_manual_review_when_done_phase_fails():
         result = service.reconcile("nv-action/vllm-benchmarks", 148)
 
         assert result["action"] == "create_manual_review"
-        issue_calls = [call for call in adapter.calls if call[0] == "create_manual_review_issue"]
-        assert len(issue_calls) == 1
-        assert issue_calls[0][1]["body"] == "AI summary for terminal E2E failure"
+        dispatch_calls = [call for call in adapter.calls if call[0] == "dispatch_manual_review"]
+        assert len(dispatch_calls) == 1
+        assert dispatch_calls[0][1]["terminal_reason"] == "done_failure"
+        assert dispatch_calls[0][1]["e2e_run_id"] == "22901040063"
         updated = store.get("nv-action/vllm-benchmarks", 148)
         assert updated is not None
         assert updated.status == "manual_review"
@@ -1988,13 +1905,14 @@ def test_orchestrator_service_creates_issue_when_phase3_fixup_has_no_changes():
         )
 
         updated = store.get("nv-action/vllm-benchmarks", 149)
-        issue_calls = [call for call in adapter.calls if call[0] == "create_manual_review_issue"]
+        dispatch_calls = [call for call in adapter.calls if call[0] == "dispatch_manual_review"]
         assert result["action"] == "create_manual_review"
         assert updated is not None
         assert updated.phase == "done"
         assert updated.status == "manual_review"
-        assert len(issue_calls) == 1
-        assert issue_calls[0][1]["body"] == "AI summary for phase 3 no-change terminal failure"
+        assert len(dispatch_calls) == 1
+        assert dispatch_calls[0][1]["terminal_reason"] == "phase3_no_changes"
+        assert dispatch_calls[0][1]["fixup_run_id"] == "22936816137"
 
 
 def test_run_once_skips_terminal_manual_review_state_without_creating_duplicate_issue():
@@ -2018,9 +1936,6 @@ def test_run_once_skips_terminal_manual_review_state_without_creating_duplicate_
             def list_open_main2main_pr_numbers(self, repo):
                 return [149]
 
-            def create_manual_review_issue(self, **kwargs):
-                raise AssertionError("manual review issue should not be created again")
-
             def get_pr_context(self, repo, pr_number):
                 raise AssertionError("terminal manual_review state should not reconcile")
 
@@ -2033,7 +1948,6 @@ def test_run_once_skips_terminal_manual_review_state_without_creating_duplicate_
             "fixup_outcomes": {},
             "reconciled": {},
         }
-
 
 def test_orchestrator_service_creates_manual_review_when_fixup_workflow_fails():
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -2086,7 +2000,7 @@ def test_orchestrator_service_creates_manual_review_when_fixup_workflow_fails():
         )
 
         updated = store.get("nv-action/vllm-benchmarks", 150)
-        issue_calls = [call for call in adapter.calls if call[0] == "create_manual_review_issue"]
+        dispatch_calls = [call for call in adapter.calls if call[0] == "dispatch_manual_review"]
         assert result == {
             "action": "create_manual_review",
             "phase": "3",
@@ -2095,35 +2009,8 @@ def test_orchestrator_service_creates_manual_review_when_fixup_workflow_fails():
         assert updated is not None
         assert updated.status == "manual_review"
         assert updated.active_fixup_run_id is None
-        assert len(issue_calls) == 1
-
-
-def test_run_once_skips_pending_terminal_status():
-    with tempfile.TemporaryDirectory() as d:
-        state_file = Path(d) / "state.json"
-        store = Main2MainStateStore(state_file)
-        store.register(
-            Main2MainState(
-                repo="nv-action/vllm-benchmarks",
-                pr_number=154,
-                branch="branch",
-                head_sha="a" * 40,
-                old_commit="b" * 40,
-                new_commit="c" * 40,
-                phase="done",
-                status="pending_terminal",
-            )
-        )
-
-        class FakeGH:
-            def list_open_main2main_pr_numbers(self, repo):
-                return [154]
-
-        service = OrchestratorService(store, FakeGH())
-        result = service.run_once("nv-action/vllm-benchmarks")
-
-        assert result["reconciled"] == {}
-        assert result["fixup_outcomes"] == {}
+        assert len(dispatch_calls) == 1
+        assert dispatch_calls[0][1]["terminal_reason"] == "fixup_failure"
 
 
 def test_cli_reconcile_reports_wait_when_e2e_not_finished():
@@ -2185,59 +2072,6 @@ def test_cli_reconcile_reports_wait_when_e2e_not_finished():
         assert "e2e-full has not completed yet" in result.stdout
 
 
-def test_reconcile_enqueues_terminal_job_when_callback_provided():
-    with tempfile.TemporaryDirectory() as d:
-        state_file = Path(d) / "state.json"
-        store = Main2MainStateStore(state_file)
-        store.register(
-            Main2MainState(
-                repo="r",
-                pr_number=1,
-                branch="b",
-                head_sha="a" * 40,
-                old_commit="b" * 40,
-                new_commit="c" * 40,
-                phase="done",
-                status="waiting_e2e",
-            )
-        )
-        enqueued = []
-
-        class FakeGH:
-            def get_pr_context(self, repo, pr_number):
-                return {
-                    "pr_number": 1,
-                    "head_sha": "a" * 40,
-                    "branch": "b",
-                    "state": "OPEN",
-                    "labels": ["main2main"],
-                    "metadata": PrMetadata(old_commit="b" * 40, new_commit="c" * 40),
-                    "body": "",
-                }
-
-            def wait_for_e2e_full(self, *, repo, head_sha):
-                return {
-                    "run_id": "99",
-                    "head_sha": "a" * 40,
-                    "conclusion": "failure",
-                    "run_url": "u",
-                }
-
-        service = OrchestratorService(
-            store,
-            FakeGH(),
-            terminal_enqueue_fn=lambda **kw: enqueued.append(kw),
-        )
-
-        result = service.reconcile("r", 1)
-
-        assert result["action"] == "create_manual_review"
-        assert len(enqueued) == 1
-        assert enqueued[0]["terminal_reason"] == "done_failure"
-        state = store.get("r", 1)
-        assert state.status == "pending_terminal"
-
-
 def test_cli_apply_fixup_outcome_updates_state_for_phase2_no_changes(monkeypatch):
     with tempfile.TemporaryDirectory() as tmp_dir:
         state_path = Path(tmp_dir) / "state.json"
@@ -2262,10 +2096,6 @@ def test_cli_apply_fixup_outcome_updates_state_for_phase2_no_changes(monkeypatch
             def get_fixup_outcome(self, *, repo, run_id, phase):
                 self.calls.append(("get_fixup_outcome", repo, run_id, phase))
                 return FixupOutcome(result="no_changes", phase=phase)
-
-            def create_manual_review_issue(self, **kwargs):
-                self.calls.append(("create_manual_review_issue", kwargs))
-                return "https://github.com/nv-action/vllm-benchmarks/issues/1"
 
             def get_pr_context(self, repo, pr_number):
                 self.calls.append(("get_pr_context", repo, pr_number))

@@ -79,106 +79,15 @@ async def _run(
     mcp_host: str,
     mcp_port: int,
 ) -> None:
-    import json
-    import subprocess
-    from dataclasses import replace
-
     from github_adapter import GitHubCliAdapter
-    from main2main_orchestrator import (
-        Main2MainStateStore,
-        OrchestratorService,
-        extract_e2e_failure_analysis,
-        summarize_manual_review_issue,
-    )
+    from main2main_orchestrator import Main2MainStateStore, OrchestratorService
     from mcp_server import build_mcp_server, create_mcp_protocol_server
-    from state_store import JsonStore
-    from terminal_worker import TerminalJob, TerminalWorker
 
     store = Main2MainStateStore(state_path)
     github = GitHubCliAdapter()
     service_lock = asyncio.Lock()
     poll_state: dict = {}
-    json_store = JsonStore(Path(state_path))
-
-    def update_pr_state(pr_number: int, status: str) -> None:
-        current = store.get(repo, pr_number)
-        if current:
-            store.register(replace(current, status=status, active_fixup_run_id=None))
-
-    def find_existing_issue(repo: str, pr_number: int, marker: str) -> str | None:
-        try:
-            result = subprocess.run(
-                [
-                    "gh",
-                    "issue",
-                    "list",
-                    "--repo",
-                    repo,
-                    "--label",
-                    "main2main",
-                    "--search",
-                    marker,
-                    "--json",
-                    "url",
-                    "-L",
-                    "1",
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-        except Exception:
-            return None
-        issues = json.loads(result.stdout)
-        if issues:
-            return issues[0]["url"]
-        return None
-
-    def summarize_for_worker(
-        *,
-        analysis,
-        terminal_reason,
-        pr_number,
-        e2e_run_id,
-        e2e_run_url,
-        fixup_run_id,
-    ) -> str:
-        state = store.get(repo, pr_number)
-        if state is None:
-            return f"Terminal analysis for PR #{pr_number}: {terminal_reason}"
-        return summarize_manual_review_issue(
-            analysis=analysis,
-            state=state,
-            terminal_reason=terminal_reason,
-            e2e_run_url=e2e_run_url,
-            e2e_run_id=e2e_run_id,
-            fixup_run_id=fixup_run_id,
-        )
-
-    def build_phase3_issue(*, repo: str, pr_number: int, fixup_run_id: str | None, marker: str) -> str:
-        return (
-            "## Main2Main Auto — Manual Review Required\n\n"
-            f"Phase 3 fixup completed without code changes for PR #{pr_number}.\n"
-            f"Fixup run: {fixup_run_id or 'N/A'}\n\n"
-            "Please review the PR and apply remaining fixes manually.\n\n"
-            f"<!-- {marker} -->"
-        )
-
-    terminal = TerminalWorker(
-        store=json_store,
-        extract_fn=lambda **kw: extract_e2e_failure_analysis(**kw),
-        summarize_fn=summarize_for_worker,
-        create_issue_fn=lambda **kw: github.create_manual_review_issue(**kw),
-        find_existing_issue_fn=find_existing_issue,
-        update_state_fn=update_pr_state,
-        build_phase3_issue_fn=build_phase3_issue,
-        service_lock=service_lock,
-    )
-
-    def enqueue_terminal(**kw):
-        terminal.enqueue(TerminalJob(**kw))
-
-    service = OrchestratorService(store, github, terminal_enqueue_fn=enqueue_terminal)
+    service = OrchestratorService(store, github)
     orchestrator_mcp = build_mcp_server(service, store, github, service_lock, poll_state)
     mcp = create_mcp_protocol_server(orchestrator_mcp)
 
@@ -197,7 +106,6 @@ async def _run(
     try:
         await asyncio.gather(
             poll_loop(service, repo, poll_interval, service_lock, poll_state),
-            terminal.run_loop(),
             run_mcp_sse(mcp, mcp_host, mcp_port),
         )
     except asyncio.CancelledError:

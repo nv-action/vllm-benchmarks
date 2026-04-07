@@ -6,7 +6,6 @@ import os
 import subprocess
 import sys
 import time
-import urllib.request
 import uuid
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -40,9 +39,6 @@ _FAILURE_CONCLUSIONS = {
     "startup_failure",
     "timed_out",
 }
-
-_ANALYSIS_SCRIPT_PATH = Path(__file__).resolve().parent / ".github" / "workflows" / "scripts" / "ci_log_summary.py"
-
 
 @dataclass(frozen=True)
 class PrMetadata:
@@ -84,76 +80,6 @@ class ActionDecision:
 class FixupOutcome:
     result: str
     phase: str
-
-
-def extract_e2e_failure_analysis(*, repo: str, run_id: str) -> dict[str, object]:
-    completed = subprocess.run(
-        [
-            sys.executable,
-            str(_ANALYSIS_SCRIPT_PATH),
-            "--repo",
-            repo,
-            "--run-id",
-            str(run_id),
-            "--format",
-            "llm-json",
-        ],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return json.loads(completed.stdout)
-
-
-def summarize_manual_review_issue(
-    *,
-    analysis: dict[str, object],
-    state: Main2MainState,
-    terminal_reason: str,
-    e2e_run_url: str | None,
-    e2e_run_id: str | None,
-    fixup_run_id: str | None,
-) -> str:
-    base_url = os.environ["ANTHROPIC_BASE_URL"].rstrip("/")
-    auth_token = os.environ["ANTHROPIC_AUTH_TOKEN"]
-    payload = {
-        "model": os.environ.get("MAIN2MAIN_ISSUE_MODEL", "glm-5"),
-        "max_tokens": 800,
-        "messages": [
-            {
-                "role": "user",
-                "content": (
-                    "Summarize this terminal main2main failure for a GitHub issue.\n"
-                    f"terminal_reason: {terminal_reason}\n"
-                    f"pr_number: {state.pr_number}\n"
-                    f"phase: {state.phase}\n"
-                    f"e2e_run_id: {e2e_run_id}\n"
-                    f"e2e_run_url: {e2e_run_url}\n"
-                    f"fixup_run_id: {fixup_run_id}\n"
-                    f"commit_range: {state.old_commit}...{state.new_commit}\n"
-                    "Provide a concise issue body with summary, evidence, likely root cause, and next manual steps.\n"
-                    f"analysis_json:\n{json.dumps(analysis, ensure_ascii=False)}"
-                ),
-            }
-        ],
-    }
-    request = urllib.request.Request(
-        f"{base_url}/v1/messages",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {auth_token}",
-            "x-api-key": auth_token,
-            "anthropic-version": "2023-06-01",
-        },
-        method="POST",
-    )
-    with urllib.request.urlopen(request) as response:
-        raw = json.loads(response.read().decode("utf-8"))
-    for block in raw.get("content", []):
-        if block.get("type") == "text":
-            return str(block.get("text", "")).strip()
-    raise ValueError("Claude gateway response did not contain text content")
 
 
 class _LegacyGitHubCliAdapter:
@@ -266,6 +192,37 @@ class _LegacyGitHubCliAdapter:
             ]
         )
 
+    def dispatch_manual_review(
+        self,
+        *,
+        repo: str,
+        pr_number: int,
+        terminal_reason: str,
+        e2e_run_id: str,
+        fixup_run_id: str,
+        dispatch_token: str,
+    ) -> None:
+        self._runner(
+            [
+                "gh",
+                "workflow",
+                "run",
+                "main2main_manual_review.yaml",
+                "--repo",
+                repo,
+                "-f",
+                f"pr_number={pr_number}",
+                "-f",
+                f"terminal_reason={terminal_reason}",
+                "-f",
+                f"e2e_run_id={e2e_run_id}",
+                "-f",
+                f"fixup_run_id={fixup_run_id}",
+                "-f",
+                f"dispatch_token={dispatch_token}",
+            ]
+        )
+
     def find_latest_fixup_run(
         self,
         *,
@@ -333,23 +290,6 @@ class _LegacyGitHubCliAdapter:
                 repo,
             ]
         )
-
-    def create_manual_review_issue(self, *, repo: str, title: str, body: str) -> str:
-        return self._runner(
-            [
-                "gh",
-                "issue",
-                "create",
-                "--repo",
-                repo,
-                "--title",
-                title,
-                "--label",
-                "main2main",
-                "--body",
-                body,
-            ]
-        ).strip()
 
     def wait_for_e2e_full(self, *, repo: str, head_sha: str) -> dict[str, str] | None:
         output = self._runner(
@@ -568,44 +508,11 @@ class OrchestratorService:
         *,
         sleep_fn=time.sleep,
         token_factory=None,
-        terminal_enqueue_fn=None,
     ):
         self.store = store
         self.github = github
         self.sleep_fn = sleep_fn
         self.token_factory = token_factory or (lambda: uuid.uuid4().hex)
-        self.terminal_enqueue_fn = terminal_enqueue_fn
-
-    def _build_manual_review_issue(
-        self,
-        *,
-        state: Main2MainState,
-        pr_number: int,
-        terminal_reason: str,
-        e2e_run_url: str | None = None,
-        e2e_run_id: str | None = None,
-        fixup_run_id: str | None = None,
-    ) -> dict[str, str]:
-        if e2e_run_id is None and terminal_reason == "done_failure":
-            raise ValueError("e2e_run_id is required for done_failure manual review")
-        analysis: dict[str, object] = {}
-        if e2e_run_id is not None:
-            analysis = extract_e2e_failure_analysis(
-                repo=state.repo,
-                run_id=str(e2e_run_id),
-            )
-        body = summarize_manual_review_issue(
-            analysis=analysis,
-            state=state,
-            terminal_reason=terminal_reason,
-            e2e_run_url=e2e_run_url,
-            e2e_run_id=e2e_run_id,
-            fixup_run_id=fixup_run_id,
-        )
-        return {
-            "title": "main2main: manual review needed",
-            "body": body,
-        }
 
     def _wait_for_dispatched_fixup_run(
         self,
@@ -625,6 +532,27 @@ class OrchestratorService:
             if attempt < attempts - 1:
                 self.sleep_fn(interval_seconds)
         return None
+
+    def _dispatch_manual_review(
+        self,
+        *,
+        state: Main2MainState,
+        terminal_reason: str,
+        e2e_run_url: str | None = None,
+        e2e_run_id: str | None = None,
+        fixup_run_id: str | None = None,
+    ) -> None:
+        dispatch_token = self.token_factory()
+        self.github.dispatch_manual_review(
+            repo=state.repo,
+            pr_number=state.pr_number,
+            terminal_reason=terminal_reason,
+            e2e_run_id=str(e2e_run_id or ""),
+            fixup_run_id=str(fixup_run_id or ""),
+            dispatch_token=dispatch_token,
+        )
+        updated = replace(state, status="manual_review", active_fixup_run_id=None)
+        self.store.register(updated)
 
     def reconcile(self, repo: str, pr_number: int) -> dict[str, str]:
         state = self.store.get(repo, pr_number)
@@ -685,26 +613,12 @@ class OrchestratorService:
                 run_id=fixup_run["run_id"],
             )
         elif decision.action == "create_manual_review":
-            if self.terminal_enqueue_fn is not None:
-                self.store.register(replace(state, status="pending_terminal", active_fixup_run_id=None))
-                self.terminal_enqueue_fn(
-                    pr_number=pr_number,
-                    repo=repo,
-                    terminal_reason="done_failure",
-                    e2e_run_id=e2e_result["run_id"],
-                    e2e_run_url=e2e_result["run_url"],
-                    fixup_run_id=None,
-                )
-            else:
-                issue = self._build_manual_review_issue(
-                    state=state,
-                    pr_number=pr_number,
-                    terminal_reason="done_failure",
-                    e2e_run_url=e2e_result["run_url"],
-                    e2e_run_id=e2e_result["run_id"],
-                )
-                self.store.register(replace(state, status="manual_review", active_fixup_run_id=None))
-                self.github.create_manual_review_issue(repo=repo, title=issue["title"], body=issue["body"])
+            self._dispatch_manual_review(
+                state=state,
+                terminal_reason="done_failure",
+                e2e_run_url=e2e_result["run_url"],
+                e2e_run_id=e2e_result["run_id"],
+            )
         return {
             "action": decision.action,
             "phase": decision.phase,
@@ -725,8 +639,6 @@ class OrchestratorService:
             if state is None:
                 raise KeyError(f"unknown main2main PR: {repo}#{pr_number}")
             if state.status == "manual_review":
-                continue
-            if state.status == "pending_terminal":
                 continue
             if state.status == "ready":
                 continue
@@ -775,30 +687,11 @@ class OrchestratorService:
 
         outcome = self.github.get_fixup_outcome(repo=repo, run_id=fixup_run_id, phase=state.phase)
         if outcome.result == "failed":
-            cleared = replace(state, active_fixup_run_id=None)
-            if self.terminal_enqueue_fn is not None:
-                self.store.register(replace(cleared, status="pending_terminal"))
-                self.terminal_enqueue_fn(
-                    pr_number=pr_number,
-                    repo=repo,
-                    terminal_reason="fixup_failure",
-                    e2e_run_id=None,
-                    e2e_run_url=None,
-                    fixup_run_id=fixup_run_id,
-                )
-            else:
-                issue = self._build_manual_review_issue(
-                    state=state,
-                    pr_number=pr_number,
-                    terminal_reason="fixup_failure",
-                    fixup_run_id=fixup_run_id,
-                )
-                self.store.register(replace(cleared, status="manual_review"))
-                self.github.create_manual_review_issue(
-                    repo=repo,
-                    title=issue["title"],
-                    body=issue["body"],
-                )
+            self._dispatch_manual_review(
+                state=replace(state, active_fixup_run_id=None),
+                terminal_reason="fixup_failure",
+                fixup_run_id=fixup_run_id,
+            )
             return {
                 "action": "create_manual_review",
                 "phase": state.phase,
@@ -828,31 +721,14 @@ class OrchestratorService:
         cleared = replace(updated, active_fixup_run_id=None)
         self.store.register(cleared)
         if state.phase == "3":
-            if self.terminal_enqueue_fn is not None:
-                self.store.register(replace(cleared, status="pending_terminal"))
-                self.terminal_enqueue_fn(
-                    pr_number=pr_number,
-                    repo=repo,
-                    terminal_reason="phase3_no_changes",
-                    e2e_run_id=None,
-                    e2e_run_url=None,
-                    fixup_run_id=fixup_run_id,
-                )
-            else:
-                issue = self._build_manual_review_issue(
-                    state=state,
-                    pr_number=pr_number,
-                    terminal_reason="phase3_no_changes",
-                    fixup_run_id=fixup_run_id,
-                )
-                self.github.create_manual_review_issue(
-                    repo=repo,
-                    title=issue["title"],
-                    body=issue["body"],
-                )
+            self._dispatch_manual_review(
+                state=cleared,
+                terminal_reason="phase3_no_changes",
+                fixup_run_id=fixup_run_id,
+            )
             return {
                 "action": "create_manual_review",
-                "phase": cleared.phase,
+                "phase": "done",
                 "reason": "phase 3 completed without code changes",
             }
         return {
