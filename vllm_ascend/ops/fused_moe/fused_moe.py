@@ -233,7 +233,7 @@ class AscendMoERunner(DefaultMoERunner):
 
     def __init__(
         self,
-        layer_name: str,
+        layer: torch.nn.Module,
         moe_config: FusedMoEConfig,
         router: FusedMoERouter,
         routed_input_transform: torch.nn.Module | None,
@@ -244,7 +244,7 @@ class AscendMoERunner(DefaultMoERunner):
         enable_dbo: bool,
     ):
         super().__init__(
-            layer_name,
+            layer,
             moe_config,
             router,
             routed_input_transform,
@@ -383,7 +383,7 @@ class AscendFusedMoE(FusedMoE):
         # the runner will own the FusedMoE layer and provide the execution interface
         # for MoE ops.
         return AscendMoERunner(
-            layer_name=self.layer_name,
+            layer=self,
             moe_config=self.moe_config,
             router=self.router,
             routed_input_transform=self._routed_input_transform,

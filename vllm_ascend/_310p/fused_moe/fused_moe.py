@@ -167,7 +167,7 @@ class AscendFusedMoE310(FusedMoE):
         from vllm_ascend.ops.fused_moe.fused_moe import AscendMoERunner
 
         return AscendMoERunner(
-            layer_name=self.layer_name,
+            layer=self,
             moe_config=self.moe_config,
             router=self.router,
             routed_input_transform=self._routed_input_transform,
