@@ -84,6 +84,9 @@ jobs:
       - name: Load state comment
         id: state
         run: |
+          gh pr view "${{ github.event.inputs.pr_number }}" \
+            --repo "${{ env.UPSTREAM_REPO }}" \
+            --json headRefName,headRefOid,body > /tmp/main2main_pr.json
           gh api "repos/${{ env.UPSTREAM_REPO }}/issues/${{ github.event.inputs.pr_number }}/comments" > /tmp/main2main_comments.json
           python3 <<'PY'
           import json
@@ -98,11 +101,53 @@ jobs:
           PY
           python3 .github/workflows/scripts/main2main_ci.py state-read \
             --comment-file /tmp/main2main_state_comment.md > /tmp/main2main_state.json
+          PR_BRANCH=$(python3 - <<'PY'
+          import json, re
+          from pathlib import Path
+          pr = json.loads(Path("/tmp/main2main_pr.json").read_text(encoding="utf-8"))
+          print(pr["headRefName"])
+          PY
+          )
+          PR_HEAD_SHA=$(python3 - <<'PY'
+          import json
+          from pathlib import Path
+          pr = json.loads(Path("/tmp/main2main_pr.json").read_text(encoding="utf-8"))
+          print(pr["headRefOid"])
+          PY
+          )
+          PR_OLD_COMMIT=$(python3 - <<'PY'
+          import json, re
+          from pathlib import Path
+          pr = json.loads(Path("/tmp/main2main_pr.json").read_text(encoding="utf-8"))
+          body = pr.get("body") or ""
+          match = re.search(r"\*\*Commit range:\*\* `([0-9a-f]{40})`\.\.\.`([0-9a-f]{40})`", body)
+          print(match.group(1) if match else "")
+          PY
+          )
+          PR_NEW_COMMIT=$(python3 - <<'PY'
+          import json, re
+          from pathlib import Path
+          pr = json.loads(Path("/tmp/main2main_pr.json").read_text(encoding="utf-8"))
+          body = pr.get("body") or ""
+          match = re.search(r"\*\*Commit range:\*\* `([0-9a-f]{40})`\.\.\.`([0-9a-f]{40})`", body)
+          print(match.group(2) if match else "")
+          PY
+          )
           if ! python3 .github/workflows/scripts/main2main_ci.py guard-check \
             --state-file /tmp/main2main_state.json \
             --dispatch-token "${{ github.event.inputs.dispatch_token }}" >/tmp/main2main_guard.json; then
             echo "stale=true" >> "$GITHUB_OUTPUT"
             echo "::notice::Stale terminal dispatch detected; skipping."
+            exit 0
+          fi
+          if ! python3 .github/workflows/scripts/main2main_ci.py pr-consistency-check \
+            --state-file /tmp/main2main_state.json \
+            --branch "${PR_BRANCH}" \
+            --head-sha "${PR_HEAD_SHA}" \
+            --old-commit "${PR_OLD_COMMIT}" \
+            --new-commit "${PR_NEW_COMMIT}" >/tmp/main2main_pr_guard.json; then
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Live PR metadata no longer matches state; skipping terminal action."
             exit 0
           fi
           echo "stale=false" >> "$GITHUB_OUTPUT"
@@ -232,11 +277,13 @@ jobs:
               state["phase"] = "done"
               state["status"] = "ready"
               state["terminal_reason"] = ""
+              state["dispatch_token"] = ""
               state["last_transition"] = "terminal/make_ready"
           else:
               state["phase"] = "done"
               state["status"] = "manual_review"
               state["terminal_reason"] = "${{ github.event.inputs.terminal_reason }}"
+              state["dispatch_token"] = ""
               state["last_transition"] = "terminal/manual_review"
           state["updated_by"] = "main2main_terminal.yaml/${{ github.event.inputs.action }}"
           Path("/tmp/main2main_state_next.json").write_text(json.dumps(state, ensure_ascii=True, indent=2), encoding="utf-8")
