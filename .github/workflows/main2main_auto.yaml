@@ -62,6 +62,8 @@ permissions:
 env:
   UPSTREAM_REPO: nv-action/vllm-benchmarks
   FORK_OWNER: Meihan-chen
+  CONTROL_REPO_DIR: vllm-benchmarks
+  WORK_REPO_DIR: vllm-benchmarks-work
 
 jobs:
   detect-and-adapt:
@@ -73,19 +75,27 @@ jobs:
       cancel-in-progress: false
     defaults:
       run:
-        working-directory: vllm-benchmarks
+        working-directory: vllm-benchmarks-work
     env:
       GH_TOKEN: ${{ secrets.PAT_TOKEN }}
       API_TIMEOUT_MS: 3000000
       ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
       ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
     steps:
-      - name: Checkout fork vLLM-benchmarks repo
+      - name: Checkout vLLM-benchmarks repo
+        uses: actions/checkout@v6
+        with:
+          repository: nv-action/vllm-benchmarks
+          token: ${{ secrets.PAT_TOKEN }}
+          path: ${{ env.CONTROL_REPO_DIR }}
+          fetch-depth: 0
+
+      - name: Checkout vLLM-benchmarks fork repo
         uses: actions/checkout@v6
         with:
           repository: Meihan-chen/vllm-benchmarks
           token: ${{ secrets.PAT_TOKEN }}
-          path: vllm-benchmarks
+          path: ${{ env.WORK_REPO_DIR }}
           fetch-depth: 0
 
       - name: Configure git identity
@@ -114,7 +124,7 @@ jobs:
       - name: Detect vLLM version change
         id: detect
         run: |
-          OLD_COMMIT=$(grep -oE '[0-9a-f]{40}' docs/source/community/versioning_policy.md | head -1)
+          OLD_COMMIT=$(grep -oE '[0-9a-f]{40}' "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/docs/source/community/versioning_policy.md" | head -1)
           if [ -z "$OLD_COMMIT" ]; then
             echo "::error::Could not extract pinned vLLM commit from versioning_policy.md"
             exit 1
@@ -159,7 +169,10 @@ jobs:
         id: branch
         run: |
           BRANCH="main2main_auto_$(date +%Y-%m-%d_%H-%M)"
-          git checkout -b "$BRANCH"
+          git remote add upstream "https://github.com/${{ env.UPSTREAM_REPO }}.git" || \
+            git remote set-url upstream "https://github.com/${{ env.UPSTREAM_REPO }}.git"
+          git fetch upstream main
+          git checkout -B "$BRANCH" upstream/main
           echo "name=$BRANCH" >> "$GITHUB_OUTPUT"
 
       - name: Prepare Claude settings
@@ -179,15 +192,15 @@ jobs:
             Use the main2main skill to adapt vllm-benchmarks to the latest vLLM main branch.
             The NEW_COMMIT environment variable is set to ${{ steps.detect.outputs.new_commit }}.
             The upstream vLLM source is checked out at ../vllm-upstream.
-            Analyze the upstream diff, apply adaptation fixes, and update all commit references.
+            update all commit references.
             Commit your changes with '-s' but do NOT create a PR — the workflow handles that.
-          claude_args: "--model qwen/qwen3.6-plus:free --dangerously-skip-permissions --allowed-tools 'Bash(git *),Bash(gh *),Bash(grep *),Bash(sed *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
+          claude_args: "--model minimax/minimax-m2.5:free --dangerously-skip-permissions --allowed-tools 'Bash(git *),Bash(gh *),Bash(grep *),Bash(sed *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
           show_full_output: true
         env:
           OLD_COMMIT: ${{ steps.detect.outputs.old_commit }}
           NEW_COMMIT: ${{ steps.detect.outputs.new_commit }}
           VLLM_UPSTREAM_DIR: ${{ github.workspace }}/vllm-upstream
-          CLAUDE_WORKING_DIR: ${{ github.workspace }}/vllm-benchmarks
+          CLAUDE_WORKING_DIR: ${{ github.workspace }}/${{ env.WORK_REPO_DIR }}
           CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1"
 
       - name: Finalize branch and create draft PR
@@ -236,49 +249,18 @@ jobs:
         if: steps.pr.outputs.number
         run: |
           HEAD_SHA=$(git rev-parse HEAD)
-          TOKEN=$(python3 .github/workflows/scripts/main2main_ci.py mint-dispatch-token)
-
-          python3 <<PY
-          import json
-          from pathlib import Path
-          payload = {
-              "pr_number": int("${{ steps.pr.outputs.number }}"),
-              "branch": "${{ steps.branch.outputs.name }}",
-              "head_sha": "${HEAD_SHA}",
-              "old_commit": "${{ steps.detect.outputs.old_commit }}",
-              "new_commit": "${{ steps.detect.outputs.new_commit }}",
-              "phase": "2",
-              "status": "waiting_e2e",
-              "dispatch_token": "${TOKEN}",
-              "e2e_run_id": "",
-              "fix_run_id": "",
-              "bisect_run_id": "",
-              "terminal_reason": "",
-              "last_transition": "detect->waiting_e2e",
-              "updated_at": "",
-              "updated_by": "main2main_auto.yaml/detect",
-          }
-          Path("/tmp/main2main_state.json").write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
-          PY
-
-          python3 <<PY
-          import json
-          from pathlib import Path
-          payload = {
-              "pr_number": int("${{ steps.pr.outputs.number }}"),
-              "branch": "${{ steps.branch.outputs.name }}",
-              "head_sha": "${HEAD_SHA}",
-              "old_commit": "${{ steps.detect.outputs.old_commit }}",
-              "new_commit": "${{ steps.detect.outputs.new_commit }}",
-              "phase": "2",
-          }
-          Path("/tmp/main2main_register.json").write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
-          PY
-
-          python3 .github/workflows/scripts/main2main_ci.py registration-write \
-            --json-file /tmp/main2main_register.json > /tmp/main2main_register_comment.md
-          python3 .github/workflows/scripts/main2main_ci.py state-write \
-            --json-file /tmp/main2main_state.json > /tmp/main2main_state_comment.md
+          TOKEN=$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" mint-dispatch-token)
+          python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" prepare-detect-artifacts \
+            --pr-number "${{ steps.pr.outputs.number }}" \
+            --branch "${{ steps.branch.outputs.name }}" \
+            --head-sha "${HEAD_SHA}" \
+            --old-commit "${{ steps.detect.outputs.old_commit }}" \
+            --new-commit "${{ steps.detect.outputs.new_commit }}" \
+            --dispatch-token "${TOKEN}" \
+            --state-json-out /tmp/main2main_state.json \
+            --register-json-out /tmp/main2main_register.json \
+            --state-comment-out /tmp/main2main_state_comment.md \
+            --register-comment-out /tmp/main2main_register_comment.md
 
           gh pr comment "${{ steps.pr.outputs.number }}" \
             --repo "${{ env.UPSTREAM_REPO }}" \
@@ -301,20 +283,28 @@ jobs:
       ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
     defaults:
       run:
-        working-directory: vllm-benchmarks
+        working-directory: vllm-benchmarks-work
     steps:
-      - name: Validate GitHub token scopes
-        run: |
-          gh auth status
-          gh api graphql -f query='query { organization(login: "nv-action") { login } }' >/dev/null
+      - name: Checkout vLLM-benchmarks repo
+        uses: actions/checkout@v6
+        with:
+          repository: nv-action/vllm-benchmarks
+          token: ${{ secrets.PAT_TOKEN }}
+          path: ${{ env.CONTROL_REPO_DIR }}
+          fetch-depth: 0
 
-      - name: Checkout repository
+      - name: Checkout working repository
         uses: actions/checkout@v6
         with:
           repository: Meihan-chen/vllm-benchmarks
           token: ${{ secrets.PAT_TOKEN }}
-          path: vllm-benchmarks
+          path: ${{ env.WORK_REPO_DIR }}
           fetch-depth: 0
+
+      - name: Validate GitHub token scopes
+        run: |
+          gh auth status
+          gh api graphql -f query='query { organization(login: "nv-action") { login } }' >/dev/null
 
       - name: Load state and checkout branch
         id: ctx
@@ -333,9 +323,9 @@ jobs:
           Path("/tmp/main2main_state_comment_id.txt").write_text(str(state["id"]), encoding="utf-8")
           Path("/tmp/main2main_register_comment_id.txt").write_text(str(register["id"]), encoding="utf-8")
           PY
-          python3 .github/workflows/scripts/main2main_ci.py state-read \
+          python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" state-read \
             --comment-file /tmp/main2main_state_comment.md > /tmp/main2main_state.json
-          python3 .github/workflows/scripts/main2main_ci.py guard-check \
+          python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" guard-check \
             --state-file /tmp/main2main_state.json \
             --expected-phase 2 \
             --expected-status fixing \
@@ -370,7 +360,7 @@ jobs:
           print(match.group(2) if match else "")
           PY
           )
-          python3 .github/workflows/scripts/main2main_ci.py pr-consistency-check \
+          python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" pr-consistency-check \
             --state-file /tmp/main2main_state.json \
             --branch "${PR_BRANCH}" \
             --head-sha "${PR_HEAD_SHA}" \
@@ -407,20 +397,17 @@ jobs:
             - Bad commit (upstream): read new_commit from /tmp/main2main_state.json
 
             Commit all fixes with '-s' but do NOT create a PR or branch.
-          claude_args: "--model qwen/qwen3.6-plus:free --dangerously-skip-permissions --allowed-tools 'Bash(git *),Bash(gh *),Bash(grep *),Bash(sed *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
+          claude_args: "--model minimax/minimax-m2.5:free --dangerously-skip-permissions --allowed-tools 'Bash(git *),Bash(gh *),Bash(grep *),Bash(sed *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
           show_full_output: true
         env:
-          CLAUDE_WORKING_DIR: ${{ github.workspace }}/vllm-benchmarks
+          CLAUDE_WORKING_DIR: ${{ github.workspace }}/${{ env.WORK_REPO_DIR }}
           CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1"
 
       - name: Push fixes and update comments
         run: |
-          BRANCH=$(python3 - <<'PY'
-          import json
-          from pathlib import Path
-          print(json.loads(Path("/tmp/main2main_pr.json").read_text(encoding="utf-8"))["headRefName"])
-          PY
-          )
+          BRANCH=$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" json-get \
+            --json-file /tmp/main2main_pr.json \
+            --field headRefName)
           if [ -n "$(git status --porcelain)" ]; then
             git add -A
             git commit -s -m "fix: address E2E-Full CI failures (Phase 2)"
@@ -432,43 +419,23 @@ jobs:
             NEW_HEAD_SHA=$(git rev-parse HEAD)
           else
             RESULT="no_changes"
-            NEW_HEAD_SHA=$(python3 - <<'PY'
-            import json
-            from pathlib import Path
-            print(json.loads(Path("/tmp/main2main_state.json").read_text(encoding="utf-8"))["head_sha"])
-            PY
-            )
+            NEW_HEAD_SHA=$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" json-get \
+              --json-file /tmp/main2main_state.json \
+              --field head_sha)
           fi
 
-          python3 .github/workflows/scripts/main2main_ci.py apply-fix-result \
+          python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" prepare-fix-transition \
             --state-file /tmp/main2main_state.json \
             --result "${RESULT}" \
-            --new-head-sha "${NEW_HEAD_SHA}" > /tmp/main2main_state_next.json
-
-          python3 <<PY
-          import json
-          from pathlib import Path
-          state = json.loads(Path("/tmp/main2main_state_next.json").read_text(encoding="utf-8"))
-          state["fix_run_id"] = "${{ github.run_id }}"
-          state["dispatch_token"] = ""
-          state["last_transition"] = "fix_phase2->waiting_e2e"
-          state["updated_by"] = "main2main_auto.yaml/fix_phase2"
-          Path("/tmp/main2main_state_next.json").write_text(json.dumps(state, ensure_ascii=True, indent=2), encoding="utf-8")
-          register = {
-              "pr_number": state["pr_number"],
-              "branch": state["branch"],
-              "head_sha": state["head_sha"],
-              "old_commit": state["old_commit"],
-              "new_commit": state["new_commit"],
-              "phase": state["phase"],
-          }
-          Path("/tmp/main2main_register_next.json").write_text(json.dumps(register, ensure_ascii=True, indent=2), encoding="utf-8")
-          PY
-
-          python3 .github/workflows/scripts/main2main_ci.py state-write \
-            --json-file /tmp/main2main_state_next.json > /tmp/main2main_state_next_comment.md
-          python3 .github/workflows/scripts/main2main_ci.py registration-write \
-            --json-file /tmp/main2main_register_next.json > /tmp/main2main_register_next_comment.md
+            --new-head-sha "${NEW_HEAD_SHA}" \
+            --fix-run-id "${{ github.run_id }}" \
+            --last-transition "fix_phase2->waiting_e2e" \
+            --updated-by "main2main_auto.yaml/fix_phase2" \
+            --clear-dispatch-token \
+            --state-json-out /tmp/main2main_state_next.json \
+            --register-json-out /tmp/main2main_register_next.json \
+            --state-comment-out /tmp/main2main_state_next_comment.md \
+            --register-comment-out /tmp/main2main_register_next_comment.md
 
           gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/$(cat /tmp/main2main_state_comment_id.txt)" \
             -f body="$(cat /tmp/main2main_state_next_comment.md)" >/dev/null
@@ -499,18 +466,18 @@ jobs:
       run:
         working-directory: vllm-benchmarks
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          repository: nv-action/vllm-benchmarks
+          token: ${{ secrets.PAT_TOKEN }}
+          path: ${{ env.CONTROL_REPO_DIR }}
+          fetch-depth: 0
+
       - name: Validate GitHub token scopes
         run: |
           gh auth status
           gh api graphql -f query='query { organization(login: "nv-action") { login } }' >/dev/null
-
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          repository: Meihan-chen/vllm-benchmarks
-          token: ${{ secrets.PAT_TOKEN }}
-          path: vllm-benchmarks
-          fetch-depth: 0
 
       - name: Load guarded phase 3 state
         run: |
@@ -523,9 +490,9 @@ jobs:
           Path("/tmp/main2main_state_comment.md").write_text(state["body"], encoding="utf-8")
           Path("/tmp/main2main_state_comment_id.txt").write_text(str(state["id"]), encoding="utf-8")
           PY
-          python3 .github/workflows/scripts/main2main_ci.py state-read \
+          python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" state-read \
             --comment-file /tmp/main2main_state_comment.md > /tmp/main2main_state.json
-          python3 .github/workflows/scripts/main2main_ci.py guard-check \
+          python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" guard-check \
             --state-file /tmp/main2main_state.json \
             --expected-phase 3 \
             --expected-status fixing \
@@ -563,7 +530,7 @@ jobs:
           print(match.group(2) if match else "")
           PY
           )
-          python3 .github/workflows/scripts/main2main_ci.py pr-consistency-check \
+          python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" pr-consistency-check \
             --state-file /tmp/main2main_state.json \
             --branch "${PR_BRANCH}" \
             --head-sha "${PR_HEAD_SHA}" \
@@ -594,7 +561,7 @@ jobs:
           PY
           )
 
-          python3 .github/workflows/scripts/ci_log_summary.py \
+          python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/ci_log_summary.py" \
             --repo "${{ env.UPSTREAM_REPO }}" \
             --run-id "${E2E_RUN_ID}" \
             --format bisect-json \
@@ -639,20 +606,14 @@ jobs:
             sleep 15
           done
 
-          python3 <<PY
-          import json
-          from pathlib import Path
-          state = json.loads(Path("/tmp/main2main_state.json").read_text(encoding="utf-8"))
-          state["status"] = "waiting_bisect"
-          state["bisect_run_id"] = "${BISECT_RUN_ID}"
-          state["fix_run_id"] = "${{ github.run_id }}"
-          state["last_transition"] = "fix_phase3_prepare->waiting_bisect"
-          state["updated_by"] = "main2main_auto.yaml/fix_phase3_prepare"
-          Path("/tmp/main2main_state_next.json").write_text(json.dumps(state, ensure_ascii=True, indent=2), encoding="utf-8")
-          PY
-
-          python3 .github/workflows/scripts/main2main_ci.py state-write \
-            --json-file /tmp/main2main_state_next.json > /tmp/main2main_state_next_comment.md
+          python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" prepare-waiting-bisect \
+            --state-file /tmp/main2main_state.json \
+            --bisect-run-id "${BISECT_RUN_ID}" \
+            --fix-run-id "${{ github.run_id }}" \
+            --last-transition "fix_phase3_prepare->waiting_bisect" \
+            --updated-by "main2main_auto.yaml/fix_phase3_prepare" \
+            --state-json-out /tmp/main2main_state_next.json \
+            --state-comment-out /tmp/main2main_state_next_comment.md
           gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/$(cat /tmp/main2main_state_comment_id.txt)" \
             -f body="$(cat /tmp/main2main_state_next_comment.md)" >/dev/null
 
@@ -680,20 +641,28 @@ jobs:
       ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
     defaults:
       run:
-        working-directory: vllm-benchmarks
+        working-directory: vllm-benchmarks-work
     steps:
-      - name: Validate GitHub token scopes
-        run: |
-          gh auth status
-          gh api graphql -f query='query { organization(login: "nv-action") { login } }' >/dev/null
+      - name: Checkout vLLM-benchmarks repo
+        uses: actions/checkout@v6
+        with:
+          repository: nv-action/vllm-benchmarks
+          token: ${{ secrets.PAT_TOKEN }}
+          path: ${{ env.CONTROL_REPO_DIR }}
+          fetch-depth: 0
 
-      - name: Checkout repository
+      - name: Checkout working repository
         uses: actions/checkout@v6
         with:
           repository: Meihan-chen/vllm-benchmarks
           token: ${{ secrets.PAT_TOKEN }}
-          path: vllm-benchmarks
+          path: ${{ env.WORK_REPO_DIR }}
           fetch-depth: 0
+
+      - name: Validate GitHub token scopes
+        run: |
+          gh auth status
+          gh api graphql -f query='query { organization(login: "nv-action") { login } }' >/dev/null
 
       - name: Load waiting_bisect state and checkout branch
         run: |
@@ -711,9 +680,9 @@ jobs:
           Path("/tmp/main2main_state_comment_id.txt").write_text(str(state["id"]), encoding="utf-8")
           Path("/tmp/main2main_register_comment_id.txt").write_text(str(register["id"]), encoding="utf-8")
           PY
-          python3 .github/workflows/scripts/main2main_ci.py state-read \
+          python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" state-read \
             --comment-file /tmp/main2main_state_comment.md > /tmp/main2main_state.json
-          python3 .github/workflows/scripts/main2main_ci.py guard-check \
+          python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" guard-check \
             --state-file /tmp/main2main_state.json \
             --expected-phase 3 \
             --dispatch-token "${{ github.event.inputs.dispatch_token }}"
@@ -754,7 +723,7 @@ jobs:
           print(match.group(2) if match else "")
           PY
           )
-          python3 .github/workflows/scripts/main2main_ci.py pr-consistency-check \
+          python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" pr-consistency-check \
             --state-file /tmp/main2main_state.json \
             --branch "${PR_BRANCH}" \
             --head-sha "${PR_HEAD_SHA}" \
@@ -774,12 +743,9 @@ jobs:
         run: |
           BISECT_RUN_ID="${{ github.event.inputs.bisect_run_id }}"
           if [ -z "${BISECT_RUN_ID}" ]; then
-            BISECT_RUN_ID=$(python3 - <<'PY'
-            import json
-            from pathlib import Path
-            print(json.loads(Path("/tmp/main2main_state.json").read_text(encoding="utf-8")).get("bisect_run_id", ""))
-            PY
-            )
+            BISECT_RUN_ID=$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" json-get \
+              --json-file /tmp/main2main_state.json \
+              --field bisect_run_id)
           fi
           if [ -n "${BISECT_RUN_ID}" ]; then
             gh run download "${BISECT_RUN_ID}" \
@@ -809,20 +775,17 @@ jobs:
             - Bisect summary: /tmp/bisect_output/bisect_summary.md if present
 
             Commit all fixes with '-s' but do NOT create a PR or branch.
-          claude_args: "--model qwen/qwen3.6-plus:free --dangerously-skip-permissions --allowed-tools 'Bash(git *),Bash(gh *),Bash(grep *),Bash(sed *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
+          claude_args: "--model minimax/minimax-m2.5:free --dangerously-skip-permissions --allowed-tools 'Bash(git *),Bash(gh *),Bash(grep *),Bash(sed *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
           show_full_output: true
         env:
-          CLAUDE_WORKING_DIR: ${{ github.workspace }}/vllm-benchmarks
+          CLAUDE_WORKING_DIR: ${{ github.workspace }}/${{ env.WORK_REPO_DIR }}
           CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1"
 
       - name: Push phase 3 fixes or go terminal
         run: |
-          BRANCH=$(python3 - <<'PY'
-          import json
-          from pathlib import Path
-          print(json.loads(Path("/tmp/main2main_pr.json").read_text(encoding="utf-8"))["headRefName"])
-          PY
-          )
+          BRANCH=$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" json-get \
+            --json-file /tmp/main2main_pr.json \
+            --field headRefName)
           if [ -n "$(git status --porcelain)" ]; then
             git add -A
             git commit -s -m "fix: bisect-guided adaptation fixes (Phase 3)"
@@ -831,34 +794,18 @@ jobs:
           if ! git diff --quiet "origin/${BRANCH}"..HEAD 2>/dev/null; then
             git push --force-with-lease origin "HEAD:${BRANCH}"
             NEW_HEAD_SHA=$(git rev-parse HEAD)
-            python3 .github/workflows/scripts/main2main_ci.py apply-fix-result \
+            python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" prepare-fix-transition \
               --state-file /tmp/main2main_state.json \
               --result changes_pushed \
-              --new-head-sha "${NEW_HEAD_SHA}" > /tmp/main2main_state_next.json
-
-            python3 <<PY
-            import json
-            from pathlib import Path
-            state = json.loads(Path("/tmp/main2main_state_next.json").read_text(encoding="utf-8"))
-            state["fix_run_id"] = "${{ github.run_id }}"
-            state["dispatch_token"] = ""
-            state["last_transition"] = "fix_phase3_finalize->waiting_e2e"
-            state["updated_by"] = "main2main_auto.yaml/fix_phase3_finalize"
-            Path("/tmp/main2main_state_next.json").write_text(json.dumps(state, ensure_ascii=True, indent=2), encoding="utf-8")
-            register = {
-                "pr_number": state["pr_number"],
-                "branch": state["branch"],
-                "head_sha": state["head_sha"],
-                "old_commit": state["old_commit"],
-                "new_commit": state["new_commit"],
-                "phase": state["phase"],
-            }
-            Path("/tmp/main2main_register_next.json").write_text(json.dumps(register, ensure_ascii=True, indent=2), encoding="utf-8")
-            PY
-            python3 .github/workflows/scripts/main2main_ci.py state-write \
-              --json-file /tmp/main2main_state_next.json > /tmp/main2main_state_next_comment.md
-            python3 .github/workflows/scripts/main2main_ci.py registration-write \
-              --json-file /tmp/main2main_register_next.json > /tmp/main2main_register_next_comment.md
+              --new-head-sha "${NEW_HEAD_SHA}" \
+              --fix-run-id "${{ github.run_id }}" \
+              --last-transition "fix_phase3_finalize->waiting_e2e" \
+              --updated-by "main2main_auto.yaml/fix_phase3_finalize" \
+              --clear-dispatch-token \
+              --state-json-out /tmp/main2main_state_next.json \
+              --register-json-out /tmp/main2main_register_next.json \
+              --state-comment-out /tmp/main2main_state_next_comment.md \
+              --register-comment-out /tmp/main2main_register_next_comment.md
             gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/$(cat /tmp/main2main_state_comment_id.txt)" \
               -f body="$(cat /tmp/main2main_state_next_comment.md)" >/dev/null
             gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/$(cat /tmp/main2main_register_comment_id.txt)" \
