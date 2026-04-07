@@ -27,6 +27,131 @@ def load_bisect_helper(path: Path = BISECT_HELPER_PATH):
     return module
 
 
+def test_bisect_result_success_when_all_groups_agree():
+    module = load_bisect_helper()
+
+    result = module.build_bisect_result_json(
+        caller_type="main2main",
+        caller_run_id="24000000000",
+        bisect_run_id="24000000002",
+        good_commit="35141a7eeda941a60ad5a4956670c60fd5a77029",
+        bad_commit="fa9e68022d29c5396dfbb96d13587b6bc1bdb933",
+        test_cmd="pytest -sv tests/e2e/singlecard/test_sampler.py::test_x",
+        group_results=[
+            {
+                "group": "e2e-singlecard",
+                "status": "success",
+                "first_bad_commit": "abc123",
+                "first_bad_commit_url": "https://github.com/vllm-project/vllm/commit/abc123",
+            },
+            {
+                "group": "e2e-4cards",
+                "status": "success",
+                "first_bad_commit": "abc123",
+                "first_bad_commit_url": "https://github.com/vllm-project/vllm/commit/abc123",
+            },
+        ],
+        skipped_commits=["deadbeef"],
+        log_entries=[{"commit": "abc123", "result": "success"}],
+    )
+
+    assert result["caller_type"] == "main2main"
+    assert result["caller_run_id"] == "24000000000"
+    assert result["bisect_run_id"] == "24000000002"
+    assert result["status"] == "success"
+    assert result["first_bad_commit"] == "abc123"
+    assert result["first_bad_commit_url"] == "https://github.com/vllm-project/vllm/commit/abc123"
+    assert result["skipped_commits"] == ["deadbeef"]
+    assert result["group_results"][0]["group"] == "e2e-singlecard"
+
+
+def test_bisect_result_ambiguous_when_groups_disagree():
+    module = load_bisect_helper()
+
+    result = module.build_bisect_result_json(
+        caller_type="main2main",
+        caller_run_id="24000000000",
+        bisect_run_id="24000000002",
+        good_commit="good",
+        bad_commit="bad",
+        test_cmd="pytest -sv tests/e2e/singlecard/test_sampler.py::test_x",
+        group_results=[
+            {
+                "group": "e2e-singlecard",
+                "status": "success",
+                "first_bad_commit": "abc123",
+            },
+            {
+                "group": "e2e-4cards",
+                "status": "success",
+                "first_bad_commit": "def456",
+            },
+        ],
+    )
+
+    assert result["status"] == "ambiguous"
+    assert result["first_bad_commit"] == ""
+    assert [group["first_bad_commit"] for group in result["group_results"]] == ["abc123", "def456"]
+
+
+def test_bisect_result_partial_success_when_some_groups_fail():
+    module = load_bisect_helper()
+
+    result = module.build_bisect_result_json(
+        caller_type="main2main",
+        caller_run_id="24000000000",
+        bisect_run_id="24000000002",
+        good_commit="good",
+        bad_commit="bad",
+        test_cmd="pytest -sv tests/e2e/singlecard/test_sampler.py::test_x",
+        group_results=[
+            {
+                "group": "e2e-singlecard",
+                "status": "success",
+                "first_bad_commit": "abc123",
+            },
+            {
+                "group": "e2e-4cards",
+                "status": "failed",
+                "first_bad_commit": "",
+            },
+        ],
+    )
+
+    assert result["status"] == "partial_success"
+    assert result["first_bad_commit"] == "abc123"
+    assert [group["status"] for group in result["group_results"]] == ["success", "failed"]
+
+
+def test_bisect_result_failed_when_no_group_yields_culprit():
+    module = load_bisect_helper()
+
+    result = module.build_bisect_result_json(
+        caller_type="main2main",
+        caller_run_id="24000000000",
+        bisect_run_id="24000000002",
+        good_commit="good",
+        bad_commit="bad",
+        test_cmd="pytest -sv tests/e2e/singlecard/test_sampler.py::test_x",
+        group_results=[
+            {
+                "group": "e2e-singlecard",
+                "status": "failed",
+                "first_bad_commit": "",
+            },
+            {
+                "group": "e2e-4cards",
+                "status": "failed",
+                "first_bad_commit": "",
+            },
+        ],
+    )
+
+    assert result["status"] == "failed"
+    assert result["first_bad_commit"] == ""
+    assert result["first_bad_commit_url"] == ""
+
+
 def test_process_run_accepts_repo_override(monkeypatch):
     module = load_module()
     captured = []
