@@ -261,7 +261,7 @@ This avoids polluting standalone bisect use with main2main-only behavior.
 1. Resolve pinned `old_commit` and target `new_commit`
 2. If unchanged: exit
 3. If an open `main2main` PR already exists: exit
-4. Claude adapts the branch
+4. Claude adapts the branch with `main2main` skill
 5. Create draft PR with labels `main2main`, `ready`, `ready-for-test`
 6. Write `main2main-register`
 7. Write `main2main-state` with:
@@ -289,6 +289,7 @@ For each open `main2main` PR:
    - stop automatic processing for that PR
 3. If `status=waiting_e2e`:
    - resolve latest E2E run for the exact `head_sha`
+   - ignore E2E runs for older heads; reconcile must never advance state from a stale PR commit
    - if run absent/in-progress: keep `waiting_e2e`
    - if success: persist `e2e_run_id`, mint a fresh `dispatch_token`, then dispatch terminal `make_ready`
    - if failure and `phase=2`: persist `e2e_run_id`, patch to `phase=2,status=fixing`, mint a fresh `dispatch_token`, then dispatch `fix_phase2`
@@ -305,21 +306,32 @@ For each open `main2main` PR:
 
 1. Validate stale guard: `phase=2,status=fixing`, matching `dispatch_token`
 2. Record `fix_run_id=${github.run_id}`
-3. Run Claude with `main2main-error-analysis`
+3. Run Claude with `main2main-error-analysis` skill
 4. Parse result
 5. If changes were pushed:
    - commit and push
    - patch register comment with new `head_sha`
    - patch state to `phase=3,status=waiting_e2e`
+   - in this branch, `waiting_e2e` means waiting for a brand new E2E run for the new `head_sha`
 6. If no changes:
    - preserve the existing behavior by patching state to `phase=3,status=waiting_e2e`
    - keep the same `head_sha`
    - allow the next reconcile pass to consume the already-failed E2E under Phase 3 semantics
+   - in this branch, `waiting_e2e` is a compatibility state name; it does not imply that a new E2E run is expected, because the `head_sha` did not change
 7. If workflow fails:
    - mint and persist a fresh `dispatch_token`
    - dispatch terminal manual review with `terminal_reason=fixup_failure`
 
 This preserves the current semantic that after Phase 2 execution, the next failed E2E should route into Phase 3.
+
+### `bisect_vllm.yaml` calling modes
+
+| Calling mode | Inputs | Callback behavior |
+|---|---|---|
+| Standalone | default `caller_type=standalone` | runs bisect only; never dispatches `fix_phase3_finalize` |
+| Main2Main | `caller_type=main2main`, `main2main_pr_number`, `main2main_dispatch_token` | runs bisect and, on completion, dispatches `fix_phase3_finalize` with the current guarded token |
+
+For `caller_type=main2main`, bisect runs use per-PR concurrency `main2main-bisect-pr-${main2main_pr_number}` from the `Concurrency` section.
 
 ### 4. Phase 3 prepare path
 
