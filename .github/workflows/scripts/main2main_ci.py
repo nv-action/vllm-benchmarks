@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 import uuid
 from dataclasses import asdict, dataclass, replace
@@ -353,6 +354,63 @@ def _load_text(path: str) -> str:
     return Path(path).read_text(encoding="utf-8")
 
 
+def _write_text(path: str, content: str) -> None:
+    Path(path).write_text(content, encoding="utf-8")
+
+
+def _write_json_file(path: str, payload: Any) -> None:
+    _write_text(path, json.dumps(payload, ensure_ascii=True, indent=2))
+
+
+def _registration_payload_from_state(state: Main2MainState) -> dict[str, Any]:
+    return {
+        "pr_number": state.pr_number,
+        "branch": state.branch,
+        "head_sha": state.head_sha,
+        "old_commit": state.old_commit,
+        "new_commit": state.new_commit,
+        "phase": state.phase,
+    }
+
+
+def _run_command(args: list[str], *, input_text: str | None = None) -> str:
+    result = subprocess.run(
+        args,
+        check=False,
+        capture_output=True,
+        text=True,
+        input=input_text,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip() or f"command failed: {' '.join(args)}")
+    return result.stdout
+
+
+def _gh(args: list[str], *, input_text: str | None = None) -> str:
+    return _run_command(["gh", *args], input_text=input_text)
+
+
+def _gh_json(args: list[str]) -> Any:
+    output = _gh(args)
+    if not output.strip():
+        return None
+    return json.loads(output)
+
+
+def _gh_api_json(endpoint: str, *, method: str = "GET", payload: dict[str, Any] | None = None) -> Any:
+    args = ["api", endpoint]
+    if method != "GET":
+        args.extend(["--method", method])
+    input_text = None
+    if payload is not None:
+        args.extend(["--input", "-"])
+        input_text = json.dumps(payload)
+    output = _gh(args, input_text=input_text)
+    if not output.strip():
+        return None
+    return json.loads(output)
+
+
 def _command_mint_dispatch_token(_args: argparse.Namespace) -> int:
     sys.stdout.write(f"{mint_dispatch_token()}\n")
     return 0
@@ -465,6 +523,316 @@ def _command_apply_fix_result(args: argparse.Namespace) -> int:
     return 0
 
 
+def _command_json_get(args: argparse.Namespace) -> int:
+    payload = _load_json(args.json_file)
+    value: Any = payload
+    for part in args.field.split("."):
+        if not isinstance(value, dict) or part not in value:
+            raise SystemExit(f"missing field: {args.field}")
+        value = value[part]
+    sys.stdout.write(str(value))
+    sys.stdout.write("\n")
+    return 0
+
+
+def _command_prepare_detect_artifacts(args: argparse.Namespace) -> int:
+    register_payload = {
+        "pr_number": int(args.pr_number),
+        "branch": args.branch,
+        "head_sha": args.head_sha,
+        "old_commit": args.old_commit,
+        "new_commit": args.new_commit,
+        "phase": "2",
+    }
+    state = Main2MainState(
+        pr_number=int(args.pr_number),
+        branch=args.branch,
+        head_sha=args.head_sha,
+        old_commit=args.old_commit,
+        new_commit=args.new_commit,
+        phase="2",
+        status="waiting_e2e",
+        dispatch_token=args.dispatch_token,
+        last_transition="detect->waiting_e2e",
+        updated_by=args.updated_by,
+    )
+    _write_json_file(args.state_json_out, asdict(state))
+    _write_json_file(args.register_json_out, register_payload)
+    _write_text(args.state_comment_out, render_state_comment(state) + "\n")
+    _write_text(
+        args.register_comment_out,
+        render_registration_comment(RegistrationMetadata(**register_payload)) + "\n",
+    )
+    return 0
+
+
+def _command_prepare_fix_transition(args: argparse.Namespace) -> int:
+    payload = _load_json(args.state_file)
+    state = Main2MainState(**_normalize_state_payload(payload))
+    if args.result == "changes_pushed":
+        if not args.new_head_sha:
+            raise SystemExit("--new-head-sha is required for changes_pushed")
+        next_state = apply_fixup_result(state, new_head_sha=args.new_head_sha)
+    else:
+        next_state = apply_no_change_fixup_result(state)
+    next_state = replace(
+        next_state,
+        fix_run_id=args.fix_run_id,
+        dispatch_token="" if args.clear_dispatch_token else next_state.dispatch_token,
+        last_transition=args.last_transition,
+        updated_by=args.updated_by,
+    )
+    register_payload = _registration_payload_from_state(next_state)
+    _write_json_file(args.state_json_out, asdict(next_state))
+    _write_json_file(args.register_json_out, register_payload)
+    _write_text(args.state_comment_out, render_state_comment(next_state) + "\n")
+    _write_text(
+        args.register_comment_out,
+        render_registration_comment(RegistrationMetadata(**register_payload)) + "\n",
+    )
+    return 0
+
+
+def _command_prepare_waiting_bisect(args: argparse.Namespace) -> int:
+    payload = _load_json(args.state_file)
+    state = Main2MainState(**_normalize_state_payload(payload))
+    next_state = replace(
+        state,
+        status="waiting_bisect",
+        bisect_run_id=args.bisect_run_id,
+        fix_run_id=args.fix_run_id,
+        last_transition=args.last_transition,
+        updated_by=args.updated_by,
+    )
+    _write_json_file(args.state_json_out, asdict(next_state))
+    _write_text(args.state_comment_out, render_state_comment(next_state) + "\n")
+    return 0
+
+
+def _reconcile_pr(repo: str, pr_number: str) -> dict[str, Any]:
+    pr = _gh_json(
+        [
+            "pr",
+            "view",
+            pr_number,
+            "--repo",
+            repo,
+            "--json",
+            "number,headRefName,headRefOid,body,mergeable,mergeStateStatus,url",
+        ]
+    )
+    comments = _gh_api_json(f"repos/{repo}/issues/{pr_number}/comments")
+    register_comment = next((item for item in comments if REGISTER_MARKER in item.get("body", "")), None)
+    state_comment = next((item for item in comments if STATE_MARKER in item.get("body", "")), None)
+
+    if state_comment is None:
+        token = mint_dispatch_token()
+        if register_comment is not None:
+            registration = parse_registration_comment(register_comment["body"])
+            state = init_state_from_registration(
+                registration,
+                dispatch_token=token,
+                updated_by="main2main_reconcile.yaml/bootstrap",
+            )
+        else:
+            metadata = parse_pr_metadata(pr.get("body") or "")
+            state = Main2MainState(
+                pr_number=int(pr["number"]),
+                branch=pr["headRefName"],
+                head_sha=pr["headRefOid"],
+                old_commit=metadata.old_commit,
+                new_commit=metadata.new_commit,
+                phase="2",
+                status="waiting_e2e",
+                dispatch_token=token,
+                last_transition="reconcile/recover->waiting_e2e",
+                updated_by="main2main_reconcile.yaml/recover",
+            )
+        created = _gh_api_json(
+            f"repos/{repo}/issues/{pr_number}/comments",
+            method="POST",
+            payload={"body": render_state_comment(state)},
+        )
+        state_comment_id = int(created["id"])
+    else:
+        state = parse_state_comment(state_comment["body"])
+        state_comment_id = int(state_comment["id"])
+
+    metadata = parse_pr_metadata(pr.get("body") or "")
+    consistency = check_pr_consistency(
+        state,
+        branch=pr["headRefName"],
+        head_sha=pr["headRefOid"],
+        old_commit=metadata.old_commit,
+        new_commit=metadata.new_commit,
+    )
+    if not consistency.ok:
+        return {"action": "skip", "reason": consistency.reason}
+
+    if state.status == "waiting_e2e":
+        runs = _gh_json(
+            [
+                "run",
+                "list",
+                "--repo",
+                repo,
+                "--workflow",
+                "pr_test_full.yaml",
+                "-L",
+                "50",
+                "--json",
+                "databaseId,headSha,status,conclusion,createdAt,url",
+            ]
+        )
+        matched_run = select_matching_e2e_run(runs or [], head_sha=state.head_sha)
+        decision = decide_reconcile_action(
+            state,
+            e2e_run=matched_run,
+            merge_state_status=pr.get("mergeStateStatus"),
+            mergeable=pr.get("mergeable"),
+        )
+    elif state.status == "waiting_bisect":
+        bisect_finished = False
+        if state.bisect_run_id:
+            try:
+                bisect_meta = _gh_json(
+                    ["run", "view", state.bisect_run_id, "--repo", repo, "--json", "status,conclusion"]
+                )
+            except RuntimeError:
+                bisect_meta = {}
+            bisect_finished = (bisect_meta or {}).get("status") == "completed"
+        decision = decide_reconcile_action(
+            state,
+            merge_state_status=pr.get("mergeStateStatus"),
+            mergeable=pr.get("mergeable"),
+            bisect_finished=bisect_finished,
+            finalize_missing=bisect_finished,
+        )
+    else:
+        decision = ReconcileDecision(action="ignore", reason=f"state {state.status} is not handled by reconcile")
+
+    if decision.action in {"wait", "ignore"}:
+        return {"action": decision.action, "reason": decision.reason}
+
+    token = mint_dispatch_token()
+    next_state = replace(state, dispatch_token=token, updated_by="main2main_reconcile.yaml")
+    if decision.run_id:
+        next_state = replace(next_state, e2e_run_id=decision.run_id)
+    if decision.action == "dispatch_fix_phase2":
+        next_state = replace(next_state, status="fixing", phase="2", last_transition="reconcile->fix_phase2")
+    elif decision.action == "dispatch_fix_phase3_prepare":
+        next_state = replace(next_state, status="fixing", phase="3", last_transition="reconcile->fix_phase3_prepare")
+    elif decision.action == "dispatch_manual_review":
+        next_state = replace(
+            next_state,
+            terminal_reason=decision.terminal_reason,
+            last_transition="reconcile->manual_review",
+        )
+    elif decision.action == "dispatch_make_ready":
+        next_state = replace(next_state, last_transition="reconcile->make_ready")
+    elif decision.action == "dispatch_fix_phase3_finalize":
+        next_state = replace(next_state, last_transition="reconcile->fix_phase3_finalize")
+
+    _gh_api_json(
+        f"repos/{repo}/issues/comments/{state_comment_id}",
+        method="PATCH",
+        payload={"body": render_state_comment(next_state)},
+    )
+
+    if decision.action == "dispatch_fix_phase2":
+        _gh(
+            [
+                "workflow",
+                "run",
+                "main2main_auto.yaml",
+                "--repo",
+                repo,
+                "-f",
+                "mode=fix_phase2",
+                "-f",
+                f"pr_number={pr_number}",
+                "-f",
+                f"dispatch_token={token}",
+            ]
+        )
+    elif decision.action == "dispatch_fix_phase3_prepare":
+        _gh(
+            [
+                "workflow",
+                "run",
+                "main2main_auto.yaml",
+                "--repo",
+                repo,
+                "-f",
+                "mode=fix_phase3_prepare",
+                "-f",
+                f"pr_number={pr_number}",
+                "-f",
+                f"dispatch_token={token}",
+            ]
+        )
+    elif decision.action == "dispatch_fix_phase3_finalize":
+        _gh(
+            [
+                "workflow",
+                "run",
+                "main2main_auto.yaml",
+                "--repo",
+                repo,
+                "-f",
+                "mode=fix_phase3_finalize",
+                "-f",
+                f"pr_number={pr_number}",
+                "-f",
+                f"dispatch_token={token}",
+                "-f",
+                f"bisect_run_id={next_state.bisect_run_id}",
+            ]
+        )
+    elif decision.action == "dispatch_make_ready":
+        _gh(
+            [
+                "workflow",
+                "run",
+                "main2main_terminal.yaml",
+                "--repo",
+                repo,
+                "-f",
+                "action=make_ready",
+                "-f",
+                f"pr_number={pr_number}",
+                "-f",
+                f"dispatch_token={token}",
+            ]
+        )
+    elif decision.action == "dispatch_manual_review":
+        _gh(
+            [
+                "workflow",
+                "run",
+                "main2main_terminal.yaml",
+                "--repo",
+                repo,
+                "-f",
+                "action=manual_review",
+                "-f",
+                f"pr_number={pr_number}",
+                "-f",
+                f"dispatch_token={token}",
+                "-f",
+                f"terminal_reason={decision.terminal_reason}",
+            ]
+        )
+
+    return {"action": decision.action, "reason": decision.reason, "run_id": decision.run_id}
+
+
+def _command_reconcile_pr(args: argparse.Namespace) -> int:
+    result = _reconcile_pr(args.repo, args.pr_number)
+    _write_json(result)
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Workflow-native main2main CI helper")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -519,6 +887,11 @@ def _build_parser() -> argparse.ArgumentParser:
     reconcile.add_argument("--finalize-missing", action="store_true")
     reconcile.set_defaults(func=_command_reconcile_decision)
 
+    reconcile_pr = subparsers.add_parser("reconcile-pr")
+    reconcile_pr.add_argument("--repo", required=True)
+    reconcile_pr.add_argument("--pr-number", required=True)
+    reconcile_pr.set_defaults(func=_command_reconcile_pr)
+
     select_run = subparsers.add_parser("select-e2e-run")
     select_run.add_argument("--runs-file", required=True)
     select_run.add_argument("--head-sha", required=True)
@@ -529,6 +902,49 @@ def _build_parser() -> argparse.ArgumentParser:
     apply_fix.add_argument("--result", required=True, choices=["changes_pushed", "no_changes"])
     apply_fix.add_argument("--new-head-sha", default="")
     apply_fix.set_defaults(func=_command_apply_fix_result)
+
+    json_get = subparsers.add_parser("json-get")
+    json_get.add_argument("--json-file", required=True)
+    json_get.add_argument("--field", required=True)
+    json_get.set_defaults(func=_command_json_get)
+
+    detect_artifacts = subparsers.add_parser("prepare-detect-artifacts")
+    detect_artifacts.add_argument("--pr-number", required=True)
+    detect_artifacts.add_argument("--branch", required=True)
+    detect_artifacts.add_argument("--head-sha", required=True)
+    detect_artifacts.add_argument("--old-commit", required=True)
+    detect_artifacts.add_argument("--new-commit", required=True)
+    detect_artifacts.add_argument("--dispatch-token", required=True)
+    detect_artifacts.add_argument("--updated-by", default="main2main_auto.yaml/detect")
+    detect_artifacts.add_argument("--state-json-out", required=True)
+    detect_artifacts.add_argument("--register-json-out", required=True)
+    detect_artifacts.add_argument("--state-comment-out", required=True)
+    detect_artifacts.add_argument("--register-comment-out", required=True)
+    detect_artifacts.set_defaults(func=_command_prepare_detect_artifacts)
+
+    fix_transition = subparsers.add_parser("prepare-fix-transition")
+    fix_transition.add_argument("--state-file", required=True)
+    fix_transition.add_argument("--result", required=True, choices=["changes_pushed", "no_changes"])
+    fix_transition.add_argument("--new-head-sha", default="")
+    fix_transition.add_argument("--fix-run-id", required=True)
+    fix_transition.add_argument("--last-transition", required=True)
+    fix_transition.add_argument("--updated-by", required=True)
+    fix_transition.add_argument("--state-json-out", required=True)
+    fix_transition.add_argument("--register-json-out", required=True)
+    fix_transition.add_argument("--state-comment-out", required=True)
+    fix_transition.add_argument("--register-comment-out", required=True)
+    fix_transition.add_argument("--clear-dispatch-token", action="store_true")
+    fix_transition.set_defaults(func=_command_prepare_fix_transition)
+
+    waiting_bisect = subparsers.add_parser("prepare-waiting-bisect")
+    waiting_bisect.add_argument("--state-file", required=True)
+    waiting_bisect.add_argument("--bisect-run-id", required=True)
+    waiting_bisect.add_argument("--fix-run-id", required=True)
+    waiting_bisect.add_argument("--last-transition", required=True)
+    waiting_bisect.add_argument("--updated-by", required=True)
+    waiting_bisect.add_argument("--state-json-out", required=True)
+    waiting_bisect.add_argument("--state-comment-out", required=True)
+    waiting_bisect.set_defaults(func=_command_prepare_waiting_bisect)
 
     return parser
 
