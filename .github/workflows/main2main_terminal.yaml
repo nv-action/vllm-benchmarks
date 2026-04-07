@@ -54,6 +54,7 @@ concurrency:
 
 env:
   UPSTREAM_REPO: nv-action/vllm-benchmarks
+  CONTROL_REPO_DIR: vllm-benchmarks
 
 jobs:
   terminal:
@@ -68,18 +69,18 @@ jobs:
       run:
         working-directory: vllm-benchmarks
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          repository: nv-action/vllm-benchmarks
+          token: ${{ secrets.PAT_TOKEN }}
+          path: ${{ env.CONTROL_REPO_DIR }}
+          fetch-depth: 0
+
       - name: Validate GitHub token scopes
         run: |
           gh auth status
           gh api graphql -f query='query { organization(login: "nv-action") { login } }' >/dev/null
-
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          repository: Meihan-chen/vllm-benchmarks
-          token: ${{ secrets.PAT_TOKEN }}
-          path: vllm-benchmarks
-          fetch-depth: 0
 
       - name: Load state comment
         id: state
@@ -99,7 +100,7 @@ jobs:
           Path("/tmp/main2main_state_comment.md").write_text(match["body"], encoding="utf-8")
           Path("/tmp/main2main_state_comment_id.txt").write_text(str(match["id"]), encoding="utf-8")
           PY
-          python3 .github/workflows/scripts/main2main_ci.py state-read \
+          python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" state-read \
             --comment-file /tmp/main2main_state_comment.md > /tmp/main2main_state.json
           PR_BRANCH=$(python3 - <<'PY'
           import json, re
@@ -133,14 +134,14 @@ jobs:
           print(match.group(2) if match else "")
           PY
           )
-          if ! python3 .github/workflows/scripts/main2main_ci.py guard-check \
+          if ! python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" guard-check \
             --state-file /tmp/main2main_state.json \
             --dispatch-token "${{ github.event.inputs.dispatch_token }}" >/tmp/main2main_guard.json; then
             echo "stale=true" >> "$GITHUB_OUTPUT"
             echo "::notice::Stale terminal dispatch detected; skipping."
             exit 0
           fi
-          if ! python3 .github/workflows/scripts/main2main_ci.py pr-consistency-check \
+          if ! python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" pr-consistency-check \
             --state-file /tmp/main2main_state.json \
             --branch "${PR_BRANCH}" \
             --head-sha "${PR_HEAD_SHA}" \
@@ -195,7 +196,7 @@ jobs:
           )
 
           if [ -n "${E2E_RUN_ID}" ]; then
-            python3 .github/workflows/scripts/ci_log_summary.py \
+            python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/ci_log_summary.py" \
               --repo "${{ env.UPSTREAM_REPO }}" \
               --run-id "${E2E_RUN_ID}" \
               --format llm-json \
@@ -249,10 +250,10 @@ jobs:
 
             Write the final body to `manual_review_issue.md`.
             Do not create branches, commits, or pull requests.
-          claude_args: "--model qwen/qwen3.6-plus:free --dangerously-skip-permissions --allowed-tools 'Bash(cat *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
+          claude_args: "--model minimax/minimax-m2.5:free --dangerously-skip-permissions --allowed-tools 'Bash(cat *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
           show_full_output: true
         env:
-          CLAUDE_WORKING_DIR: ${{ github.workspace }}/vllm-benchmarks
+          CLAUDE_WORKING_DIR: ${{ github.workspace }}/${{ env.CONTROL_REPO_DIR }}
           CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1"
 
       - name: Create manual review issue
@@ -288,7 +289,7 @@ jobs:
           state["updated_by"] = "main2main_terminal.yaml/${{ github.event.inputs.action }}"
           Path("/tmp/main2main_state_next.json").write_text(json.dumps(state, ensure_ascii=True, indent=2), encoding="utf-8")
           PY
-          python3 .github/workflows/scripts/main2main_ci.py state-write \
+          python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" state-write \
             --json-file /tmp/main2main_state_next.json > /tmp/main2main_state_next_comment.md
 
           COMMENT_ID=$(cat /tmp/main2main_state_comment_id.txt)

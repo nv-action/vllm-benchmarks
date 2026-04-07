@@ -1,4 +1,5 @@
 import sys
+from argparse import Namespace
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "scripts"
@@ -242,3 +243,71 @@ def test_merge_conflict_goes_terminal_before_e2e_progression():
 
     assert decision.action == "dispatch_manual_review"
     assert decision.terminal_reason == "merge_conflict"
+
+
+def test_prepare_fix_transition_emits_updated_state_and_registration_artifacts(tmp_path):
+    state = make_state(phase="2", status="fixing", head_sha="old-head")
+    state_path = tmp_path / "state.json"
+    state_path.write_text(ci.json.dumps(ci.asdict(state), ensure_ascii=True, indent=2), encoding="utf-8")
+
+    state_json_out = tmp_path / "state-next.json"
+    register_json_out = tmp_path / "register-next.json"
+    state_comment_out = tmp_path / "state-next.md"
+    register_comment_out = tmp_path / "register-next.md"
+
+    rc = ci._command_prepare_fix_transition(
+        Namespace(
+            state_file=str(state_path),
+            result="changes_pushed",
+            new_head_sha="new-head",
+            fix_run_id="24115639896",
+            last_transition="fix_phase2->waiting_e2e",
+            updated_by="main2main_auto.yaml/fix_phase2",
+            state_json_out=str(state_json_out),
+            register_json_out=str(register_json_out),
+            state_comment_out=str(state_comment_out),
+            register_comment_out=str(register_comment_out),
+            clear_dispatch_token=True,
+        )
+    )
+
+    assert rc == 0
+    next_state = ci.Main2MainState(**ci._normalize_state_payload(ci.json.loads(state_json_out.read_text(encoding="utf-8"))))
+    register_payload = ci.json.loads(register_json_out.read_text(encoding="utf-8"))
+
+    assert next_state.phase == "3"
+    assert next_state.status == "waiting_e2e"
+    assert next_state.head_sha == "new-head"
+    assert next_state.fix_run_id == "24115639896"
+    assert next_state.dispatch_token == ""
+    assert register_payload["head_sha"] == "new-head"
+    assert register_payload["phase"] == "3"
+    assert "main2main-state:v1" in state_comment_out.read_text(encoding="utf-8")
+    assert "main2main-register" in register_comment_out.read_text(encoding="utf-8")
+
+
+def test_prepare_waiting_bisect_updates_state_and_renders_comment(tmp_path):
+    state = make_state(phase="3", status="fixing")
+    state_path = tmp_path / "state.json"
+    state_path.write_text(ci.json.dumps(ci.asdict(state), ensure_ascii=True, indent=2), encoding="utf-8")
+    state_json_out = tmp_path / "state-next.json"
+    state_comment_out = tmp_path / "state-next.md"
+
+    rc = ci._command_prepare_waiting_bisect(
+        Namespace(
+            state_file=str(state_path),
+            bisect_run_id="24120000000",
+            fix_run_id="24115639896",
+            last_transition="fix_phase3_prepare->waiting_bisect",
+            updated_by="main2main_auto.yaml/fix_phase3_prepare",
+            state_json_out=str(state_json_out),
+            state_comment_out=str(state_comment_out),
+        )
+    )
+
+    assert rc == 0
+    next_state = ci.Main2MainState(**ci._normalize_state_payload(ci.json.loads(state_json_out.read_text(encoding="utf-8"))))
+    assert next_state.status == "waiting_bisect"
+    assert next_state.bisect_run_id == "24120000000"
+    assert next_state.fix_run_id == "24115639896"
+    assert "main2main-state:v1" in state_comment_out.read_text(encoding="utf-8")
