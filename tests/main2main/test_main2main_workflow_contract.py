@@ -11,6 +11,7 @@ RECONCILE_WORKFLOW_PATH = WORKFLOWS_DIR / "main2main_reconcile.yaml"
 TERMINAL_WORKFLOW_PATH = WORKFLOWS_DIR / "main2main_terminal.yaml"
 LEGACY_MANUAL_REVIEW_WORKFLOW_PATH = WORKFLOWS_DIR / "main2main_manual_review.yaml"
 BISECT_WORKFLOW_PATH = WORKFLOWS_DIR / "bisect_vllm.yaml"
+PR_TEST_FULL_WORKFLOW_PATH = WORKFLOWS_DIR / "pr_test_full.yaml"
 
 
 def read_text(path: Path) -> str:
@@ -125,10 +126,10 @@ def test_main_workflow_no_longer_uses_workflow_run_trigger():
 
 def test_main_workflow_publishes_registration_and_live_state_comments():
     text = read_text(MAIN_WORKFLOW_PATH)
-    assert "main2main-register" in text
-    assert "main2main-state:v1" in text
     assert "main2main_ci.py" in text
     assert "prepare-detect-artifacts" in text
+    assert "/tmp/main2main_register_comment.md" in text
+    assert "/tmp/main2main_state_comment.md" in text
 
 
 def test_reconcile_workflow_exists_with_schedule_and_manual_pr_targeting():
@@ -145,6 +146,14 @@ def test_reconcile_workflow_is_the_waiting_e2e_control_plane():
     assert "waiting_e2e" in text
     assert "main2main_ci.py" in text
     assert "reconcile-pr" in text
+
+
+def test_pr_test_full_dispatches_reconcile_after_main2main_e2e_completion():
+    text = read_text(PR_TEST_FULL_WORKFLOW_PATH)
+    assert "trigger-main2main-reconcile" in text
+    assert "main2main_reconcile.yaml" in text
+    assert "github.event.pull_request.number" in text
+    assert "contains(github.event.pull_request.labels.*.name, 'main2main')" in text
 
 
 def test_reconcile_and_terminal_use_upstream_control_checkout():
@@ -171,6 +180,13 @@ def test_terminal_workflow_marks_pr_ready_and_creates_issue():
     assert "anthropics/claude-code-action/base-action@v1" in text
 
 
+def test_terminal_workflow_retries_transient_failures_before_leaving_state_for_manual_recovery():
+    text = read_text(TERMINAL_WORKFLOW_PATH)
+    assert "prepare-workflow-error-recovery" in text
+    assert "retry/main2main_terminal.yaml" in text
+    assert 'gh workflow run main2main_terminal.yaml' in text
+
+
 def test_bisect_workflow_supports_main2main_and_standalone_modes():
     text = read_text(BISECT_WORKFLOW_PATH)
     for key in ["caller_type:", "main2main_pr_number:", "main2main_dispatch_token:"]:
@@ -179,9 +195,10 @@ def test_bisect_workflow_supports_main2main_and_standalone_modes():
     assert "main2main" in text
 
 
-def test_bisect_workflow_only_dispatches_finalize_for_main2main_calls():
+def test_bisect_workflow_routes_main2main_callbacks_through_reconcile():
     text = read_text(BISECT_WORKFLOW_PATH)
-    assert "fix_phase3_finalize" in text
+    assert "main2main_reconcile.yaml" in text
+    assert "fix_phase3_finalize" not in text
     assert "inputs.caller_type == 'main2main'" in text or "inputs.caller_type == \"main2main\"" in text
 
 
@@ -256,3 +273,37 @@ def test_main_workflow_critical_shell_steps_are_bash_parseable():
     ]:
         step = next(item for item in workflow["jobs"][job_name]["steps"] if item.get("name") == step_name)
         bash_syntax_check(step["run"])
+
+
+def test_phase3_no_changes_patches_pending_terminal_state_before_dispatch():
+    text = read_text(MAIN_WORKFLOW_PATH)
+    assert "prepare-manual-review-pending" in text
+    assert "fix_phase3_finalize->manual_review_pending" in text
+
+
+def test_main_workflow_uses_helpers_for_bisect_payload_and_fixing_state():
+    text = read_text(MAIN_WORKFLOW_PATH)
+    assert "prepare-bisect-payload" in text
+    assert "prepare-fixing-state" in text
+    assert "select-bisect-run-id" in text
+
+
+def test_workflows_use_load_phase_context_for_repeated_state_bootstrap():
+    main_text = read_text(MAIN_WORKFLOW_PATH)
+    terminal_text = read_text(TERMINAL_WORKFLOW_PATH)
+    assert "load-phase-context" in main_text
+    assert "load-phase-context" in terminal_text
+
+
+def test_main_workflow_treats_stale_phase_runs_as_no_op_instead_of_failure():
+    workflow = load_yaml(MAIN_WORKFLOW_PATH)
+    for job_name, step_name in [
+        ("fix-phase2", "Load state and checkout branch"),
+        ("fix-phase3-prepare", "Load guarded phase 3 state"),
+        ("fix-phase3-finalize", "Load waiting_bisect state and checkout branch"),
+    ]:
+        step = next(item for item in workflow["jobs"][job_name]["steps"] if item.get("name") == step_name)
+        run_text = step["run"]
+        assert "stale=true" in run_text
+        assert "::notice::" in run_text
+        assert "exit 0" in run_text
