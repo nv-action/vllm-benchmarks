@@ -15,7 +15,17 @@
 #
 
 name: Bisect vLLM
-run-name: Bisect vLLM caller-${{ inputs.caller_run_id }}
+run-name: >-
+  ${{
+    inputs.caller_type == 'main2main' &&
+    format(
+      'Bisect vLLM caller-{0} pr-{1} token-{2}',
+      inputs.caller_run_id,
+      inputs.main2main_pr_number,
+      inputs.main2main_dispatch_token
+    ) ||
+    format('Bisect vLLM caller-{0}', inputs.caller_run_id)
+  }}
 
 on:
   workflow_dispatch:
@@ -215,11 +225,8 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.PAT_TOKEN }}
     steps:
-      - name: Dispatch phase 3 finalize for main2main caller
+      - name: Dispatch reconcile for main2main caller
         run: |
-          gh workflow run main2main_auto.yaml \
+          gh workflow run main2main_reconcile.yaml \
             --repo nv-action/vllm-benchmarks \
-            -f mode=fix_phase3_finalize \
-            -f pr_number="${{ inputs.main2main_pr_number }}" \
-            -f dispatch_token="${{ inputs.main2main_dispatch_token }}" \
-            -f bisect_run_id="${{ github.run_id }}"
+            -f pr_number="${{ inputs.main2main_pr_number }}"
