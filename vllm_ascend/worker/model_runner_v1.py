@@ -2126,7 +2126,7 @@ class NPUModelRunner(GPUModelRunner):
             causal=True,
             num_input_tokens=num_tokens_padded,
             actual_seq_lengths_q=self.actual_seq_lengths_q,
-            positions=self.positions.gpu,
+            positions=self.positions.gpu if hasattr(self.positions, "gpu") else self.positions,
             attn_state=self.attn_state,
             decode_token_per_req=self.decode_token_per_req,
             prefill_context_parallel_metadata=self.long_seq_metadata,
@@ -2436,7 +2436,7 @@ class NPUModelRunner(GPUModelRunner):
             elif self.uses_xdrope_dim > 0:
                 positions = self.xdrope_positions.gpu[:, :num_tokens_padded]
             else:
-                positions = self.positions.gpu[:num_tokens_padded]
+                positions = (self.positions.gpu if hasattr(self.positions, "gpu") else self.positions)[:num_tokens_padded]
 
             # update global cos, sin
             update_cos_sin(positions)
