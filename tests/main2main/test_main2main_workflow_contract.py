@@ -6,11 +6,11 @@ import tempfile
 import yaml
 
 WORKFLOWS_DIR = Path(__file__).resolve().parents[2] / ".github" / "workflows"
-MAIN_WORKFLOW_PATH = WORKFLOWS_DIR / "main2main_auto.yaml"
-RECONCILE_WORKFLOW_PATH = WORKFLOWS_DIR / "main2main_reconcile.yaml"
-TERMINAL_WORKFLOW_PATH = WORKFLOWS_DIR / "main2main_terminal.yaml"
+MAIN_WORKFLOW_PATH = WORKFLOWS_DIR / "schedule_main2main_auto.yaml"
+RECONCILE_WORKFLOW_PATH = WORKFLOWS_DIR / "schedule_main2main_reconcile.yaml"
+TERMINAL_WORKFLOW_PATH = WORKFLOWS_DIR / "dispatch_main2main_terminal.yaml"
 LEGACY_MANUAL_REVIEW_WORKFLOW_PATH = WORKFLOWS_DIR / "main2main_manual_review.yaml"
-BISECT_WORKFLOW_PATH = WORKFLOWS_DIR / "bisect_vllm.yaml"
+BISECT_WORKFLOW_PATH = WORKFLOWS_DIR / "dispatch_main2main_bisect.yaml"
 PR_TEST_FULL_WORKFLOW_PATH = WORKFLOWS_DIR / "pr_test_full.yaml"
 
 
@@ -132,6 +132,20 @@ def test_main_workflow_publishes_registration_and_live_state_comments():
     assert "/tmp/main2main_state_comment.md" in text
 
 
+def test_main_workflow_uses_upsert_helper_for_phase_pr_body_sections():
+    text = read_text(MAIN_WORKFLOW_PATH)
+    assert "upsert-pr-phase-section" in text
+    assert "Phase 2: address E2E-Full CI failures" in text
+    assert "Phase 3: bisect-guided adaptation" in text
+
+
+def test_phase3_prompt_uses_bisect_result_json_artifact():
+    text = read_text(MAIN_WORKFLOW_PATH)
+    assert "/tmp/bisect_output/bisect_result.json" in text
+    assert "/tmp/bisect_output/bisect_summary.md" in text
+    assert "/tmp/bisect_output/bisect_summary.json" not in text
+
+
 def test_reconcile_workflow_exists_with_schedule_and_manual_pr_targeting():
     assert RECONCILE_WORKFLOW_PATH.exists()
     text = read_text(RECONCILE_WORKFLOW_PATH)
@@ -148,12 +162,15 @@ def test_reconcile_workflow_is_the_waiting_e2e_control_plane():
     assert "reconcile-pr" in text
 
 
-def test_pr_test_full_dispatches_reconcile_after_main2main_e2e_completion():
+def test_reconcile_workflow_does_not_use_temp_pr_number_file_for_iteration():
+    text = read_text(RECONCILE_WORKFLOW_PATH)
+    assert "main2main_pr_numbers.txt" not in text
+
+
+def test_pr_test_full_does_not_attempt_direct_reconcile_dispatch():
     text = read_text(PR_TEST_FULL_WORKFLOW_PATH)
-    assert "trigger-main2main-reconcile" in text
-    assert "main2main_reconcile.yaml" in text
-    assert "github.event.pull_request.number" in text
-    assert "contains(github.event.pull_request.labels.*.name, 'main2main')" in text
+    assert "trigger-main2main-reconcile" not in text
+    assert "schedule_main2main_reconcile.yaml" not in text
 
 
 def test_reconcile_and_terminal_use_upstream_control_checkout():
@@ -183,8 +200,15 @@ def test_terminal_workflow_marks_pr_ready_and_creates_issue():
 def test_terminal_workflow_retries_transient_failures_before_leaving_state_for_manual_recovery():
     text = read_text(TERMINAL_WORKFLOW_PATH)
     assert "prepare-workflow-error-recovery" in text
-    assert "retry/main2main_terminal.yaml" in text
-    assert 'gh workflow run main2main_terminal.yaml' in text
+    assert "retry/dispatch_main2main_terminal.yaml" in text
+    assert 'gh workflow run dispatch_main2main_terminal.yaml' in text
+
+
+def test_failure_recovery_paths_do_not_write_error_action_json_transport_files():
+    main_text = read_text(MAIN_WORKFLOW_PATH)
+    terminal_text = read_text(TERMINAL_WORKFLOW_PATH)
+    assert "main2main_error_action.json" not in main_text
+    assert "main2main_error_action.json" not in terminal_text
 
 
 def test_bisect_workflow_supports_main2main_and_standalone_modes():
@@ -197,9 +221,15 @@ def test_bisect_workflow_supports_main2main_and_standalone_modes():
 
 def test_bisect_workflow_routes_main2main_callbacks_through_reconcile():
     text = read_text(BISECT_WORKFLOW_PATH)
-    assert "main2main_reconcile.yaml" in text
+    assert "schedule_main2main_reconcile.yaml" in text
     assert "fix_phase3_finalize" not in text
     assert "inputs.caller_type == 'main2main'" in text or "inputs.caller_type == \"main2main\"" in text
+
+
+def test_bisect_workflow_writes_group_named_summary_files_without_copy_step():
+    text = read_text(BISECT_WORKFLOW_PATH)
+    assert '--summary-output "/tmp/bisect_summary_${{ matrix.group }}.md"' in text
+    assert "cp /tmp/bisect_summary.md" not in text
 
 
 def test_code_mutating_jobs_use_dual_checkout_and_phase3_prepare_uses_control_only():
@@ -286,6 +316,7 @@ def test_main_workflow_uses_helpers_for_bisect_payload_and_fixing_state():
     assert "prepare-bisect-payload" in text
     assert "prepare-fixing-state" in text
     assert "select-bisect-run-id" in text
+    assert "main2main_bisect_payload.json" not in text
 
 
 def test_workflows_use_load_phase_context_for_repeated_state_bootstrap():
@@ -293,6 +324,12 @@ def test_workflows_use_load_phase_context_for_repeated_state_bootstrap():
     terminal_text = read_text(TERMINAL_WORKFLOW_PATH)
     assert "load-phase-context" in main_text
     assert "load-phase-context" in terminal_text
+    assert "main2main_pr.json" not in main_text
+    assert "main2main_pr.json" not in terminal_text
+    assert "main2main_state_comment_id.txt" not in main_text
+    assert "main2main_register_comment_id.txt" not in main_text
+    assert "main2main_state_comment_id.txt" not in terminal_text
+    assert "main2main_register_comment_id.txt" not in terminal_text
 
 
 def test_main_workflow_treats_stale_phase_runs_as_no_op_instead_of_failure():

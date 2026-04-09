@@ -2,7 +2,7 @@ import importlib.util
 from pathlib import Path
 
 
-SCRIPT_PATH = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "scripts" / "bisect_helper.py"
+SCRIPT_PATH = Path(__file__).resolve().parents[2] / "tools" / "bisect_helper.py"
 
 
 def load_module():
@@ -94,3 +94,19 @@ def test_build_batch_matrix_uses_distinct_groups_for_singlecard_and_310p_singlec
     assert "e2e-singlecard" in groups
     assert "e2e-310p-singlecard" in groups
     assert len(groups) == len(set(groups))
+
+
+def test_build_batch_matrix_deduplicates_identical_commands_within_same_group():
+    module = load_module()
+
+    matrix = module.build_batch_matrix(
+        "pytest -sv tests/e2e/multicard/2-cards/test_offline_inference_distributed.py::test_qwen3_dense_fc1_tp2; "
+        "pytest -sv tests/e2e/multicard/2-cards/test_offline_inference_distributed.py::test_qwen3_dense_fc1_tp2"
+    )
+
+    include = matrix["include"]
+    assert len(include) == 1
+    assert include[0]["group"] == "e2e-2cards"
+    assert include[0]["test_cmds"] == (
+        "pytest -sv tests/e2e/multicard/2-cards/test_offline_inference_distributed.py::test_qwen3_dense_fc1_tp2"
+    )
