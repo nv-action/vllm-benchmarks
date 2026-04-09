@@ -55,6 +55,7 @@ concurrency:
 env:
   UPSTREAM_REPO: nv-action/vllm-benchmarks
   CONTROL_REPO_DIR: vllm-benchmarks
+  MAIN2MAIN_MODEL: ${{ vars.MAIN2MAIN_MODEL || 'qwen3.6-plus' }}
 
 jobs:
   terminal:
@@ -89,11 +90,8 @@ jobs:
             --repo "${{ env.UPSTREAM_REPO }}" \
             --pr-number "${{ github.event.inputs.pr_number }}" \
             --dispatch-token "${{ github.event.inputs.dispatch_token }}" \
-            --pr-json-out /tmp/main2main_pr.json \
             --state-json-out /tmp/main2main_state.json \
             --registration-json-out /tmp/main2main_register.json \
-            --state-id-out /tmp/main2main_state_comment_id.txt \
-            --register-id-out /tmp/main2main_register_comment_id.txt \
             --context-json-out /tmp/main2main_ctx.json >/tmp/main2main_guard.json 2>/tmp/main2main_guard.err; then
             echo "stale=true" >> "$GITHUB_OUTPUT"
             echo "::notice::$(cat /tmp/main2main_guard.err)"
@@ -195,7 +193,7 @@ jobs:
 
             Write the final body to `manual_review_issue.md`.
             Do not create branches, commits, or pull requests.
-          claude_args: "--model minimax/minimax-m2.5:free --dangerously-skip-permissions --allowed-tools 'Bash(cat *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
+          claude_args: "--model ${{ env.MAIN2MAIN_MODEL }} --dangerously-skip-permissions --allowed-tools 'Bash(cat *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
           show_full_output: true
         env:
           CLAUDE_WORKING_DIR: ${{ github.workspace }}/${{ env.CONTROL_REPO_DIR }}
@@ -233,42 +231,41 @@ jobs:
               state["dispatch_token"] = ""
               state["workflow_error_count"] = 0
               state["last_transition"] = "terminal/manual_review"
-          state["updated_by"] = "main2main_terminal.yaml/${{ github.event.inputs.action }}"
+          state["updated_by"] = "dispatch_main2main_terminal.yaml/${{ github.event.inputs.action }}"
           Path("/tmp/main2main_state_next.json").write_text(json.dumps(state, ensure_ascii=True, indent=2), encoding="utf-8")
           PY
           python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" state-write \
             --json-file /tmp/main2main_state_next.json > /tmp/main2main_state_next_comment.md
 
-          COMMENT_ID=$(cat /tmp/main2main_state_comment_id.txt)
+          COMMENT_ID=$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" json-get --json-file /tmp/main2main_ctx.json --field state_comment_id)
           gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/${COMMENT_ID}" \
             -f body="$(cat /tmp/main2main_state_next_comment.md)" >/dev/null
 
       - name: Retry terminal workflow after transient failure
         if: ${{ failure() && steps.state.outputs.stale != 'true' }}
         run: |
-          if [ ! -f /tmp/main2main_state.json ] || [ ! -f /tmp/main2main_state_comment_id.txt ]; then
+          if [ ! -f /tmp/main2main_state.json ] || [ ! -f /tmp/main2main_ctx.json ]; then
             echo "::warning::Terminal workflow failed before state was fully loaded; retry manually from the latest state comment."
             exit 0
           fi
-          python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" prepare-workflow-error-recovery \
-            --state-file /tmp/main2main_state.json \
-            --max-retries 1 \
-            --terminal-reason "${{ github.event.inputs.terminal_reason }}" \
-            --retry-transition "retry/main2main_terminal.yaml/${{ github.event.inputs.action }}" \
-            --terminal-transition "error_exhausted/main2main_terminal.yaml/${{ github.event.inputs.action }}" \
-            --updated-by "main2main_terminal.yaml/${{ github.event.inputs.action }}_failure" \
-            --state-json-out /tmp/main2main_state_error.json \
-            --state-comment-out /tmp/main2main_state_error_comment.md > /tmp/main2main_error_action.json
-          gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/$(cat /tmp/main2main_state_comment_id.txt)" \
+          mapfile -t RECOVERY_FIELDS < <(
+            python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" prepare-workflow-error-recovery \
+              --state-file /tmp/main2main_state.json \
+              --max-retries 1 \
+              --terminal-reason "${{ github.event.inputs.terminal_reason }}" \
+              --retry-transition "retry/dispatch_main2main_terminal.yaml/${{ github.event.inputs.action }}" \
+              --terminal-transition "error_exhausted/dispatch_main2main_terminal.yaml/${{ github.event.inputs.action }}" \
+              --updated-by "dispatch_main2main_terminal.yaml/${{ github.event.inputs.action }}_failure" \
+              --state-json-out /tmp/main2main_state_error.json \
+              --state-comment-out /tmp/main2main_state_error_comment.md \
+            | python3 -c 'import json,sys; payload=json.load(sys.stdin); print(payload["action"]); print(payload["dispatch_token"])'
+          )
+          gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" json-get --json-file /tmp/main2main_ctx.json --field state_comment_id)" \
             -f body="$(cat /tmp/main2main_state_error_comment.md)" >/dev/null
-          NEXT_ACTION=$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" json-get \
-            --json-file /tmp/main2main_error_action.json \
-            --field action)
-          NEXT_TOKEN=$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" json-get \
-            --json-file /tmp/main2main_error_action.json \
-            --field dispatch_token)
+          NEXT_ACTION="${RECOVERY_FIELDS[0]}"
+          NEXT_TOKEN="${RECOVERY_FIELDS[1]}"
           if [ "${NEXT_ACTION}" = "retry" ]; then
-            gh workflow run main2main_terminal.yaml \
+            gh workflow run dispatch_main2main_terminal.yaml \
               --repo "${{ env.UPSTREAM_REPO }}" \
               -f action="${{ github.event.inputs.action }}" \
               -f pr_number="${{ github.event.inputs.pr_number }}" \
