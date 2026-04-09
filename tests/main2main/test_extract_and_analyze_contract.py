@@ -5,8 +5,8 @@ import subprocess
 import tempfile
 
 SCRIPT_PATH = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "scripts" / "ci_log_summary.py"
-BISECT_SCRIPT_PATH = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "scripts" / "bisect_vllm.sh"
-BISECT_HELPER_PATH = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "scripts" / "bisect_helper.py"
+BISECT_SCRIPT_PATH = Path(__file__).resolve().parents[2] / "tools" / "bisect_vllm.sh"
+BISECT_HELPER_PATH = Path(__file__).resolve().parents[2] / "tools" / "bisect_helper.py"
 
 
 def load_module():
@@ -152,6 +152,52 @@ def test_bisect_result_failed_when_no_group_yields_culprit():
     assert result["first_bad_commit_url"] == ""
 
 
+def test_collect_group_results_supports_per_group_summary_filenames(tmp_path):
+    module = load_bisect_helper()
+
+    (tmp_path / "bisect_summary_e2e-4cards.md").write_text(
+        "## Bisect Result\n\n| Field | Value |\n|-------|-------|\n"
+        "| First bad commit | `abc123` |\n"
+        "| Link | https://github.com/vllm-project/vllm/commit/abc123 |\n",
+        encoding="utf-8",
+    )
+
+    results = module.collect_group_results(tmp_path)
+
+    assert results == [
+        {
+            "group": "e2e-4cards",
+            "status": "success",
+            "first_bad_commit": "abc123",
+            "first_bad_commit_url": "https://github.com/vllm-project/vllm/commit/abc123",
+        }
+    ]
+
+
+def test_collect_group_results_supports_legacy_artifact_subdirectories(tmp_path):
+    module = load_bisect_helper()
+
+    artifact_dir = tmp_path / "bisect-result-e2e-singlecard"
+    artifact_dir.mkdir()
+    (artifact_dir / "bisect_summary.md").write_text(
+        "## Bisect Result\n\n| Field | Value |\n|-------|-------|\n"
+        "| First bad commit | `def456` |\n"
+        "| Link | https://github.com/vllm-project/vllm/commit/def456 |\n",
+        encoding="utf-8",
+    )
+
+    results = module.collect_group_results(tmp_path)
+
+    assert results == [
+        {
+            "group": "e2e-singlecard",
+            "status": "success",
+            "first_bad_commit": "def456",
+            "first_bad_commit_url": "https://github.com/vllm-project/vllm/commit/def456",
+        }
+    ]
+
+
 def test_process_run_accepts_repo_override(monkeypatch):
     module = load_module()
     captured = []
@@ -256,18 +302,15 @@ def test_build_bisect_payload_selects_representative_cases_per_error():
     assert payload["representative_test_cases"] == [
         "tests/e2e/a/test_alpha.py::test_case_a",
         "tests/e2e/b/test_beta.py::test_case_c",
-        "tests/e2e/a/test_alpha.py::test_case_a",
     ]
     assert payload["test_cmds"] == [
         "pytest -sv tests/e2e/a/test_alpha.py::test_case_a",
         "pytest -sv tests/e2e/b/test_beta.py::test_case_c",
-        "pytest -sv tests/e2e/a/test_alpha.py::test_case_a",
     ]
     assert (
         payload["test_cmd"]
         == "pytest -sv tests/e2e/a/test_alpha.py::test_case_a; "
-        "pytest -sv tests/e2e/b/test_beta.py::test_case_c; "
-        "pytest -sv tests/e2e/a/test_alpha.py::test_case_a"
+        "pytest -sv tests/e2e/b/test_beta.py::test_case_c"
     )
 
 
@@ -302,10 +345,8 @@ def test_build_bisect_payload_strips_parametrized_case_suffixes():
 
     assert payload["representative_test_cases"] == [
         "tests/e2e/singlecard/test_sampler.py::test_qwen3_topk",
-        "tests/e2e/singlecard/test_sampler.py::test_qwen3_topk",
     ]
     assert payload["test_cmds"] == [
-        "pytest -sv tests/e2e/singlecard/test_sampler.py::test_qwen3_topk",
         "pytest -sv tests/e2e/singlecard/test_sampler.py::test_qwen3_topk",
     ]
 
@@ -638,11 +679,12 @@ def test_bisect_script_does_not_exit_during_parse_args_for_test_cmds_file(tmp_pa
             str(cmds_file),
             "--vllm-repo",
             "/nonexistent/vllm",
-            "--ascend-repo",
-            "/nonexistent/ascend",
-            "--no-fetch",
-            "--good",
-            "35141a7eeda941a60ad5a4956670c60fd5a77029",
+                "--ascend-repo",
+                "/nonexistent/ascend",
+                "--fetch-depth",
+                "0",
+                "--good",
+                "35141a7eeda941a60ad5a4956670c60fd5a77029",
             "--bad",
             "c6f722b93e8e795065751172812ee6a5540e5901",
         ],
@@ -672,7 +714,8 @@ def test_bisect_script_does_not_exit_during_detect_commits_when_commits_are_prov
                 str(vllm_repo),
                 "--ascend-repo",
                 str(ascend_repo),
-                "--no-fetch",
+                "--fetch-depth",
+                "0",
                 "--good",
                 "35141a7eeda941a60ad5a4956670c60fd5a77029",
                 "--bad",
@@ -693,7 +736,7 @@ def test_bisect_helper_finds_repo_root_from_cwd_when_copied(tmp_path):
     helper_copy.write_text(BISECT_HELPER_PATH.read_text())
     module = load_bisect_helper(helper_copy)
 
-    assert module._get_repo_root(cwd=BISECT_HELPER_PATH.parents[3]) == BISECT_HELPER_PATH.parents[3]
+    assert module._get_repo_root(cwd=BISECT_HELPER_PATH.parents[1]) == BISECT_HELPER_PATH.parents[1]
 
 
 def test_bisect_script_prefers_editable_project_location_for_ascend_repo(tmp_path):
@@ -736,7 +779,8 @@ def test_bisect_script_prefers_editable_project_location_for_ascend_repo(tmp_pat
             "pytest -sv tests/ut/spec_decode/test_eagle_proposer.py::TestEagleProposerInitialization::test_initialization_eagle_graph",
             "--vllm-repo",
             str(vllm_repo),
-            "--no-fetch",
+            "--fetch-depth",
+            "0",
             "--good",
             "35141a7eeda941a60ad5a4956670c60fd5a77029",
             "--bad",
@@ -762,7 +806,8 @@ def test_bisect_script_exits_cleanly_when_commit_cannot_be_resolved():
             "/Users/antarctica/Work/PR/vllm",
             "--ascend-repo",
             "/Users/antarctica/Work/PR/vllm-benchmarks",
-            "--no-fetch",
+            "--fetch-depth",
+            "0",
             "--good",
             "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
             "--bad",
@@ -793,7 +838,8 @@ def test_bisect_script_refuses_dirty_vllm_repo(tmp_path):
             str(dirty_repo),
             "--ascend-repo",
             "/Users/antarctica/Work/PR/vllm-benchmarks",
-            "--no-fetch",
+            "--fetch-depth",
+            "0",
             "--good",
             "35141a7eeda941a60ad5a4956670c60fd5a77029",
             "--bad",

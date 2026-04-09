@@ -83,7 +83,7 @@ jobs:
       - name: Resolve parameters and build matrix
         id: resolve
         run: |
-          python3 .github/workflows/scripts/bisect_helper.py batch-matrix \
+          python3 tools/bisect_helper.py batch-matrix \
             --test-cmds "${{ inputs.test_cmd }}" \
             --output-format github
 
@@ -136,7 +136,7 @@ jobs:
           repository: vllm-project/vllm
           ref: ${{ inputs.bad_commit }}
           path: ./vllm-empty
-          fetch-depth: 500
+          fetch-depth: 0
 
       - name: Install vllm from source
         working-directory: ./vllm-empty
@@ -155,13 +155,14 @@ jobs:
             export "${key}=${val}"
           done
 
-          chmod +x .github/workflows/scripts/bisect_vllm.sh
+          chmod +x tools/bisect_vllm.sh
           echo "${{ matrix.test_cmds }}" > /tmp/bisect_cmds.txt
 
-          .github/workflows/scripts/bisect_vllm.sh \
+          tools/bisect_vllm.sh \
             --vllm-repo ../vllm-empty \
             --ascend-repo . \
             --test-cmds-file /tmp/bisect_cmds.txt \
+            --summary-output "/tmp/bisect_summary_${{ matrix.group }}.md" \
             ${{ inputs.good_commit && format('--good {0}', inputs.good_commit) || '' }} \
             ${{ inputs.bad_commit && format('--bad {0}', inputs.bad_commit) || '' }}
 
@@ -170,7 +171,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: bisect-result-${{ matrix.group }}
-          path: /tmp/bisect_summary.md
+          path: /tmp/bisect_summary_${{ matrix.group }}.md
           retention-days: 30
 
   upload-all-results:
@@ -190,15 +191,17 @@ jobs:
 
       - name: Combine summaries and emit bisect_result.json
         run: |
-          true > /tmp/bisect_summary.md
-          for f in /tmp/bisect_results/*/bisect_summary.md; do
-            if [ -f "$f" ]; then
-              cat "$f" >> /tmp/bisect_summary.md
-              echo "" >> /tmp/bisect_summary.md
-            fi
-          done
+          ls -al /tmp/bisect_results
+          
+          : > /tmp/bisect_summary.md
+          while IFS= read -r -d '' f; do
+            cat "$f" >> /tmp/bisect_summary.md
+            echo "" >> /tmp/bisect_summary.md
+          done < <(find /tmp/bisect_results -type f -name 'bisect_summary_*.md' -print0)
 
-          python3 .github/workflows/scripts/bisect_helper.py result-json \
+          cat /tmp/bisect_summary.md
+
+          python3 tools/bisect_helper.py result-json \
             --caller-type "${{ inputs.caller_type }}" \
             --caller-run-id "${{ inputs.caller_run_id }}" \
             --bisect-run-id "${{ github.run_id }}" \
@@ -227,6 +230,6 @@ jobs:
     steps:
       - name: Dispatch reconcile for main2main caller
         run: |
-          gh workflow run main2main_reconcile.yaml \
+          gh workflow run schedule_main2main_reconcile.yaml \
             --repo nv-action/vllm-benchmarks \
             -f pr_number="${{ inputs.main2main_pr_number }}"

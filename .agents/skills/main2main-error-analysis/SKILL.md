@@ -92,7 +92,7 @@ If the user does not provide a run ID or a log file, obtain the run ID first usi
 
 Load `/tmp/ci_analysis.json` and extract the key fields:
 
-```python
+```json
 {
   "run_id": 21646698906,
   "good_commit": "15d76f74e2fdb12a95ea00f0ca283acf6219a2b7",
