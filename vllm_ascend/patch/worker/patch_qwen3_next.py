@@ -23,7 +23,7 @@ from vllm.forward_context import get_forward_context
 from vllm.model_executor.layers.fla.ops import chunk_gated_delta_rule
 from vllm.model_executor.layers.fla.ops.l2norm import l2norm_fwd
 from vllm.model_executor.layers.mamba.ops.causal_conv1d import causal_conv1d_update
-from vllm.model_executor.models.qwen3_next import Qwen3NextGatedDeltaNet
+from vllm.model_executor.layers.mamba.gdn_linear_attn import GatedDeltaNetAttention
 from vllm.triton_utils import triton
 from vllm.v1.attention.backend import AttentionMetadata  # type: ignore
 from vllm.v1.attention.backends.gdn_attn import GDNAttentionMetadata
@@ -36,7 +36,7 @@ from vllm_ascend.patch.worker.patch_qwen3_5 import to_int64_tuple
 from vllm_ascend.utils import enable_sp, vllm_version_is
 
 
-class AscendQwen3Next_GatedDeltaNet(Qwen3NextGatedDeltaNet):
+class AscendQwen3Next_GatedDeltaNet(GatedDeltaNetAttention):
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -310,5 +310,5 @@ class AscendQwen3Next_GatedDeltaNet(Qwen3NextGatedDeltaNet):
                 core_attn_out[:num_actual_tokens] = core_attn_out_non_spec.squeeze(0)[:num_actual_tokens]
 
 
-Qwen3NextGatedDeltaNet.forward = AscendQwen3Next_GatedDeltaNet.forward
-Qwen3NextGatedDeltaNet._forward_core = AscendQwen3Next_GatedDeltaNet._forward_core
+GatedDeltaNetAttention.forward = AscendQwen3Next_GatedDeltaNet.forward
+GatedDeltaNetAttention._forward_core = AscendQwen3Next_GatedDeltaNet._forward_core
