@@ -30,6 +30,7 @@ _REGISTRATION_COMMENT_RE = re.compile(
 )
 _STATE_COMMENT_RE = re.compile(r"<!-- main2main-state:v1\s*(\{.*?\})\s*-->", re.DOTALL)
 _RUN_ID_FROM_DETAILS_URL_RE = re.compile(r"/actions/runs/(\d+)(?:/job/\d+)?")
+_PHASE_SECTION_RE_TEMPLATE = r"(?:\n)?### {heading}\n(?:.*?)(?=\n### |\Z)"
 DEFAULT_BISECT_TEST_CMD = (
     "pytest -sv tests/e2e/singlecard/test_aclgraph_accuracy.py; "
     "pytest -sv tests/e2e/multicard/4-cards/long_sequence/test_accuracy.py"
@@ -216,6 +217,17 @@ def init_state_from_registration(
 
 def mint_dispatch_token() -> str:
     return uuid.uuid4().hex
+
+
+def upsert_pr_phase_section(body: str, *, heading: str, content_lines: list[str]) -> str:
+    section = "\n".join([f"### {heading}", *content_lines]).rstrip()
+    pattern = re.compile(_PHASE_SECTION_RE_TEMPLATE.format(heading=re.escape(heading)), re.DOTALL)
+    existing_body = body.rstrip()
+    if pattern.search(existing_body):
+        updated = pattern.sub("\n" + section, existing_body, count=1)
+        return updated.strip() + "\n"
+    joiner = "\n\n" if existing_body else ""
+    return f"{existing_body}{joiner}{section}\n"
 
 
 def check_state_guard(
@@ -708,6 +720,14 @@ def _command_json_get(args: argparse.Namespace) -> int:
     return 0
 
 
+def _command_upsert_pr_phase_section(args: argparse.Namespace) -> int:
+    body = _load_text(args.body_file)
+    content_lines = _load_text(args.content_file).splitlines()
+    updated = upsert_pr_phase_section(body, heading=args.heading, content_lines=content_lines)
+    _write_text(args.output_file, updated)
+    return 0
+
+
 def _command_prepare_detect_artifacts(args: argparse.Namespace) -> int:
     register_payload = {
         "pr_number": int(args.pr_number),
@@ -772,7 +792,10 @@ def _command_prepare_bisect_payload(args: argparse.Namespace) -> int:
     state = Main2MainState(**_normalize_state_payload(payload))
     ci_analysis = _load_json(args.ci_analysis_file)
     bisect_payload = prepare_bisect_payload(state, ci_analysis=ci_analysis)
-    _write_json_file(args.payload_json_out, bisect_payload)
+    if args.payload_json_out:
+        _write_json_file(args.payload_json_out, bisect_payload)
+    else:
+        _write_json(bisect_payload)
     return 0
 
 
@@ -931,20 +954,28 @@ def _command_load_phase_context(args: argparse.Namespace) -> int:
         )
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
-    _write_json_file(args.pr_json_out, context.pr)
-    _write_json_file(args.state_json_out, asdict(context.state))
-    _write_json_file(args.registration_json_out, asdict(context.registration))
-    _write_text(args.state_id_out, str(context.state_comment_id))
-    _write_text(args.register_id_out, str(context.register_comment_id))
-    _write_json_file(
-        args.context_json_out,
-        {
-            "branch": context.branch,
-            "head_sha": context.head_sha,
-            "state_comment_id": context.state_comment_id,
-            "register_comment_id": context.register_comment_id,
-        },
-    )
+    if args.pr_json_out:
+        _write_json_file(args.pr_json_out, context.pr)
+    if args.state_json_out:
+        _write_json_file(args.state_json_out, asdict(context.state))
+    if args.registration_json_out:
+        _write_json_file(args.registration_json_out, asdict(context.registration))
+    if args.state_id_out:
+        _write_text(args.state_id_out, str(context.state_comment_id))
+    if args.register_id_out:
+        _write_text(args.register_id_out, str(context.register_comment_id))
+    if args.context_json_out:
+        _write_json_file(
+            args.context_json_out,
+            {
+                "pr_number": context.state.pr_number,
+                "branch": context.branch,
+                "head_sha": context.head_sha,
+                "state_comment_id": context.state_comment_id,
+                "register_comment_id": context.register_comment_id,
+                "pr_url": context.pr.get("url", ""),
+            },
+        )
     return 0
 
 
@@ -971,7 +1002,7 @@ def _reconcile_pr(repo: str, pr_number: str) -> dict[str, Any]:
             state = init_state_from_registration(
                 registration,
                 dispatch_token=token,
-                updated_by="main2main_reconcile.yaml/bootstrap",
+                updated_by="schedule_main2main_reconcile.yaml/bootstrap",
             )
         else:
             metadata = parse_pr_metadata(pr.get("body") or "")
@@ -985,7 +1016,7 @@ def _reconcile_pr(repo: str, pr_number: str) -> dict[str, Any]:
                 status="waiting_e2e",
                 dispatch_token=token,
                 last_transition="reconcile/recover->waiting_e2e",
-                updated_by="main2main_reconcile.yaml/recover",
+                updated_by="schedule_main2main_reconcile.yaml/recover",
             )
         created = _gh_api_json(
             f"repos/{repo}/issues/{pr_number}/comments",
@@ -1058,7 +1089,7 @@ def _reconcile_pr(repo: str, pr_number: str) -> dict[str, Any]:
             if matched_run is not None:
                 e2e_run_id = str(matched_run.get("databaseId") or "")
         if e2e_run_id and state.e2e_run_id != e2e_run_id:
-            state = replace(state, e2e_run_id=e2e_run_id, updated_by="main2main_reconcile.yaml/resolve_e2e")
+            state = replace(state, e2e_run_id=e2e_run_id, updated_by="schedule_main2main_reconcile.yaml/resolve_e2e")
             _patch_state_comment(repo, state_comment_id, state)
         decision = decide_reconcile_action(
             state,
@@ -1090,7 +1121,7 @@ def _reconcile_pr(repo: str, pr_number: str) -> dict[str, Any]:
         return {"action": decision.action, "reason": decision.reason}
 
     token = mint_dispatch_token()
-    next_state = replace(state, dispatch_token=token, updated_by="main2main_reconcile.yaml")
+    next_state = replace(state, dispatch_token=token, updated_by="schedule_main2main_reconcile.yaml")
     if decision.run_id:
         next_state = replace(next_state, e2e_run_id=decision.run_id)
     if decision.action == "dispatch_fix_phase2":
@@ -1132,7 +1163,7 @@ def _reconcile_pr(repo: str, pr_number: str) -> dict[str, Any]:
             [
                 "workflow",
                 "run",
-                "main2main_auto.yaml",
+                "schedule_main2main_auto.yaml",
                 "--repo",
                 repo,
                 "-f",
@@ -1148,7 +1179,7 @@ def _reconcile_pr(repo: str, pr_number: str) -> dict[str, Any]:
             [
                 "workflow",
                 "run",
-                "main2main_auto.yaml",
+                "schedule_main2main_auto.yaml",
                 "--repo",
                 repo,
                 "-f",
@@ -1164,7 +1195,7 @@ def _reconcile_pr(repo: str, pr_number: str) -> dict[str, Any]:
             [
                 "workflow",
                 "run",
-                "main2main_auto.yaml",
+                "schedule_main2main_auto.yaml",
                 "--repo",
                 repo,
                 "-f",
@@ -1182,7 +1213,7 @@ def _reconcile_pr(repo: str, pr_number: str) -> dict[str, Any]:
             [
                 "workflow",
                 "run",
-                "main2main_terminal.yaml",
+                "dispatch_main2main_terminal.yaml",
                 "--repo",
                 repo,
                 "-f",
@@ -1198,7 +1229,7 @@ def _reconcile_pr(repo: str, pr_number: str) -> dict[str, Any]:
             [
                 "workflow",
                 "run",
-                "main2main_terminal.yaml",
+                "dispatch_main2main_terminal.yaml",
                 "--repo",
                 repo,
                 "-f",
@@ -1299,6 +1330,13 @@ def _build_parser() -> argparse.ArgumentParser:
     json_get.add_argument("--field", required=True)
     json_get.set_defaults(func=_command_json_get)
 
+    upsert_section = subparsers.add_parser("upsert-pr-phase-section")
+    upsert_section.add_argument("--body-file", required=True)
+    upsert_section.add_argument("--heading", required=True)
+    upsert_section.add_argument("--content-file", required=True)
+    upsert_section.add_argument("--output-file", required=True)
+    upsert_section.set_defaults(func=_command_upsert_pr_phase_section)
+
     detect_artifacts = subparsers.add_parser("prepare-detect-artifacts")
     detect_artifacts.add_argument("--pr-number", required=True)
     detect_artifacts.add_argument("--branch", required=True)
@@ -1306,7 +1344,7 @@ def _build_parser() -> argparse.ArgumentParser:
     detect_artifacts.add_argument("--old-commit", required=True)
     detect_artifacts.add_argument("--new-commit", required=True)
     detect_artifacts.add_argument("--dispatch-token", required=True)
-    detect_artifacts.add_argument("--updated-by", default="main2main_auto.yaml/detect")
+    detect_artifacts.add_argument("--updated-by", default="schedule_main2main_auto.yaml/detect")
     detect_artifacts.add_argument("--state-json-out", required=True)
     detect_artifacts.add_argument("--register-json-out", required=True)
     detect_artifacts.add_argument("--state-comment-out", required=True)
@@ -1330,7 +1368,7 @@ def _build_parser() -> argparse.ArgumentParser:
     bisect_payload = subparsers.add_parser("prepare-bisect-payload")
     bisect_payload.add_argument("--state-file", required=True)
     bisect_payload.add_argument("--ci-analysis-file", required=True)
-    bisect_payload.add_argument("--payload-json-out", required=True)
+    bisect_payload.add_argument("--payload-json-out", required=False)
     bisect_payload.set_defaults(func=_command_prepare_bisect_payload)
 
     fixing_state = subparsers.add_parser("prepare-fixing-state")
@@ -1408,12 +1446,12 @@ def _build_parser() -> argparse.ArgumentParser:
     load_phase.add_argument("--expected-status", default=None)
     load_phase.add_argument("--allowed-statuses", nargs="*", default=[])
     load_phase.add_argument("--dispatch-token", default=None)
-    load_phase.add_argument("--pr-json-out", required=True)
-    load_phase.add_argument("--state-json-out", required=True)
-    load_phase.add_argument("--registration-json-out", required=True)
-    load_phase.add_argument("--state-id-out", required=True)
-    load_phase.add_argument("--register-id-out", required=True)
-    load_phase.add_argument("--context-json-out", required=True)
+    load_phase.add_argument("--pr-json-out", default="")
+    load_phase.add_argument("--state-json-out", default="")
+    load_phase.add_argument("--registration-json-out", default="")
+    load_phase.add_argument("--state-id-out", default="")
+    load_phase.add_argument("--register-id-out", default="")
+    load_phase.add_argument("--context-json-out", default="")
     load_phase.set_defaults(func=_command_load_phase_context)
 
     return parser
