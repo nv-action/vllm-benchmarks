@@ -772,7 +772,10 @@ def _command_prepare_bisect_payload(args: argparse.Namespace) -> int:
     state = Main2MainState(**_normalize_state_payload(payload))
     ci_analysis = _load_json(args.ci_analysis_file)
     bisect_payload = prepare_bisect_payload(state, ci_analysis=ci_analysis)
-    _write_json_file(args.payload_json_out, bisect_payload)
+    if args.payload_json_out:
+        _write_json_file(args.payload_json_out, bisect_payload)
+    else:
+        _write_json(bisect_payload)
     return 0
 
 
@@ -931,20 +934,28 @@ def _command_load_phase_context(args: argparse.Namespace) -> int:
         )
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
-    _write_json_file(args.pr_json_out, context.pr)
-    _write_json_file(args.state_json_out, asdict(context.state))
-    _write_json_file(args.registration_json_out, asdict(context.registration))
-    _write_text(args.state_id_out, str(context.state_comment_id))
-    _write_text(args.register_id_out, str(context.register_comment_id))
-    _write_json_file(
-        args.context_json_out,
-        {
-            "branch": context.branch,
-            "head_sha": context.head_sha,
-            "state_comment_id": context.state_comment_id,
-            "register_comment_id": context.register_comment_id,
-        },
-    )
+    if args.pr_json_out:
+        _write_json_file(args.pr_json_out, context.pr)
+    if args.state_json_out:
+        _write_json_file(args.state_json_out, asdict(context.state))
+    if args.registration_json_out:
+        _write_json_file(args.registration_json_out, asdict(context.registration))
+    if args.state_id_out:
+        _write_text(args.state_id_out, str(context.state_comment_id))
+    if args.register_id_out:
+        _write_text(args.register_id_out, str(context.register_comment_id))
+    if args.context_json_out:
+        _write_json_file(
+            args.context_json_out,
+            {
+                "pr_number": context.state.pr_number,
+                "branch": context.branch,
+                "head_sha": context.head_sha,
+                "state_comment_id": context.state_comment_id,
+                "register_comment_id": context.register_comment_id,
+                "pr_url": context.pr.get("url", ""),
+            },
+        )
     return 0
 
 
@@ -1330,7 +1341,7 @@ def _build_parser() -> argparse.ArgumentParser:
     bisect_payload = subparsers.add_parser("prepare-bisect-payload")
     bisect_payload.add_argument("--state-file", required=True)
     bisect_payload.add_argument("--ci-analysis-file", required=True)
-    bisect_payload.add_argument("--payload-json-out", required=True)
+    bisect_payload.add_argument("--payload-json-out", required=False)
     bisect_payload.set_defaults(func=_command_prepare_bisect_payload)
 
     fixing_state = subparsers.add_parser("prepare-fixing-state")
@@ -1408,12 +1419,12 @@ def _build_parser() -> argparse.ArgumentParser:
     load_phase.add_argument("--expected-status", default=None)
     load_phase.add_argument("--allowed-statuses", nargs="*", default=[])
     load_phase.add_argument("--dispatch-token", default=None)
-    load_phase.add_argument("--pr-json-out", required=True)
-    load_phase.add_argument("--state-json-out", required=True)
-    load_phase.add_argument("--registration-json-out", required=True)
-    load_phase.add_argument("--state-id-out", required=True)
-    load_phase.add_argument("--register-id-out", required=True)
-    load_phase.add_argument("--context-json-out", required=True)
+    load_phase.add_argument("--pr-json-out", default="")
+    load_phase.add_argument("--state-json-out", default="")
+    load_phase.add_argument("--registration-json-out", default="")
+    load_phase.add_argument("--state-id-out", default="")
+    load_phase.add_argument("--register-id-out", default="")
+    load_phase.add_argument("--context-json-out", default="")
     load_phase.set_defaults(func=_command_load_phase_context)
 
     return parser

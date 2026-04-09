@@ -1,5 +1,7 @@
+import io
 import sys
 from argparse import Namespace
+from contextlib import redirect_stdout
 from pathlib import Path
 
 import pytest
@@ -161,6 +163,62 @@ def test_load_phase_context_accepts_any_of_allowed_statuses():
     )
 
     assert ctx.state.status == "waiting_bisect"
+
+
+def test_command_load_phase_context_can_emit_only_state_register_and_ctx_files(tmp_path, monkeypatch):
+    state = make_state(phase="2", status="fixing", dispatch_token="live-token")
+    registration = ci.RegistrationMetadata(
+        pr_number=state.pr_number,
+        branch=state.branch,
+        head_sha=state.head_sha,
+        old_commit=state.old_commit,
+        new_commit=state.new_commit,
+        phase=state.phase,
+    )
+    pr = {
+        "number": state.pr_number,
+        "headRefName": state.branch,
+        "headRefOid": state.head_sha,
+        "body": "ignored",
+        "url": "https://github.com/nv-action/vllm-benchmarks/pull/188",
+    }
+    comments = [
+        {"id": 21, "body": ci.render_registration_comment(registration)},
+        {"id": 22, "body": ci.render_state_comment(state)},
+    ]
+
+    monkeypatch.setattr(ci, "_gh_json", lambda args: pr)
+    monkeypatch.setattr(ci, "_gh_api_json", lambda endpoint, method="GET", payload=None: comments)
+
+    state_json_out = tmp_path / "state.json"
+    register_json_out = tmp_path / "register.json"
+    ctx_json_out = tmp_path / "ctx.json"
+
+    rc = ci._command_load_phase_context(
+        Namespace(
+            repo="nv-action/vllm-benchmarks",
+            pr_number=str(state.pr_number),
+            expected_phase="2",
+            expected_status="fixing",
+            allowed_statuses=None,
+            dispatch_token="live-token",
+            pr_json_out=None,
+            state_json_out=str(state_json_out),
+            registration_json_out=str(register_json_out),
+            state_id_out=None,
+            register_id_out=None,
+            context_json_out=str(ctx_json_out),
+        )
+    )
+
+    assert rc == 0
+    assert ci.json.loads(state_json_out.read_text(encoding="utf-8"))["status"] == "fixing"
+    assert ci.json.loads(register_json_out.read_text(encoding="utf-8"))["phase"] == "2"
+    ctx = ci.json.loads(ctx_json_out.read_text(encoding="utf-8"))
+    assert ctx["branch"] == state.branch
+    assert ctx["head_sha"] == state.head_sha
+    assert ctx["state_comment_id"] == 22
+    assert ctx["register_comment_id"] == 21
 
 
 def test_resolve_e2e_run_id_from_status_checks_uses_latest_e2e_full_check_run():
@@ -553,6 +611,31 @@ def test_prepare_bisect_payload_falls_back_to_default_test_cmds(tmp_path):
     assert rc == 0
     payload = ci.json.loads(payload_out.read_text(encoding="utf-8"))
     assert payload["test_cmd"] == ci.DEFAULT_BISECT_TEST_CMD
+
+
+def test_prepare_bisect_payload_writes_json_to_stdout_when_no_output_file_is_given(tmp_path):
+    state = make_state(phase="3", status="fixing", e2e_run_id="24111111111")
+    state_path = tmp_path / "state.json"
+    state_path.write_text(ci.json.dumps(ci.asdict(state), ensure_ascii=True, indent=2), encoding="utf-8")
+    analysis_path = tmp_path / "ci_analysis.json"
+    analysis_path.write_text(ci.json.dumps({"test_cmd": "pytest -sv tests/e2e/bar.py"}, ensure_ascii=True), encoding="utf-8")
+
+    stdout = io.StringIO()
+    with redirect_stdout(stdout):
+        rc = ci._command_prepare_bisect_payload(
+            Namespace(
+                state_file=str(state_path),
+                ci_analysis_file=str(analysis_path),
+                payload_json_out=None,
+            )
+        )
+
+    assert rc == 0
+    payload = ci.json.loads(stdout.getvalue())
+    assert payload["e2e_run_id"] == "24111111111"
+    assert payload["old_commit"] == state.old_commit
+    assert payload["new_commit"] == state.new_commit
+    assert payload["test_cmd"] == "pytest -sv tests/e2e/bar.py"
 
 
 def test_prepare_fixing_state_updates_fix_run_id_and_comment(tmp_path):

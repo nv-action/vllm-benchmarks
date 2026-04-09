@@ -61,26 +61,32 @@ jobs:
       - name: Validate GitHub token scopes
         run: |
           gh auth status
-          gh api graphql -f query='query { organization(login: "nv-action") { login } }' >/dev/null
+          gh api "repos/${{ env.UPSTREAM_REPO }}" --jq .full_name >/dev/null
 
       - name: Resolve target PRs
         id: prs
         run: |
           if [ -n "${{ github.event.inputs.pr_number }}" ]; then
-            printf '%s\n' "${{ github.event.inputs.pr_number }}" > /tmp/main2main_pr_numbers.txt
+            PR_NUMBERS="${{ github.event.inputs.pr_number }}"
           else
-            gh pr list \
+            PR_NUMBERS="$(gh pr list \
               --repo "${{ env.UPSTREAM_REPO }}" \
               --label main2main \
               --state open \
               --json number \
-              --jq '.[].number' > /tmp/main2main_pr_numbers.txt
+              --jq '.[].number')"
           fi
+          {
+            echo 'pr_numbers<<EOF'
+            printf '%s\n' "${PR_NUMBERS}"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
 
       - name: Reconcile waiting_e2e and waiting_bisect states
         run: |
           set -euo pipefail
-          if [ ! -s /tmp/main2main_pr_numbers.txt ]; then
+          PR_NUMBERS='${{ steps.prs.outputs.pr_numbers }}'
+          if [ -z "${PR_NUMBERS//$'\n'/}" ]; then
             echo "::notice::No target main2main PRs to reconcile"
             exit 0
           fi
@@ -93,4 +99,4 @@ jobs:
               --pr-number "${PR_NUMBER}"
 
             echo "::endgroup::"
-          done < /tmp/main2main_pr_numbers.txt
+          done <<< "${PR_NUMBERS}"

@@ -148,12 +148,15 @@ def test_reconcile_workflow_is_the_waiting_e2e_control_plane():
     assert "reconcile-pr" in text
 
 
-def test_pr_test_full_dispatches_reconcile_after_main2main_e2e_completion():
+def test_reconcile_workflow_does_not_use_temp_pr_number_file_for_iteration():
+    text = read_text(RECONCILE_WORKFLOW_PATH)
+    assert "main2main_pr_numbers.txt" not in text
+
+
+def test_pr_test_full_does_not_attempt_direct_reconcile_dispatch():
     text = read_text(PR_TEST_FULL_WORKFLOW_PATH)
-    assert "trigger-main2main-reconcile" in text
-    assert "main2main_reconcile.yaml" in text
-    assert "github.event.pull_request.number" in text
-    assert "contains(github.event.pull_request.labels.*.name, 'main2main')" in text
+    assert "trigger-main2main-reconcile" not in text
+    assert "main2main_reconcile.yaml" not in text
 
 
 def test_reconcile_and_terminal_use_upstream_control_checkout():
@@ -185,6 +188,13 @@ def test_terminal_workflow_retries_transient_failures_before_leaving_state_for_m
     assert "prepare-workflow-error-recovery" in text
     assert "retry/main2main_terminal.yaml" in text
     assert 'gh workflow run main2main_terminal.yaml' in text
+
+
+def test_failure_recovery_paths_do_not_write_error_action_json_transport_files():
+    main_text = read_text(MAIN_WORKFLOW_PATH)
+    terminal_text = read_text(TERMINAL_WORKFLOW_PATH)
+    assert "main2main_error_action.json" not in main_text
+    assert "main2main_error_action.json" not in terminal_text
 
 
 def test_bisect_workflow_supports_main2main_and_standalone_modes():
@@ -286,6 +296,7 @@ def test_main_workflow_uses_helpers_for_bisect_payload_and_fixing_state():
     assert "prepare-bisect-payload" in text
     assert "prepare-fixing-state" in text
     assert "select-bisect-run-id" in text
+    assert "main2main_bisect_payload.json" not in text
 
 
 def test_workflows_use_load_phase_context_for_repeated_state_bootstrap():
@@ -293,6 +304,12 @@ def test_workflows_use_load_phase_context_for_repeated_state_bootstrap():
     terminal_text = read_text(TERMINAL_WORKFLOW_PATH)
     assert "load-phase-context" in main_text
     assert "load-phase-context" in terminal_text
+    assert "main2main_pr.json" not in main_text
+    assert "main2main_pr.json" not in terminal_text
+    assert "main2main_state_comment_id.txt" not in main_text
+    assert "main2main_register_comment_id.txt" not in main_text
+    assert "main2main_state_comment_id.txt" not in terminal_text
+    assert "main2main_register_comment_id.txt" not in terminal_text
 
 
 def test_main_workflow_treats_stale_phase_runs_as_no_op_instead_of_failure():

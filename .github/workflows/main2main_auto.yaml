@@ -64,6 +64,7 @@ env:
   FORK_OWNER: Meihan-chen
   CONTROL_REPO_DIR: vllm-benchmarks
   WORK_REPO_DIR: vllm-benchmarks-work
+  MAIN2MAIN_MODEL: ${{ vars.MAIN2MAIN_MODEL || 'qwen3.6-plus' }}
 
 jobs:
   detect-and-adapt:
@@ -106,7 +107,7 @@ jobs:
       - name: Validate GitHub token scopes
         run: |
           gh auth status
-          gh api graphql -f query='query { organization(login: "nv-action") { login } }' >/dev/null
+          gh api "repos/${{ env.UPSTREAM_REPO }}" --jq .full_name >/dev/null
 
       - name: Validate Claude gateway configuration
         run: |
@@ -194,7 +195,7 @@ jobs:
             The upstream vLLM source is checked out at ../vllm-upstream.
             update all commit references.
             Commit your changes with '-s' but do NOT create a PR — the workflow handles that.
-          claude_args: "--model minimax/minimax-m2.5:free --dangerously-skip-permissions --allowed-tools 'Bash(git *),Bash(gh *),Bash(grep *),Bash(sed *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
+          claude_args: "--model ${{ env.MAIN2MAIN_MODEL }} --dangerously-skip-permissions --allowed-tools 'Bash(git *),Bash(gh *),Bash(grep *),Bash(sed *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
           show_full_output: true
         env:
           OLD_COMMIT: ${{ steps.detect.outputs.old_commit }}
@@ -304,7 +305,7 @@ jobs:
       - name: Validate GitHub token scopes
         run: |
           gh auth status
-          gh api graphql -f query='query { organization(login: "nv-action") { login } }' >/dev/null
+          gh api "repos/${{ env.UPSTREAM_REPO }}" --jq .full_name >/dev/null
 
       - name: Load state and checkout branch
         id: ctx
@@ -315,11 +316,8 @@ jobs:
             --expected-phase 2 \
             --expected-status fixing \
             --dispatch-token "${{ github.event.inputs.dispatch_token }}" \
-            --pr-json-out /tmp/main2main_pr.json \
             --state-json-out /tmp/main2main_state.json \
             --registration-json-out /tmp/main2main_register.json \
-            --state-id-out /tmp/main2main_state_comment_id.txt \
-            --register-id-out /tmp/main2main_register_comment_id.txt \
             --context-json-out /tmp/main2main_ctx.json >/tmp/main2main_guard.json 2>/tmp/main2main_guard.err; then
             echo "stale=true" >> "$GITHUB_OUTPUT"
             echo "::notice::$(cat /tmp/main2main_guard.err)"
@@ -360,7 +358,7 @@ jobs:
             - Bad commit (upstream): read new_commit from /tmp/main2main_state.json
 
             Commit all fixes with '-s' but do NOT create a PR or branch.
-          claude_args: "--model minimax/minimax-m2.5:free --dangerously-skip-permissions --allowed-tools 'Bash(git *),Bash(gh *),Bash(grep *),Bash(sed *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
+          claude_args: "--model ${{ env.MAIN2MAIN_MODEL }} --dangerously-skip-permissions --allowed-tools 'Bash(git *),Bash(gh *),Bash(grep *),Bash(sed *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
           show_full_output: true
         env:
           CLAUDE_WORKING_DIR: ${{ github.workspace }}/${{ env.WORK_REPO_DIR }}
@@ -370,8 +368,8 @@ jobs:
         if: steps.ctx.outputs.stale != 'true'
         run: |
           BRANCH=$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" json-get \
-            --json-file /tmp/main2main_pr.json \
-            --field headRefName)
+            --json-file /tmp/main2main_ctx.json \
+            --field branch)
           if [ -n "$(git status --porcelain)" ]; then
             git add -A
             git commit -s -m "fix: address E2E-Full CI failures (Phase 2)"
@@ -401,15 +399,15 @@ jobs:
             --state-comment-out /tmp/main2main_state_next_comment.md \
             --register-comment-out /tmp/main2main_register_next_comment.md
 
-          gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/$(cat /tmp/main2main_state_comment_id.txt)" \
+          gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" json-get --json-file /tmp/main2main_ctx.json --field state_comment_id)" \
             -f body="$(cat /tmp/main2main_state_next_comment.md)" >/dev/null
-          gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/$(cat /tmp/main2main_register_comment_id.txt)" \
+          gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" json-get --json-file /tmp/main2main_ctx.json --field register_comment_id)" \
             -f body="$(cat /tmp/main2main_register_next_comment.md)" >/dev/null
 
       - name: Dispatch manual review on phase 2 workflow failure
         if: ${{ failure() && steps.ctx.outputs.stale != 'true' }}
         run: |
-          if [ ! -f /tmp/main2main_state.json ] || [ ! -f /tmp/main2main_state_comment_id.txt ]; then
+          if [ ! -f /tmp/main2main_state.json ] || [ ! -f /tmp/main2main_ctx.json ]; then
             gh workflow run main2main_terminal.yaml \
               --repo "${{ env.UPSTREAM_REPO }}" \
               -f action=manual_review \
@@ -418,22 +416,21 @@ jobs:
               -f terminal_reason=workflow_error
             exit 0
           fi
-          python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" prepare-workflow-error-recovery \
-            --state-file /tmp/main2main_state.json \
-            --max-retries 1 \
-            --retry-transition "retry/fix_phase2" \
-            --terminal-transition "error_exhausted/fix_phase2" \
-            --updated-by "main2main_auto.yaml/fix_phase2_failure" \
-            --state-json-out /tmp/main2main_state_error.json \
-            --state-comment-out /tmp/main2main_state_error_comment.md > /tmp/main2main_error_action.json
-          gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/$(cat /tmp/main2main_state_comment_id.txt)" \
+          mapfile -t RECOVERY_FIELDS < <(
+            python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" prepare-workflow-error-recovery \
+              --state-file /tmp/main2main_state.json \
+              --max-retries 1 \
+              --retry-transition "retry/fix_phase2" \
+              --terminal-transition "error_exhausted/fix_phase2" \
+              --updated-by "main2main_auto.yaml/fix_phase2_failure" \
+              --state-json-out /tmp/main2main_state_error.json \
+              --state-comment-out /tmp/main2main_state_error_comment.md \
+            | python3 -c 'import json,sys; payload=json.load(sys.stdin); print(payload["action"]); print(payload["dispatch_token"])'
+          )
+          gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" json-get --json-file /tmp/main2main_ctx.json --field state_comment_id)" \
             -f body="$(cat /tmp/main2main_state_error_comment.md)" >/dev/null
-          NEXT_ACTION=$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" json-get \
-            --json-file /tmp/main2main_error_action.json \
-            --field action)
-          NEXT_TOKEN=$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" json-get \
-            --json-file /tmp/main2main_error_action.json \
-            --field dispatch_token)
+          NEXT_ACTION="${RECOVERY_FIELDS[0]}"
+          NEXT_TOKEN="${RECOVERY_FIELDS[1]}"
           if [ "${NEXT_ACTION}" = "retry" ]; then
             gh workflow run main2main_auto.yaml \
               --repo "${{ env.UPSTREAM_REPO }}" \
@@ -474,7 +471,7 @@ jobs:
       - name: Validate GitHub token scopes
         run: |
           gh auth status
-          gh api graphql -f query='query { organization(login: "nv-action") { login } }' >/dev/null
+          gh api "repos/${{ env.UPSTREAM_REPO }}" --jq .full_name >/dev/null
 
       - name: Load guarded phase 3 state
         id: ctx
@@ -485,11 +482,8 @@ jobs:
             --expected-phase 3 \
             --expected-status fixing \
             --dispatch-token "${{ github.event.inputs.dispatch_token }}" \
-            --pr-json-out /tmp/main2main_pr.json \
             --state-json-out /tmp/main2main_state.json \
             --registration-json-out /tmp/main2main_register.json \
-            --state-id-out /tmp/main2main_state_comment_id.txt \
-            --register-id-out /tmp/main2main_register_comment_id.txt \
             --context-json-out /tmp/main2main_ctx.json >/tmp/main2main_guard.json 2>/tmp/main2main_guard.err; then
             echo "stale=true" >> "$GITHUB_OUTPUT"
             echo "::notice::$(cat /tmp/main2main_guard.err)"
@@ -509,19 +503,15 @@ jobs:
             --format bisect-json \
             --output /tmp/ci_analysis.json
 
-          python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" prepare-bisect-payload \
-            --state-file /tmp/main2main_state.json \
-            --ci-analysis-file /tmp/ci_analysis.json \
-            --payload-json-out /tmp/main2main_bisect_payload.json
-          OLD_COMMIT=$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" json-get \
-            --json-file /tmp/main2main_bisect_payload.json \
-            --field old_commit)
-          NEW_COMMIT=$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" json-get \
-            --json-file /tmp/main2main_bisect_payload.json \
-            --field new_commit)
-          TEST_CMDS=$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" json-get \
-            --json-file /tmp/main2main_bisect_payload.json \
-            --field test_cmd)
+          mapfile -t BISECT_FIELDS < <(
+            python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" prepare-bisect-payload \
+              --state-file /tmp/main2main_state.json \
+              --ci-analysis-file /tmp/ci_analysis.json \
+            | python3 -c 'import json,sys; payload=json.load(sys.stdin); print(payload["old_commit"]); print(payload["new_commit"]); print(payload["test_cmd"])'
+          )
+          OLD_COMMIT="${BISECT_FIELDS[0]}"
+          NEW_COMMIT="${BISECT_FIELDS[1]}"
+          TEST_CMDS="${BISECT_FIELDS[2]}"
 
           gh workflow run bisect_vllm.yaml \
             --repo "${{ env.UPSTREAM_REPO }}" \
@@ -558,13 +548,13 @@ jobs:
             --updated-by "main2main_auto.yaml/fix_phase3_prepare" \
             --state-json-out /tmp/main2main_state_next.json \
             --state-comment-out /tmp/main2main_state_next_comment.md
-          gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/$(cat /tmp/main2main_state_comment_id.txt)" \
+          gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" json-get --json-file /tmp/main2main_ctx.json --field state_comment_id)" \
             -f body="$(cat /tmp/main2main_state_next_comment.md)" >/dev/null
 
       - name: Dispatch manual review on phase 3 prepare failure
         if: ${{ failure() && steps.ctx.outputs.stale != 'true' }}
         run: |
-          if [ ! -f /tmp/main2main_state.json ] || [ ! -f /tmp/main2main_state_comment_id.txt ]; then
+          if [ ! -f /tmp/main2main_state.json ] || [ ! -f /tmp/main2main_ctx.json ]; then
             gh workflow run main2main_terminal.yaml \
               --repo "${{ env.UPSTREAM_REPO }}" \
               -f action=manual_review \
@@ -573,22 +563,21 @@ jobs:
               -f terminal_reason=workflow_error
             exit 0
           fi
-          python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" prepare-workflow-error-recovery \
-            --state-file /tmp/main2main_state.json \
-            --max-retries 1 \
-            --retry-transition "retry/fix_phase3_prepare" \
-            --terminal-transition "error_exhausted/fix_phase3_prepare" \
-            --updated-by "main2main_auto.yaml/fix_phase3_prepare_failure" \
-            --state-json-out /tmp/main2main_state_error.json \
-            --state-comment-out /tmp/main2main_state_error_comment.md > /tmp/main2main_error_action.json
-          gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/$(cat /tmp/main2main_state_comment_id.txt)" \
+          mapfile -t RECOVERY_FIELDS < <(
+            python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" prepare-workflow-error-recovery \
+              --state-file /tmp/main2main_state.json \
+              --max-retries 1 \
+              --retry-transition "retry/fix_phase3_prepare" \
+              --terminal-transition "error_exhausted/fix_phase3_prepare" \
+              --updated-by "main2main_auto.yaml/fix_phase3_prepare_failure" \
+              --state-json-out /tmp/main2main_state_error.json \
+              --state-comment-out /tmp/main2main_state_error_comment.md \
+            | python3 -c 'import json,sys; payload=json.load(sys.stdin); print(payload["action"]); print(payload["dispatch_token"])'
+          )
+          gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" json-get --json-file /tmp/main2main_ctx.json --field state_comment_id)" \
             -f body="$(cat /tmp/main2main_state_error_comment.md)" >/dev/null
-          NEXT_ACTION=$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" json-get \
-            --json-file /tmp/main2main_error_action.json \
-            --field action)
-          NEXT_TOKEN=$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" json-get \
-            --json-file /tmp/main2main_error_action.json \
-            --field dispatch_token)
+          NEXT_ACTION="${RECOVERY_FIELDS[0]}"
+          NEXT_TOKEN="${RECOVERY_FIELDS[1]}"
           if [ "${NEXT_ACTION}" = "retry" ]; then
             gh workflow run main2main_auto.yaml \
               --repo "${{ env.UPSTREAM_REPO }}" \
@@ -639,7 +628,7 @@ jobs:
       - name: Validate GitHub token scopes
         run: |
           gh auth status
-          gh api graphql -f query='query { organization(login: "nv-action") { login } }' >/dev/null
+          gh api "repos/${{ env.UPSTREAM_REPO }}" --jq .full_name >/dev/null
 
       - name: Load waiting_bisect state and checkout branch
         id: ctx
@@ -650,11 +639,8 @@ jobs:
             --expected-phase 3 \
             --allowed-statuses fixing waiting_bisect \
             --dispatch-token "${{ github.event.inputs.dispatch_token }}" \
-            --pr-json-out /tmp/main2main_pr.json \
             --state-json-out /tmp/main2main_state.json \
             --registration-json-out /tmp/main2main_register.json \
-            --state-id-out /tmp/main2main_state_comment_id.txt \
-            --register-id-out /tmp/main2main_register_comment_id.txt \
             --context-json-out /tmp/main2main_ctx.json >/tmp/main2main_guard.json 2>/tmp/main2main_guard.err; then
             echo "stale=true" >> "$GITHUB_OUTPUT"
             echo "::notice::$(cat /tmp/main2main_guard.err)"
@@ -682,7 +668,7 @@ jobs:
             --updated-by "main2main_auto.yaml/fix_phase3_finalize" \
             --state-json-out /tmp/main2main_state.json \
             --state-comment-out /tmp/main2main_state_in_progress_comment.md
-          gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/$(cat /tmp/main2main_state_comment_id.txt)" \
+          gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" json-get --json-file /tmp/main2main_ctx.json --field state_comment_id)" \
             -f body="$(cat /tmp/main2main_state_in_progress_comment.md)" >/dev/null
 
       - name: Download bisect summary
@@ -716,15 +702,22 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
           prompt: |
-            Use the main2main-error-analysis skill to apply targeted fixes based on bisect results.
+            Use the main2main-error-analysis skill to apply targeted fixes based on bisect results and CI failures.
 
-            The E2E-Full CI has failed after Phase 2 fix.
+            The E2E-Full CI still failed after the previous main2main-error-analysis fix. 
+            We extracted and deduplicated CI failures from the run id.
+            For each failure class, we selected representative test files and ran bisect.
+            The bisect results are summarized in /tmp/bisect_output/bisect_summary.md.
+            Use both the CI failure json by ci_log_summary.py and bisect_summary.md to analyze root causes and fix the code.
+
             Context:
-            - State file: /tmp/main2main_state.json
+            - Run ID: read e2e_run_id from /tmp/main2main_state.json
+            - Good commit (pinned): read old_commit from /tmp/main2main_state.json
+            - Bad commit (upstream): read new_commit from /tmp/main2main_state.json
             - Bisect summary: /tmp/bisect_output/bisect_summary.md if present
 
             Commit all fixes with '-s' but do NOT create a PR or branch.
-          claude_args: "--model minimax/minimax-m2.5:free --dangerously-skip-permissions --allowed-tools 'Bash(git *),Bash(gh *),Bash(grep *),Bash(sed *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
+          claude_args: "--model ${{ env.MAIN2MAIN_MODEL }} --dangerously-skip-permissions --allowed-tools 'Bash(git *),Bash(gh *),Bash(grep *),Bash(sed *),Bash(python3 *),Read,Write,Edit,Glob,Grep'"
           show_full_output: true
         env:
           CLAUDE_WORKING_DIR: ${{ github.workspace }}/${{ env.WORK_REPO_DIR }}
@@ -734,8 +727,8 @@ jobs:
         if: steps.ctx.outputs.stale != 'true'
         run: |
           BRANCH=$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" json-get \
-            --json-file /tmp/main2main_pr.json \
-            --field headRefName)
+            --json-file /tmp/main2main_ctx.json \
+            --field branch)
           if [ -n "$(git status --porcelain)" ]; then
             git add -A
             git commit -s -m "fix: bisect-guided adaptation fixes (Phase 3)"
@@ -756,9 +749,9 @@ jobs:
               --register-json-out /tmp/main2main_register_next.json \
               --state-comment-out /tmp/main2main_state_next_comment.md \
               --register-comment-out /tmp/main2main_register_next_comment.md
-            gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/$(cat /tmp/main2main_state_comment_id.txt)" \
+            gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" json-get --json-file /tmp/main2main_ctx.json --field state_comment_id)" \
               -f body="$(cat /tmp/main2main_state_next_comment.md)" >/dev/null
-            gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/$(cat /tmp/main2main_register_comment_id.txt)" \
+            gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" json-get --json-file /tmp/main2main_ctx.json --field register_comment_id)" \
               -f body="$(cat /tmp/main2main_register_next_comment.md)" >/dev/null
           else
             python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" prepare-manual-review-pending \
@@ -771,9 +764,9 @@ jobs:
               --register-json-out /tmp/main2main_register_next.json \
               --state-comment-out /tmp/main2main_state_next_comment.md \
               --register-comment-out /tmp/main2main_register_next_comment.md
-            gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/$(cat /tmp/main2main_state_comment_id.txt)" \
+            gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" json-get --json-file /tmp/main2main_ctx.json --field state_comment_id)" \
               -f body="$(cat /tmp/main2main_state_next_comment.md)" >/dev/null
-            gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/$(cat /tmp/main2main_register_comment_id.txt)" \
+            gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" json-get --json-file /tmp/main2main_ctx.json --field register_comment_id)" \
               -f body="$(cat /tmp/main2main_register_next_comment.md)" >/dev/null
             gh workflow run main2main_terminal.yaml \
               --repo "${{ env.UPSTREAM_REPO }}" \
@@ -786,7 +779,7 @@ jobs:
       - name: Dispatch manual review on phase 3 finalize failure
         if: ${{ failure() && steps.ctx.outputs.stale != 'true' }}
         run: |
-          if [ ! -f /tmp/main2main_state.json ] || [ ! -f /tmp/main2main_state_comment_id.txt ]; then
+          if [ ! -f /tmp/main2main_state.json ] || [ ! -f /tmp/main2main_ctx.json ]; then
             gh workflow run main2main_terminal.yaml \
               --repo "${{ env.UPSTREAM_REPO }}" \
               -f action=manual_review \
@@ -795,22 +788,21 @@ jobs:
               -f terminal_reason=workflow_error
             exit 0
           fi
-          python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" prepare-workflow-error-recovery \
-            --state-file /tmp/main2main_state.json \
-            --max-retries 1 \
-            --retry-transition "retry/fix_phase3_finalize" \
-            --terminal-transition "error_exhausted/fix_phase3_finalize" \
-            --updated-by "main2main_auto.yaml/fix_phase3_finalize_failure" \
-            --state-json-out /tmp/main2main_state_error.json \
-            --state-comment-out /tmp/main2main_state_error_comment.md > /tmp/main2main_error_action.json
-          gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/$(cat /tmp/main2main_state_comment_id.txt)" \
+          mapfile -t RECOVERY_FIELDS < <(
+            python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" prepare-workflow-error-recovery \
+              --state-file /tmp/main2main_state.json \
+              --max-retries 1 \
+              --retry-transition "retry/fix_phase3_finalize" \
+              --terminal-transition "error_exhausted/fix_phase3_finalize" \
+              --updated-by "main2main_auto.yaml/fix_phase3_finalize_failure" \
+              --state-json-out /tmp/main2main_state_error.json \
+              --state-comment-out /tmp/main2main_state_error_comment.md \
+            | python3 -c 'import json,sys; payload=json.load(sys.stdin); print(payload["action"]); print(payload["dispatch_token"])'
+          )
+          gh api --method PATCH "repos/${{ env.UPSTREAM_REPO }}/issues/comments/$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" json-get --json-file /tmp/main2main_ctx.json --field state_comment_id)" \
             -f body="$(cat /tmp/main2main_state_error_comment.md)" >/dev/null
-          NEXT_ACTION=$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" json-get \
-            --json-file /tmp/main2main_error_action.json \
-            --field action)
-          NEXT_TOKEN=$(python3 "$GITHUB_WORKSPACE/${{ env.CONTROL_REPO_DIR }}/.github/workflows/scripts/main2main_ci.py" json-get \
-            --json-file /tmp/main2main_error_action.json \
-            --field dispatch_token)
+          NEXT_ACTION="${RECOVERY_FIELDS[0]}"
+          NEXT_TOKEN="${RECOVERY_FIELDS[1]}"
           if [ "${NEXT_ACTION}" = "retry" ]; then
             gh workflow run main2main_auto.yaml \
               --repo "${{ env.UPSTREAM_REPO }}" \
