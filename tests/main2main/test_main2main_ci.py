@@ -17,7 +17,7 @@ def make_state(**overrides):
         "pr_number": 188,
         "branch": "main2main_auto_2026-04-03_08-22",
         "head_sha": "1ac49ff7b834177ba43fb7a3044269908bdcbef5",
-        "old_commit": "35141a7eeda941a60ad5a4956670c60fd5a77029",
+        "old_commit": "55d037e2e5cc56c38a1a4a77a15c347fee380c50",
         "new_commit": "fa9e68022d29c5396dfbb96d13587b6bc1bdb933",
         "phase": "2",
         "status": "waiting_e2e",
@@ -47,14 +47,14 @@ def test_parse_pr_metadata_extracts_commit_range_only():
     body = """
 ## Summary
 
-**Commit range:** `35141a7eeda941a60ad5a4956670c60fd5a77029`...`fa9e68022d29c5396dfbb96d13587b6bc1bdb933`
+**Commit range:** `55d037e2e5cc56c38a1a4a77a15c347fee380c50`...`fa9e68022d29c5396dfbb96d13587b6bc1bdb933`
 **Pipeline:** https://github.com/example/repo/actions/runs/123
 """
 
     metadata = ci.parse_pr_metadata(body)
 
     assert metadata == ci.PrMetadata(
-        old_commit="35141a7eeda941a60ad5a4956670c60fd5a77029",
+        old_commit="55d037e2e5cc56c38a1a4a77a15c347fee380c50",
         new_commit="fa9e68022d29c5396dfbb96d13587b6bc1bdb933",
     )
 
@@ -105,7 +105,7 @@ def test_parse_registration_comment_extracts_registration_metadata():
 pr_number=188
 branch=main2main_auto_2026-04-03_08-22
 head_sha=1ac49ff7b834177ba43fb7a3044269908bdcbef5
-old_commit=35141a7eeda941a60ad5a4956670c60fd5a77029
+old_commit=55d037e2e5cc56c38a1a4a77a15c347fee380c50
 new_commit=fa9e68022d29c5396dfbb96d13587b6bc1bdb933
 phase=2
 -->"""
@@ -116,7 +116,7 @@ phase=2
         pr_number=188,
         branch="main2main_auto_2026-04-03_08-22",
         head_sha="1ac49ff7b834177ba43fb7a3044269908bdcbef5",
-        old_commit="35141a7eeda941a60ad5a4956670c60fd5a77029",
+        old_commit="55d037e2e5cc56c38a1a4a77a15c347fee380c50",
         new_commit="fa9e68022d29c5396dfbb96d13587b6bc1bdb933",
         phase="2",
     )
@@ -812,7 +812,7 @@ def test_reconcile_bootstrap_recovers_missing_register_comment(monkeypatch):
                 "number": 188,
                 "headRefName": "main2main_auto_2026-04-03_08-22",
                 "headRefOid": "1ac49ff7b834177ba43fb7a3044269908bdcbef5",
-                "body": "**Commit range:** `35141a7eeda941a60ad5a4956670c60fd5a77029`...`fa9e68022d29c5396dfbb96d13587b6bc1bdb933`",
+                "body": "**Commit range:** `55d037e2e5cc56c38a1a4a77a15c347fee380c50`...`fa9e68022d29c5396dfbb96d13587b6bc1bdb933`",
                 "mergeable": "MERGEABLE",
                 "mergeStateStatus": "UNSTABLE",
                 "url": "https://github.com/nv-action/vllm-benchmarks/pull/188",

@@ -254,13 +254,27 @@ def aligned_16(tensor: torch.Tensor):
     return new_tensor
 
 
+def _is_batch_invariant() -> bool:
+    """Check if batch-invariant mode is enabled.
+
+    Compatible with both vLLM 0.18.0 (which exports vllm_is_batch_invariant)
+    and newer main branch (which moved to envs.VLLM_BATCH_INVARIANT).
+    """
+    try:
+        from vllm.model_executor.layers.batch_invariant import vllm_is_batch_invariant
+
+        return vllm_is_batch_invariant()
+    except ImportError:
+        import vllm.envs as envs
+
+        return envs.VLLM_BATCH_INVARIANT
+
+
 def enable_custom_op():
     """
     Enable lazy init for vllm_ascend_C to avoid early initialization of CANN's RTS component.
     Ensure that ASCEND_RT_VISIBLE_DEVICES can be dynamically modified before torch.npu.set_device().
     """
-    from vllm.model_executor.layers.batch_invariant import vllm_is_batch_invariant
-
     global _CUSTOM_OP_ENABLED
 
     if _CUSTOM_OP_ENABLED is not None:
@@ -271,7 +285,7 @@ def enable_custom_op():
     # FIXME(linfeng): Currently custom op compilation and execution are partially available
     # in ASCEND950 chip, we temporarily disable all custom ops. Please refer to
     # https://github.com/vllm-project/vllm-ascend/issues/7157 for latest update about custom op.
-    if vllm_is_batch_invariant() or get_ascend_device_type() == AscendDeviceType.A5:
+    if _is_batch_invariant() or get_ascend_device_type() == AscendDeviceType.A5:
         _CUSTOM_OP_ENABLED = False
         return _CUSTOM_OP_ENABLED
 

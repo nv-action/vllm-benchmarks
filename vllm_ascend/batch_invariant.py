@@ -21,8 +21,12 @@ import os
 import torch
 import torch_npu
 from vllm.logger import logger
-from vllm.model_executor.layers.batch_invariant import vllm_is_batch_invariant
 from vllm.triton_utils import HAS_TRITON
+
+from vllm_ascend.utils import _is_batch_invariant
+
+# Re-export for backward compatibility with test imports
+vllm_is_batch_invariant = _is_batch_invariant
 
 # in case recursive call in reduce_sum.
 torch_sum = torch.sum
