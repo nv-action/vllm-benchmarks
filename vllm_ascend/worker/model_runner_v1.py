@@ -231,6 +231,18 @@ class NPUModelRunner(GPUModelRunner):
         with _torch_cuda_wrapper():
             super().__init__(vllm_config, device)
 
+        # Upstream vLLM changed self.positions and self.seq_lens from CpuGpuBuffer
+        # to plain tensors. vllm-ascend code accesses .np/.cpu/.gpu attributes,
+        # so we must re-initialize them as CpuGpuBuffer objects.
+        self.positions = self._make_buffer(
+            self.max_num_tokens,
+            dtype=torch.int64,
+        )
+        self.seq_lens = self._make_buffer(
+            self.max_num_reqs,
+            dtype=torch.int32,
+        )
+
         # NOTE: For FULL mode we change +1 to +2 to reserve extra space for padding.
         # See _pad_query_start_loc_for_fia.
         self.query_start_loc = self._make_buffer(
