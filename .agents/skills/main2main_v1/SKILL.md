@@ -1,6 +1,11 @@
-# Proactive Upgrade Workflow
+---
+name: main2main
+description: "The main2main skill guides an AI agent to adapt the latest vLLM main branch code for vLLM Ascend project."
+---
 
-Systematically analyze upstream vLLM changes and adapt vllm-ascend before CI breaks.
+# main2main Skill
+
+This skill guides AI agents to adapt the latest vLLM main branch code for the vLLM Ascend project.
 
 ## Workflow
 
@@ -213,23 +218,11 @@ grep -Frn "<GOOD_COMMIT>" .
 # Should return nothing
 ```
 
-## Step 6: Output Summary
+### 6. Test and Verify
 
-Output a structured summary in the conversation. This summary serves as the skill's primary output — it's what a Workflow consumes, and what gets used as PR body content in standalone mode.
-
-```markdown
-### Proactive Upgrade Summary
-
-**Commit range:** `<OLD_COMMIT_SHORT>`..`<NEW_COMMIT_SHORT>`
-
-#### Changes Adapted
-| Priority | Change | vLLM File | vllm-ascend File | Description |
-|:---|:---|:---|:---|:---|
-| P0 | `<change title>` | `<vllm path>` | `<ascend path>` | `<what was done>` |
-
-#### Files Changed
-- `<file list>`
-```
+- Run vLLM Ascend's CI/CD pipeline
+- Verify core functionality (text generation, batching, NPU memory management)
+- Ensure backward compatibility: test compatibility with older vLLM versions
 
 ## Key File Locations
 
