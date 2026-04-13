@@ -57,7 +57,7 @@ def test_extract_bisect_test_cmd_falls_back_to_failed_test_files():
     )
 
 
-def test_collect_new_commits_renders_short_sha_and_full_message(tmp_path):
+def test_collect_commit_range_renders_sha_subject_and_body(tmp_path):
     module = load_module()
 
     repo = tmp_path / "repo"
@@ -91,42 +91,79 @@ def test_collect_new_commits_renders_short_sha_and_full_message(tmp_path):
         check=True,
     )
 
-    commits = module.collect_new_commits(repo=repo, base_ref=base_ref)
+    commits = module.collect_commit_range(repo=repo, start_ref=base_ref, end_ref="HEAD")
 
     assert len(commits) == 2
-    assert all(len(item["short_sha"]) == 8 for item in commits)
-    assert commits[0]["message"] == "feat: first change\n\nDetailed explanation for first change."
-    assert commits[1]["message"] == "fix: second change\n\nDetailed explanation for second change."
+    assert commits[0]["sha"]
+    assert commits[0]["subject"] == "feat: first change"
+    assert commits[0]["body"] == "Detailed explanation for first change."
+    assert commits[1]["subject"] == "fix: second change"
+    assert commits[1]["body"] == "Detailed explanation for second change."
 
 
-def test_render_pr_body_includes_commit_range_and_commit_log():
+def test_append_round_commits_markdown_writes_detect_and_fix_sections(tmp_path):
+    module = load_module()
+
+    md_path = tmp_path / "round-commits.md"
+    module.append_round_commits_markdown(
+        output_path=md_path,
+        phase="detect",
+        round_index=0,
+        commits=[
+            {
+                "sha": "abc1234511111111111111111111111111111111",
+                "subject": "feat: adapt detect path",
+                "body": "Handle upstream API rename.",
+            }
+        ],
+    )
+    module.append_round_commits_markdown(
+        output_path=md_path,
+        phase="fix",
+        round_index=1,
+        commits=[
+            {
+                "sha": "def6789022222222222222222222222222222222",
+                "subject": "fix: address pipeline test",
+                "body": "Adjust failing assertion path.",
+            }
+        ],
+    )
+
+    content = md_path.read_text(encoding="utf-8")
+
+    assert "### phase: detect" in content
+    assert "round: 0" in content
+    assert "sha: `abc1234511111111111111111111111111111111`" in content
+    assert "subject: feat: adapt detect path" in content
+    assert "body:" in content
+    assert "Handle upstream API rename." in content
+    assert "### phase: fix" in content
+    assert "round: 1" in content
+
+
+def test_render_pr_body_places_summary_at_top_and_embeds_round_markdown():
     module = load_module()
 
     pr_body = module.render_pr_body(
         old_commit="1111111111111111111111111111111111111111",
         new_commit="2222222222222222222222222222222222222222",
-        final_status="passed_after_fixes",
-        fix_rounds_used=2,
-        bisect_rounds_used=1,
-        commits=[
-            {
-                "short_sha": "abc12345",
-                "message": "feat: adapt detect path\n\nHandle upstream API rename.",
-            },
-            {
-                "short_sha": "def67890",
-                "message": "fix: address pipeline test\n\nAdjust failing assertion path.",
-            },
-        ],
+        rounds_markdown=(
+            "### phase: detect\n"
+            "round: 0\n\n"
+            "git_commits:\n"
+            "- sha: `abc1234511111111111111111111111111111111`\n"
+            "  subject: feat: adapt detect path\n"
+            "  body:\n"
+            "    Handle upstream API rename.\n"
+        ),
     )
 
-    assert "1111111111111111111111111111111111111111...2222222222222222222222222222222222222222" in pr_body
-    assert "Final status: `passed_after_fixes`" in pr_body
-    assert "Fix rounds used: `2`" in pr_body
-    assert "Bisect-fix rounds used: `1`" in pr_body
-    assert "- `abc12345`" in pr_body
+    assert pr_body.startswith("Automated adaptation to upstream vLLM main branch changes.")
+    assert "Commit range: 1111111111111111111111111111111111111111...2222222222222222222222222222222222222222" in pr_body
+    assert "### phase: detect" in pr_body
+    assert "subject: feat: adapt detect path" in pr_body
     assert "Handle upstream API rename." in pr_body
-    assert "- `def67890`" in pr_body
 
 
 def test_render_manual_review_issue_includes_pr_url_and_bisect_summary():
@@ -213,4 +250,4 @@ def test_should_create_pr_is_false_when_no_new_commits():
     module = load_module()
 
     assert module.should_create_pr([]) is False
-    assert module.should_create_pr([{"short_sha": "abc12345", "message": "feat: something"}]) is True
+    assert module.should_create_pr([{"sha": "abc12345", "subject": "feat: something", "body": ""}]) is True

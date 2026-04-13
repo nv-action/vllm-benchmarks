@@ -42,42 +42,59 @@ def _run_git(repo: Path, *args: str) -> str:
     return result.stdout
 
 
-def collect_new_commits(*, repo: Path, base_ref: str) -> list[dict[str, str]]:
+def collect_commit_range(*, repo: Path, start_ref: str, end_ref: str) -> list[dict[str, str]]:
     log_output = _run_git(
         repo,
         "log",
         "--reverse",
-        "--format=%H%x1f%B%x1e",
-        f"{base_ref}..HEAD",
+        "--format=%H%x1f%s%x1f%b%x1e",
+        f"{start_ref}..{end_ref}",
     )
     commits: list[dict[str, str]] = []
     for record in log_output.split("\x1e"):
         record = record.strip()
         if not record:
             continue
-        sha, message = record.split("\x1f", 1)
+        sha, subject, body = record.split("\x1f", 2)
         commits.append(
             {
                 "sha": sha.strip(),
-                "short_sha": sha.strip()[:8],
-                "message": message.strip(),
+                "subject": subject.strip(),
+                "body": body.strip(),
             }
         )
     return commits
 
 
-def _format_commit_block(commits: list[dict[str, str]]) -> list[str]:
+def append_round_commits_markdown(
+    *,
+    output_path: Path,
+    phase: str,
+    round_index: int,
+    commits: list[dict[str, str]],
+) -> None:
     if not commits:
-        return ["- None"]
+        return
 
     lines: list[str] = []
-    for commit in commits:
-        lines.append(f"- `{commit['short_sha']}`")
-        lines.append(commit["message"])
+    if output_path.exists() and output_path.read_text(encoding="utf-8").strip():
         lines.append("")
-    if lines[-1] == "":
-        lines.pop()
-    return lines
+        lines.append("")
+    lines.append(f"### phase: {phase}")
+    lines.append(f"round: {round_index}")
+    lines.append("")
+    lines.append("git_commits:")
+    for commit in commits:
+        lines.append(f"- sha: `{commit['sha']}`")
+        lines.append(f"  subject: {commit['subject']}")
+        lines.append("  body:")
+        body = commit["body"] or "(empty)"
+        for body_line in body.splitlines():
+            lines.append(f"    {body_line}")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("a", encoding="utf-8") as handle:
+        handle.write("\n".join(lines))
+        handle.write("\n")
 
 
 def should_create_pr(commits: list[dict[str, str]]) -> bool:
@@ -88,30 +105,16 @@ def render_pr_body(
     *,
     old_commit: str,
     new_commit: str,
-    final_status: str,
-    fix_rounds_used: int,
-    bisect_rounds_used: int,
-    commits: list[dict[str, str]],
+    rounds_markdown: str,
 ) -> str:
     lines = [
-        "## Summary",
+        "Automated adaptation to upstream vLLM main branch changes.",
+        f"Commit range: {old_commit}...{new_commit}",
         "",
-        "Automated main2main adaptation against upstream vLLM changes.",
-        "",
-        "## Commit Range",
-        "",
-        f"`{old_commit}...{new_commit}`",
-        "",
-        "## Execution Result",
-        "",
-        f"- Final status: `{final_status}`",
-        f"- Fix rounds used: `{fix_rounds_used}`",
-        f"- Bisect-fix rounds used: `{bisect_rounds_used}`",
-        "",
-        "## Commits",
-        "",
-        *_format_commit_block(commits),
     ]
+    rounds_markdown = rounds_markdown.strip()
+    if rounds_markdown:
+        lines.append(rounds_markdown)
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -247,17 +250,23 @@ def _build_parser() -> argparse.ArgumentParser:
     poll_parser.add_argument("--timeout-seconds", type=int, default=1800)
     poll_parser.add_argument("--poll-interval-seconds", type=int, default=15)
 
-    commits_parser = subparsers.add_parser("collect-new-commits")
+    commits_parser = subparsers.add_parser("collect-commit-range")
     commits_parser.add_argument("--repo", type=Path, required=True)
-    commits_parser.add_argument("--base-ref", required=True)
+    commits_parser.add_argument("--start-ref", required=True)
+    commits_parser.add_argument("--end-ref", required=True)
+
+    append_round_parser = subparsers.add_parser("append-round-commits-markdown")
+    append_round_parser.add_argument("--repo", type=Path, required=True)
+    append_round_parser.add_argument("--output", type=Path, required=True)
+    append_round_parser.add_argument("--phase", required=True, choices=["detect", "fix", "bisect"])
+    append_round_parser.add_argument("--round", type=int, required=True)
+    append_round_parser.add_argument("--start-ref", required=True)
+    append_round_parser.add_argument("--end-ref", required=True)
 
     pr_parser = subparsers.add_parser("render-pr-body")
     pr_parser.add_argument("--old-commit", required=True)
     pr_parser.add_argument("--new-commit", required=True)
-    pr_parser.add_argument("--final-status", required=True)
-    pr_parser.add_argument("--fix-rounds-used", type=int, required=True)
-    pr_parser.add_argument("--bisect-rounds-used", type=int, required=True)
-    pr_parser.add_argument("--commits-json", type=Path, required=True)
+    pr_parser.add_argument("--rounds-md", type=Path, required=True)
 
     issue_parser = subparsers.add_parser("render-manual-review-issue")
     issue_parser.add_argument("--pr-url", required=True)
@@ -297,20 +306,34 @@ def main() -> None:
         )
         return
 
-    if args.command == "collect-new-commits":
-        print(json.dumps(collect_new_commits(repo=args.repo, base_ref=args.base_ref), ensure_ascii=False, indent=2))
+    if args.command == "collect-commit-range":
+        print(
+            json.dumps(
+                collect_commit_range(repo=args.repo, start_ref=args.start_ref, end_ref=args.end_ref),
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return
+
+    if args.command == "append-round-commits-markdown":
+        commits = collect_commit_range(repo=args.repo, start_ref=args.start_ref, end_ref=args.end_ref)
+        append_round_commits_markdown(
+            output_path=args.output,
+            phase=args.phase,
+            round_index=args.round,
+            commits=commits,
+        )
+        print(json.dumps({"count": len(commits)}, ensure_ascii=False))
         return
 
     if args.command == "render-pr-body":
-        commits = json.loads(args.commits_json.read_text(encoding="utf-8"))
+        rounds_markdown = args.rounds_md.read_text(encoding="utf-8") if args.rounds_md.exists() else ""
         print(
             render_pr_body(
                 old_commit=args.old_commit,
                 new_commit=args.new_commit,
-                final_status=args.final_status,
-                fix_rounds_used=args.fix_rounds_used,
-                bisect_rounds_used=args.bisect_rounds_used,
-                commits=commits,
+                rounds_markdown=rounds_markdown,
             ),
             end="",
         )
