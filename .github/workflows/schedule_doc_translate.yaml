@@ -27,58 +27,29 @@ on:
         required: false
         default: 'main'
         type: string
+      po_files:
+        description: 'Comma-separated PO file paths to translate (leave empty to auto-detect changed files)'
+        required: false
+        default: ''
+        type: string
 
 concurrency:
   group: translation-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  check:
+  translate:
     runs-on: linux-amd64-cpu-8-hk
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
-    outputs:
-      skip: ${{ steps.check.outputs.skip }}
-      pr_title: ${{ steps.check.outputs.pr_title }}
-    steps:
-      - name: Check for existing open PR
-        id: check
-        uses: actions/github-script@v8
-        env:
-          TARGET_BRANCH: ${{ inputs.target_branch || 'main' }}
-        with:
-          github-token: ${{ secrets.PAT_TOKEN }}
-          script: |
-            const base = process.env.TARGET_BRANCH;
-            const branchLabel = base.split('/').pop();
-            const prTitle = '[' + branchLabel + '][Doc] Translated Doc files';
-            core.setOutput('pr_title', prTitle);
-
-            const existingPRs = await github.rest.pulls.list({
-              owner: 'nv-action', repo: 'vllm-benchmarks',
-              base: base, state: 'open', per_page: 100
-            });
-            const duplicate = existingPRs.data.find(pr => pr.title === prTitle);
-            if (duplicate) {
-              core.notice('PR #' + duplicate.number + ' for base "' + base + '" is still open, skipping this run.');
-              core.setOutput('skip', 'true');
-            } else {
-              core.setOutput('skip', 'false');
-            }
-
-  translate:
-    needs: check
-    if: needs.check.outputs.skip != 'true'
-    runs-on: linux-amd64-cpu-8-hk
-    timeout-minutes: 400
     permissions:
       contents: read
     env:
-      UPSTREAM_REPO: vllm-project/vllm-ascend
+      UPSTREAM_REPO: nv-action/vllm-benchmarks
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6.0.1
         with:
-          repository: vllm-ascend-ci/vllm-ascend
+          repository: Meihan-chen/vllm-benchmarks
           token: ${{ secrets.PAT_TOKEN }}
           ref: main
 
@@ -111,11 +82,18 @@ jobs:
 
       - name: Detect PO files to translate
         id: detect
+        env:
+          INPUT_PO_FILES: ${{ inputs.po_files }}
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          tracked=$(git diff --name-only --diff-filter=ACMUX || true)
-          untracked=$(git ls-files --others --exclude-standard || true)
-          po_files=$(printf "%s\n%s" "$tracked" "$untracked" | grep '\.po$' | tr '\n' ',' | sed 's/,$//' || true)
+          if [ -n "$INPUT_PO_FILES" ]; then
+            po_files="$INPUT_PO_FILES"
+            echo "Using manually specified PO files: $po_files"
+          else
+            tracked=$(git diff --name-only --diff-filter=ACMUX || true)
+            untracked=$(git ls-files --others --exclude-standard || true)
+            po_files=$(printf "%s\n%s" "$tracked" "$untracked" | grep '\.po$' | tr '\n' ',' | sed 's/,$//' || true)
+          fi
 
           if [ -z "$po_files" ]; then
             echo "No PO files to translate"
@@ -186,21 +164,25 @@ jobs:
           FILE_LIST: ${{ steps.results.outputs.file_list }}
           FILE_COUNT: ${{ steps.results.outputs.file_count }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          PR_HEAD: vllm-ascend-ci:${{ env.BRANCH_NAME }}
+          PR_HEAD: Meihan-chen:${{ env.BRANCH_NAME }}
           PR_BASE: ${{ env.TARGET_BRANCH }}
-          PR_TITLE: ${{ needs.check.outputs.pr_title }}
         with:
           github-token: ${{ secrets.PAT_TOKEN }}
           script: |
             try {
+              const branchLabel = process.env.PR_BASE.split('/').pop();
+              const date = new Date().toISOString().slice(0, 10);
+              const prTitle = branchLabel === 'main'
+                ? '[Doc] Translated Doc files ' + date
+                : '[' + branchLabel + '][Doc] Translated Doc files ' + date;
               const prBody = '## Auto-Translation Summary\n\n' +
                 'Translated **' + process.env.FILE_COUNT + '** file(s):\n\n' +
                 process.env.FILE_LIST + '\n---\n\n' +
                 '[Workflow run](' + process.env.RUN_URL + ')';
               const pr = await github.rest.pulls.create({
-                owner: 'vllm-project', repo: 'vllm-ascend',
+                owner: 'nv-action', repo: 'vllm-benchmarks',
                 head: process.env.PR_HEAD, base: process.env.PR_BASE,
-                title: process.env.PR_TITLE, body: prBody
+                title: prTitle, body: prBody
               });
               core.info('Created PR #' + pr.data.number);
             } catch (error) {
