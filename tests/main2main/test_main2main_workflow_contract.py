@@ -5,46 +5,22 @@ import tempfile
 
 import yaml
 
+
 WORKFLOWS_DIR = Path(__file__).resolve().parents[2] / ".github" / "workflows"
 MAIN_WORKFLOW_PATH = WORKFLOWS_DIR / "schedule_main2main_auto.yaml"
-RECONCILE_WORKFLOW_PATH = WORKFLOWS_DIR / "schedule_main2main_reconcile.yaml"
-TERMINAL_WORKFLOW_PATH = WORKFLOWS_DIR / "dispatch_main2main_terminal.yaml"
-LEGACY_MANUAL_REVIEW_WORKFLOW_PATH = WORKFLOWS_DIR / "main2main_manual_review.yaml"
 BISECT_WORKFLOW_PATH = WORKFLOWS_DIR / "dispatch_main2main_bisect.yaml"
-PR_TEST_FULL_WORKFLOW_PATH = WORKFLOWS_DIR / "pr_test_full.yaml"
 
 
 def read_text(path: Path) -> str:
-    return path.read_text()
+    return path.read_text(encoding="utf-8")
 
 
 def load_yaml(path: Path) -> dict:
     return yaml.safe_load(read_text(path))
 
 
-def resolve_env_value(workflow: dict, value: str) -> str:
-    match = re.fullmatch(r"\$\{\{\s*env\.([A-Z0-9_]+)\s*\}\}", value or "")
-    if not match:
-        return value
-    return workflow.get("env", {}).get(match.group(1), value)
-
-
-def checkout_repositories(path: Path, job_name: str) -> list[str]:
-    workflow = load_yaml(path)
-    return [
-        step["with"].get("repository", "")
-        for step in workflow["jobs"][job_name]["steps"]
-        if str(step.get("uses", "")).startswith("actions/checkout@")
-    ]
-
-
-def checkout_paths(path: Path, job_name: str) -> list[str]:
-    workflow = load_yaml(path)
-    return [
-        resolve_env_value(workflow, step["with"].get("path", ""))
-        for step in workflow["jobs"][job_name]["steps"]
-        if str(step.get("uses", "")).startswith("actions/checkout@")
-    ]
+def workflow_on_section(workflow: dict) -> dict:
+    return workflow.get("on") or workflow.get(True) or {}
 
 
 def bash_syntax_check(script: str) -> None:
@@ -64,283 +40,155 @@ def bash_syntax_check(script: str) -> None:
         temp_path.unlink(missing_ok=True)
 
 
-def assert_checkout_precedes_first_run_step(path: Path, job_name: str) -> None:
-    workflow = load_yaml(path)
-    job = workflow["jobs"][job_name]
-    working_directory = job.get("defaults", {}).get("run", {}).get("working-directory")
-    if not working_directory:
-        return
-    steps = job["steps"]
-    checkout_index = next(
-        index for index, step in enumerate(steps) if str(step.get("uses", "")).startswith("actions/checkout@")
-    )
-    first_run_index = next(index for index, step in enumerate(steps) if "run" in step)
-    assert checkout_index < first_run_index, (
-        f"{path.name}:{job_name} sets a job-level working-directory but runs a shell step before checkout"
-    )
+def test_auto_workflow_declares_only_target_commit_dispatch_input():
+    workflow = load_yaml(MAIN_WORKFLOW_PATH)
+    on_section = workflow_on_section(workflow)
+
+    assert "schedule" in on_section
+    assert "workflow_dispatch" in on_section
+
+    dispatch_inputs = on_section["workflow_dispatch"]["inputs"]
+    assert list(dispatch_inputs) == ["target_commit", "fix_round_limit", "bisect_round_limit"]
 
 
-def assert_working_directory_checkout_precedes_first_run_step(path: Path, job_name: str) -> None:
-    workflow = load_yaml(path)
-    job = workflow["jobs"][job_name]
-    working_directory = job.get("defaults", {}).get("run", {}).get("working-directory")
-    if not working_directory:
-        return
-    steps = job["steps"]
-    checkout_index = next(
-        index
-        for index, step in enumerate(steps)
-        if str(step.get("uses", "")).startswith("actions/checkout@")
-        and resolve_env_value(workflow, step.get("with", {}).get("path", "")) == working_directory
-    )
-    first_run_index = next(index for index, step in enumerate(steps) if "run" in step)
-    assert checkout_index < first_run_index, (
-        f"{path.name}:{job_name} runs in {working_directory} before that checkout path exists"
-    )
-
-
-def test_main_workflow_dispatch_declares_short_phase_contract_inputs():
+def test_auto_workflow_no_longer_uses_workflow_run_or_legacy_state_machine_inputs():
     text = read_text(MAIN_WORKFLOW_PATH)
-    for key in [
-        "mode:",
-        "target_commit:",
-        "pr_number:",
-        "dispatch_token:",
-        "bisect_run_id:",
-    ]:
-        assert key in text
-    for key in ["\n      branch:", "\n      head_sha:", "\n      run_id:", "\n      phase:", "\n      old_commit:", "\n      new_commit:"]:
-        assert key not in text
 
-
-def test_main_workflow_declares_detect_and_split_fix_modes():
-    text = read_text(MAIN_WORKFLOW_PATH)
-    for mode in ["detect", "fix_phase2", "fix_phase3_prepare", "fix_phase3_finalize"]:
-        assert mode in text
-
-
-def test_main_workflow_no_longer_uses_workflow_run_trigger():
-    text = read_text(MAIN_WORKFLOW_PATH)
     assert "workflow_run:" not in text
+    for token in [
+        "dispatch_token",
+        "pr_number",
+        "bisect_run_id",
+        "schedule_main2main_reconcile.yaml",
+        "dispatch_main2main_terminal.yaml",
+        "main2main_register_comment",
+        "main2main_state_comment",
+        "waiting_e2e",
+        "waiting_bisect",
+        "manual_review_pending",
+    ]:
+        assert token not in text
 
 
-def test_main_workflow_publishes_registration_and_live_state_comments():
+def test_auto_workflow_uses_one_long_lived_main_job():
+    workflow = load_yaml(MAIN_WORKFLOW_PATH)
+    jobs = workflow["jobs"]
+
+    assert list(jobs) == ["main2main"]
+    job = jobs["main2main"]
+    assert job["runs-on"] == "linux-aarch64-a3-4"
+
+
+def test_auto_workflow_runs_fixed_main2main_suite_and_llm_json_summary():
     text = read_text(MAIN_WORKFLOW_PATH)
-    assert "main2main_ci.py" in text
-    assert "prepare-detect-artifacts" in text
-    assert "/tmp/main2main_register_comment.md" in text
-    assert "/tmp/main2main_state_comment.md" in text
+
+    assert "--suite e2e-main2main" in text
+    assert "--continue-on-error" in text
+    assert "--format llm-json" in text
+    assert "/tmp/main2main-summary.json" in text
 
 
-def test_main_workflow_uses_upsert_helper_for_phase_pr_body_sections():
+def test_auto_workflow_uses_dispatch_inputs_to_gate_fix_and_bisect_rounds():
     text = read_text(MAIN_WORKFLOW_PATH)
-    assert "upsert-pr-phase-section" in text
-    assert "Phase 2: address E2E-Full CI failures" in text
-    assert "Phase 3: bisect-guided adaptation" in text
+
+    assert "inputs.fix_round_limit" in text
+    assert "inputs.bisect_round_limit" in text
+    assert "fromJSON(inputs.fix_round_limit)" in text
+    assert "fromJSON(inputs.bisect_round_limit)" in text
 
 
-def test_phase3_prompt_uses_bisect_result_json_artifact():
+def test_auto_workflow_triggers_bisect_via_gh_workflow_run():
     text = read_text(MAIN_WORKFLOW_PATH)
-    assert "/tmp/bisect_output/bisect_result.json" in text
-    assert "/tmp/bisect_output/bisect_summary.md" in text
-    assert "/tmp/bisect_output/bisect_summary.json" not in text
+
+    assert "gh workflow run dispatch_main2main_bisect.yaml" in text
+    assert "request_id" in text
+    assert "gh run list" in text or "gh run view" in text
 
 
-def test_reconcile_workflow_exists_with_schedule_and_manual_pr_targeting():
-    assert RECONCILE_WORKFLOW_PATH.exists()
-    text = read_text(RECONCILE_WORKFLOW_PATH)
-    assert "name: Main2Main Reconcile" in text
-    assert "schedule:" in text
-    assert "workflow_dispatch:" in text
-    assert "pr_number:" in text
+def test_auto_workflow_uses_helper_cli_for_bisect_and_finalize_rendering():
+    text = read_text(MAIN_WORKFLOW_PATH)
+
+    assert "main2main_simplified.py extract-bisect-test-cmd" in text
+    assert "main2main_simplified.py build-request-id" in text
+    assert "main2main_simplified.py render-pr-body" in text
+    assert "main2main_simplified.py render-manual-review-issue" in text
 
 
-def test_reconcile_workflow_is_the_waiting_e2e_control_plane():
-    text = read_text(RECONCILE_WORKFLOW_PATH)
-    assert "waiting_e2e" in text
-    assert "main2main_ci.py" in text
-    assert "reconcile-pr" in text
+def test_auto_workflow_uses_multiple_visible_steps_and_claude_actions():
+    workflow = load_yaml(MAIN_WORKFLOW_PATH)
+    steps = workflow["jobs"]["main2main"]["steps"]
+    step_names = [step.get("name") for step in steps]
+
+    for name in [
+        "Detect vLLM version change",
+        "Stop when no drift is detected",
+        "Create working branch",
+        "Prepare Claude settings",
+        "Claude detect/adapt",
+        "Commit detect changes",
+        "Initial test",
+        "Summarize initial test",
+        "Claude fix round 1",
+        "Bisect round 1 dispatch",
+        "Bisect round 1 wait and download",
+        "Claude bisect-fix round 1",
+        "Determine final status",
+        "Create draft PR",
+    ]:
+        assert name in step_names
+
+    claude_steps = [
+        step for step in steps if str(step.get("uses", "")).startswith("anthropics/claude-code-action/base-action@")
+    ]
+    assert len(claude_steps) >= 3
 
 
-def test_reconcile_workflow_does_not_use_temp_pr_number_file_for_iteration():
-    text = read_text(RECONCILE_WORKFLOW_PATH)
-    assert "main2main_pr_numbers.txt" not in text
+def test_auto_workflow_finalizes_with_single_push_and_optional_issue():
+    text = read_text(MAIN_WORKFLOW_PATH)
 
-
-def test_pr_test_full_does_not_attempt_direct_reconcile_dispatch():
-    text = read_text(PR_TEST_FULL_WORKFLOW_PATH)
-    assert "trigger-main2main-reconcile" not in text
-    assert "schedule_main2main_reconcile.yaml" not in text
-
-
-def test_reconcile_and_terminal_use_upstream_control_checkout():
-    assert checkout_repositories(RECONCILE_WORKFLOW_PATH, "reconcile") == ["nv-action/vllm-benchmarks"]
-    assert checkout_repositories(TERMINAL_WORKFLOW_PATH, "terminal") == ["nv-action/vllm-benchmarks"]
-
-
-def test_terminal_workflow_renames_manual_review_and_supports_two_actions():
-    assert TERMINAL_WORKFLOW_PATH.exists()
-    assert not LEGACY_MANUAL_REVIEW_WORKFLOW_PATH.exists()
-    text = read_text(TERMINAL_WORKFLOW_PATH)
-    assert "name: Main2Main Terminal" in text
-    for key in ["action:", "pr_number:", "dispatch_token:", "terminal_reason:"]:
-        assert key in text
-    assert "make_ready" in text
-    assert "manual_review" in text
-
-
-def test_terminal_workflow_marks_pr_ready_and_creates_issue():
-    text = read_text(TERMINAL_WORKFLOW_PATH)
-    assert "gh pr ready" in text
+    assert "git push" in text
+    assert "gh pr create" in text
+    assert "--draft" in text
     assert "gh issue create" in text
-    assert "ci_log_summary.py" in text
-    assert "anthropics/claude-code-action/base-action@v1" in text
 
 
-def test_terminal_workflow_retries_transient_failures_before_leaving_state_for_manual_recovery():
-    text = read_text(TERMINAL_WORKFLOW_PATH)
-    assert "prepare-workflow-error-recovery" in text
-    assert "retry/dispatch_main2main_terminal.yaml" in text
-    assert 'gh workflow run dispatch_main2main_terminal.yaml' in text
+def test_auto_workflow_run_steps_are_bash_parseable():
+    workflow = load_yaml(MAIN_WORKFLOW_PATH)
+    for step in workflow["jobs"]["main2main"]["steps"]:
+        if "run" in step:
+            bash_syntax_check(step["run"])
 
 
-def test_failure_recovery_paths_do_not_write_error_action_json_transport_files():
-    main_text = read_text(MAIN_WORKFLOW_PATH)
-    terminal_text = read_text(TERMINAL_WORKFLOW_PATH)
-    assert "main2main_error_action.json" not in main_text
-    assert "main2main_error_action.json" not in terminal_text
+def test_bisect_workflow_exposes_only_simplified_dispatch_inputs():
+    workflow = load_yaml(BISECT_WORKFLOW_PATH)
+    dispatch_inputs = workflow_on_section(workflow)["workflow_dispatch"]["inputs"]
+
+    for key in ["good_commit", "bad_commit", "test_cmd", "request_id"]:
+        assert key in dispatch_inputs
+    for key in ["caller_type", "caller_run_id", "main2main_pr_number", "main2main_dispatch_token"]:
+        assert key not in dispatch_inputs
 
 
-def test_bisect_workflow_supports_main2main_and_standalone_modes():
+def test_bisect_workflow_does_not_callback_into_reconcile():
+    workflow = load_yaml(BISECT_WORKFLOW_PATH)
     text = read_text(BISECT_WORKFLOW_PATH)
-    for key in ["caller_type:", "main2main_pr_number:", "main2main_dispatch_token:"]:
-        assert key in text
-    assert "standalone" in text
-    assert "main2main" in text
+
+    assert "callback-main2main" not in workflow["jobs"]
+    assert "schedule_main2main_reconcile.yaml" not in text
+    assert "main2main_dispatch_token" not in text
 
 
-def test_bisect_workflow_routes_main2main_callbacks_through_reconcile():
+def test_bisect_workflow_writes_group_named_summary_files_and_request_named_artifacts():
     text = read_text(BISECT_WORKFLOW_PATH)
-    assert "schedule_main2main_reconcile.yaml" in text
-    assert "fix_phase3_finalize" not in text
-    assert "inputs.caller_type == 'main2main'" in text or "inputs.caller_type == \"main2main\"" in text
 
-
-def test_bisect_workflow_writes_group_named_summary_files_without_copy_step():
-    text = read_text(BISECT_WORKFLOW_PATH)
     assert '--summary-output "/tmp/bisect_summary_${{ matrix.group }}.md"' in text
-    assert "cp /tmp/bisect_summary.md" not in text
+    assert "bisect-result-${{ inputs.request_id }}-${{ matrix.group }}" in text
+    assert "bisect-summary-${{ inputs.request_id }}" in text
 
 
-def test_code_mutating_jobs_use_dual_checkout_and_phase3_prepare_uses_control_only():
-    assert checkout_repositories(MAIN_WORKFLOW_PATH, "detect-and-adapt") == [
-        "nv-action/vllm-benchmarks",
-        "Meihan-chen/vllm-benchmarks",
-        "vllm-project/vllm",
-    ]
-    assert checkout_repositories(MAIN_WORKFLOW_PATH, "fix-phase2") == [
-        "nv-action/vllm-benchmarks",
-        "Meihan-chen/vllm-benchmarks",
-    ]
-    assert checkout_repositories(MAIN_WORKFLOW_PATH, "fix-phase3-prepare") == ["nv-action/vllm-benchmarks"]
-    assert checkout_repositories(MAIN_WORKFLOW_PATH, "fix-phase3-finalize") == [
-        "nv-action/vllm-benchmarks",
-        "Meihan-chen/vllm-benchmarks",
-    ]
-
-
-def test_detect_job_branches_from_upstream_main_before_pushing_to_fork():
-    text = read_text(MAIN_WORKFLOW_PATH)
-    assert 'git remote add upstream "https://github.com/${{ env.UPSTREAM_REPO }}.git"' in text
-    assert 'git fetch upstream main' in text
-    assert 'git checkout -B "$BRANCH" upstream/main' in text
-
-
-def test_workflows_use_explicit_control_script_paths():
-    for path in [MAIN_WORKFLOW_PATH, RECONCILE_WORKFLOW_PATH, TERMINAL_WORKFLOW_PATH]:
-        text = read_text(path)
-        assert "python3 .github/workflows/scripts/main2main_ci.py" not in text
-        assert "python3 .github/workflows/scripts/ci_log_summary.py" not in text
-
-
-def test_main2main_bisect_calls_use_per_pr_concurrency():
+def test_bisect_workflow_uses_request_id_not_pr_concurrency():
     text = read_text(BISECT_WORKFLOW_PATH)
-    assert "main2main-bisect-pr-{0}" in text or "main2main-bisect-pr-${{ inputs.main2main_pr_number }}" in text
 
-
-def test_jobs_with_job_level_working_directory_checkout_before_shell_steps():
-    assert_checkout_precedes_first_run_step(MAIN_WORKFLOW_PATH, "detect-and-adapt")
-    assert_checkout_precedes_first_run_step(MAIN_WORKFLOW_PATH, "fix-phase2")
-    assert_checkout_precedes_first_run_step(MAIN_WORKFLOW_PATH, "fix-phase3-prepare")
-    assert_checkout_precedes_first_run_step(MAIN_WORKFLOW_PATH, "fix-phase3-finalize")
-    assert_checkout_precedes_first_run_step(RECONCILE_WORKFLOW_PATH, "reconcile")
-    assert_checkout_precedes_first_run_step(TERMINAL_WORKFLOW_PATH, "terminal")
-    assert_working_directory_checkout_precedes_first_run_step(MAIN_WORKFLOW_PATH, "detect-and-adapt")
-    assert_working_directory_checkout_precedes_first_run_step(MAIN_WORKFLOW_PATH, "fix-phase2")
-    assert_working_directory_checkout_precedes_first_run_step(MAIN_WORKFLOW_PATH, "fix-phase3-prepare")
-    assert_working_directory_checkout_precedes_first_run_step(MAIN_WORKFLOW_PATH, "fix-phase3-finalize")
-    assert_working_directory_checkout_precedes_first_run_step(RECONCILE_WORKFLOW_PATH, "reconcile")
-    assert_working_directory_checkout_precedes_first_run_step(TERMINAL_WORKFLOW_PATH, "terminal")
-
-
-def test_reconcile_main_shell_step_is_bash_parseable():
-    workflow = load_yaml(RECONCILE_WORKFLOW_PATH)
-    step = next(
-        item
-        for item in workflow["jobs"]["reconcile"]["steps"]
-        if item.get("name") == "Reconcile waiting_e2e and waiting_bisect states"
-    )
-    bash_syntax_check(step["run"])
-
-
-def test_main_workflow_critical_shell_steps_are_bash_parseable():
-    workflow = load_yaml(MAIN_WORKFLOW_PATH)
-    for job_name, step_name in [
-        ("detect-and-adapt", "Publish registration and live state comments"),
-        ("fix-phase2", "Push fixes and update comments"),
-        ("fix-phase3-prepare", "Build bisect payload and dispatch bisect workflow"),
-        ("fix-phase3-finalize", "Push phase 3 fixes or go terminal"),
-    ]:
-        step = next(item for item in workflow["jobs"][job_name]["steps"] if item.get("name") == step_name)
-        bash_syntax_check(step["run"])
-
-
-def test_phase3_no_changes_patches_pending_terminal_state_before_dispatch():
-    text = read_text(MAIN_WORKFLOW_PATH)
-    assert "prepare-manual-review-pending" in text
-    assert "fix_phase3_finalize->manual_review_pending" in text
-
-
-def test_main_workflow_uses_helpers_for_bisect_payload_and_fixing_state():
-    text = read_text(MAIN_WORKFLOW_PATH)
-    assert "prepare-bisect-payload" in text
-    assert "prepare-fixing-state" in text
-    assert "select-bisect-run-id" in text
-    assert "main2main_bisect_payload.json" not in text
-
-
-def test_workflows_use_load_phase_context_for_repeated_state_bootstrap():
-    main_text = read_text(MAIN_WORKFLOW_PATH)
-    terminal_text = read_text(TERMINAL_WORKFLOW_PATH)
-    assert "load-phase-context" in main_text
-    assert "load-phase-context" in terminal_text
-    assert "main2main_pr.json" not in main_text
-    assert "main2main_pr.json" not in terminal_text
-    assert "main2main_state_comment_id.txt" not in main_text
-    assert "main2main_register_comment_id.txt" not in main_text
-    assert "main2main_state_comment_id.txt" not in terminal_text
-    assert "main2main_register_comment_id.txt" not in terminal_text
-
-
-def test_main_workflow_treats_stale_phase_runs_as_no_op_instead_of_failure():
-    workflow = load_yaml(MAIN_WORKFLOW_PATH)
-    for job_name, step_name in [
-        ("fix-phase2", "Load state and checkout branch"),
-        ("fix-phase3-prepare", "Load guarded phase 3 state"),
-        ("fix-phase3-finalize", "Load waiting_bisect state and checkout branch"),
-    ]:
-        step = next(item for item in workflow["jobs"][job_name]["steps"] if item.get("name") == step_name)
-        run_text = step["run"]
-        assert "stale=true" in run_text
-        assert "::notice::" in run_text
-        assert "exit 0" in run_text
+    assert "request_id" in text
+    assert "main2main_pr_number" not in text
+    assert "main2main_dispatch_token" not in text
