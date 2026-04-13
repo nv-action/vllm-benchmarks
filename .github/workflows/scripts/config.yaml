@@ -167,3 +167,12 @@ e2e-multicard-4-cards:
   estimated_time: 1340
 - name: tests/e2e/multicard/4-cards/test_pipeline_parallel.py
   estimated_time: 357
+e2e-main2main:
+- name: tests/e2e/multicard/4-cards/spec_decode/test_mtp_qwen3_next.py
+  estimated_time: 1340
+- name: tests/e2e/multicard/4-cards/test_pipeline_parallel.py
+  estimated_time: 357
+- name: tests/e2e/multicard/2-cards/test_data_parallel.py
+  estimated_time: 454
+- name: tests/e2e/multicard/2-cards/test_expert_parallel.py
+  estimated_time: 220
