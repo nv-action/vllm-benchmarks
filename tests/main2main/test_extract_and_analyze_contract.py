@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -257,6 +258,58 @@ def test_main_uses_repo_flag_with_explicit_run_id(monkeypatch, capsys):
     out = capsys.readouterr()
     assert calls == [(456, "nv-action/vllm-benchmarks")]
     assert '"run_id": 456' in out.out
+
+
+def test_llm_json_from_local_log_exposes_workflow_critical_fields(tmp_path):
+    log_path = tmp_path / "pytest.log"
+    log_path.write_text(
+        "\n".join(
+            [
+                "[1/1] START tests/e2e/multicard/4-cards/test_pipeline_parallel.py::test_pipeline_parallel",
+                "Traceback (most recent call last):",
+                '  File "/tmp/test_pipeline_parallel.py", line 1, in <module>',
+                '    raise AssertionError("pipeline failure")',
+                "AssertionError: pipeline failure",
+                "[1/1] FAILED (exit code 1) tests/e2e/multicard/4-cards/test_pipeline_parallel.py::test_pipeline_parallel",
+                "============================= FAILURES =============================",
+                "_ test_pipeline_parallel _",
+                "",
+                "E   AssertionError: pipeline failure",
+                "====================== short test summary info ======================",
+                "FAILED tests/e2e/multicard/4-cards/test_pipeline_parallel.py::test_pipeline_parallel - AssertionError: pipeline failure",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    output_path = tmp_path / "summary.json"
+
+    subprocess.run(
+        [
+            "python3",
+            str(SCRIPT_PATH),
+            "--log-file",
+            str(log_path),
+            "--step-name",
+            "Run main2main suite",
+            "--format",
+            "llm-json",
+            "--output",
+            str(output_path),
+        ],
+        check=True,
+    )
+
+    result = json.loads(output_path.read_text(encoding="utf-8"))
+
+    assert "failed_test_files" in result
+    assert "failed_test_cases" in result
+    assert "code_bugs" in result
+    assert "env_flakes" in result
+    assert result["failed_test_files"] == ["tests/e2e/multicard/4-cards/test_pipeline_parallel.py"]
+    assert result["failed_test_cases"] == [
+        "tests/e2e/multicard/4-cards/test_pipeline_parallel.py::test_pipeline_parallel"
+    ]
+    assert result["code_bugs"]
 
 
 def test_build_bisect_payload_selects_representative_cases_per_error():
