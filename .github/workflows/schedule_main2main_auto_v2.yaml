@@ -80,6 +80,7 @@ jobs:
         VLLM_USE_MODELSCOPE: True
         HCCL_BUFFSIZE: 1024
         HF_HUB_OFFLINE: 1
+        IS_SANDBOX: 1
     defaults:
       run:
         working-directory: ${{ github.workspace }}
@@ -320,7 +321,7 @@ jobs:
           set -eu
           BEFORE_HEAD=$(git -C "${WORK_REPO_DIR}" rev-parse HEAD)
           cat > /tmp/main2main-detect-prompt.txt <<EOF
-          Adapt vllm-benchmarks to the latest vLLM main branch.
+          Use Main2Main skill to adapt vllm-benchmarks to the latest vLLM main branch.
 
           Context:
           - Benchmark repo is checked out at ./${WORK_REPO_DIR}
@@ -340,7 +341,7 @@ jobs:
             --model "${MAIN2MAIN_MODEL}" \
             --append-system-prompt-file "${WORK_REPO_DIR}/.agents/skills/main2main/SKILL.md" \
             --output-format json \
-            --max-turns 30 \
+            --dangerously-skip-permissions \
             --allowedTools "${CLAUDE_ALLOWED_TOOLS}" \
             > /tmp/main2main-detect-result.json 2> /tmp/main2main-detect-result.err || {
               STATUS=$?
@@ -392,16 +393,6 @@ jobs:
           cat /tmp/main2main-test.log
           exit $STATUS
 
-      - name: Summarize initial test
-        if: steps.detect.outputs.has_drift == 'true' && steps.detect-claude.outputs.commit_count != '0'
-        working-directory: ${{ env.WORK_REPO_DIR }}
-        run: |
-          python3 .github/workflows/scripts/ci_log_summary.py \
-            --step-name "Run main2main suite" \
-            --log-file /tmp/main2main-test.log \
-            --format llm-json \
-            --output /tmp/main2main-summary.json
-
       - name: Run fix loop with Claude CLI
         if: steps.detect.outputs.has_drift == 'true' && steps.detect-claude.outputs.commit_count != '0'
         id: fix-loop
@@ -425,11 +416,27 @@ jobs:
 
             ROUND=$((FIX_ROUNDS_USED + 1))
 
-            ROUND="${ROUND}" \
-            VLLM_UPSTREAM_PATH="./${VLLM_DIR}" \
-            OLD_COMMIT="${{ steps.detect.outputs.old_commit }}" \
-            NEW_COMMIT="${{ steps.detect.outputs.new_commit }}" \
-            python3 -c 'import os; from pathlib import Path; Path("/tmp/main2main-fix-prompt.txt").write_text(f"""Fix the current main2main test failures.\n\nContext:\n- Upstream vLLM source is checked out at {os.environ["VLLM_UPSTREAM_PATH"]}\n- OLD_COMMIT={os.environ["OLD_COMMIT"]}\n- NEW_COMMIT={os.environ["NEW_COMMIT"]}\n- Current round={os.environ["ROUND"]}\n- Structured failure summary path=/tmp/main2main-summary.json\n\nRequirements:\n- Fix code bugs in the benchmark repo\n- Modify code only\n- Create a git commit if and only if you make valid code changes\n- Do not push\n- Do not create a PR\n""", encoding="utf-8")'
+            {
+              printf '%s\n' \
+                'Use Main2Main skill to fix the current main2main test failures.' \
+                'test failures log is available at /tmp/main2main-test.log'
+                '' \
+                'Context:' \
+                "- Benchmark repo is checked out at ./${WORK_REPO_DIR}" \
+                "- Upstream vLLM source is checked out at ./${VLLM_DIR}" \
+                "- OLD_COMMIT=${{ steps.detect.outputs.old_commit }}" \
+                "- NEW_COMMIT=${{ steps.detect.outputs.new_commit }}" \
+                "- Current round=${ROUND}" \
+                '- Main2Main test log path=/tmp/main2main-test.log' \
+                '' \
+                'Requirements:' \
+                '- Use /tmp/main2main-test.log as the primary failure-analysis input' \
+                '- Fix code bugs in the benchmark repo' \
+                '- Modify code only' \
+                '- Create a git commit if and only if you make valid code changes' \
+                '- Do not push' \
+                '- Do not create a PR'
+            } > /tmp/main2main-fix-prompt.txt
 
             BEFORE_HEAD=$(git -C "${WORK_REPO_DIR}" rev-parse HEAD)
             claude -p "$(cat /tmp/main2main-fix-prompt.txt)" \
@@ -437,7 +444,7 @@ jobs:
               --model "${MAIN2MAIN_MODEL}" \
               --append-system-prompt-file "${WORK_REPO_DIR}/.agents/skills/main2main/SKILL.md" \
               --output-format json \
-              --max-turns 25 \
+              --dangerously-skip-permissions \
               --allowedTools "${CLAUDE_ALLOWED_TOOLS}" \
               > "/tmp/main2main-fix-round${ROUND}.json" 2> "/tmp/main2main-fix-round${ROUND}.err" || {
               STATUS=$?
@@ -488,21 +495,10 @@ jobs:
               > /tmp/main2main-test.log 2>&1
             ); then
               cat /tmp/main2main-test.log
-              python3 "${WORK_REPO_DIR}/.github/workflows/scripts/ci_log_summary.py" \
-                --step-name "Run main2main suite" \
-                --log-file /tmp/main2main-test.log \
-                --format llm-json \
-                --output /tmp/main2main-summary.json
               STATUS="passed_after_fix"
               break
             fi
             cat /tmp/main2main-test.log
-
-            python3 "${WORK_REPO_DIR}/.github/workflows/scripts/ci_log_summary.py" \
-              --step-name "Run main2main suite" \
-              --log-file /tmp/main2main-test.log \
-              --format llm-json \
-              --output /tmp/main2main-summary.json
           done
 
           echo "status=${STATUS}" >> "$GITHUB_OUTPUT"
@@ -525,7 +521,12 @@ jobs:
 
             ROUND=$((BISECT_ROUNDS_USED + 1))
             REQUEST_ID=$(python3 "${WORK_REPO_DIR}/.github/workflows/scripts/main2main_simplified.py" build-request-id --run-id "${GITHUB_RUN_ID}" --round-index "${ROUND}")
-            TEST_CMD=$(python3 "${WORK_REPO_DIR}/.github/workflows/scripts/main2main_simplified.py" extract-bisect-test-cmd --summary /tmp/main2main-summary.json)
+            if [ ! -f /tmp/main2main-failure-summary.json ]; then
+              echo "::error::Expected /tmp/main2main-failure-summary.json to exist before bisect"
+              echo "::error::The skill should generate it from /tmp/main2main-test.log when needed"
+              exit 1
+            fi
+            TEST_CMD=$(python3 "${WORK_REPO_DIR}/.github/workflows/scripts/main2main_simplified.py" extract-bisect-test-cmd --summary /tmp/main2main-failure-summary.json)
 
             gh workflow run dispatch_main2main_bisect.yaml \
               --repo "${GITHUB_REPOSITORY}" \
@@ -571,11 +572,28 @@ jobs:
               break
             fi
 
-            ROUND="${ROUND}" \
-            OLD_COMMIT="${{ steps.detect.outputs.old_commit }}" \
-            NEW_COMMIT="${{ steps.detect.outputs.new_commit }}" \
-            BISECT_RESULT_PATH="/tmp/bisect_output_round${ROUND}/bisect_result.json" \
-            python3 -c 'import os; from pathlib import Path; Path("/tmp/main2main-bisect-fix-prompt.txt").write_text(f"""Fix the remaining main2main failures using bisect context.\n\nContext:\n- Structured test summary path=/tmp/main2main-summary.json\n- Bisect result path={os.environ["BISECT_RESULT_PATH"]}\n- Round={os.environ["ROUND"]}\n- OLD_COMMIT={os.environ["OLD_COMMIT"]}\n- NEW_COMMIT={os.environ["NEW_COMMIT"]}\n\nRequirements:\n- Use the bisect result to produce a targeted fix\n- Modify code only\n- Create a git commit if and only if you make valid code changes\n- Do not push\n- Do not create a PR\n""", encoding="utf-8")'
+            {
+              printf '%s\n' \
+                'Use the main2main skill to fix the remaining main2main failures based on bisect results.' \
+                'The CI still failed after fix, so test failure log and bisect results are also provided.' \
+                '' \
+                'Context:' \
+                "- Benchmark repo is checked out at ./${WORK_REPO_DIR}" \
+                "- Upstream vLLM source is checked out at ./${VLLM_DIR}" \
+                '- Main2Main test log path=/tmp/main2main-test.log' \
+                "- Bisect result path=/tmp/bisect_output_round${ROUND}/bisect_result.json" \
+                "- Round=${ROUND}" \
+                "- OLD_COMMIT=${{ steps.detect.outputs.old_commit }}" \
+                "- NEW_COMMIT=${{ steps.detect.outputs.new_commit }}" \
+                '' \
+                'Requirements:' \
+                '- Use the bisect result to produce a targeted fix' \
+                '- Use /tmp/main2main-test.log as the primary failure-analysis input' \
+                '- Modify code only' \
+                '- Create a git commit if and only if you make valid code changes' \
+                '- Do not push' \
+                '- Do not create a PR'
+            } > /tmp/main2main-bisect-fix-prompt.txt
 
             BEFORE_HEAD=$(git -C "${WORK_REPO_DIR}" rev-parse HEAD)
             claude -p "$(cat /tmp/main2main-bisect-fix-prompt.txt)" \
@@ -583,7 +601,7 @@ jobs:
               --model "${MAIN2MAIN_MODEL}" \
               --append-system-prompt-file "${WORK_REPO_DIR}/.agents/skills/main2main-error-analysis/SKILL.md" \
               --output-format json \
-              --max-turns 25 \
+              --dangerously-skip-permissions \
               --allowedTools "${CLAUDE_ALLOWED_TOOLS}" \
               > "/tmp/main2main-bisect-fix-round${ROUND}.json" 2> "/tmp/main2main-bisect-fix-round${ROUND}.err" || {
               STATUS=$?
@@ -634,21 +652,10 @@ jobs:
               > /tmp/main2main-test.log 2>&1
             ); then
               cat /tmp/main2main-test.log
-              python3 "${WORK_REPO_DIR}/.github/workflows/scripts/ci_log_summary.py" \
-                --step-name "Run main2main suite" \
-                --log-file /tmp/main2main-test.log \
-                --format llm-json \
-                --output /tmp/main2main-summary.json
               STATUS="passed_after_bisect"
               break
             fi
             cat /tmp/main2main-test.log
-
-            python3 "${WORK_REPO_DIR}/.github/workflows/scripts/ci_log_summary.py" \
-              --step-name "Run main2main suite" \
-              --log-file /tmp/main2main-test.log \
-              --format llm-json \
-              --output /tmp/main2main-summary.json
           done
 
           echo "status=${STATUS}" >> "$GITHUB_OUTPUT"
@@ -745,7 +752,7 @@ jobs:
             --pr-url "${{ steps.create-pr.outputs.url }}" \
             --old-commit "${{ steps.detect.outputs.old_commit }}" \
             --new-commit "${{ steps.detect.outputs.new_commit }}" \
-            --summary-json /tmp/main2main-summary.json \
+            --summary-json /tmp/main2main-failure-summary.json \
             ${BISECT_JSON} \
             > /tmp/main2main-manual-review.md
 

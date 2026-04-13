@@ -96,13 +96,14 @@ def test_v2_workflow_still_uses_bisect_workflow_and_helper_cli():
     assert "append-round-commits-markdown" in text
 
 
-def test_v2_workflow_keeps_suite_and_llm_json_summary_contract():
+def test_v2_workflow_keeps_suite_and_log_file_contract():
     text = read_text(MAIN_WORKFLOW_V2_PATH)
 
     assert "--suite e2e-main2main" in text
     assert "--continue-on-error" in text
-    assert "--format llm-json" in text
-    assert "/tmp/main2main-summary.json" in text
+    assert "/tmp/main2main-test.log" in text
+    assert "Use the Main2Main skill log-file entry path." in text
+    assert "ci_log_summary.py" not in text
 
 
 def test_v2_workflow_does_not_use_claude_code_action():
