@@ -58,7 +58,7 @@ def test_v2_workflow_uses_one_long_lived_main_job():
     jobs = workflow["jobs"]
 
     assert list(jobs) == ["main2main"]
-    assert jobs["main2main"]["runs-on"] == "linux-aarch64-a3-4"
+    assert jobs["main2main"]["runs-on"] == "linux-aarch64-a2-4"
 
 
 def test_v2_workflow_installs_and_configures_claude_cli():
@@ -89,10 +89,11 @@ def test_v2_workflow_still_uses_bisect_workflow_and_helper_cli():
     text = read_text(MAIN_WORKFLOW_V2_PATH)
 
     assert "gh workflow run dispatch_main2main_bisect.yaml" in text
-    assert "main2main_simplified.py extract-bisect-test-cmd" in text
-    assert "main2main_simplified.py build-request-id" in text
-    assert "main2main_simplified.py render-pr-body" in text
-    assert "main2main_simplified.py render-manual-review-issue" in text
+    assert "extract-bisect-test-cmd" in text
+    assert "build-request-id" in text
+    assert "render-pr-body" in text
+    assert "render-manual-review-issue" in text
+    assert "append-round-commits-markdown" in text
 
 
 def test_v2_workflow_keeps_suite_and_llm_json_summary_contract():
@@ -107,6 +108,14 @@ def test_v2_workflow_keeps_suite_and_llm_json_summary_contract():
 def test_v2_workflow_does_not_use_claude_code_action():
     text = read_text(MAIN_WORKFLOW_V2_PATH)
     assert "anthropics/claude-code-action/base-action@" not in text
+
+
+def test_v2_workflow_lets_claude_commit_and_workflow_no_longer_commits_directly():
+    text = read_text(MAIN_WORKFLOW_V2_PATH)
+
+    assert "Do not commit" not in text
+    assert "Create a git commit if and only if you make valid code changes" in text
+    assert "git commit -F" not in text
 
 
 def test_v2_workflow_run_steps_are_bash_parseable():
