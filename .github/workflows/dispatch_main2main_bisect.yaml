@@ -15,15 +15,11 @@
 #
 
 name: Bisect vLLM
-run-name: Bisect vLLM caller-${{ inputs.caller_run_id }}
+run-name: Bisect vLLM request-${{ inputs.request_id }}
 
 on:
   workflow_dispatch:
     inputs:
-      caller_run_id:
-        description: 'Caller workflow run id for traceability'
-        required: false
-        default: 'manual'
       good_commit:
         description: 'Known good vllm commit (leave empty to auto-detect from main branch)'
         required: false
@@ -36,10 +32,18 @@ on:
         description: 'Failing pytest command(s), semicolon-separated for batch mode'
         required: true
         default: 'pytest -sv tests/e2e/multicard/4-cards/long_sequence/test_accuracy.py'
+      request_id:
+        description: 'Unique main2main bisect request id used for run and artifact correlation'
+        required: true
+        default: 'manual-request'
 
 defaults:
   run:
     shell: bash -el {0}
+
+concurrency:
+  group: ${{ format('main2main-bisect-{0}', inputs.request_id) }}
+  cancel-in-progress: false
 
 jobs:
   set-params:
@@ -144,7 +148,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: bisect-result-${{ matrix.group }}
+          name: bisect-result-${{ inputs.request_id }}-${{ matrix.group }}
           path: /tmp/bisect_summary_${{ matrix.group }}.md
           retention-days: 30
 
@@ -166,18 +170,28 @@ jobs:
       - name: Combine summaries and emit bisect_result.json
         run: |
           : > /tmp/bisect_summary.md
-          while IFS= read -r -d '' f; do
+          find /tmp/bisect_results -type f -name 'bisect_summary_*.md' | sort | while IFS= read -r f; do
             cat "$f" >> /tmp/bisect_summary.md
             echo "" >> /tmp/bisect_summary.md
-          done < <(find /tmp/bisect_results -type f -name 'bisect_summary_*.md' -print0)
+          done
 
           cat /tmp/bisect_summary.md
+
+          python3 tools/bisect_helper.py result-json \
+            --caller-type "dispatch" \
+            --caller-run-id "${{ inputs.request_id }}" \
+            --bisect-run-id "${{ github.run_id }}" \
+            --good-commit "${{ inputs.good_commit }}" \
+            --bad-commit "${{ inputs.bad_commit }}" \
+            --test-cmd "${{ inputs.test_cmd }}" \
+            --results-dir /tmp/bisect_results \
+            --summary-file /tmp/bisect_summary.md \
+            --output /tmp/bisect_result.json
 
       - name: Upload combined summary and JSON result
         uses: actions/upload-artifact@v7
         with:
-          name: bisect-summary
+          name: bisect-summary-${{ inputs.request_id }}
           path: |
             /tmp/bisect_summary.md
           retention-days: 30
-
