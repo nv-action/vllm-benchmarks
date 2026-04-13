@@ -19,12 +19,12 @@ import argparse
 import asyncio
 import json
 import os
-import re
 import shutil
 import sys
 import time
 from pathlib import Path
 
+import regex as re
 from openai import AsyncOpenAI
 
 SYSTEM_PROMPT = (
