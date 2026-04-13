@@ -55,6 +55,7 @@ env:
   VLLM_REPO: vllm-project/vllm
   VLLM_DIR: vllm-upstream
   WORK_REPO_DIR: vllm-benchmarks
+  NODE_VERSION: 18.20.8
   MAIN2MAIN_SUITE: e2e-main2main
   MAIN2MAIN_MODEL: ${{ vars.MAIN2MAIN_MODEL || 'qwen3.6-plus' }}
   BISECT_WORKFLOW: dispatch_main2main_bisect.yaml  
@@ -109,9 +110,22 @@ jobs:
         run: |
           set -eu
 
-          OLD_COMMIT=$(grep -oE '[0-9a-f]{40}' docs/source/community/versioning_policy.md | head -1)
+          OLD_COMMIT=$(python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          text = Path(".github/workflows/pr_test_full.yaml").read_text(encoding="utf-8")
+          line = re.search(r'vllm_version:\s*\[(.*?)\]', text)
+          if not line:
+              raise SystemExit(1)
+          commit = re.search(r'\b([0-9a-f]{40})\b', line.group(1))
+          if not commit:
+              raise SystemExit(1)
+          print(commit.group(1))
+          PY
+          )
           if [ -z "${OLD_COMMIT}" ]; then
-            echo "::error::Could not extract pinned vLLM commit from versioning_policy.md"
+            echo "::error::Could not extract pinned vLLM commit from .github/workflows/pr_test_full.yaml"
             exit 1
           fi
 
@@ -165,10 +179,33 @@ jobs:
           if [ -s packages.txt ]; then
             xargs -r apt-get -y install < packages.txt
           fi
-          apt-get -y install gcc g++ cmake libnuma-dev clang-15 jq gh
+          apt-get -y install curl ca-certificates gcc g++ cmake libnuma-dev clang-15 jq gh
           update-alternatives --install /usr/bin/clang clang /usr/bin/clang-15 20
           update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-15 20
           pip install uv
+
+      - name: Install Node.js
+        if: steps.detect.outputs.has_drift == 'true'
+        run: |
+          set -eu
+          case "$(uname -m)" in
+            aarch64|arm64) NODE_ARCH="arm64" ;;
+            x86_64|amd64) NODE_ARCH="x64" ;;
+            *)
+              echo "::error::Unsupported architecture: $(uname -m)"
+              exit 1
+              ;;
+          esac
+          NODE_DIST="node-v${NODE_VERSION}-linux-${NODE_ARCH}"
+          curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/${NODE_DIST}.tar.gz" -o "/tmp/${NODE_DIST}.tar.gz"
+          rm -rf "/usr/local/${NODE_DIST}"
+          tar -xzf "/tmp/${NODE_DIST}.tar.gz" -C /usr/local
+          ln -sf "/usr/local/${NODE_DIST}/bin/node" /usr/local/bin/node
+          ln -sf "/usr/local/${NODE_DIST}/bin/npm" /usr/local/bin/npm
+          ln -sf "/usr/local/${NODE_DIST}/bin/npx" /usr/local/bin/npx
+          ln -sf "/usr/local/${NODE_DIST}/bin/corepack" /usr/local/bin/corepack
+          node --version
+          npm --version
 
       - name: Configure git identity and auth
         if: steps.detect.outputs.has_drift == 'true'
