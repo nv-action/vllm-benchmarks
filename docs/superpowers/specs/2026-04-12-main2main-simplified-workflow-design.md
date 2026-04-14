@@ -116,9 +116,9 @@ Keep two entry points:
 Only one manual input is required:
 
 - `target_commit`
-  - optional
-  - if empty, use upstream `main` HEAD
-  - if present, run against that exact commit
+    - optional
+    - if empty, use upstream `main` HEAD
+    - if present, run against that exact commit
 
 Do not keep old state-machine inputs such as:
 
@@ -198,8 +198,8 @@ The active bisect contract should be reduced to:
 - `bad_commit`
 - `test_cmd`
 - `request_id`
-  - unique per bisect request
-  - used by the main workflow to find the correct run and artifact
+    - unique per bisect request
+    - used by the main workflow to find the correct run and artifact
 
 ### Outputs
 

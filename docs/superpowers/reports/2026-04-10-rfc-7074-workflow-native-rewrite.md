@@ -341,11 +341,11 @@ This keeps business logic concentrated in one place instead of scattering state-
 | `dispatch_main2main_terminal.yaml` | Terminal ready/manual-review workflow | TBD |
 | `dispatch_main2main_bisect.yaml` | Bisect workflow for phase 3 regression isolation | TBD |
 | `main2main_ci.py` | Shared workflow-side state-machine helper | TBD |
-| `ci_log_summary.py` | CI log analysis entrypoint for failure summarization and bisect payload generation | https://github.com/vllm-project/vllm-ascend/pull/7202 |
+| `ci_log_summary.py` | CI log analysis entrypoint for failure summarization and bisect payload generation | <https://github.com/vllm-project/vllm-ascend/pull/7202> |
 | `tools/bisect_helper.py` | Bisect matrix/env helper and result aggregation utility | TBD |
 | `tools/bisect_vllm.sh` | Shell bisect executor used by the bisect workflow | TBD |
-| `main2main` skill | Proactive adaptation and upgrade reasoning skill | https://github.com/vllm-project/vllm-ascend/pull/6817 |
-| `main2main-error-analysis` skill / unified diagnostic flow | CI failure diagnosis and targeted fix generation | https://github.com/vllm-project/vllm-ascend/pull/6983 |
+| `main2main` skill | Proactive adaptation and upgrade reasoning skill | <https://github.com/vllm-project/vllm-ascend/pull/6817> |
+| `main2main-error-analysis` skill / unified diagnostic flow | CI failure diagnosis and targeted fix generation | <https://github.com/vllm-project/vllm-ascend/pull/6983> |
 
 ### Why This Architecture
 
@@ -403,17 +403,18 @@ The current implementation delivers:
 - [ ] add stronger architecture/context learning for vLLM and vllm-ascend cross-module reasoning
 - [ ] add an explicit path for failures that should be fixed in upstream vLLM rather than in vllm-ascend
 
-### Feedback Period.
+### Feedback Period
 
 weekly
 
-### CC List.
+### CC List
 
 @MengqingCao @wjunLu
 
-### Any Other Things.
+### Any Other Things
 
 This RFC originally explored a local orchestration service + MCP control plane model. The final implementation direction has since converged on workflow-native orchestration. This RFC is updated to reflect the current production architecture rather than the earlier intermediate design.
+
 ```
 
 ---

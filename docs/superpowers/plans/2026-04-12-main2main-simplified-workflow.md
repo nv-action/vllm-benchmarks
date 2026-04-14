@@ -37,6 +37,7 @@ The fixed suite remains `e2e-main2main`. Do not broaden `run_suite.py` or `confi
 ### Task 0: Use the existing isolated worktree
 
 **Files:**
+
 - Verify only: `/Users/antarctica/Work/PR/vllm-benchmarks-main2main-simplified`
 
 - [ ] **Step 1: Confirm the implementation worktree exists**
@@ -62,6 +63,7 @@ Every subsequent edit, test, and commit in this plan should run from:
 ### Task 1: Add a small helper CLI for deterministic workflow decisions
 
 **Files:**
+
 - Create: `.github/workflows/scripts/main2main_simplified.py`
 - Create: `tests/main2main/test_main2main_simplified.py`
 - Modify: `tests/main2main/test_extract_and_analyze_contract.py`
@@ -98,10 +100,10 @@ Extend `tests/main2main/test_extract_and_analyze_contract.py` with a focused tes
 - writes a small synthetic local pytest log
 - invokes `ci_log_summary.py --log-file ... --format llm-json`
 - asserts the JSON includes:
-  - `failed_test_files`
-  - `failed_test_cases`
-  - `code_bugs`
-  - `env_flakes`
+    - `failed_test_files`
+    - `failed_test_cases`
+    - `code_bugs`
+    - `env_flakes`
 
 - [ ] **Step 3: Run the helper and summary tests to confirm they fail**
 
@@ -169,6 +171,7 @@ git commit -m "feat: add simplified main2main helper contracts"
 ### Task 2: Simplify `dispatch_main2main_bisect.yaml` to a `workflow_dispatch` executor
 
 **Files:**
+
 - Modify: `.github/workflows/dispatch_main2main_bisect.yaml`
 - Modify: `tests/main2main/test_main2main_workflow_contract.py`
 
@@ -178,15 +181,15 @@ Update `tests/main2main/test_main2main_workflow_contract.py` so bisect assertion
 
 - `workflow_dispatch` must exist
 - required inputs must include:
-  - `good_commit`
-  - `bad_commit`
-  - `test_cmd`
-  - `request_id`
+    - `good_commit`
+    - `bad_commit`
+    - `test_cmd`
+    - `request_id`
 - old main2main callback/state inputs must be removed from the active path:
-  - `caller_type`
-  - `caller_run_id`
-  - `main2main_pr_number`
-  - `main2main_dispatch_token`
+    - `caller_type`
+    - `caller_run_id`
+    - `main2main_pr_number`
+    - `main2main_dispatch_token`
 - callback/reconcile job must be absent
 
 - [ ] **Step 2: Run the workflow contract test and confirm it fails**
@@ -206,10 +209,10 @@ Implement these changes:
 
 - keep `workflow_dispatch`
 - reduce active inputs to:
-  - `good_commit`
-  - `bad_commit`
-  - `test_cmd`
-  - `request_id`
+    - `good_commit`
+    - `bad_commit`
+    - `test_cmd`
+    - `request_id`
 - remove callback-main2main logic
 - remove reconcile/dispatch-token behavior
 - keep matrix-building and aggregation logic
@@ -248,6 +251,7 @@ git commit -m "refactor: simplify main2main bisect workflow dispatch"
 ### Task 3: Rewrite `schedule_main2main_auto.yaml` around one long-lived main job
 
 **Files:**
+
 - Modify: `.github/workflows/schedule_main2main_auto.yaml`
 - Modify if needed: `.github/workflows/scripts/main2main_ci.py`
 
@@ -327,6 +331,7 @@ git commit -m "refactor: rewrite main2main auto workflow"
 ### Task 4: Finish the end-to-end orchestration details
 
 **Files:**
+
 - Modify: `.github/workflows/schedule_main2main_auto.yaml`
 - Modify: `.github/workflows/scripts/main2main_simplified.py`
 - Modify tests as needed
@@ -389,6 +394,7 @@ git commit -m "feat: add bisect polling and finalization flow"
 ### Task 5: Run targeted repo tests first
 
 **Files:**
+
 - Verify only
 
 - [ ] **Step 1: Run workflow and helper contract tests**
