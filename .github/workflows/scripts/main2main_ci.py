@@ -266,7 +266,9 @@ def check_registration_consistency(
     if state.branch != registration.branch:
         return GuardResult(False, f"registration branch mismatch: expected {state.branch}, got {registration.branch}")
     if state.head_sha != registration.head_sha:
-        return GuardResult(False, f"registration head_sha mismatch: expected {state.head_sha}, got {registration.head_sha}")
+        return GuardResult(
+            False, f"registration head_sha mismatch: expected {state.head_sha}, got {registration.head_sha}"
+        )
     if state.old_commit != registration.old_commit or state.new_commit != registration.new_commit:
         return GuardResult(False, "registration commit range mismatch")
     if state.phase != registration.phase:
@@ -1045,9 +1047,7 @@ def _reconcile_pr(repo: str, pr_number: str) -> dict[str, Any]:
             f"repos/{repo}/issues/{pr_number}/comments",
             method="POST",
             payload={
-                "body": render_registration_comment(
-                    RegistrationMetadata(**_registration_payload_from_state(state))
-                )
+                "body": render_registration_comment(RegistrationMetadata(**_registration_payload_from_state(state)))
             },
         )
 

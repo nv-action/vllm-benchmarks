@@ -762,4 +762,3 @@ bash tools/bisect_vllm.sh --help
 
 1. `main2main_ci.py` 每个子命令的输入/输出 JSON 示例
 2. 整个 main2main 状态机的时序图 / 流程图
-

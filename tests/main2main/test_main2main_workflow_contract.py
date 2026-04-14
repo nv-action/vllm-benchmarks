@@ -1,10 +1,9 @@
-from pathlib import Path
 import re
 import subprocess
 import tempfile
+from pathlib import Path
 
 import yaml
-
 
 WORKFLOWS_DIR = Path(__file__).resolve().parents[2] / ".github" / "workflows"
 MAIN_WORKFLOW_PATH = WORKFLOWS_DIR / "schedule_main2main_auto.yaml"
