@@ -79,7 +79,7 @@ Optional:
 Examples:
   # 1. Local usage: reproduce a known regression range with explicit good/bad commits
   ./tools/bisect_vllm.sh \
-    --good 35141a7eeda941a60ad5a4956670c60fd5a77029 \
+    --good 18b1c77211d8f6fe800bcfb89524d2b598708032 \
     --bad 6e1100889e6a675d17ad82815acf8f02f1cc419e \
     --test-cmd "pytest -sv tests/ut/test_example.py::test_case; pytest -sv tests/ut/test_example_2.py"
 
