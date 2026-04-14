@@ -135,16 +135,16 @@ stateDiagram-v2
 `phase=3, status=fixing` 这个状态需要特别小心，因为它并不只表示一种动作：
 
 - 一种情况是 `fix_phase3_prepare`
-  - 目标是收集 E2E 失败信息
-  - 构造 bisect 输入
-  - 发起 bisect
-  - 最终进入 `waiting_bisect`
+    - 目标是收集 E2E 失败信息
+    - 构造 bisect 输入
+    - 发起 bisect
+    - 最终进入 `waiting_bisect`
 
 - 另一种情况是 `fix_phase3_finalize`
-  - 目标是消费 bisect 结果
-  - 进行定向修复
-  - 成功时回到 `phase=done, status=waiting_e2e`
-  - 失败或无变更时进入 manual review 路径
+    - 目标是消费 bisect 结果
+    - 进行定向修复
+    - 成功时回到 `phase=done, status=waiting_e2e`
+    - 失败或无变更时进入 manual review 路径
 
 所以阅读状态时，不能只看 `phase/status`，还要结合：
 

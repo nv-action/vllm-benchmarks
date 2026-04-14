@@ -126,7 +126,7 @@ def test_select_latest_marker_comment_prefers_highest_comment_id():
     comments = [
         {"id": 101, "body": "hello"},
         {"id": 201, "body": "<!-- main2main-state:v1\n{}\n-->"},
-        {"id": 301, "body": "<!-- main2main-state:v1\n{\"status\":\"waiting_e2e\"}\n-->"},
+        {"id": 301, "body": '<!-- main2main-state:v1\n{"status":"waiting_e2e"}\n-->'},
     ]
 
     selected = ci.select_latest_marker_comment(comments, ci.STATE_MARKER)
@@ -153,7 +153,7 @@ def test_load_phase_context_extracts_latest_state_register_and_pr_metadata():
         "body": "ignored",
     }
     comments = [
-        {"id": 10, "body": "<!-- main2main-state:v1\n{\"status\":\"waiting_e2e\"}\n-->"},
+        {"id": 10, "body": '<!-- main2main-state:v1\n{"status":"waiting_e2e"}\n-->'},
         {"id": 11, "body": ci.render_registration_comment(registration)},
         {"id": 12, "body": ci.render_state_comment(state)},
     ]
@@ -509,7 +509,9 @@ def test_prepare_fix_transition_emits_updated_state_and_registration_artifacts(t
     )
 
     assert rc == 0
-    next_state = ci.Main2MainState(**ci._normalize_state_payload(ci.json.loads(state_json_out.read_text(encoding="utf-8"))))
+    next_state = ci.Main2MainState(
+        **ci._normalize_state_payload(ci.json.loads(state_json_out.read_text(encoding="utf-8")))
+    )
     register_payload = ci.json.loads(register_json_out.read_text(encoding="utf-8"))
 
     assert next_state.phase == "3"
@@ -543,7 +545,9 @@ def test_prepare_waiting_bisect_updates_state_and_renders_comment(tmp_path):
     )
 
     assert rc == 0
-    next_state = ci.Main2MainState(**ci._normalize_state_payload(ci.json.loads(state_json_out.read_text(encoding="utf-8"))))
+    next_state = ci.Main2MainState(
+        **ci._normalize_state_payload(ci.json.loads(state_json_out.read_text(encoding="utf-8")))
+    )
     assert next_state.status == "waiting_bisect"
     assert next_state.bisect_run_id == "24120000000"
     assert next_state.fix_run_id == "24115639896"
@@ -595,7 +599,9 @@ def test_prepare_manual_review_pending_updates_state_and_registration(tmp_path):
     )
 
     assert rc == 0
-    next_state = ci.Main2MainState(**ci._normalize_state_payload(ci.json.loads(state_json_out.read_text(encoding="utf-8"))))
+    next_state = ci.Main2MainState(
+        **ci._normalize_state_payload(ci.json.loads(state_json_out.read_text(encoding="utf-8")))
+    )
     register_payload = ci.json.loads(register_json_out.read_text(encoding="utf-8"))
 
     assert next_state.phase == "done"
@@ -614,7 +620,9 @@ def test_prepare_bisect_payload_uses_state_and_ci_analysis_test_cmd(tmp_path):
     state_path = tmp_path / "state.json"
     state_path.write_text(ci.json.dumps(ci.asdict(state), ensure_ascii=True, indent=2), encoding="utf-8")
     analysis_path = tmp_path / "ci_analysis.json"
-    analysis_path.write_text(ci.json.dumps({"test_cmd": "pytest -sv tests/e2e/foo.py"}, ensure_ascii=True), encoding="utf-8")
+    analysis_path.write_text(
+        ci.json.dumps({"test_cmd": "pytest -sv tests/e2e/foo.py"}, ensure_ascii=True), encoding="utf-8"
+    )
     payload_out = tmp_path / "bisect-payload.json"
 
     rc = ci._command_prepare_bisect_payload(
@@ -659,7 +667,9 @@ def test_prepare_bisect_payload_writes_json_to_stdout_when_no_output_file_is_giv
     state_path = tmp_path / "state.json"
     state_path.write_text(ci.json.dumps(ci.asdict(state), ensure_ascii=True, indent=2), encoding="utf-8")
     analysis_path = tmp_path / "ci_analysis.json"
-    analysis_path.write_text(ci.json.dumps({"test_cmd": "pytest -sv tests/e2e/bar.py"}, ensure_ascii=True), encoding="utf-8")
+    analysis_path.write_text(
+        ci.json.dumps({"test_cmd": "pytest -sv tests/e2e/bar.py"}, ensure_ascii=True), encoding="utf-8"
+    )
 
     stdout = io.StringIO()
     with redirect_stdout(stdout):
@@ -698,7 +708,9 @@ def test_prepare_fixing_state_updates_fix_run_id_and_comment(tmp_path):
     )
 
     assert rc == 0
-    next_state = ci.Main2MainState(**ci._normalize_state_payload(ci.json.loads(state_json_out.read_text(encoding="utf-8"))))
+    next_state = ci.Main2MainState(
+        **ci._normalize_state_payload(ci.json.loads(state_json_out.read_text(encoding="utf-8")))
+    )
     assert next_state.status == "fixing"
     assert next_state.fix_run_id == "24120400380"
     assert next_state.last_transition == "fix_phase3_finalize->fixing"
@@ -739,7 +751,9 @@ def test_prepare_workflow_error_action_retries_before_escalation(tmp_path):
     )
 
     assert rc == 0
-    next_state = ci.Main2MainState(**ci._normalize_state_payload(ci.json.loads(state_json_out.read_text(encoding="utf-8"))))
+    next_state = ci.Main2MainState(
+        **ci._normalize_state_payload(ci.json.loads(state_json_out.read_text(encoding="utf-8")))
+    )
     assert next_state.dispatch_token == "retry-token"
     assert next_state.workflow_error_count == 1
     assert next_state.last_transition == "retry/fix_phase2"
@@ -767,7 +781,9 @@ def test_prepare_workflow_error_action_escalates_after_retry_budget(tmp_path):
     )
 
     assert rc == 0
-    next_state = ci.Main2MainState(**ci._normalize_state_payload(ci.json.loads(state_json_out.read_text(encoding="utf-8"))))
+    next_state = ci.Main2MainState(
+        **ci._normalize_state_payload(ci.json.loads(state_json_out.read_text(encoding="utf-8")))
+    )
     assert next_state.dispatch_token == "terminal-token"
     assert next_state.workflow_error_count == 2
     assert next_state.terminal_reason == "workflow_error"
@@ -795,7 +811,9 @@ def test_prepare_workflow_error_recovery_mints_dispatch_token_and_emits_retry_ac
     )
 
     assert rc == 0
-    next_state = ci.Main2MainState(**ci._normalize_state_payload(ci.json.loads(state_json_out.read_text(encoding="utf-8"))))
+    next_state = ci.Main2MainState(
+        **ci._normalize_state_payload(ci.json.loads(state_json_out.read_text(encoding="utf-8")))
+    )
     assert next_state.workflow_error_count == 1
     assert next_state.last_transition == "retry/fix_phase2"
     assert next_state.dispatch_token
