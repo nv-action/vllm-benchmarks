@@ -1027,17 +1027,25 @@ def render_json(result: dict) -> str:
 def select_representative_test_cases(distinct_errors: list[dict]) -> list[str]:
     representatives: list[str] = []
     used_cases: set[str] = set()
+    used_files: set[str] = set()
 
     for error in distinct_errors:
         cases = [_base_case_name(test_case) for test_case in error.get("failed_test_cases", []) if test_case]
-        if not cases:
+        if cases:
+            selected = next((test_case for test_case in cases if test_case not in used_cases), None)
+            if selected is None:
+                continue
+            representatives.append(selected)
+            used_cases.add(selected)
+            used_files.add(selected.split("::")[0])
             continue
 
-        selected = next((test_case for test_case in cases if test_case not in used_cases), None)
-        if selected is None:
+        files = [test_file for test_file in error.get("failed_test_files", []) if test_file]
+        selected_file = next((test_file for test_file in files if test_file not in used_files), None)
+        if selected_file is None:
             continue
-        representatives.append(selected)
-        used_cases.add(selected)
+        representatives.append(selected_file)
+        used_files.add(selected_file)
 
     return representatives
 
@@ -1057,7 +1065,7 @@ def build_bisect_payload(result: dict) -> dict:
         "representative_test_cases": representative_test_cases,
         "test_cmds": test_cmds,
         "test_cmd": "; ".join(test_cmds),
-        "skip_reason": None if test_cmds else "No representative failed test cases found",
+        "skip_reason": None if test_cmds else "No representative failed tests found",
     }
 
 
