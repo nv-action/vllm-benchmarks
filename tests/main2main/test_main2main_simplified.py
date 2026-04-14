@@ -57,6 +57,24 @@ def test_extract_bisect_test_cmd_falls_back_to_failed_test_files():
     )
 
 
+def test_extract_bisect_test_cmd_supports_real_mock_bisect_target():
+    module = load_module()
+
+    summary = {
+        "failed_test_cases": [
+            "tests/e2e/multicard/4-cards/test_pipeline_parallel.py::test_models_pp2_tp2",
+        ],
+        "failed_test_files": [
+            "tests/e2e/multicard/4-cards/test_pipeline_parallel.py",
+        ],
+    }
+
+    assert (
+        module.extract_bisect_test_cmd(summary)
+        == "pytest -sv tests/e2e/multicard/4-cards/test_pipeline_parallel.py::test_models_pp2_tp2"
+    )
+
+
 def test_collect_commit_range_renders_sha_subject_and_body(tmp_path):
     module = load_module()
 
@@ -101,6 +119,35 @@ def test_collect_commit_range_renders_sha_subject_and_body(tmp_path):
     assert commits[1]["body"] == "Detailed explanation for second change."
 
 
+def test_collect_commit_range_handles_commit_without_body(tmp_path):
+    module = load_module()
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+
+    sample = repo / "sample.txt"
+    sample.write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "add", "sample.txt"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "base commit"], cwd=repo, check=True)
+    base_ref = (
+        subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, check=True, text=True, capture_output=True)
+        .stdout.strip()
+    )
+
+    sample.write_text("change 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "sample.txt"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "subject only"], cwd=repo, check=True)
+
+    commits = module.collect_commit_range(repo=repo, start_ref=base_ref, end_ref="HEAD")
+
+    assert len(commits) == 1
+    assert commits[0]["subject"] == "subject only"
+    assert commits[0]["body"] == ""
+
+
 def test_append_round_commits_markdown_writes_detect_and_fix_sections(tmp_path):
     module = load_module()
 
@@ -140,6 +187,64 @@ def test_append_round_commits_markdown_writes_detect_and_fix_sections(tmp_path):
     assert "Handle upstream API rename." in content
     assert "### phase: fix" in content
     assert "round: 1" in content
+
+
+def test_render_detect_prompt_contains_expected_context():
+    module = load_module()
+
+    text = module.render_detect_prompt(
+        work_repo_dir="vllm-benchmarks",
+        vllm_dir="vllm-upstream",
+        old_commit="1" * 40,
+        new_commit="2" * 40,
+    )
+
+    assert "adapt vllm-benchmarks" in text
+    assert "- Benchmark repo is checked out at ./vllm-benchmarks" in text
+    assert "- Upstream vLLM source is checked out at ./vllm-upstream" in text
+    assert f"- OLD_COMMIT={'1' * 40}" in text
+    assert f"- NEW_COMMIT={'2' * 40}" in text
+
+
+def test_render_fix_prompt_contains_round_and_log_path():
+    module = load_module()
+    log_path = "/tmp/custom-main2main-test.log"
+
+    text = module.render_fix_prompt(
+        work_repo_dir="vllm-benchmarks",
+        vllm_dir="vllm-upstream",
+        old_commit="1" * 40,
+        new_commit="2" * 40,
+        round_index=3,
+        log_path=log_path,
+    )
+
+    assert "fix the current main2main test failures" in text
+    assert "- Current round=3" in text
+    assert f"- Main2Main test log path={log_path}" in text
+    assert f"- Use {log_path} as the primary failure-analysis input" in text
+
+
+def test_render_bisect_fix_prompt_contains_bisect_result_path():
+    module = load_module()
+    log_path = "/tmp/custom-main2main-test.log"
+    bisect_result_path = "/tmp/custom-bisect-output/bisect_result.json"
+
+    text = module.render_bisect_fix_prompt(
+        work_repo_dir="vllm-benchmarks",
+        vllm_dir="vllm-upstream",
+        old_commit="1" * 40,
+        new_commit="2" * 40,
+        round_index=2,
+        log_path=log_path,
+        bisect_result_path=bisect_result_path,
+    )
+
+    assert "fix the remaining main2main failures based on bisect results" in text
+    assert f"- Main2Main test log path={log_path}" in text
+    assert f"- Bisect result path={bisect_result_path}" in text
+    assert f"- Use {log_path} as the primary failure-analysis input" in text
+    assert "- Round=2" in text
 
 
 def test_render_pr_body_places_summary_at_top_and_embeds_round_markdown():
