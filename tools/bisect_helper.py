@@ -70,14 +70,22 @@ KIND_SOURCES = {
         "caller_job": "e2e-test",
         "test_step": "Run e2e test",
     },
-    "e2e_2cards": {**COMMON_E2E_SOURCE, "job": "e2e-2-cards-full", "test_step": "Run nv-action/vllm-benchmark test (full)"},
+    "e2e_2cards": {
+        **COMMON_E2E_SOURCE,
+        "job": "e2e-2-cards-full",
+        "test_step": "Run nv-action/vllm-benchmark test (full)",
+    },
     "e2e_4cards": {
         **COMMON_E2E_SOURCE,
         "job": "e2e-4-cards-full",
         "test_step": "Run nv-action/vllm-benchmark test for V1 Engine",
     },
     "e2e_310p_singlecard": {**COMMON_E2E_SOURCE, "job": "e2e_310p", "test_step": "Run nv-action/vllm-benchmark test"},
-    "e2e_310p_4cards": {**COMMON_E2E_SOURCE, "job": "e2e_310p-4cards", "test_step": "Run nv-action/vllm-benchmark test"},
+    "e2e_310p_4cards": {
+        **COMMON_E2E_SOURCE,
+        "job": "e2e_310p-4cards",
+        "test_step": "Run nv-action/vllm-benchmark test",
+    },
 }
 
 COMMIT_HASH_RE = re.compile(r"^[0-9a-f]{7,40}$")
@@ -151,7 +159,9 @@ def _get_job(workflow: dict, job_name: str) -> dict:
 
 
 def _get_step(job: dict, step_name: str) -> dict:
-    step = next((step for step in job.get("steps", []) if isinstance(step, dict) and step.get("name") == step_name), None)
+    step = next(
+        (step for step in job.get("steps", []) if isinstance(step, dict) and step.get("name") == step_name), None
+    )
     if step is None:
         raise KeyError(f"step not found: {step_name}")
     return step
@@ -239,7 +249,10 @@ def get_commit_from_yaml(yaml_path: str, ref: str | None = None) -> str | None:
     match = re.search(r"vllm_version:\s*\[([^\]]+)\]", content)
     if not match:
         return None
-    return next((entry for entry in (e.strip().strip("'\"") for e in match.group(1).split(",")) if COMMIT_HASH_RE.match(entry)), None)
+    return next(
+        (entry for entry in (e.strip().strip("'\"") for e in match.group(1).split(",")) if COMMIT_HASH_RE.match(entry)),
+        None,
+    )
 
 
 def get_pkg_location(pkg_name: str) -> str | None:
@@ -309,7 +322,9 @@ def build_batch_matrix(test_cmds_str: str) -> dict:
     if not cmds:
         return {"include": []}
     manifest = load_runtime_env_manifest()
-    all_container_env_keys = sorted({key for profile in manifest.values() for key in profile["effective_container_env"]})
+    all_container_env_keys = sorted(
+        {key for profile in manifest.values() for key in profile["effective_container_env"]}
+    )
     grouped: dict[tuple[str, str, str, str], dict] = {}
     for cmd in cmds:
         env = _resolve_env_for_test_cmd(cmd)
@@ -529,7 +544,9 @@ def main():
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # Used by bisect_vllm.yaml set-params.
-    p_batch = subparsers.add_parser("batch-matrix", help="Build a GitHub Actions matrix from semicolon-separated test commands")
+    p_batch = subparsers.add_parser(
+        "batch-matrix", help="Build a GitHub Actions matrix from semicolon-separated test commands"
+    )
     p_batch.add_argument("--test-cmds", required=True, help="Semicolon-separated test commands")
     p_batch.add_argument("--output-format", choices=["json", "github"], default="github", help="Output format")
     p_batch.set_defaults(func=cmd_batch_matrix)
@@ -563,7 +580,9 @@ def main():
     p_vllm_install.add_argument("--test-cmd", required=True)
     p_vllm_install.set_defaults(func=cmd_vllm_install)
 
-    p_ascend_install = subparsers.add_parser("ascend-install", help="Get vllm-ascend install command for a test command")
+    p_ascend_install = subparsers.add_parser(
+        "ascend-install", help="Get vllm-ascend install command for a test command"
+    )
     p_ascend_install.add_argument("--test-cmd", required=True)
     p_ascend_install.set_defaults(func=cmd_ascend_install)
 
