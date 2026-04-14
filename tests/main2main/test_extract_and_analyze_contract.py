@@ -404,6 +404,53 @@ def test_build_bisect_payload_strips_parametrized_case_suffixes():
     ]
 
 
+def test_build_bisect_payload_falls_back_to_representative_files_when_cases_are_missing():
+    module = load_module()
+
+    result = {
+        "run_id": 456,
+        "run_url": "https://example/runs/456",
+        "good_commit": "good",
+        "bad_commit": "bad",
+        "distinct_errors": [
+            {
+                "error_type": "ImportError",
+                "error_message": "first",
+                "failed_test_cases": [],
+                "failed_test_files": [
+                    "tests/e2e/a/test_alpha.py",
+                    "tests/e2e/a/test_alpha_extra.py",
+                ],
+            },
+            {
+                "error_type": "RuntimeError",
+                "error_message": "second",
+                "failed_test_cases": [],
+                "failed_test_files": [
+                    "tests/e2e/a/test_alpha.py",
+                    "tests/e2e/b/test_beta.py",
+                ],
+            },
+        ],
+    }
+
+    payload = module.build_bisect_payload(result)
+
+    assert payload["representative_test_cases"] == [
+        "tests/e2e/a/test_alpha.py",
+        "tests/e2e/b/test_beta.py",
+    ]
+    assert payload["test_cmds"] == [
+        "pytest -sv tests/e2e/a/test_alpha.py",
+        "pytest -sv tests/e2e/b/test_beta.py",
+    ]
+    assert (
+        payload["test_cmd"]
+        == "pytest -sv tests/e2e/a/test_alpha.py; "
+        "pytest -sv tests/e2e/b/test_beta.py"
+    )
+
+
 def test_main_supports_bisect_json_format(monkeypatch, capsys):
     module = load_module()
     calls = []

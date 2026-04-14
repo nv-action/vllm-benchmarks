@@ -52,10 +52,17 @@ def collect_commit_range(*, repo: Path, start_ref: str, end_ref: str) -> list[di
     )
     commits: list[dict[str, str]] = []
     for record in log_output.split("\x1e"):
-        record = record.strip()
-        if not record:
+        if not record.strip():
             continue
-        sha, subject, body = record.split("\x1f", 2)
+        record = record.rstrip("\n")
+        parts = record.split("\x1f", 2)
+        if len(parts) == 2:
+            sha, subject = parts
+            body = ""
+        elif len(parts) == 3:
+            sha, subject, body = parts
+        else:
+            raise ValueError(f"Unexpected git log record format: {record!r}")
         commits.append(
             {
                 "sha": sha.strip(),
@@ -95,6 +102,95 @@ def append_round_commits_markdown(
     with output_path.open("a", encoding="utf-8") as handle:
         handle.write("\n".join(lines))
         handle.write("\n")
+
+
+def render_detect_prompt(*, work_repo_dir: str, vllm_dir: str, old_commit: str, new_commit: str) -> str:
+    return "\n".join(
+        [
+            "Use Main2Main skill to adapt vllm-benchmarks to the latest vLLM main branch.",
+            "",
+            "Context:",
+            f"- Benchmark repo is checked out at ./{work_repo_dir}",
+            f"- Upstream vLLM source is checked out at ./{vllm_dir}",
+            f"- OLD_COMMIT={old_commit}",
+            f"- NEW_COMMIT={new_commit}",
+            "",
+            "Requirements:",
+            "- Analyze upstream diff and apply adaptation fixes",
+            "- Update commit references if needed",
+            "- Create a git commit if and only if you make valid code changes",
+            "- Do not push",
+            "- Do not create a PR",
+        ]
+    ) + "\n"
+
+
+def render_fix_prompt(
+    *,
+    work_repo_dir: str,
+    vllm_dir: str,
+    old_commit: str,
+    new_commit: str,
+    round_index: int,
+    log_path: str,
+) -> str:
+    return "\n".join(
+        [
+            "Use Main2Main skill to fix the current main2main test failures.",
+            f"test failures log is available at {log_path}",
+            "",
+            "Context:",
+            f"- Benchmark repo is checked out at ./{work_repo_dir}",
+            f"- Upstream vLLM source is checked out at ./{vllm_dir}",
+            f"- OLD_COMMIT={old_commit}",
+            f"- NEW_COMMIT={new_commit}",
+            f"- Current round={round_index}",
+            f"- Main2Main test log path={log_path}",
+            "",
+            "Requirements:",
+            f"- Use {log_path} as the primary failure-analysis input",
+            "- Fix code bugs in the benchmark repo",
+            "- Modify code only",
+            "- Create a git commit if and only if you make valid code changes",
+            "- Do not push",
+            "- Do not create a PR",
+        ]
+    ) + "\n"
+
+
+def render_bisect_fix_prompt(
+    *,
+    work_repo_dir: str,
+    vllm_dir: str,
+    old_commit: str,
+    new_commit: str,
+    round_index: int,
+    log_path: str,
+    bisect_result_path: str,
+) -> str:
+    return "\n".join(
+        [
+            "Use the main2main skill to fix the remaining main2main failures based on bisect results.",
+            "The CI still failed after fix, so test failure log and bisect results are also provided.",
+            "",
+            "Context:",
+            f"- Benchmark repo is checked out at ./{work_repo_dir}",
+            f"- Upstream vLLM source is checked out at ./{vllm_dir}",
+            f"- Main2Main test log path={log_path}",
+            f"- Bisect result path={bisect_result_path}",
+            f"- Round={round_index}",
+            f"- OLD_COMMIT={old_commit}",
+            f"- NEW_COMMIT={new_commit}",
+            "",
+            "Requirements:",
+            "- Use the bisect result to produce a targeted fix",
+            f"- Use {log_path} as the primary failure-analysis input",
+            "- Modify code only",
+            "- Create a git commit if and only if you make valid code changes",
+            "- Do not push",
+            "- Do not create a PR",
+        ]
+    ) + "\n"
 
 
 def should_create_pr(commits: list[dict[str, str]]) -> bool:
@@ -263,6 +359,17 @@ def _build_parser() -> argparse.ArgumentParser:
     append_round_parser.add_argument("--start-ref", required=True)
     append_round_parser.add_argument("--end-ref", required=True)
 
+    prompt_parser = subparsers.add_parser("render-prompt")
+    prompt_parser.add_argument("--phase", required=True, choices=["detect", "fix", "bisect"])
+    prompt_parser.add_argument("--output", type=Path, required=True)
+    prompt_parser.add_argument("--work-repo-dir", required=True)
+    prompt_parser.add_argument("--vllm-dir", required=True)
+    prompt_parser.add_argument("--old-commit", required=True)
+    prompt_parser.add_argument("--new-commit", required=True)
+    prompt_parser.add_argument("--round", type=int)
+    prompt_parser.add_argument("--log-path")
+    prompt_parser.add_argument("--bisect-result-path")
+
     pr_parser = subparsers.add_parser("render-pr-body")
     pr_parser.add_argument("--old-commit", required=True)
     pr_parser.add_argument("--new-commit", required=True)
@@ -325,6 +432,46 @@ def main() -> None:
             commits=commits,
         )
         print(json.dumps({"count": len(commits)}, ensure_ascii=False))
+        return
+
+    if args.command == "render-prompt":
+        if args.phase == "detect":
+            text = render_detect_prompt(
+                work_repo_dir=args.work_repo_dir,
+                vllm_dir=args.vllm_dir,
+                old_commit=args.old_commit,
+                new_commit=args.new_commit,
+            )
+        elif args.phase == "fix":
+            if args.round is None:
+                raise ValueError("--round is required for phase=fix")
+            if not args.log_path:
+                raise ValueError("--log-path is required for phase=fix")
+            text = render_fix_prompt(
+                work_repo_dir=args.work_repo_dir,
+                vllm_dir=args.vllm_dir,
+                old_commit=args.old_commit,
+                new_commit=args.new_commit,
+                round_index=args.round,
+                log_path=args.log_path,
+            )
+        else:
+            if args.round is None:
+                raise ValueError("--round is required for phase=bisect")
+            if not args.log_path:
+                raise ValueError("--log-path is required for phase=bisect")
+            if not args.bisect_result_path:
+                raise ValueError("--bisect-result-path is required for phase=bisect")
+            text = render_bisect_fix_prompt(
+                work_repo_dir=args.work_repo_dir,
+                vllm_dir=args.vllm_dir,
+                old_commit=args.old_commit,
+                new_commit=args.new_commit,
+                round_index=args.round,
+                log_path=args.log_path,
+                bisect_result_path=args.bisect_result_path,
+            )
+        args.output.write_text(text, encoding="utf-8")
         return
 
     if args.command == "render-pr-body":
