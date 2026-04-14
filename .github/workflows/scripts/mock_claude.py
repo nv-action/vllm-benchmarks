@@ -1,0 +1,190 @@
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+from pathlib import Path
+
+
+def _run_git(repo: Path, *args: str) -> str:
+    result = subprocess.run(
+        ["git", *args],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+def _replace_old_commit(repo: Path, *, old_commit: str, new_commit: str) -> bool:
+    changed = False
+    for path in repo.rglob("*"):
+        if not path.is_file():
+            continue
+        if ".git" in path.parts:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        if old_commit not in text:
+            continue
+        path.write_text(text.replace(old_commit, new_commit), encoding="utf-8")
+        changed = True
+    return changed
+
+
+def _modify_round_file(repo: Path, *, phase: str, new_commit: str) -> bool:
+    path = repo / ".github" / "mock-main2main.yaml"
+    phase_lines: list[str] = []
+    if path.exists():
+        phase_lines = path.read_text(encoding="utf-8").splitlines()
+    phase_lines = [line for line in phase_lines if not line.startswith(f"{phase}:")]
+    phase_lines.append(f"{phase}: {new_commit}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(phase_lines) + "\n", encoding="utf-8")
+    return True
+
+
+def _commit_all(repo: Path, message: str) -> None:
+    _run_git(repo, "add", "-A")
+    _run_git(repo, "commit", "-m", message)
+
+
+def _detect_phase(prompt: str) -> str:
+    lower_prompt = prompt.lower()
+    if "adapt vllm-benchmarks" in lower_prompt:
+        return "detect"
+    if "bisect" in lower_prompt:
+        return "bisect"
+    if "fix the current main2main test failures" in lower_prompt:
+        return "fix"
+    return "generic"
+
+
+def _result_payload(phase: str, mode: str, session_id: str) -> dict[str, object]:
+    return {
+        "type": "result",
+        "subtype": "success",
+        "is_error": False,
+        "num_turns": 1,
+        "session_id": session_id,
+        "result": f"mock {mode} {phase} success",
+    }
+
+
+def _resolve_phase(prompt: str) -> str:
+    explicit = os.environ.get("MOCK_CLAUDE_PHASE", "").strip()
+    if explicit:
+        if explicit not in {"detect", "fix", "bisect"}:
+            raise SystemExit(f"Unsupported MOCK_CLAUDE_PHASE={explicit}")
+        return explicit
+    return _detect_phase(prompt)
+
+
+def _validate_inputs(
+    *,
+    prompt: str,
+    system_prompt_path: str | None,
+    output_format: str | None,
+    allowed_tools: str | None,
+    work_repo: Path,
+    upstream_repo: Path,
+    phase: str,
+) -> None:
+    if output_format != "json":
+        raise SystemExit("mock_claude.py requires --output-format json")
+    if not system_prompt_path:
+        raise SystemExit("mock_claude.py requires --append-system-prompt-file")
+    if not Path(system_prompt_path).is_file():
+        raise SystemExit(f"System prompt file not found: {system_prompt_path}")
+    if not allowed_tools:
+        raise SystemExit("mock_claude.py requires --allowedTools")
+    if not work_repo.is_dir():
+        raise SystemExit(f"Work repo not found: {work_repo}")
+    if not upstream_repo.is_dir():
+        raise SystemExit(f"Upstream repo not found: {upstream_repo}")
+    if f"./{work_repo.name}" not in prompt:
+        raise SystemExit("Prompt is missing work repo path context")
+    if f"./{upstream_repo.name}" not in prompt:
+        raise SystemExit("Prompt is missing upstream repo path context")
+    if phase in {"fix", "bisect"}:
+        log_path = os.environ.get("MOCK_CLAUDE_LOG_PATH", "").strip()
+        if not log_path:
+            raise SystemExit("MOCK_CLAUDE_LOG_PATH is required for fix/bisect")
+        log_file = Path(log_path)
+        if not log_file.is_file():
+            raise SystemExit(f"Mock log file not found: {log_file}")
+        if log_path not in prompt:
+            raise SystemExit("Prompt is missing the provided log path")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-p", "--print", dest="prompt")
+    parser.add_argument("-r", "--resume", nargs="?")
+    parser.add_argument("-c", "--continue-session", action="store_true")
+    parser.add_argument("--session-id")
+    parser.add_argument("--model")
+    parser.add_argument("--append-system-prompt-file")
+    parser.add_argument("--output-format")
+    parser.add_argument("--allowedTools")
+    parser.add_argument("--dangerously-skip-permissions", action="store_true")
+    parser.add_argument("--permission-mode")
+    parser.add_argument("--version", action="store_true")
+    args, _ = parser.parse_known_args()
+
+    if args.version:
+        print("mock-claude 0.1.0")
+        return
+
+    prompt = args.prompt or ""
+    phase = _resolve_phase(prompt)
+    mode = os.environ.get("MOCK_CLAUDE_MODE", "off")
+    work_repo = Path(os.environ["MOCK_CLAUDE_WORK_REPO"])
+    upstream_repo = Path(os.environ["MOCK_CLAUDE_UPSTREAM_REPO"])
+    new_commit = os.environ["MOCK_CLAUDE_NEW_COMMIT"]
+    session_id = args.session_id or "mock-session-default"
+
+    _validate_inputs(
+        prompt=prompt,
+        system_prompt_path=args.append_system_prompt_file,
+        output_format=args.output_format,
+        allowed_tools=args.allowedTools,
+        work_repo=work_repo,
+        upstream_repo=upstream_repo,
+        phase=phase,
+    )
+
+    if mode == "nochange":
+        print(json.dumps(_result_payload(phase, mode, session_id)))
+        return
+
+    if mode != "success":
+        raise SystemExit(f"Unsupported MOCK_CLAUDE_MODE={mode}")
+
+    changed = False
+    if phase == "detect":
+        changed = _replace_old_commit(
+            work_repo,
+            old_commit=os.environ["MOCK_CLAUDE_OLD_COMMIT"],
+            new_commit=new_commit,
+        )
+        if changed:
+            _commit_all(work_repo, f"mock detect: adapt to {new_commit[:8]}")
+    elif phase in {"fix", "bisect", "generic"}:
+        changed = _modify_round_file(
+            work_repo,
+            phase=phase,
+            new_commit=new_commit,
+        )
+        if changed:
+            _commit_all(work_repo, f"mock {phase}: update config for {new_commit[:8]}")
+
+    print(json.dumps(_result_payload(phase, mode, session_id)))
+
+
+if __name__ == "__main__":
+    main()
