@@ -50,7 +50,7 @@ def test_v2_workflow_declares_only_target_commit_dispatch_input():
     assert "schedule" in on_section
     assert "workflow_dispatch" in on_section
     dispatch_inputs = on_section["workflow_dispatch"]["inputs"]
-    assert list(dispatch_inputs) == ["target_commit", "fix_round_limit", "bisect_round_limit"]
+    assert list(dispatch_inputs) == ["target_commit", "fix_round_limit", "bisect_round_limit", "mock_claude"]
 
 
 def test_v2_workflow_uses_one_long_lived_main_job():
@@ -65,6 +65,7 @@ def test_v2_workflow_installs_and_configures_claude_cli():
     text = read_text(MAIN_WORKFLOW_V2_PATH)
 
     assert "Install Claude Code CLI" in text
+    assert "Install mock Claude CLI" in text
     assert "Write Claude settings.json" in text
     assert "settings.json" in text
     assert "claude --version" in text
@@ -89,7 +90,8 @@ def test_v2_workflow_still_uses_bisect_workflow_and_helper_cli():
     text = read_text(MAIN_WORKFLOW_V2_PATH)
 
     assert "gh workflow run dispatch_main2main_bisect.yaml" in text
-    assert "extract-bisect-test-cmd" in text
+    assert "--format bisect-json" in text
+    assert 'data.get("test_cmd", "")' in text
     assert "build-request-id" in text
     assert "render-pr-body" in text
     assert "render-manual-review-issue" in text
@@ -102,8 +104,21 @@ def test_v2_workflow_keeps_suite_and_log_file_contract():
     assert "--suite e2e-main2main" in text
     assert "--continue-on-error" in text
     assert "/tmp/main2main-test.log" in text
-    assert "Use the Main2Main skill log-file entry path." in text
-    assert "ci_log_summary.py" not in text
+    assert "main2main_simplified.py" in text
+    assert "render-prompt" in text
+    assert "--phase fix" in text
+    assert "--phase bisect" in text
+    assert "--format bisect-json" in text
+    assert "/tmp/main2main-bisect-input.json" in text
+    assert "Determine publication state" in text
+    assert "Publish draft PR" in text
+    assert "Count generated commits" not in text
+    assert "Stop when no code adaptation was produced" not in text
+    assert "Render manual review issue" not in text
+    assert "- name: Render PR body" not in text
+    assert "- name: Push branch" not in text
+    assert "- name: Create draft PR" not in text
+    assert "Create manual review issue" in text
 
 
 def test_v2_workflow_does_not_use_claude_code_action():
@@ -111,11 +126,22 @@ def test_v2_workflow_does_not_use_claude_code_action():
     assert "anthropics/claude-code-action/base-action@" not in text
 
 
+def test_v2_workflow_supports_mock_claude_modes():
+    text = read_text(MAIN_WORKFLOW_V2_PATH)
+
+    assert "mock_claude" in text
+    assert "off" in text
+    assert "success" in text
+    assert "nochange" in text
+    assert "mock_claude.py" in text
+
+
 def test_v2_workflow_lets_claude_commit_and_workflow_no_longer_commits_directly():
     text = read_text(MAIN_WORKFLOW_V2_PATH)
 
     assert "Do not commit" not in text
-    assert "Create a git commit if and only if you make valid code changes" in text
+    assert "main2main_simplified.py" in text
+    assert "render-prompt" in text
     assert "git commit -F" not in text
 
 
