@@ -101,6 +101,35 @@ def test_collect_commit_range_renders_sha_subject_and_body(tmp_path):
     assert commits[1]["body"] == "Detailed explanation for second change."
 
 
+def test_collect_commit_range_handles_commit_without_body(tmp_path):
+    module = load_module()
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+
+    sample = repo / "sample.txt"
+    sample.write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "add", "sample.txt"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "base commit"], cwd=repo, check=True)
+    base_ref = (
+        subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, check=True, text=True, capture_output=True)
+        .stdout.strip()
+    )
+
+    sample.write_text("change 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "sample.txt"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "subject only"], cwd=repo, check=True)
+
+    commits = module.collect_commit_range(repo=repo, start_ref=base_ref, end_ref="HEAD")
+
+    assert len(commits) == 1
+    assert commits[0]["subject"] == "subject only"
+    assert commits[0]["body"] == ""
+
+
 def test_append_round_commits_markdown_writes_detect_and_fix_sections(tmp_path):
     module = load_module()
 
@@ -140,6 +169,56 @@ def test_append_round_commits_markdown_writes_detect_and_fix_sections(tmp_path):
     assert "Handle upstream API rename." in content
     assert "### phase: fix" in content
     assert "round: 1" in content
+
+
+def test_render_detect_prompt_contains_expected_context():
+    module = load_module()
+
+    text = module.render_detect_prompt(
+        work_repo_dir="vllm-benchmarks",
+        vllm_dir="vllm-upstream",
+        old_commit="1" * 40,
+        new_commit="2" * 40,
+    )
+
+    assert "adapt vllm-benchmarks" in text
+    assert "- Benchmark repo is checked out at ./vllm-benchmarks" in text
+    assert "- Upstream vLLM source is checked out at ./vllm-upstream" in text
+    assert f"- OLD_COMMIT={'1' * 40}" in text
+    assert f"- NEW_COMMIT={'2' * 40}" in text
+
+
+def test_render_fix_prompt_contains_round_and_log_path():
+    module = load_module()
+
+    text = module.render_fix_prompt(
+        work_repo_dir="vllm-benchmarks",
+        vllm_dir="vllm-upstream",
+        old_commit="1" * 40,
+        new_commit="2" * 40,
+        round_index=3,
+    )
+
+    assert "fix the current main2main test failures" in text
+    assert "- Current round=3" in text
+    assert "- Main2Main test log path=/tmp/main2main-test.log" in text
+    assert "- Use /tmp/main2main-test.log as the primary failure-analysis input" in text
+
+
+def test_render_bisect_fix_prompt_contains_bisect_result_path():
+    module = load_module()
+
+    text = module.render_bisect_fix_prompt(
+        work_repo_dir="vllm-benchmarks",
+        vllm_dir="vllm-upstream",
+        old_commit="1" * 40,
+        new_commit="2" * 40,
+        round_index=2,
+    )
+
+    assert "fix the remaining main2main failures based on bisect results" in text
+    assert "- Bisect result path=/tmp/bisect_output_round2/bisect_result.json" in text
+    assert "- Round=2" in text
 
 
 def test_render_pr_body_places_summary_at_top_and_embeds_round_markdown():
