@@ -1,9 +1,9 @@
 import importlib.util
 import json
 import os
-from pathlib import Path
 import subprocess
 import tempfile
+from pathlib import Path
 
 SCRIPT_PATH = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "scripts" / "ci_log_summary.py"
 BISECT_SCRIPT_PATH = Path(__file__).resolve().parents[2] / "tools" / "bisect_vllm.sh"
@@ -361,8 +361,7 @@ def test_build_bisect_payload_selects_representative_cases_per_error():
         "pytest -sv tests/e2e/b/test_beta.py::test_case_c",
     ]
     assert (
-        payload["test_cmd"]
-        == "pytest -sv tests/e2e/a/test_alpha.py::test_case_a; "
+        payload["test_cmd"] == "pytest -sv tests/e2e/a/test_alpha.py::test_case_a; "
         "pytest -sv tests/e2e/b/test_beta.py::test_case_c"
     )
 
@@ -402,6 +401,49 @@ def test_build_bisect_payload_strips_parametrized_case_suffixes():
     assert payload["test_cmds"] == [
         "pytest -sv tests/e2e/singlecard/test_sampler.py::test_qwen3_topk",
     ]
+
+
+def test_build_bisect_payload_falls_back_to_representative_files_when_cases_are_missing():
+    module = load_module()
+
+    result = {
+        "run_id": 456,
+        "run_url": "https://example/runs/456",
+        "good_commit": "good",
+        "bad_commit": "bad",
+        "distinct_errors": [
+            {
+                "error_type": "ImportError",
+                "error_message": "first",
+                "failed_test_cases": [],
+                "failed_test_files": [
+                    "tests/e2e/a/test_alpha.py",
+                    "tests/e2e/a/test_alpha_extra.py",
+                ],
+            },
+            {
+                "error_type": "RuntimeError",
+                "error_message": "second",
+                "failed_test_cases": [],
+                "failed_test_files": [
+                    "tests/e2e/a/test_alpha.py",
+                    "tests/e2e/b/test_beta.py",
+                ],
+            },
+        ],
+    }
+
+    payload = module.build_bisect_payload(result)
+
+    assert payload["representative_test_cases"] == [
+        "tests/e2e/a/test_alpha.py",
+        "tests/e2e/b/test_beta.py",
+    ]
+    assert payload["test_cmds"] == [
+        "pytest -sv tests/e2e/a/test_alpha.py",
+        "pytest -sv tests/e2e/b/test_beta.py",
+    ]
+    assert payload["test_cmd"] == "pytest -sv tests/e2e/a/test_alpha.py; pytest -sv tests/e2e/b/test_beta.py"
 
 
 def test_main_supports_bisect_json_format(monkeypatch, capsys):
@@ -507,7 +549,9 @@ def test_extract_bad_commit_returns_input_vllm_sha_first(monkeypatch):
 2026-03-16T08:29:53Z 65b2f405dca824adad17a42a71c908c6ebbcfd9a
 """.strip()
 
-    monkeypatch.setattr(module, "gh_api_json", lambda endpoint, **params: (_ for _ in ()).throw(AssertionError(endpoint)))
+    monkeypatch.setattr(
+        module, "gh_api_json", lambda endpoint, **params: (_ for _ in ()).throw(AssertionError(endpoint))
+    )
 
     assert module.extract_bad_commit(log_text) == "57431d8231235cdae89e71b4024f611858c47372"
 
@@ -525,7 +569,9 @@ def test_extract_bad_commit_uses_checkout_hash_for_branch_input(monkeypatch):
 2026-03-10T20:29:54Z Uses: vllm-project/vllm-ascend/.github/workflows/_e2e_test.yaml@refs/heads/main (e16009b2cce40833b25cdd0284e85bb1984585bc)
 """.strip()
 
-    monkeypatch.setattr(module, "gh_api_json", lambda endpoint, **params: (_ for _ in ()).throw(AssertionError(endpoint)))
+    monkeypatch.setattr(
+        module, "gh_api_json", lambda endpoint, **params: (_ for _ in ()).throw(AssertionError(endpoint))
+    )
 
     assert module.extract_bad_commit(log_text) == "65b2f405dca824adad17a42a71c908c6ebbcfd9a"
 
@@ -546,7 +592,9 @@ def test_extract_bad_commit_ignores_vllm_ascend_checkout_hash(monkeypatch):
 2026-03-10T20:29:53Z 65b2f405dca824adad17a42a71c908c6ebbcfd9a
 """.strip()
 
-    monkeypatch.setattr(module, "gh_api_json", lambda endpoint, **params: (_ for _ in ()).throw(AssertionError(endpoint)))
+    monkeypatch.setattr(
+        module, "gh_api_json", lambda endpoint, **params: (_ for _ in ()).throw(AssertionError(endpoint))
+    )
 
     assert module.extract_bad_commit(log_text) == "65b2f405dca824adad17a42a71c908c6ebbcfd9a"
 
@@ -566,7 +614,9 @@ def test_extract_bad_commit_uses_real_checkout_hash_for_tag_input(monkeypatch):
 2026-03-16T08:29:53Z b31e9326a7d9394aab8c767f8ebe225c65594b60
 """.strip()
 
-    monkeypatch.setattr(module, "gh_api_json", lambda endpoint, **params: (_ for _ in ()).throw(AssertionError(endpoint)))
+    monkeypatch.setattr(
+        module, "gh_api_json", lambda endpoint, **params: (_ for _ in ()).throw(AssertionError(endpoint))
+    )
 
     assert module.extract_bad_commit(log_text) == "b31e9326a7d9394aab8c767f8ebe225c65594b60"
 
@@ -722,7 +772,9 @@ def test_gh_api_json_retries_eof_once(monkeypatch, capsys):
 
 def test_bisect_script_does_not_exit_during_parse_args_for_test_cmds_file(tmp_path):
     cmds_file = tmp_path / "cmds.txt"
-    cmds_file.write_text("pytest -sv tests/ut/spec_decode/test_eagle_proposer.py::TestEagleProposerInitialization::test_initialization_eagle_graph\n")
+    cmds_file.write_text(
+        "pytest -sv tests/ut/spec_decode/test_eagle_proposer.py::TestEagleProposerInitialization::test_initialization_eagle_graph\n"
+    )
 
     result = subprocess.run(
         [
@@ -732,12 +784,12 @@ def test_bisect_script_does_not_exit_during_parse_args_for_test_cmds_file(tmp_pa
             str(cmds_file),
             "--vllm-repo",
             "/nonexistent/vllm",
-                "--ascend-repo",
-                "/nonexistent/ascend",
-                "--fetch-depth",
-                "0",
-                "--good",
-                "35141a7eeda941a60ad5a4956670c60fd5a77029",
+            "--ascend-repo",
+            "/nonexistent/ascend",
+            "--fetch-depth",
+            "0",
+            "--good",
+            "35141a7eeda941a60ad5a4956670c60fd5a77029",
             "--bad",
             "c6f722b93e8e795065751172812ee6a5540e5901",
         ],
@@ -806,7 +858,7 @@ def test_bisect_script_prefers_editable_project_location_for_ascend_repo(tmp_pat
         "\n".join(
             [
                 "#!/bin/sh",
-                'if [ \"$1\" = \"show\" ] && [ \"$2\" = \"vllm-ascend\" ]; then',
+                'if [ "$1" = "show" ] && [ "$2" = "vllm-ascend" ]; then',
                 "  cat <<'EOF'",
                 "Name: vllm_ascend",
                 f"Location: {location_repo}",
@@ -814,7 +866,7 @@ def test_bisect_script_prefers_editable_project_location_for_ascend_repo(tmp_pat
                 "EOF",
                 "  exit 0",
                 "fi",
-                "exec /usr/bin/env pip \"$@\"",
+                'exec /usr/bin/env pip "$@"',
             ]
         )
         + "\n"

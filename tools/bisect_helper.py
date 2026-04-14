@@ -74,18 +74,18 @@ KIND_SOURCES = {
     "e2e_2cards": {
         **COMMON_E2E_SOURCE,
         "job": "e2e-2-cards-full",
-        "test_step": "Run vllm-project/vllm-ascend test (full)",
+        "test_step": "Run nv-action/vllm-benchmark test (full)",
     },
     "e2e_4cards": {
         **COMMON_E2E_SOURCE,
         "job": "e2e-4-cards-full",
         "test_step": "Run vllm-project/vllm-ascend test for V1 Engine",
     },
-    "e2e_310p_singlecard": {**COMMON_E2E_SOURCE, "job": "e2e_310p", "test_step": "Run vllm-project/vllm-ascend test"},
+    "e2e_310p_singlecard": {**COMMON_E2E_SOURCE, "job": "e2e_310p", "test_step": "Run nv-action/vllm-benchmark test"},
     "e2e_310p_4cards": {
         **COMMON_E2E_SOURCE,
         "job": "e2e_310p-4cards",
-        "test_step": "Run vllm-project/vllm-ascend test",
+        "test_step": "Run nv-action/vllm-benchmark test",
     },
 }
 

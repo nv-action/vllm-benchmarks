@@ -1,7 +1,6 @@
 import importlib.util
 from pathlib import Path
 
-
 SCRIPT_PATH = Path(__file__).resolve().parents[2] / "tools" / "bisect_helper.py"
 
 
@@ -24,9 +23,7 @@ def _entry_for_path(module, test_path: str):
 def test_load_yaml_reads_workflow_with_block_scalars():
     module = load_module()
 
-    data = module._load_yaml(
-        Path(__file__).resolve().parents[2] / ".github" / "workflows" / "_e2e_test.yaml"
-    )
+    data = module._load_yaml(Path(__file__).resolve().parents[2] / ".github" / "workflows" / "_e2e_test.yaml")
 
     config_step = next(step for step in data["jobs"]["e2e-full"]["steps"] if step["name"] == "Config mirrors")
     assert "pip config set global.index-url" in config_step["run"]
@@ -44,7 +41,10 @@ def test_build_batch_matrix_uses_unit_runtime_workflow_config():
     assert entry["cenv_UV_PYTHON"] == "python3"
     assert "python3-pip git vim wget net-tools" in entry["sys_deps"]
     assert "uv pip install . --extra-index-url https://download.pytorch.org/whl/cpu/" in entry["vllm_install"]
-    assert "export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/Ascend/ascend-toolkit/latest/x86_64-linux/devlib" in entry["ascend_install"]
+    assert (
+        "export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/Ascend/ascend-toolkit/latest/x86_64-linux/devlib"
+        in entry["ascend_install"]
+    )
     assert '"TORCH_DEVICE_BACKEND_AUTOLOAD": "0"' in entry["runtime_env"]
     assert '"SOC_VERSION": "ascend910b1"' not in entry["runtime_env"]
     assert '"UV_PYTHON": "python3"' not in entry["runtime_env"]
@@ -57,14 +57,22 @@ def test_build_batch_matrix_uses_singlecard_full_runtime_workflow_config():
 
     assert entry["group"] == "e2e-singlecard"
     assert entry["runner"] == "linux-aarch64-a2-1"
-    assert entry["image"] == "swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-910b-ubuntu22.04-py3.11"
+    assert (
+        entry["image"] == "swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-910b-ubuntu22.04-py3.11"
+    )
     assert entry["cenv_MODELSCOPE_HUB_FILE_LOCK"] == "False"
     assert entry["cenv_UV_INDEX_URL"] == "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
-    assert "pip config set global.index-url http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple" in entry["sys_deps"]
+    assert (
+        "pip config set global.index-url http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+        in entry["sys_deps"]
+    )
     assert "update-alternatives --install /usr/bin/clang clang /usr/bin/clang-15 20" in entry["sys_deps"]
     assert "uv pip install -r requirements-dev.txt" in entry["ascend_install"]
     assert '"PYTORCH_NPU_ALLOC_CONF": "max_split_size_mb:256"' in entry["runtime_env"]
-    assert '"UV_INDEX_URL": "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"' not in entry["runtime_env"]
+    assert (
+        '"UV_INDEX_URL": "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"'
+        not in entry["runtime_env"]
+    )
     assert '"VLLM_USE_MODELSCOPE": "True"' not in entry["runtime_env"]
 
 
@@ -75,7 +83,9 @@ def test_build_batch_matrix_uses_310p_multicard_runtime_workflow_config():
 
     assert entry["group"] == "e2e-310p-4cards"
     assert entry["runner"] == "linux-aarch64-310p-4"
-    assert entry["image"] == "swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-310p-ubuntu22.04-py3.11"
+    assert (
+        entry["image"] == "swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-310p-ubuntu22.04-py3.11"
+    )
     assert entry["cenv_HF_HUB_OFFLINE"] == "1"
     assert "clang-15" not in entry["sys_deps"]
     assert "tests/e2e/310p/multicard/test_dense_model_multicard.py::test_x" in entry["test_cmds"]

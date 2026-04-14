@@ -53,6 +53,7 @@
 ### Task 0: Create an isolated worktree before touching implementation files
 
 **Files:**
+
 - Create: a new git worktree outside the main checkout
 
 - [ ] **Step 1: Create a dedicated implementation worktree**
@@ -90,6 +91,7 @@ All following `git add`, `git commit`, `pytest`, and file edits should run from:
 ### Task 1: Add workflow-native state helper and port state-machine coverage
 
 **Files:**
+
 - Create: `.github/workflows/scripts/main2main_ci.py`
 - Create: `tests/main2main/test_main2main_ci.py`
 - Modify: `docs/superpowers/specs/2026-04-07-main2main-workflow-native-orchestration-design.md`
@@ -182,6 +184,7 @@ git commit -m "feat: add workflow-native main2main state helpers"
 ### Task 2: Extend bisect helper output for callback-safe machine-readable results
 
 **Files:**
+
 - Modify: `.github/workflows/scripts/bisect_helper.py`
 - Modify: `tests/main2main/test_bisect_helper_runtime_env.py`
 - Modify: `tests/main2main/test_extract_and_analyze_contract.py`
@@ -248,6 +251,7 @@ git commit -m "feat: add bisect result aggregation helpers"
 ### Task 3: Rename and rewrite terminal workflow for `make_ready` and `manual_review`
 
 **Files:**
+
 - Rename: `.github/workflows/main2main_manual_review.yaml` -> `.github/workflows/main2main_terminal.yaml`
 - Modify: `tests/main2main/test_main2main_workflow_contract.py`
 
@@ -299,6 +303,7 @@ git commit -m "feat: add workflow-native main2main terminal actions"
 ### Task 4: Add `main2main_reconcile.yaml` and wire exact-head E2E progression
 
 **Files:**
+
 - Create: `.github/workflows/main2main_reconcile.yaml`
 - Modify: `.github/workflows/scripts/main2main_ci.py`
 - Modify: `tests/main2main/test_main2main_workflow_contract.py`
@@ -353,6 +358,7 @@ git commit -m "feat: add main2main reconcile workflow"
 ### Task 5: Rewrite `main2main_auto.yaml` around workflow-native modes
 
 **Files:**
+
 - Modify: `.github/workflows/main2main_auto.yaml`
 - Modify: `.github/workflows/scripts/main2main_ci.py`
 - Modify: `tests/main2main/test_main2main_workflow_contract.py`
@@ -429,6 +435,7 @@ git commit -m "feat: migrate main2main auto workflow to native state machine"
 ### Task 6: Extend `bisect_vllm.yaml` for main2main callback mode without breaking standalone use
 
 **Files:**
+
 - Modify: `.github/workflows/bisect_vllm.yaml`
 - Modify: `.github/workflows/scripts/bisect_helper.py`
 - Modify: `tests/main2main/test_main2main_workflow_contract.py`
@@ -489,6 +496,7 @@ git commit -m "feat: add main2main-aware bisect callback flow"
 ### Task 7: Execute workflow smoke validation and capture the operator checklist
 
 **Files:**
+
 - Modify: `docs/superpowers/specs/2026-04-07-main2main-workflow-native-orchestration-design.md`
 - Modify: `docs/superpowers/plans/2026-04-07-main2main-workflow-native-orchestration.md`
 
@@ -534,6 +542,7 @@ git commit -m "docs: finalize workflow-native main2main migration plan"
 ### Task 8: Remove the local control plane and obsolete deploy/test assets
 
 **Files:**
+
 - Delete: `main2main_orchestrator.py`
 - Delete: `github_adapter.py`
 - Delete: `service_main.py`

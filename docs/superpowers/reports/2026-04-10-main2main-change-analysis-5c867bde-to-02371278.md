@@ -100,10 +100,10 @@ git diff 5c867bde59959198e8177b48a1ae519885ffbd4e 023712788d9eea7addf791adcff21d
 
 - 主工作流。
 - 负责四种模式：
-  - `detect`
-  - `fix_phase2`
-  - `fix_phase3_prepare`
-  - `fix_phase3_finalize`
+    - `detect`
+    - `fix_phase2`
+    - `fix_phase3_prepare`
+    - `fix_phase3_finalize`
 
 **触发方式**
 
@@ -169,10 +169,10 @@ gh workflow run schedule_main2main_auto.yaml \
 - 新的控制中枢。
 - 定期扫描所有带 `main2main` label 的 open PR。
 - 负责：
-  - 初始化缺失的 `main2main-state` 评论
-  - 从 `statusCheckRollup` 或 `gh run list` 解析当前 E2E 结果
-  - 根据当前 `phase/status` 决定下一跳
-  - 在 `waiting_bisect` 状态下，发现 bisect 完成但 finalize 未执行时继续推进
+    - 初始化缺失的 `main2main-state` 评论
+    - 从 `statusCheckRollup` 或 `gh run list` 解析当前 E2E 结果
+    - 根据当前 `phase/status` 决定下一跳
+    - 在 `waiting_bisect` 状态下，发现 bisect 完成但 finalize 未执行时继续推进
 
 **触发方式**
 
@@ -200,8 +200,8 @@ gh workflow run schedule_main2main_reconcile.yaml \
 - 处理终态动作。
 - 替代旧 `terminal_worker.py`。
 - 两类动作：
-  - `make_ready`
-  - `manual_review`
+    - `make_ready`
+    - `manual_review`
 
 **触发方式**
 
@@ -381,11 +381,11 @@ python3 .github/workflows/scripts/main2main_ci.py load-phase-context \
 - 统一的 CI 日志摘要入口。
 - 可以从本地 log 文件或 GitHub Actions run id 读取数据。
 - 负责抽取：
-  - failed test files
-  - failed test cases
-  - 去重后的 root cause errors
-  - good/bad commit
-  - bisect payload
+    - failed test files
+    - failed test cases
+    - 去重后的 root cause errors
+    - good/bad commit
+    - bisect payload
 
 **命令行参数**
 
