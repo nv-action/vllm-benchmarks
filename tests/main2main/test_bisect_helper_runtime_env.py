@@ -92,6 +92,24 @@ def test_build_batch_matrix_uses_310p_multicard_runtime_workflow_config():
     assert '"HF_HUB_OFFLINE": "1"' not in entry["runtime_env"]
 
 
+def test_build_batch_matrix_uses_2cards_default_image_from_workflow_call_inputs():
+    module = load_module()
+
+    entry = _entry_for_path(module, "tests/e2e/multicard/2-cards/test_data_parallel.py::test_x")
+
+    assert entry["group"] == "e2e-2cards"
+    assert entry["image"] == "swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-a3-ubuntu22.04-py3.11"
+
+
+def test_build_batch_matrix_uses_4cards_default_image_from_workflow_call_inputs():
+    module = load_module()
+
+    entry = _entry_for_path(module, "tests/e2e/multicard/4-cards/test_pipeline_parallel.py::test_x")
+
+    assert entry["group"] == "e2e-4cards"
+    assert entry["image"] == "m.daocloud.io/quay.io/ascend/cann:8.5.1-a3-ubuntu22.04-py3.11"
+
+
 def test_build_batch_matrix_uses_distinct_groups_for_singlecard_and_310p_singlecard():
     module = load_module()
 

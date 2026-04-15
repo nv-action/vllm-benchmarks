@@ -4,6 +4,7 @@ import argparse
 import base64
 import copy
 import json
+import re
 import subprocess
 import sys
 from collections import defaultdict
