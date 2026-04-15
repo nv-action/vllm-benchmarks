@@ -4,6 +4,7 @@ import argparse
 import base64
 import copy
 import json
+import re
 import subprocess
 import sys
 from collections import defaultdict
@@ -67,6 +68,8 @@ _VLLM_LOG_PREFIX_RE = re.compile(
 _PROFILER_PREFIX_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2},\d+\s+-\s+\d+\s+-\s+\S+\s+-\s+[A-Z]+\s+-\s*")
 _VLLM_VERSION_RE = re.compile(r"vLLM\s+\S*\+g([0-9a-f]{7,12})\b")
 _WORKER_PID_PREFIX_RE = re.compile(r"^\([^)]*pid=\d+\)\s*")
+_ERROR_NUMERIC_SUFFIX_RE = re.compile(r"\s*\[\d+(?:,\d+)*\]\s*$")
+_ERROR_LOCATION_SUFFIX_RE = re.compile(r"\s*\[[^\[\]]*\b[\w./-]+\.[A-Za-z0-9]+\b:\d+[^\[\]]*\]\s*$")
 _MAX_CONTEXT_LINES = 50
 
 
@@ -127,9 +130,16 @@ def _normalize_error_match(error_type: str, error_msg: str) -> tuple[str, str]:
     full_error = f"{error_type}: {error_msg}"
     is_env_flake = any(re.search(pattern, full_error) for pattern in _ENV_FLAKE_PATTERNS)
     error_msg = re.sub(r"(\\n|\n).*$", "", error_msg)
-    error_msg = re.sub(r"\\['\"]", "'", error_msg)
-    error_msg = error_msg.strip()
-    error_msg = re.sub(r"""(?:\\[nr]|['"])+$""", "", error_msg).strip()
+    error_msg = re.sub(r"\\['\"]", "'", error_msg).strip()
+    error_msg = re.sub(r"(?:\\[nr])+$", "", error_msg).strip(" \t,")
+    while True:
+        updated = error_msg
+        for suffix_re in (_ERROR_NUMERIC_SUFFIX_RE, _ERROR_LOCATION_SUFFIX_RE):
+            updated = suffix_re.sub("", updated).strip()
+        if updated == error_msg:
+            break
+        error_msg = updated
+    error_msg = error_msg.strip(" \t,")
     return error_msg, ("Environment Flake" if is_env_flake else "Code Bug")
 
 

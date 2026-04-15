@@ -22,12 +22,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
 from pathlib import Path
-
-import regex as re
 
 DEFAULT_ENV = {
     "kind": "",
@@ -50,7 +49,7 @@ COMMON_E2E_SOURCE = {
     "workflow": ".github/workflows/_e2e_test.yaml",
     "prepare_steps": ["Config mirrors", "Install system dependencies"],
     "vllm_install_step": "Install vllm-project/vllm from source",
-    "ascend_install_step": "Install vllm-project/vllm-ascend",
+    "ascend_install_step": "Install nv-action/vllm-benchmark",
 }
 KIND_SOURCES = {
     "ut": {
@@ -61,7 +60,7 @@ KIND_SOURCES = {
         "caller_job": "ut",
         "prepare_steps": ["Install packages"],
         "vllm_install_step": "Install vllm-project/vllm from source",
-        "ascend_install_step": "Install vllm-project/vllm-ascend",
+        "ascend_install_step": "Install nv-action/vllm-benchmark",
         "test_step": "Run unit test",
     },
     "e2e_singlecard": {
@@ -79,7 +78,7 @@ KIND_SOURCES = {
     "e2e_4cards": {
         **COMMON_E2E_SOURCE,
         "job": "e2e-4-cards-full",
-        "test_step": "Run vllm-project/vllm-ascend test for V1 Engine",
+        "test_step": "Run nv-action/vllm-benchmark test for V1 Engine",
     },
     "e2e_310p_singlecard": {**COMMON_E2E_SOURCE, "job": "e2e_310p", "test_step": "Run nv-action/vllm-benchmark test"},
     "e2e_310p_4cards": {
@@ -176,17 +175,36 @@ def _get_caller_inputs(workflow_path: str | None, job_name: str | None) -> dict[
     return with_inputs if isinstance(with_inputs, dict) else {}
 
 
+def _get_workflow_call_input_defaults(workflow: dict) -> dict[str, object]:
+    on_section = workflow.get("on") or workflow.get(True) or {}
+    if not isinstance(on_section, dict):
+        return {}
+    workflow_call = on_section.get("workflow_call", {})
+    if not isinstance(workflow_call, dict):
+        return {}
+    inputs = workflow_call.get("inputs", {})
+    if not isinstance(inputs, dict):
+        return {}
+    defaults: dict[str, object] = {}
+    for name, meta in inputs.items():
+        if isinstance(meta, dict) and "default" in meta:
+            defaults[str(name)] = meta["default"]
+    return defaults
+
+
 def _extract_profile(kind: str, config: dict) -> dict:
     # Emit only the fields consumed by bisect_vllm.yaml.
     workflow = _load_yaml(_get_repo_root() / config["workflow"])
+    input_defaults = _get_workflow_call_input_defaults(workflow)
     caller_inputs = _get_caller_inputs(config.get("caller_workflow"), config.get("caller_job"))
+    resolved_inputs = {**input_defaults, **caller_inputs}
     job = _get_job(workflow, config["job"])
     container = job.get("container", {}) if isinstance(job.get("container"), dict) else {}
     workflow_env = _normalize_env(workflow.get("env"))
-    container_env = _normalize_env(_resolve_inputs(container.get("env", {}), caller_inputs))
+    container_env = _normalize_env(_resolve_inputs(container.get("env", {}), resolved_inputs))
     effective_container_env = {**workflow_env, **container_env}
     prepare_runs = [
-        _format_run_with_env(_resolve_inputs(_get_step(job, step_name).get("run", ""), caller_inputs))
+        _format_run_with_env(_resolve_inputs(_get_step(job, step_name).get("run", ""), resolved_inputs))
         for step_name in config.get("prepare_steps", [])
     ]
     vllm_install_step = _get_step(job, config["vllm_install_step"])
@@ -195,16 +213,16 @@ def _extract_profile(kind: str, config: dict) -> dict:
     return {
         "kind": kind,
         "test_type": config["test_type"],
-        "runner": str(_resolve_inputs(job.get("runs-on", DEFAULT_ENV["runner"]), caller_inputs)),
-        "image": str(_resolve_inputs(container.get("image", DEFAULT_ENV["image"]), caller_inputs)),
+        "runner": str(_resolve_inputs(job.get("runs-on", DEFAULT_ENV["runner"]), resolved_inputs)),
+        "image": str(_resolve_inputs(container.get("image", DEFAULT_ENV["image"]), resolved_inputs)),
         "effective_container_env": effective_container_env,
         "sys_deps": "\n".join(run for run in prepare_runs if run),
-        "vllm_install": _format_run_with_env(_resolve_inputs(vllm_install_step.get("run", ""), caller_inputs)),
+        "vllm_install": _format_run_with_env(_resolve_inputs(vllm_install_step.get("run", ""), resolved_inputs)),
         "ascend_install": _format_run_with_env(
-            _resolve_inputs(ascend_install_step.get("run", ""), caller_inputs),
-            _normalize_env(_resolve_inputs(ascend_install_step.get("env", {}), caller_inputs)),
+            _resolve_inputs(ascend_install_step.get("run", ""), resolved_inputs),
+            _normalize_env(_resolve_inputs(ascend_install_step.get("env", {}), resolved_inputs)),
         ),
-        "runtime_env": _normalize_env(_resolve_inputs(test_step.get("env", {}), caller_inputs)),
+        "runtime_env": _normalize_env(_resolve_inputs(test_step.get("env", {}), resolved_inputs)),
     }
 
 
