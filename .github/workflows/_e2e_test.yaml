@@ -203,7 +203,7 @@ jobs:
   e2e-full:
     name: singlecard-full
     if: ${{ inputs.type == 'full' || inputs.singlecard_tests != '' }}
-    runs-on: linux-aarch64-a2-1
+    runs-on: linux-aarch64-a2-2
     strategy:
       fail-fast: false
       matrix:
