@@ -50,7 +50,7 @@ def _modify_round_file(repo: Path, *, phase: str, new_commit: str) -> bool:
 
 def _commit_all(repo: Path, message: str) -> None:
     _run_git(repo, "add", "-A")
-    _run_git(repo, "commit", "-m", message)
+    _run_git(repo, "commit", "-s", "-m", message)
 
 
 def _detect_phase(prompt: str) -> str:

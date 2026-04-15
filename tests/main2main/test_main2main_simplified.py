@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import subprocess
 from pathlib import Path
 
@@ -260,6 +261,93 @@ def test_render_pr_body_places_summary_at_top_and_embeds_round_markdown():
     assert "Handle upstream API rename." in pr_body
 
 
+def test_run_suite_and_summarize_reports_success_without_summary(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    script_dir = repo / ".github" / "workflows" / "scripts"
+    script_dir.mkdir(parents=True)
+
+    (script_dir / "run_suite.py").write_text(
+        "import sys\n"
+        "print('suite ok')\n",
+        encoding="utf-8",
+    )
+
+    log_path = tmp_path / "suite.log"
+    summary_path = tmp_path / "main2main-failure-summary.json"
+
+    result = subprocess.run(
+        [
+            "python3",
+            str(SCRIPT_PATH),
+            "run-suite-and-summarize",
+            "--work-repo-dir",
+            str(repo),
+            "--suite",
+            "e2e-main2main",
+            "--artifact-prefix",
+            str(tmp_path / "suite"),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "success"
+    assert payload["exit_code"] == 0
+    assert "suite ok" in log_path.read_text(encoding="utf-8")
+    assert not summary_path.exists()
+
+
+def test_run_suite_and_summarize_generates_summary_on_failure(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    script_dir = repo / ".github" / "workflows" / "scripts"
+    script_dir.mkdir(parents=True)
+
+    (script_dir / "run_suite.py").write_text(
+        "import sys\n"
+        "print('suite failed')\n"
+        "sys.exit(3)\n",
+        encoding="utf-8",
+    )
+    (script_dir / "ci_log_summary.py").write_text(
+        "import json\n"
+        "from pathlib import Path\n"
+        "import sys\n"
+        "output = Path(sys.argv[sys.argv.index('--output') + 1])\n"
+        "output.write_text(json.dumps({'code_bugs': [{'error_type': 'AssertionError'}]}), encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+
+    log_path = tmp_path / "suite.log"
+    summary_path = tmp_path / "main2main-failure-summary.json"
+
+    result = subprocess.run(
+        [
+            "python3",
+            str(SCRIPT_PATH),
+            "run-suite-and-summarize",
+            "--work-repo-dir",
+            str(repo),
+            "--suite",
+            "e2e-main2main",
+            "--artifact-prefix",
+            str(tmp_path / "suite"),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "failure"
+    assert payload["exit_code"] == 3
+    assert "suite failed" in log_path.read_text(encoding="utf-8")
+    assert json.loads(summary_path.read_text(encoding="utf-8"))["code_bugs"][0]["error_type"] == "AssertionError"
+
+
 def test_render_manual_review_issue_includes_pr_url_and_bisect_summary():
     module = load_module()
 
@@ -318,6 +406,26 @@ def test_find_bisect_run_matches_request_id(monkeypatch):
     assert run["databaseId"] == 101
 
 
+def test_find_bisect_run_matches_request_id_with_legacy_gh_name_field(monkeypatch):
+    module = load_module()
+
+    monkeypatch.setattr(
+        module,
+        "_run_gh_json",
+        lambda args: [
+            {"databaseId": 100, "name": "Bisect vLLM request-other"},
+            {"databaseId": 101, "name": "Bisect vLLM request-main2main-123-r1-abcdef12"},
+        ],
+    )
+
+    run = module.find_bisect_run(
+        repo="nv-action/vllm-benchmarks",
+        request_id="main2main-123-r1-abcdef12",
+    )
+
+    assert run["databaseId"] == 101
+
+
 def test_find_bisect_run_rejects_mismatched_runs(monkeypatch):
     module = load_module()
 
@@ -338,6 +446,216 @@ def test_find_bisect_run_rejects_mismatched_runs(monkeypatch):
         assert "request_id=main2main-123-r1-abcdef12" in str(exc)
     else:
         raise AssertionError("Expected find_bisect_run to reject mismatched runs")
+
+
+def test_find_bisect_run_falls_back_when_workflow_filtered_query_fails(monkeypatch):
+    module = load_module()
+
+    calls = []
+
+    def fake_run_gh_json(args):
+        calls.append(args)
+        if "--workflow" in args:
+            raise subprocess.CalledProcessError(1, ["gh", *args], stderr="workflow lookup failed")
+        return [
+            {"databaseId": 100, "displayTitle": "Bisect vLLM request-other", "workflowName": "Bisect vLLM"},
+            {
+                "databaseId": 101,
+                "displayTitle": "Bisect vLLM request-main2main-123-r1-abcdef12",
+                "workflowName": "Bisect vLLM",
+            },
+        ]
+
+    monkeypatch.setattr(module, "_run_gh_json", fake_run_gh_json)
+
+    run = module.find_bisect_run(
+        repo="nv-action/vllm-benchmarks",
+        request_id="main2main-123-r1-abcdef12",
+    )
+
+    assert run["databaseId"] == 101
+    assert any("--workflow" in call for call in calls)
+    assert any("--workflow" not in call for call in calls)
+
+
+def test_find_bisect_run_falls_back_when_workflow_filtered_query_has_no_match(monkeypatch):
+    module = load_module()
+
+    calls = []
+
+    def fake_run_gh_json(args):
+        calls.append(args)
+        if "--workflow" in args:
+            return [
+                {"databaseId": 100, "displayTitle": "Bisect vLLM request-other", "workflowName": "Bisect vLLM"},
+            ]
+        return [
+            {"databaseId": 101, "displayTitle": "Bisect vLLM request-main2main-123-r1-abcdef12", "workflowName": "Bisect vLLM"},
+        ]
+
+    monkeypatch.setattr(module, "_run_gh_json", fake_run_gh_json)
+
+    run = module.find_bisect_run(
+        repo="nv-action/vllm-benchmarks",
+        request_id="main2main-123-r1-abcdef12",
+    )
+
+    assert run["databaseId"] == 101
+    assert any("--workflow" in call for call in calls)
+    assert any("--workflow" not in call for call in calls)
+
+
+def test_print_bisect_round_logs_handles_empty_run_json(tmp_path, capsys):
+    module = load_module()
+
+    artifact_prefix = tmp_path / "main2main-bisect-round1"
+    (tmp_path / "main2main-bisect-round1-meta.json").write_text('{"request_id":"req"}\n', encoding="utf-8")
+    (tmp_path / "main2main-bisect-round1-input.json").write_text('{"test_cmd":"pytest -sv tests/test_demo.py"}\n', encoding="utf-8")
+    (tmp_path / "main2main-bisect-round1-run.json").write_text("", encoding="utf-8")
+    (tmp_path / "main2main-bisect-round1-find.err").write_text("no match yet\n", encoding="utf-8")
+    (tmp_path / "main2main-bisect-round1-runs.json").write_text('[{"databaseId":1}]\n', encoding="utf-8")
+
+    module.print_bisect_round_logs(artifact_prefix=artifact_prefix)
+
+    output = capsys.readouterr().out
+    assert '"request_id":"req"' in output
+    assert '"test_cmd":"pytest -sv tests/test_demo.py"' in output
+    assert "no match yet" in output
+    assert '"databaseId":1' in output
+
+
+def test_run_bisect_round_uses_run_command_helper_contract(tmp_path, monkeypatch):
+    module = load_module()
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    script_dir = repo / ".github" / "workflows" / "scripts"
+    script_dir.mkdir(parents=True)
+
+    log_path = tmp_path / "main2main-test.log"
+    log_path.write_text("suite failed\n", encoding="utf-8")
+    failure_summary_path = tmp_path / "main2main-failure-summary.json"
+    failure_summary_path.write_text(json.dumps({"failed_test_cases": ["tests/test_demo.py::test_case"]}), encoding="utf-8")
+    artifact_prefix = tmp_path / "main2main-bisect-round1"
+
+    def fake_run_command(args, *, cwd=None, stdout_path=None, stderr_path=None, combine_output=False):
+        command = args[:3]
+        if command == ["python3", str(repo / ".github/workflows/scripts/ci_log_summary.py"), "--log-file"]:
+            assert stdout_path is None
+            assert stderr_path is None
+            assert combine_output is False
+            output_path = Path(args[args.index("--output") + 1])
+            output_path.write_text(json.dumps({"test_cmd": "pytest -sv tests/test_demo.py::test_case"}), encoding="utf-8")
+            return subprocess.CompletedProcess(args, 0)
+        if args[:4] == ["gh", "workflow", "run", "dispatch_main2main_bisect.yaml"]:
+            assert stdout_path == tmp_path / "main2main-bisect-round1-dispatch.out"
+            assert stderr_path == tmp_path / "main2main-bisect-round1-dispatch.err"
+            return subprocess.CompletedProcess(args, 0)
+        if len(args) >= 2 and args[1].endswith("main2main_simplified.py") and args[2] == "find-bisect-run":
+            assert stdout_path == tmp_path / "main2main-bisect-round1-run.json"
+            assert stderr_path == tmp_path / "main2main-bisect-round1-find.err"
+            stdout_path.write_text(json.dumps({"databaseId": 123, "url": "https://example.com/run/123"}), encoding="utf-8")
+            return subprocess.CompletedProcess(args, 0)
+        if len(args) >= 2 and args[1].endswith("main2main_simplified.py") and args[2] == "poll-bisect-run":
+            assert stdout_path == tmp_path / "main2main-bisect-round1-complete.json"
+            assert stderr_path == tmp_path / "main2main-bisect-round1-poll.err"
+            stdout_path.write_text(json.dumps({"url": "https://example.com/run/123"}), encoding="utf-8")
+            return subprocess.CompletedProcess(args, 0)
+        if args[:3] == ["gh", "run", "download"]:
+            assert stdout_path == tmp_path / "main2main-bisect-round1-download.out"
+            assert stderr_path == tmp_path / "main2main-bisect-round1-download.err"
+            output_dir = tmp_path / "main2main-bisect-round1-output"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            (output_dir / "bisect_result.json").write_text(
+                json.dumps({"status": "success", "first_bad_commit": "deadbeef"}),
+                encoding="utf-8",
+            )
+            return subprocess.CompletedProcess(args, 0)
+        raise AssertionError(f"Unexpected command: {args}")
+
+    monkeypatch.setattr(module, "_run_command", fake_run_command)
+    monkeypatch.setattr(module, "build_bisect_request_id", lambda *, run_id, round_index: f"main2main-{run_id}-r{round_index}-fixed")
+    monkeypatch.setattr(module.time, "sleep", lambda _: None)
+
+    result = module.run_bisect_round(
+        work_repo_dir=repo,
+        github_repo="nv-action/vllm-benchmarks",
+        github_run_id="999",
+        round_index=1,
+        old_commit="oldsha",
+        new_commit="newsha",
+        log_path=log_path,
+        failure_summary_path=failure_summary_path,
+        artifact_prefix=artifact_prefix,
+    )
+
+    assert result["request_id"] == "main2main-999-r1-fixed"
+    assert result["bisect_run_id"] == 123
+    assert result["bisect_result_path"].endswith("main2main-bisect-round1-output/bisect_result.json")
+
+
+def test_run_bisect_round_uses_poll_timeout_minutes_from_env(tmp_path, monkeypatch):
+    module = load_module()
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    script_dir = repo / ".github" / "workflows" / "scripts"
+    script_dir.mkdir(parents=True)
+
+    log_path = tmp_path / "main2main-test.log"
+    log_path.write_text("suite failed\n", encoding="utf-8")
+    failure_summary_path = tmp_path / "main2main-failure-summary.json"
+    failure_summary_path.write_text(json.dumps({"failed_test_cases": ["tests/test_demo.py::test_case"]}), encoding="utf-8")
+    artifact_prefix = tmp_path / "main2main-bisect-round1"
+
+    captured_poll_args = []
+
+    def fake_run_command(args, *, cwd=None, stdout_path=None, stderr_path=None, combine_output=False):
+        command = args[:3]
+        if command == ["python3", str(repo / ".github/workflows/scripts/ci_log_summary.py"), "--log-file"]:
+            output_path = Path(args[args.index("--output") + 1])
+            output_path.write_text(json.dumps({"test_cmd": "pytest -sv tests/test_demo.py::test_case"}), encoding="utf-8")
+            return subprocess.CompletedProcess(args, 0)
+        if args[:4] == ["gh", "workflow", "run", "dispatch_main2main_bisect.yaml"]:
+            return subprocess.CompletedProcess(args, 0)
+        if len(args) >= 2 and args[1].endswith("main2main_simplified.py") and args[2] == "find-bisect-run":
+            assert stdout_path is not None
+            stdout_path.write_text(json.dumps({"databaseId": 123, "url": "https://example.com/run/123"}), encoding="utf-8")
+            return subprocess.CompletedProcess(args, 0)
+        if len(args) >= 2 and args[1].endswith("main2main_simplified.py") and args[2] == "poll-bisect-run":
+            captured_poll_args.extend(args)
+            assert stdout_path is not None
+            stdout_path.write_text(json.dumps({"url": "https://example.com/run/123"}), encoding="utf-8")
+            return subprocess.CompletedProcess(args, 0)
+        if args[:3] == ["gh", "run", "download"]:
+            output_dir = tmp_path / "main2main-bisect-round1-output"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            (output_dir / "bisect_result.json").write_text(
+                json.dumps({"status": "success", "first_bad_commit": "deadbeef"}),
+                encoding="utf-8",
+            )
+            return subprocess.CompletedProcess(args, 0)
+        raise AssertionError(f"Unexpected command: {args}")
+
+    monkeypatch.setattr(module, "_run_command", fake_run_command)
+    monkeypatch.setattr(module, "build_bisect_request_id", lambda *, run_id, round_index: f"main2main-{run_id}-r{round_index}-fixed")
+    monkeypatch.setattr(module.time, "sleep", lambda _: None)
+    monkeypatch.setenv("BISECT_POLL_TIMEOUT_MINUTES", "180")
+
+    module.run_bisect_round(
+        work_repo_dir=repo,
+        github_repo="nv-action/vllm-benchmarks",
+        github_run_id="999",
+        round_index=1,
+        old_commit="oldsha",
+        new_commit="newsha",
+        log_path=log_path,
+        failure_summary_path=failure_summary_path,
+        artifact_prefix=artifact_prefix,
+    )
+
+    assert "--timeout-seconds" in captured_poll_args
+    assert "10800" in captured_poll_args
 
 
 def test_should_create_pr_is_false_when_no_new_commits():
