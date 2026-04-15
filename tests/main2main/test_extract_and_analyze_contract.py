@@ -732,6 +732,114 @@ RuntimeError: NPU out of memory
     assert result["code_bugs"][0]["failed_test_cases"] == []
 
 
+def test_dedupe_errors_merges_same_error_with_quote_and_location_noise():
+    module = load_module()
+
+    raw_errors = [
+        {
+            "error_type": "AttributeError",
+            "error_message": "'float' object has no attribute 'language_model' [49949,49643][core.py:1132,run_engine_core]",
+            "category": "Code Bug",
+            "context": [],
+            "line_number": 10,
+            "source": "case_summary_payload",
+            "failed_test_files": ["tests/e2e/singlecard/test_a.py"],
+            "failed_test_cases": ["tests/e2e/singlecard/test_a.py::test_x"],
+        },
+        {
+            "error_type": "AttributeError",
+            "error_message": "\",'float' object has no attribute 'language_model' [17771,17301][core.py:1132,run_engine_core]\",",
+            "category": "Code Bug",
+            "context": [],
+            "line_number": 20,
+            "source": "case_summary_payload",
+            "failed_test_files": ["tests/e2e/singlecard/test_b.py"],
+            "failed_test_cases": ["tests/e2e/singlecard/test_b.py::test_y"],
+        },
+    ]
+
+    all_errors = []
+    for error in raw_errors:
+        normalized_message, category = module._normalize_error_match(error["error_type"], error["error_message"])
+        error = dict(error)
+        error["error_message"] = normalized_message
+        error["category"] = category
+        all_errors.append(error)
+
+    unique_errors = module._dedupe_errors(all_errors)
+
+    assert len(unique_errors) == 1
+    assert unique_errors[0]["error_type"] == "AttributeError"
+    assert set(unique_errors[0]["failed_test_files"]) == {
+        "tests/e2e/singlecard/test_a.py",
+        "tests/e2e/singlecard/test_b.py",
+    }
+    assert set(unique_errors[0]["failed_test_cases"]) == {
+        "tests/e2e/singlecard/test_a.py::test_x",
+        "tests/e2e/singlecard/test_b.py::test_y",
+    }
+
+
+def test_normalize_error_match_preserves_legitimate_trailing_quote():
+    module = load_module()
+
+    error_message, category = module._normalize_error_match(
+        "AttributeError",
+        "'DPMetadata' object has no attribute 'max_tokens_across_dp_cpu'",
+    )
+
+    assert error_message == "'DPMetadata' object has no attribute 'max_tokens_across_dp_cpu'"
+    assert category == "Code Bug"
+
+
+def test_normalize_error_match_strips_dynamic_location_suffix():
+    module = load_module()
+
+    error_message, category = module._normalize_error_match(
+        "AttributeError",
+        "'float' object has no attribute 'language_model' [49949,49643][core.py:1132,run_engine_core]",
+    )
+
+    assert error_message == "'float' object has no attribute 'language_model'"
+    assert category == "Code Bug"
+
+
+def test_normalize_error_match_strips_numeric_suffix_without_location_block():
+    module = load_module()
+
+    error_message, category = module._normalize_error_match(
+        "AttributeError",
+        "'float' object has no attribute 'language_model' [49949,49643,17301]",
+    )
+
+    assert error_message == "'float' object has no attribute 'language_model'"
+    assert category == "Code Bug"
+
+
+def test_normalize_error_match_strips_location_suffix_without_numeric_block():
+    module = load_module()
+
+    error_message, category = module._normalize_error_match(
+        "AttributeError",
+        "'float' object has no attribute 'language_model' [core.py:1132,run_engine_core]",
+    )
+
+    assert error_message == "'float' object has no attribute 'language_model'"
+    assert category == "Code Bug"
+
+
+def test_normalize_error_match_keeps_non_file_location_suffix():
+    module = load_module()
+
+    error_message, category = module._normalize_error_match(
+        "AttributeError",
+        "'float' object has no attribute 'language_model' [core:1132,run_engine_core]",
+    )
+
+    assert error_message == "'float' object has no attribute 'language_model' [core:1132,run_engine_core]"
+    assert category == "Code Bug"
+
+
 def test_gh_api_raw_retries_eof_once(monkeypatch, capsys):
     module = load_module()
     calls = []
