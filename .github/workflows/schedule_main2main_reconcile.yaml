@@ -17,8 +17,8 @@
 name: Main2Main Reconcile
 
 on:
-  schedule:
-    - cron: '*/10 * * * *'
+  # schedule:
+  #   - cron: '*/10 * * * *'
   workflow_dispatch:
     inputs:
       pr_number:
