@@ -61,7 +61,7 @@ jobs:
       - name: Resolve parameters and build matrix
         id: resolve
         run: |
-          python3 .github/workflows/scripts/bisect_helper.py batch-matrix \
+          python3 tools/bisect_helper.py batch-matrix \
             --test-cmds "${{ inputs.test_cmd }}" \
             --output-format github
 
@@ -114,7 +114,7 @@ jobs:
           repository: vllm-project/vllm
           ref: ${{ inputs.bad_commit }}
           path: ./vllm-empty
-          fetch-depth: 500
+          fetch-depth: 0
 
       - name: Install vllm from source
         working-directory: ./vllm-empty
@@ -133,10 +133,10 @@ jobs:
             export "${key}=${val}"
           done
 
-          chmod +x .github/workflows/scripts/bisect_vllm.sh
+          chmod +x tools/bisect_vllm.sh
           echo "${{ matrix.test_cmds }}" > /tmp/bisect_cmds.txt
 
-          .github/workflows/scripts/bisect_vllm.sh \
+          tools/bisect_vllm.sh \
             --vllm-repo ../vllm-empty \
             --ascend-repo . \
             --test-cmds-file /tmp/bisect_cmds.txt \
@@ -194,4 +194,5 @@ jobs:
           name: bisect-summary-${{ inputs.request_id }}
           path: |
             /tmp/bisect_summary.md
+            /tmp/bisect_result.json
           retention-days: 30
