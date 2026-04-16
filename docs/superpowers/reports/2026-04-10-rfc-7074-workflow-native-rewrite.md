@@ -112,7 +112,7 @@ A simplified state example:
   "pr_number": 188,
   "branch": "main2main_auto_2026-04-03_08-22",
   "head_sha": "1ac49ff7b834177ba43fb7a3044269908bdcbef5",
-  "old_commit": "35141a7eeda941a60ad5a4956670c60fd5a77029",
+  "old_commit": "18013df6ae27c3fb941307c46c975227126d641f",
   "new_commit": "fa9e68022d29c5396dfbb96d13587b6bc1bdb933",
   "phase": "3",
   "status": "waiting_bisect",
