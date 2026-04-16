@@ -32,7 +32,7 @@ def test_mock_claude_success_detect_rewrites_old_commit_and_creates_commit(tmp_p
     init_repo(upstream)
 
     target = bench / "tracked.txt"
-    old_commit = "35141a7eeda941a60ad5a4956670c60fd5a77029"
+    old_commit = "3abf8584432acdd66bad723f9481f379ee1b3ad9"
     new_commit = "55d037e2e5cc56c38a1a4a77a15c347fee380c50"
     target.write_text(f"old={old_commit}\n", encoding="utf-8")
     subprocess.run(["git", "add", "tracked.txt"], cwd=bench, check=True)
