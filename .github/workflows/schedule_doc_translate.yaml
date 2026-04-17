@@ -76,6 +76,10 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Force IPv4 for apt
+        run: |
+          echo 'Acquire::ForceIPv4 "true";' | sudo tee /etc/apt/apt.conf.d/99force-ipv4
+
       - name: Build docs and generate PO files
         working-directory: ./docs
         run: |
