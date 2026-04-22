@@ -40,10 +40,21 @@ on:
       is_run:
         required: true
         type: boolean
+      enable_llm:
+        required: false
+        type: boolean
+        default: false
+        description: >-
+          When true, sets VLLM_ASCEND_CI_LLM_ENABLED=1 for the LLM diagnostics step on failure
+          (still requires API URL/key secrets and optional model variable).
     secrets:
       OBS_ACCESS_KEY:
         required: false
       OBS_SECRET_KEY:
+        required: false
+      VLLM_ASCEND_CI_LLM_API_KEY:
+        required: false
+      VLLM_ASCEND_CI_LLM_BASE_URL:
         required: false
 
 # Bash shells do not use ~/.profile or ~/.bashrc so these shells need to be explicitly
@@ -206,6 +217,8 @@ jobs:
           TORCH_VERSION: ${{ env.GHA_TORCH_VERSION }}
           TORCH_NPU_VERSION: ${{ env.GHA_TORCH_NPU_VERSION }}
         run: |
+          set -o pipefail
+          (
           mkdir -p benchmarks/accuracy
           echo "export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib" >> ~/.bashrc
           echo "Received model_list: ${{ inputs.model_list }}"
@@ -223,6 +236,8 @@ jobs:
           if [ $any_failure -ne 0 ]; then
             exit 1
           fi
+          ) 2>&1 | tee /tmp/nightly-models-accuracy.log
+          exit ${PIPESTATUS[0]}
 
       - name: Generate step summary
         if: ${{ always() }}
@@ -234,6 +249,37 @@ jobs:
             model_base_name=$(basename "$model")
             cat benchmarks/accuracy/${model_base_name}.md >> $GITHUB_STEP_SUMMARY
           done
+
+      - name: Summarize nightly models failure
+        if: always()
+        run: |
+          if [ ! -s /tmp/nightly-models-accuracy.log ]; then exit 0; fi
+          python3 "$GITHUB_WORKSPACE/.github/workflows/scripts/ci_log_summary.py" \
+            --mode e2e \
+            --step-name "Nightly models accuracy (${{ inputs.model_list }})" \
+            --log-file /tmp/nightly-models-accuracy.log \
+            --output "$GITHUB_STEP_SUMMARY"
+
+      - name: LLM failure diagnostics (optional)
+        if: failure()
+        continue-on-error: true
+        env:
+          VLLM_ASCEND_CI_LLM_ENABLED: ${{ inputs.enable_llm && '1' || '0' }}
+          VLLM_ASCEND_CI_LLM_BASE_URL: ${{ secrets.VLLM_ASCEND_CI_LLM_BASE_URL }}
+          VLLM_ASCEND_CI_LLM_API_KEY: ${{ secrets.VLLM_ASCEND_CI_LLM_API_KEY }}
+          VLLM_ASCEND_CI_LLM_MODEL: ${{ vars.VLLM_ASCEND_CI_LLM_MODEL }}
+        run: |
+          if [ ! -s /tmp/nightly-models-accuracy.log ]; then exit 0; fi
+          python3 "$GITHUB_WORKSPACE/.github/workflows/scripts/ci_log_summary.py" \
+            --mode e2e \
+            --step-name "Nightly models accuracy (${{ inputs.model_list }})" \
+            --log-file /tmp/nightly-models-accuracy.log \
+            --format llm-json \
+            --output /tmp/ci-llm-summary-nightly-models.json
+          python3 "$GITHUB_WORKSPACE/.github/workflows/scripts/ci_log_llm_analyze.py" \
+            --step-name "Nightly models accuracy (${{ inputs.model_list }})" \
+            --log-file /tmp/nightly-models-accuracy.log \
+            --structured-summary /tmp/ci-llm-summary-nightly-models.json
 
       - name: Set artifact timestamp
         id: ts

@@ -1,0 +1,63 @@
+# Manual entry point for `.github/workflows/_e2e_nightly_single_node.yaml`.
+# GitHub UI: Actions → "Dispatch e2e nightly single-node" → Run workflow.
+#
+# Set either `tests` (pytest path) or `config_file_path` (YAML-driven); the reusable
+# workflow validates that at least one is non-empty.
+#
+# Secrets / vars: OBS_* optional; VLLM_ASCEND_CI_LLM_* optional; vars.VLLM_ASCEND_CI_LLM_MODEL optional.
+# See also `dispatch_e2e_nightly_multi_node.yaml` header for LLM naming.
+#
+name: Dispatch e2e nightly single-node
+
+on:
+  workflow_dispatch:
+    inputs:
+      tests:
+        description: Pytest path for py-driven mode (e.g. tests/e2e/nightly/single_node/ops/singlecard_ops); leave empty if using config_file_path only
+        type: string
+        default: ""
+      config_file_path:
+        description: YAML-driven config filename (e.g. Qwen3-32B.yaml); leave empty if using tests only
+        type: string
+        default: Qwen3-32B.yaml
+      runner:
+        description: runs-on label (must match your pool)
+        type: string
+        default: linux-aarch64-a2b3-4
+      image:
+        description: Container image for the job
+        type: string
+        default: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-main-a2
+      name:
+        description: Short job name (matrix key style)
+        type: string
+        default: manual-single-node
+      vllm_ascend_branch:
+        description: Prefix for benchmark artifact names
+        type: string
+        default: main
+      enable_llm:
+        description: On failure, call optional LLM diagnostics (requires LLM secrets + optional model variable)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  single-node:
+    uses: ./.github/workflows/_e2e_nightly_single_node.yaml
+    with:
+      runner: ${{ inputs.runner }}
+      image: ${{ inputs.image }}
+      tests: ${{ inputs.tests }}
+      config_file_path: ${{ inputs.config_file_path }}
+      name: ${{ inputs.name }}
+      should_run: true
+      vllm_ascend_branch: ${{ inputs.vllm_ascend_branch }}
+      enable_llm: ${{ inputs.enable_llm }}
+    secrets:
+      OBS_ACCESS_KEY: ${{ secrets.OBS_ACCESS_KEY }}
+      OBS_SECRET_KEY: ${{ secrets.OBS_SECRET_KEY }}
+      VLLM_ASCEND_CI_LLM_API_KEY: ${{ secrets.VLLM_ASCEND_CI_LLM_API_KEY }}
+      VLLM_ASCEND_CI_LLM_BASE_URL: ${{ secrets.VLLM_ASCEND_CI_LLM_BASE_URL }}

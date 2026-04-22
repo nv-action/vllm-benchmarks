@@ -1,0 +1,55 @@
+# Manual entry point for `.github/workflows/_e2e_nightly_single_node_models.yaml`.
+# GitHub UI: Actions → "Dispatch e2e nightly single-node models" → Run workflow.
+#
+# `model_list` must be a JSON array string as produced by `toJson()` in matrix jobs,
+# e.g. ["qwen3-32b"] — stems under tests/e2e/models/configs/<stem>.yaml.
+#
+# Secrets / vars: same LLM + OBS conventions as other dispatch_* nightly workflows.
+#
+name: Dispatch e2e nightly single-node models
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_list:
+        description: JSON array of model config stems, e.g. ["qwen3-32b"]
+        type: string
+        default: '["qwen3-32b"]'
+      model_filter:
+        description: Comma-wrapped filter string (e.g. ",qwen3-32b,") or leave all for full list
+        type: string
+        default: "all"
+      runner:
+        type: string
+        default: linux-aarch64-a2b3-4
+      image:
+        type: string
+        default: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-main-a2
+      upload:
+        description: Upload accuracy reports to OBS/GitHub artifacts
+        type: boolean
+        default: false
+      enable_llm:
+        description: On failure, call optional LLM diagnostics
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  models:
+    uses: ./.github/workflows/_e2e_nightly_single_node_models.yaml
+    with:
+      runner: ${{ inputs.runner }}
+      image: ${{ inputs.image }}
+      model_list: ${{ inputs.model_list }}
+      model_filter: ${{ inputs.model_filter }}
+      upload: ${{ inputs.upload }}
+      is_run: true
+      enable_llm: ${{ inputs.enable_llm }}
+    secrets:
+      OBS_ACCESS_KEY: ${{ secrets.OBS_ACCESS_KEY }}
+      OBS_SECRET_KEY: ${{ secrets.OBS_SECRET_KEY }}
+      VLLM_ASCEND_CI_LLM_API_KEY: ${{ secrets.VLLM_ASCEND_CI_LLM_API_KEY }}
+      VLLM_ASCEND_CI_LLM_BASE_URL: ${{ secrets.VLLM_ASCEND_CI_LLM_BASE_URL }}

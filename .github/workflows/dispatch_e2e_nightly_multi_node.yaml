@@ -1,0 +1,91 @@
+# Manual entry point for reusable `.github/workflows/_e2e_nightly_multi_node.yaml`.
+# GitHub UI: Actions → "Dispatch e2e nightly multi-node" → Run workflow.
+#
+# Secrets / vars (same naming as vllm-ascend Nightly workflows where possible):
+# - KUBECONFIG_HK_001_INTERNAL_B64 or KUBECONFIG_B64: base64 kubeconfig (see mapping below).
+# - OBS_ACCESS_KEY / OBS_SECRET_KEY: optional, for OBS artifact upload steps inside the reusable workflow.
+# - VLLM_ASCEND_CI_LLM_API_KEY / VLLM_ASCEND_CI_LLM_BASE_URL: optional, for LLM diagnostics when enable_llm is true.
+# - Repository variable VLLM_ASCEND_CI_LLM_MODEL: optional model id for the chat API.
+#
+name: Dispatch e2e nightly multi-node
+
+on:
+  workflow_dispatch:
+    inputs:
+      soc_version:
+        description: SoC flavor for PVC / NPU sizing inside the reusable workflow
+        type: choice
+        options:
+          - a2
+          - a3
+        default: a2
+      config_file_path:
+        description: Multi-node config YAML filename (e.g. DeepSeek-R1-W8A8-A2.yaml)
+        type: string
+        required: true
+        default: DeepSeek-R1-W8A8-A2.yaml
+      size:
+        description: Number of nodes (pods) for LWS
+        type: string
+        default: "2"
+      replicas:
+        description: LWS replicas
+        type: string
+        default: "1"
+      vllm_ascend_branch:
+        description: Branch slug used in benchmark artifact names (e.g. main, releases-v0.18.0)
+        type: string
+        default: main
+      vllm_ascend_ref:
+        description: Git ref passed into the test harness for vllm-ascend checkout
+        type: string
+        default: main
+      runner:
+        description: GitHub-hosted / self-hosted label for the job (K8s controller side)
+        type: string
+        default: linux-amd64-cpu-8-hk
+      image:
+        description: >-
+          Full image reference for worker pods (must match your CANN/NPU image; adjust branch/soc suffix as needed)
+        type: string
+        default: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-main-a2
+      ascend_log_prefix:
+        description: PVC log prefix (per-node plogs are under ${ascend_log_prefix}/node_*_plogs when applicable)
+        type: string
+        default: /root/.cache/ascend-logs/main
+      name:
+        description: Short name for benchmark / artifact identifiers
+        type: string
+        default: manual-multi-node
+      enable_llm:
+        description: >-
+          On failure, call optional LLM diagnostics (requires LLM secrets; uses repo variable VLLM_ASCEND_CI_LLM_MODEL if set)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  multi-node:
+    uses: ./.github/workflows/_e2e_nightly_multi_node.yaml
+    with:
+      soc_version: ${{ inputs.soc_version }}
+      runner: ${{ inputs.runner }}
+      image: ${{ inputs.image }}
+      config_file_path: ${{ inputs.config_file_path }}
+      replicas: ${{ inputs.replicas }}
+      size: ${{ inputs.size }}
+      vllm_ascend_ref: ${{ inputs.vllm_ascend_ref }}
+      should_run: true
+      ascend_log_prefix: ${{ inputs.ascend_log_prefix }}
+      name: ${{ inputs.name }}
+      vllm_ascend_branch: ${{ inputs.vllm_ascend_branch }}
+      enable_llm: ${{ inputs.enable_llm }}
+    secrets:
+      # Same as vllm-ascend Nightly-A2 mapping when present; otherwise use repo secret KUBECONFIG_B64.
+      KUBECONFIG_B64: ${{ secrets.KUBECONFIG_HK_001_INTERNAL_B64 || secrets.KUBECONFIG_B64 }}
+      OBS_ACCESS_KEY: ${{ secrets.OBS_ACCESS_KEY }}
+      OBS_SECRET_KEY: ${{ secrets.OBS_SECRET_KEY }}
+      VLLM_ASCEND_CI_LLM_API_KEY: ${{ secrets.VLLM_ASCEND_CI_LLM_API_KEY }}
+      VLLM_ASCEND_CI_LLM_BASE_URL: ${{ secrets.VLLM_ASCEND_CI_LLM_BASE_URL }}
