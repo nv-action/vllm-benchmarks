@@ -92,6 +92,9 @@ jobs:
       UV_SYSTEM_PYTHON: 1
       VLLM_ENGINE_READY_TIMEOUT_S: 1800
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
       - name: Check npu and CANN info
         run: |
           npu-smi info
