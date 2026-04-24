@@ -28,6 +28,16 @@ _IMPORTANT_SUBSTRINGS = (
     "ascend",
     "cann",
     "hccl",
+    "kubernetes",
+    "kubelet",
+    "kubectl",
+    "backoff",
+    "crashloop",
+    "imagepull",
+    "errimagepull",
+    "oomkilled",
+    "leaderworkerset",
+    "distributed",
     "errno",
     "cannot",
     "could not",
@@ -52,13 +62,24 @@ _INFO_EXTRA = (
     "ascend",
     "cann",
     "ray",
+    "hccl",
+    "kubectl",
+    "kube",
+    "pod",
+    "backoff",
+    "leader",
 )
 
 _ANCHOR_RES = (
     re.compile(r"^=+\s+FAILURES\s+=+$", re.IGNORECASE),
     re.compile(r"^=+\s+short test summary info\s+=+$", re.IGNORECASE),
     re.compile(r"^FAILED\s+tests/\S+", re.IGNORECASE),
+    re.compile(r"^=== .+ ===$"),
     re.compile(r"Traceback \(most recent call last\):"),
+    re.compile(r"The above exception was the direct cause of the following exception:", re.IGNORECASE),
+    re.compile(
+        r"\b(?:CrashLoopBackOff|ImagePullBackOff|ErrImagePull|OOMKilled|CreateContainerConfigError|RunContainerError)\b"
+    ),
     re.compile(r"^\s*raise [\w.:]+"),
     re.compile(r"\b(?:Error|Exception)\s*:\s*\S+"),
     re.compile(r"E\s+(?:AssertionError|RuntimeError|OSError|ValueError|TypeError|KeyError)\b"),
@@ -176,6 +197,10 @@ def build_llm_log_bundle(
 def clip_text(text: str, max_chars: int) -> str:
     if len(text) <= max_chars:
         return text
-    head = max_chars // 2
-    tail = max_chars - head - 80
-    return text[:head] + f"\n\n... [{len(text) - max_chars + 80} chars omitted] ...\n\n" + text[-tail:]
+    mid = f"\n\n... [{len(text) - max_chars} chars omitted] ...\n\n"
+    if max_chars <= len(mid) + 2:
+        return text[:max_chars]
+    avail = max_chars - len(mid)
+    head = avail // 2
+    tail = avail - head
+    return text[:head] + mid + text[-tail:]

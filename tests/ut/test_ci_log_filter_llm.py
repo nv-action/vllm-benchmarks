@@ -39,6 +39,19 @@ def test_select_important_lines_finds_error_and_guarded_info():
     assert not any("harmless" in g for g in got)
 
 
+def test_build_llm_log_bundle_includes_merged_artifact_section_headers():
+    text = """\
+=== /tmp/collected-logs/node0/var/log/vllm-0_logs.txt ===
+INFO: boot
+ERROR: HCCL init failed on rank 1
+=== /tmp/collected-logs/node1/var/log/vllm-0-1_logs.txt ===
+pod vllm-foo-0-1 phase=Running ready=false
+"""
+    bundle = _filter.build_llm_log_bundle(text, context_before=1, context_after=2)
+    assert "=== /tmp/collected-logs/node0/" in bundle
+    assert "HCCL init failed" in bundle
+
+
 def test_build_llm_log_bundle_includes_traceback_region():
     text = """\
 starting

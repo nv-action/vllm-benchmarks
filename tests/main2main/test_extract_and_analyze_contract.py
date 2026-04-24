@@ -289,6 +289,7 @@ def test_llm_json_from_local_log_exposes_workflow_critical_fields(tmp_path):
             str(SCRIPT_PATH),
             "--log-file",
             str(log_path),
+            "--no-remote-meta",
             "--step-name",
             "Run main2main suite",
             "--format",
@@ -730,6 +731,42 @@ RuntimeError: NPU out of memory
     assert result["code_bugs"][0]["error_type"] == "RuntimeError"
     assert result["code_bugs"][0]["failed_test_files"] == ["tests/e2e/multicard/4-cards/test_kimi_k2.py"]
     assert result["code_bugs"][0]["failed_test_cases"] == []
+
+
+def test_process_local_log_skips_good_commit_when_fetch_remote_meta_false(monkeypatch):
+    module = load_module()
+    log_text = """
+[1/10] FAILED (exit code 4)  tests/e2e/multicard/4-cards/test_kimi_k2.py  (26s)
+""".strip()
+
+    def _should_not_call_good_commit():
+        raise AssertionError("get_good_commit must not run when fetch_remote_meta is False")
+
+    monkeypatch.setattr(module, "get_good_commit", _should_not_call_good_commit)
+    monkeypatch.setattr(module, "extract_bad_commit", lambda log_text, resolve_remote=False: None)
+
+    result = module.process_local_log(log_text, fetch_remote_meta=False)
+
+    assert result["good_commit"] is None
+    assert result["failed_test_files"] == ["tests/e2e/multicard/4-cards/test_kimi_k2.py"]
+
+
+def test_render_summary_heading_is_ci_failure_summary():
+    module = load_module()
+    body = module.render_summary(
+        {
+            "run_id": None,
+            "run_url": None,
+            "failed_test_files": ["tests/e2e/a.py"],
+            "failed_test_cases": [],
+            "distinct_errors": [],
+            "code_bugs": [],
+            "env_flakes": [],
+        },
+        step_name="nightly",
+        mode="e2e",
+    )
+    assert body.startswith("## CI failure summary: nightly\n")
 
 
 def test_dedupe_errors_merges_same_error_with_quote_and_location_noise():

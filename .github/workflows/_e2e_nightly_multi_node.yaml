@@ -402,12 +402,14 @@ jobs:
 
           tar -czf /tmp/ascend-logs.tar.gz -C /tmp collected-logs
 
-      - name: Summarize nightly multi-node failure
-        if: always()
+      - name: CI failure summary (human-readable)
+        if: failure()
+        continue-on-error: true
         run: |
           if [ ! -s /tmp/nightly-multi-node-e2e.log ]; then exit 0; fi
           python3 "$GITHUB_WORKSPACE/.github/workflows/scripts/ci_log_summary.py" \
             --mode e2e \
+            --no-remote-meta \
             --step-name "Nightly multi-node (${{ inputs.config_file_path }})" \
             --log-file /tmp/nightly-multi-node-e2e.log \
             --output "$GITHUB_STEP_SUMMARY"
@@ -424,6 +426,7 @@ jobs:
           if [ ! -s /tmp/nightly-multi-node-e2e.log ]; then exit 0; fi
           python3 "$GITHUB_WORKSPACE/.github/workflows/scripts/ci_log_summary.py" \
             --mode e2e \
+            --no-remote-meta \
             --step-name "Nightly multi-node (${{ inputs.config_file_path }})" \
             --log-file /tmp/nightly-multi-node-e2e.log \
             --format llm-json \

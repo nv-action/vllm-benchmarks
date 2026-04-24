@@ -240,12 +240,14 @@ jobs:
           2>&1 | tee -a /tmp/nightly-single-node-e2e.log
           exit ${PIPESTATUS[0]}
 
-      - name: Summarize nightly single-node failure
-        if: always()
+      - name: CI failure summary (human-readable)
+        if: failure()
+        continue-on-error: true
         run: |
           if [ ! -s /tmp/nightly-single-node-e2e.log ]; then exit 0; fi
           python3 "$GITHUB_WORKSPACE/.github/workflows/scripts/ci_log_summary.py" \
             --mode e2e \
+            --no-remote-meta \
             --step-name "Nightly single-node (${{ inputs.name }})" \
             --log-file /tmp/nightly-single-node-e2e.log \
             --output "$GITHUB_STEP_SUMMARY"
@@ -262,6 +264,7 @@ jobs:
           if [ ! -s /tmp/nightly-single-node-e2e.log ]; then exit 0; fi
           python3 "$GITHUB_WORKSPACE/.github/workflows/scripts/ci_log_summary.py" \
             --mode e2e \
+            --no-remote-meta \
             --step-name "Nightly single-node (${{ inputs.name }})" \
             --log-file /tmp/nightly-single-node-e2e.log \
             --format llm-json \
