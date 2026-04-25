@@ -55,17 +55,20 @@ jobs:
       matrix:
         include:
           - platform: a2
-            runner: [ubuntu-latest, ubuntu-22.04-arm]
+            runner: linux-amd64-cpu-8-hk
             image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-910b-ubuntu22.04-py3.11
             install_clang: true
+            soc_version: ascend910b1
           - platform: a3
-            runner: [ubuntu-latest, ubuntu-22.04-arm]
+            runner: linux-amd64-cpu-8-hk
             image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-a3-ubuntu22.04-py3.11
             install_clang: true
+            soc_version: ascend910_9391
           - platform: 310p
-            runner: [ubuntu-latest, ubuntu-22.04-arm]
+            runner: linux-amd64-cpu-8-hk
             image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-310p-ubuntu22.04-py3.11
             install_clang: false
+            soc_version: ascend310p1
     container:
       image: ${{ matrix.image }}
     steps:
@@ -112,16 +115,31 @@ jobs:
             vllm_ascend/*.so
             vllm_ascend/lib
             vllm_ascend/include
-          key: vllm-ascend-build-v1-${{ runner.os }}-${{ matrix.image }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
+          key: vllm-ascend-build-v1-${{ runner.arch }}-${{ matrix.image }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
           restore-keys: |
-            vllm-ascend-build-v1-${{ runner.os }}-${{ matrix.image }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
+            vllm-ascend-build-v1-${{ runner.arch }}-${{ matrix.image }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
 
-      - name: Install vllm-project/vllm-ascend
+      - name: Install vllm-project/vllm-ascend ARM
+        if: ${{ runner.arch != 'X64' }}
         env:
           PIP_EXTRA_INDEX_URL: https://mirrors.huaweicloud.com/ascend/repos/pypi
+          SOC_VERSION: ${{ matrix.soc_version }}
         run: |
           if ! find vllm_ascend -maxdepth 1 -name '*.so' -type f 2>/dev/null | grep -q .; then
             pip install uc-manager
             uv pip install -r requirements-dev.txt
             uv pip install -v -e .
+          fi
+
+      - name: Install vllm-project/vllm-ascend X64
+        if: ${{ runner.arch == 'X64' }}
+        env:
+          PIP_EXTRA_INDEX_URL: https://mirrors.huaweicloud.com/ascend/repos/pypi
+          SOC_VERSION: ${{ matrix.soc_version }}
+        run: |
+          if ! find vllm_ascend -maxdepth 1 -name '*.so' -type f 2>/dev/null | grep -q .; then
+            pip install uc-manager
+            export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/Ascend/ascend-toolkit/latest/x86_64-linux/devlib
+            uv pip install -v . --extra-index-url https://download.pytorch.org/whl/cpu/
+            uv pip install -r requirements-dev.txt --extra-index-url https://download.pytorch.org/whl/cpu/
           fi
