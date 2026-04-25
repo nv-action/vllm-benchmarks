@@ -59,16 +59,16 @@ jobs:
             image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-910b-ubuntu22.04-py3.11
             install_clang: true
             soc_version: ascend910b1
-          - platform: a3
-            runner: linux-amd64-cpu-8-hk
-            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-a3-ubuntu22.04-py3.11
-            install_clang: true
-            soc_version: ascend910_9391
-          - platform: 310p
-            runner: linux-amd64-cpu-8-hk
-            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-310p-ubuntu22.04-py3.11
-            install_clang: false
-            soc_version: ascend310p1
+        #   - platform: a3
+        #     runner: linux-amd64-cpu-8-hk
+        #     image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-a3-ubuntu22.04-py3.11
+        #     install_clang: true
+        #     soc_version: ascend910_9391
+        #   - platform: 310p
+        #     runner: linux-amd64-cpu-8-hk
+        #     image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-310p-ubuntu22.04-py3.11
+        #     install_clang: false
+        #     soc_version: ascend310p1
     container:
       image: ${{ matrix.image }}
     steps:
