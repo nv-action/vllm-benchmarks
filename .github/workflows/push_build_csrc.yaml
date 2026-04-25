@@ -56,7 +56,7 @@ jobs:
         include:
           - platform: a2
             runner: ubuntu-latest
-            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-910b-ubuntu22.04-py3.11
+            image: quay.io/ascend/cann:8.5.1-910b-ubuntu22.04-py3.11
             install_clang: true
             soc_version: ascend910b1
         #   - platform: a3
