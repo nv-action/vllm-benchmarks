@@ -55,7 +55,7 @@ jobs:
       matrix:
         include:
           - platform: a2
-            runner: linux-amd64-cpu-8-hk
+            runner: ubuntu-latest
             image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-910b-ubuntu22.04-py3.11
             install_clang: true
             soc_version: ascend910b1
@@ -77,9 +77,6 @@ jobs:
 
       - name: Config mirrors
         run: |
-          sed -Ei 's@(ports|archive).ubuntu.com@cache-service.nginx-pypi-cache.svc.cluster.local:8081@g' /etc/apt/sources.list
-          pip config set global.index-url http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
-          pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
           apt-get update -y
           apt install git -y
           git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
@@ -116,7 +113,6 @@ jobs:
 
       - name: Install vllm-project/vllm-ascend ARM
         env:
-          PIP_EXTRA_INDEX_URL: https://mirrors.huaweicloud.com/ascend/repos/pypi
           SOC_VERSION: ${{ matrix.soc_version }}
         run: |
           if ! find vllm_ascend -maxdepth 1 -name '*.so' -type f 2>/dev/null | grep -q .; then
@@ -131,7 +127,6 @@ jobs:
       - name: Install vllm-project/vllm-ascend X64
         if: ${{ runner.arch == 'X64' }}
         env:
-          PIP_EXTRA_INDEX_URL: https://mirrors.huaweicloud.com/ascend/repos/pypi
           SOC_VERSION: ${{ matrix.soc_version }}
         run: |
           if ! find vllm_ascend -maxdepth 1 -name '*.so' -type f 2>/dev/null | grep -q .; then
