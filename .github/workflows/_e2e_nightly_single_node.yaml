@@ -241,7 +241,7 @@ jobs:
           exit ${PIPESTATUS[0]}
 
       - name: CI failure summary (human-readable)
-        if: failure()
+        if: always()
         continue-on-error: true
         run: |
           if [ ! -s /tmp/nightly-single-node-e2e.log ]; then exit 0; fi
@@ -253,7 +253,7 @@ jobs:
             --output "$GITHUB_STEP_SUMMARY"
 
       - name: LLM failure diagnostics (optional)
-        if: failure()
+        if: always()
         continue-on-error: true
         env:
           VLLM_ASCEND_CI_LLM_ENABLED: ${{ inputs.enable_llm && '1' || '0' }}
