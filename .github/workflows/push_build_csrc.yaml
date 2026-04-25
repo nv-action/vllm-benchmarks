@@ -55,8 +55,8 @@ jobs:
       matrix:
         include:
           - platform: a2
-            runner: ubuntu-latest
-            image: quay.io/ascend/cann:8.5.1-910b-ubuntu22.04-py3.11
+            runner: linux-amd64-cpu-8-hk
+            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-910b-ubuntu22.04-py3.11
             install_clang: true
             soc_version: ascend910b1
         #   - platform: a3
