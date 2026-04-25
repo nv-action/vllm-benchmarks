@@ -80,6 +80,7 @@ jobs:
           apt-get update -y
           apt install git -y
           git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
+          git config --global --add safe.directory /__w/vllm-benchmarks/vllm-benchmarks
 
       - name: Install system dependencies
         run: |
