@@ -212,7 +212,7 @@ jobs:
           VLLM_WORKER_MULTIPROC_METHOD: spawn
           VLLM_USE_MODELSCOPE: True
           VLLM_CI_RUNNER: ${{ inputs.runner }}
-        working-directory: /vllm-workspace/vllm-ascend
+        working-directory: ${{ github.workspace }}
         run: |
           set -o pipefail
           export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
@@ -230,7 +230,7 @@ jobs:
           VLLM_CI_RUNNER: ${{ inputs.runner }}
           CONFIG_YAML_PATH: ${{ inputs.config_file_path }}
           BENCHMARK_JOB_NAME: ${{ inputs.vllm_ascend_branch }}-${{ inputs.name }}
-        working-directory: /vllm-workspace/vllm-ascend
+        working-directory: ${{ github.workspace }}
         run: |
           set -o pipefail
           export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
@@ -289,7 +289,7 @@ jobs:
           access_key: ${{ secrets.OBS_ACCESS_KEY }}
           secret_key: ${{ secrets.OBS_SECRET_KEY }}
           name: nightly-test-benchmark-results-${{ inputs.name }}-${{ steps.bench_ts.outputs.artifact_ts }}
-          path: /vllm-workspace/vllm-ascend/benchmark_results/${{ inputs.name }}.json
+          path: ${{ github.workspace }}/benchmark_results/${{ inputs.name }}.json
           if-no-files-found: warn
           retention-days: 90
 
@@ -299,7 +299,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: nightly-test-benchmark-results-${{ steps.bench_ts.outputs.effective_name }}-${{ steps.bench_ts.outputs.artifact_ts }}
-          path: /vllm-workspace/vllm-ascend/benchmark_results/${{ steps.bench_ts.outputs.effective_name }}.json
+          path: ${{ github.workspace }}/benchmark_results/${{ steps.bench_ts.outputs.effective_name }}.json
           if-no-files-found: warn
           retention-days: 90
           compression-level: 0
