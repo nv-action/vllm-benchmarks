@@ -92,6 +92,15 @@ jobs:
           fi
           pip install uv
 
+      # We only need the image tag to distinguish different images, we don't care about the registry and repository part. 
+      # So extract the image tag from the full image name and use it in the cache key.
+      - name: Get image tag
+        id: get_image_tag
+        run: |
+            IMAGE="${{ matrix.image }}"
+            IMAGE_TAG="${IMAGE##*:}"
+            echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_OUTPUT
+
       - name: Get csrc hash
         id: get_csrc_hash
         run: |
@@ -111,18 +120,18 @@ jobs:
           restore-keys: |
             vllm-ascend-build-v1-${{ runner.arch }}-${{ matrix.image }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
 
-      - name: Install vllm-project/vllm-ascend ARM
-        env:
-          SOC_VERSION: ${{ matrix.soc_version }}
-        run: |
-          if ! find vllm_ascend -maxdepth 1 -name '*.so' -type f 2>/dev/null | grep -q .; then
-            source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
-            source /usr/local/Ascend/nnal/atb/set_env.sh && \
-            export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/Ascend/ascend-toolkit/latest/`uname -i`-linux/devlib
-            pip install uc-manager
-            uv pip install -r requirements-dev.txt
-            uv pip install -v -e .
-          fi
+      # - name: Install vllm-project/vllm-ascend ARM
+      #   env:
+      #     SOC_VERSION: ${{ matrix.soc_version }}
+      #   run: |
+      #     if ! find vllm_ascend -maxdepth 1 -name '*.so' -type f 2>/dev/null | grep -q .; then
+      #       source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
+      #       source /usr/local/Ascend/nnal/atb/set_env.sh && \
+      #       export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/Ascend/ascend-toolkit/latest/`uname -i`-linux/devlib
+      #       pip install uc-manager
+      #       uv pip install -r requirements-dev.txt
+      #       uv pip install -v -e .
+      #     fi
 
       - name: Install vllm-project/vllm-ascend X64
         if: ${{ runner.arch == 'X64' }}
