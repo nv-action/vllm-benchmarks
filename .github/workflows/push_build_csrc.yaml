@@ -53,9 +53,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        runner:
+          - linux-amd64-cpu-8-hk
+          - linux-aarch64-a3-0
+
         include:
           - platform: a2
-            runner: ubuntu-latest
             image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-910b-ubuntu22.04-py3.11
             install_clang: true
             soc_version: ascend910b1
@@ -117,9 +120,9 @@ jobs:
             vllm_ascend/*.so
             vllm_ascend/lib
             vllm_ascend/include
-          key: vllm-ascend-build-v1-${{ runner.arch }}-${{ matrix.image }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
+          key: vllm-ascend-build-v1-${{ runner.arch }}-${{ steps.get_image_tag.outputs.IMAGE_TAG }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
           restore-keys: |
-            vllm-ascend-build-v1-${{ runner.arch }}-${{ matrix.image }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
+            vllm-ascend-build-v1-${{ runner.arch }}-${{ steps.get_image_tag.outputs.IMAGE_TAG }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
 
       - name: Install vllm-project/vllm-ascend ARM
         if: ${{ runner.arch != 'X64' }}
