@@ -10,11 +10,13 @@ on:
 
 jobs:
   main:
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu-8-hk
     steps:
       - name: check if prs are dirty
-        uses: eps1lon/actions-label-merge-conflict@v3
+        uses: MrZ20/actions-label-merge-conflict@v1
         with:
           dirtyLabel: "merge-conflicts"
+          invalidHeadLabel: "invalid-head-ref"
           repoToken: "${{ secrets.GITHUB_TOKEN }}"
           commentOnDirty: "This pull request has conflicts, please resolve those before we can evaluate the pull request."
+          commentOnInvalidHead: "The source branch for this pull request is no longer available, so GitHub cannot evaluate whether it has merge conflicts. Please restore the branch, close this pull request, or open a new pull request from an available branch."
