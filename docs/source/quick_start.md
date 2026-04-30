@@ -191,6 +191,6 @@ INFO:     Waiting for application shutdown.
 INFO:     Application shutdown complete.
 ```
 
-Finally, you can exit the container by using `ctrl-D`.
+Finally, you can exit the container by using `ctrl-D` or running `exit` command.
 ::::
 :::::
