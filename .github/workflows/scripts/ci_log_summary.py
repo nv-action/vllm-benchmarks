@@ -1,16 +1,23 @@
-#!/usr/bin/env python3
 from __future__ import annotations
 
 import argparse
 import copy
 import json
-import re
 import shutil
 import subprocess
 import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
+
+import regex as re
+
+"""
+Generate CI failure summaries from a local pytest log or a GitHub Actions run.
+Examples:
+    python3 .github/workflows/scripts/ci_log_summary.py --log-file /tmp/unit-test.log --mode ut --step-name "Unit test"
+    python3 .github/workflows/scripts/ci_log_summary.py --run-id 23127187822 --format json
+"""
 
 REPO = "vllm-project/vllm-ascend"
 _RUN_SUITE_START_RE = re.compile(r"\[\d+/\d+\]\s+START\s+(tests/\S+)")
@@ -971,6 +978,8 @@ def main() -> None:
     if args.run_id is not None:
         result = process_run(args.run_id, repo=args.repo)
     else:
+        if not args.log_file.exists() or args.log_file.stat().st_size == 0:
+            return
         log_text = args.log_file.read_text(encoding="utf-8", errors="replace")
         result = process_local_log(log_text, job_name=args.step_name)
 
