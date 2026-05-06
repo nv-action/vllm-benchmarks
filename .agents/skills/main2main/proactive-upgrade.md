@@ -203,7 +203,7 @@ After applying code fixes, update all vllm commit references in vllm-ascend from
 
 ```bash
 # Find all files containing the good commit and replace with bad commit
-grep -Frl "<GOOD_COMMIT>" . | xargs sed -i '' "s/<GOOD_COMMIT>/<BAD_COMMIT>/g"
+grep -Frl "<GOOD_COMMIT>" . | xargs sed -i "s/<GOOD_COMMIT>/<BAD_COMMIT>/g"
 ```
 
 Verify no old references remain:
