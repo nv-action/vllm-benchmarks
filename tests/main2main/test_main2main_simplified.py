@@ -235,6 +235,130 @@ def test_render_bisect_fix_prompt_contains_bisect_result_path():
     assert "- Round=2" in text
 
 
+def test_run_claude_phase_resumes_existing_session_for_fix(tmp_path, monkeypatch):
+    module = load_module()
+    repo = tmp_path / "vllm-benchmarks"
+    repo.mkdir()
+    skill_path = tmp_path / "SKILL.md"
+    skill_path.write_text("skill\n", encoding="utf-8")
+    rounds_path = tmp_path / "rounds.md"
+    captured_commands = []
+    rev_parse_calls = 0
+
+    def fake_run_git(_repo, *args):
+        nonlocal rev_parse_calls
+        if args == ("rev-parse", "HEAD"):
+            rev_parse_calls += 1
+            return "before\n" if rev_parse_calls == 1 else "after\n"
+        if args == ("status", "--porcelain"):
+            return ""
+        if args[:3] == ("log", "--reverse", "--format=%H%x1f%s%x1f%b%x1e"):
+            return ""
+        raise AssertionError(f"Unexpected git args: {args}")
+
+    def fake_run_command(args, *, cwd=None, stdout_path=None, stderr_path=None, combine_output=False):
+        captured_commands.append(args)
+        assert stdout_path is not None
+        stdout_path.write_text(
+            json.dumps({"type": "result", "subtype": "success", "session_id": "session-123"}),
+            encoding="utf-8",
+        )
+        if stderr_path is not None:
+            stderr_path.write_text("", encoding="utf-8")
+        return subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr(module, "_run_git", fake_run_git)
+    monkeypatch.setattr(module, "_run_command", fake_run_command)
+
+    module.run_claude_phase(
+        phase="fix",
+        round_index=1,
+        work_repo_dir=repo,
+        vllm_dir="vllm-upstream",
+        old_commit="1" * 40,
+        new_commit="2" * 40,
+        session_id="session-123",
+        model="glm-5",
+        allowed_tools="Bash(git *)",
+        skill_path=skill_path,
+        rounds_markdown_path=rounds_path,
+        artifact_prefix=tmp_path / "main2main-fix-round1",
+        log_path="/tmp/main2main-test.log",
+    )
+
+    claude_cmd = captured_commands[0]
+    assert "--resume" in claude_cmd
+    assert claude_cmd[claude_cmd.index("--resume") + 1] == "session-123"
+    assert "--session-id" not in claude_cmd
+
+
+def test_run_claude_phase_writes_stream_json_to_result_file(tmp_path, monkeypatch):
+    module = load_module()
+    repo = tmp_path / "vllm-benchmarks"
+    repo.mkdir()
+    skill_path = tmp_path / "SKILL.md"
+    skill_path.write_text("skill\n", encoding="utf-8")
+    rounds_path = tmp_path / "rounds.md"
+    artifact_prefix = tmp_path / "main2main-detect"
+    captured_commands = []
+    rev_parse_calls = 0
+
+    def fake_run_git(_repo, *args):
+        nonlocal rev_parse_calls
+        if args == ("rev-parse", "HEAD"):
+            rev_parse_calls += 1
+            return "before\n" if rev_parse_calls == 1 else "after\n"
+        if args == ("status", "--porcelain"):
+            return ""
+        if args[:3] == ("log", "--reverse", "--format=%H%x1f%s%x1f%b%x1e"):
+            return ""
+        raise AssertionError(f"Unexpected git args: {args}")
+
+    def fake_run_command(args, *, cwd=None, stdout_path=None, stderr_path=None, combine_output=False):
+        captured_commands.append(args)
+        assert stdout_path == artifact_prefix.with_name("main2main-detect-result.json")
+        stdout_path.write_text(
+            "\n".join(
+                [
+                    json.dumps({"type": "system", "subtype": "init"}),
+                    json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "working"}]}}),
+                    json.dumps({"type": "result", "subtype": "success", "session_id": "session-123"}),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        if stderr_path is not None:
+            stderr_path.write_text("", encoding="utf-8")
+        return subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr(module, "_run_git", fake_run_git)
+    monkeypatch.setattr(module, "_run_command", fake_run_command)
+
+    result = module.run_claude_phase(
+        phase="detect",
+        round_index=None,
+        work_repo_dir=repo,
+        vllm_dir="vllm-upstream",
+        old_commit="1" * 40,
+        new_commit="2" * 40,
+        session_id="session-123",
+        model="glm-5",
+        allowed_tools="Bash(git *)",
+        skill_path=skill_path,
+        rounds_markdown_path=rounds_path,
+        artifact_prefix=artifact_prefix,
+    )
+
+    claude_cmd = captured_commands[0]
+    assert "--output-format" in claude_cmd
+    assert claude_cmd[claude_cmd.index("--output-format") + 1] == "stream-json"
+    assert "--verbose" in claude_cmd
+    assert result["stdout_path"].endswith("main2main-detect-result.json")
+    result_lines = (tmp_path / "main2main-detect-result.json").read_text(encoding="utf-8").splitlines()
+    assert json.loads(result_lines[-1])["type"] == "result"
+
+
 def test_render_pr_body_places_summary_at_top_and_embeds_round_markdown():
     module = load_module()
 
