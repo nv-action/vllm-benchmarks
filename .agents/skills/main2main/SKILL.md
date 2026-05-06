@@ -1,28 +1,28 @@
 ---
 name: main2main
-description: |
-  Guides adaptation of vLLM-Ascend to upstream vLLM main branch changes. Supports two workflows:
-  (1) Proactive upgrade: analyze vLLM code diff, generate prioritized change report, adapt vllm-ascend code.
-  (2) CI failure diagnosis: when main2main CI is red, diagnose from a
-  provided log file or run ID, automatically extract errors from logs, trace root
-  causes to upstream commits, generate diagnostic report, and apply fixes.
-
-  The skill produces code changes, a report file, and a structured summary. It does NOT perform
-  git/PR operations. After the skill completes in standalone mode, create a branch, commit, and
-  submit a PR using the structured summary as PR body.
-
-  Use this skill whenever:
-  - The user wants to upgrade/adapt vllm-ascend to a newer vLLM commit
-  - The user shares a GitHub Actions URL or run ID from main2main tests
-  - The user provides a main2main log file path from main2main tests
-  - The user mentions CI failures related to vLLM main branch updates or "main2main" test failures
-  - The user wants to compare vLLM changes and assess impact on vllm-ascend
-  - The user asks to analyze, debug, or fix failures caused by upstream vLLM changes 
+description: Adapt vLLM-Ascend to upstream vLLM main branch changes. Use for proactive vLLM commit upgrades, schedule_test_vllm_main/main2main CI failures, GitHub Actions run diagnosis, upstream API breakage analysis, and applying compatibility fixes in vllm-ascend.
 ---
 
 # main2main
 
 Adapt vLLM-Ascend to upstream vLLM main branch evolution — proactively or reactively.
+
+## Scope and Trigger Details
+
+This skill supports two workflows:
+
+1. **Proactive upgrade** — analyze vLLM code diff, generate a prioritized change report, and adapt vllm-ascend code.
+2. **CI failure diagnosis** — when `schedule_test_vllm_main` CI is red, extract errors from logs, trace root causes to upstream commits, generate a diagnostic report, and apply fixes.
+
+The skill produces code changes, a report file, and a structured summary. It does **not** perform git or PR operations. After the skill completes in standalone mode, create a branch, commit, and submit a PR using the structured summary as PR body.
+
+Use this skill whenever:
+
+- The user wants to upgrade/adapt vllm-ascend to a newer vLLM commit.
+- The user shares a GitHub Actions URL or run ID from main2main tests.
+- The user mentions CI failures related to vLLM main branch updates or `main2main` test failures.
+- The user wants to compare vLLM changes and assess impact on vllm-ascend.
+- The user asks to analyze, debug, or fix failures caused by upstream vLLM changes.
 
 ## Scenario Detection
 
@@ -34,7 +34,7 @@ Determine which workflow the user needs, then Read the corresponding document:
 - No CI failure is involved; the goal is forward-looking analysis
 
 **CI Failure Diagnosis** — Read `error-analysis.md` (in the same directory as this SKILL.md)
-- User shares a GitHub Actions URL, run ID, main2main log file path, or mentions CI is red
+- User shares a GitHub Actions URL, run ID, or mentions CI is red
 - User mentions schedule_test_vllm_main failures or "main2main" test failures
 - The goal is to diagnose and fix existing breakage
 
@@ -61,11 +61,21 @@ else:
 
 The compatible release version comes from `vllm_version` matrix in `.github/workflows/pr_test_full.yaml`.
 
+**Always use `vllm_version_is()`. Do not use these alternatives:**
+
+- `hasattr(obj, "attr")` — looks like duck typing but silently accepts unexpected API shapes. It also hides which version boundary introduced the change, making future cleanup require code archaeology instead of a grep.
+- A boolean flag derived from a version check (e.g., `self.use_new_api = not vllm_version_is("0.16.0")`) set once and propagated downstream — this disguises a version boundary as a capability toggle. Future readers preserve the flag when dropping the version instead of deleting the branch.
+- `try/except ImportError` or `try/except AttributeError` — same problem as `hasattr`: hides the version boundary.
+
+**Why `vllm_version_is()` specifically:** it is grep-able by version string. When the pinned version is eventually dropped, `grep -rn 'vllm_version_is("0.16.0")'` finds every cleanup site in one command. None of the alternatives support this workflow.
+
+**Apply the guard at each branching site, not once at the top.** Every file that diverges by version should import and call `vllm_version_is()` directly at the point of divergence. This keeps each version-gated branch independently discoverable and independently removable — the key question a future maintainer asks is "where does this version boundary live?" not "which flag was derived from which check?"
+
 ---
 
 ## Output Contract
 
-Both workflows produce three outputs:
+Both workflows produce two common outputs:
 
 1. **Code changes** — applied to the working tree (unstaged)
 2. **Structured summary** — output in conversation, following the format defined in each workflow's final step
