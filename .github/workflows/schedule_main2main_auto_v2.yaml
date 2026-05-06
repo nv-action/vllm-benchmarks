@@ -305,26 +305,6 @@ jobs:
             exit 1
           }
           claude --version
-
-      - name: Install mock Claude CLI
-        if: steps.detect.outputs.has_drift == 'true' && env.MOCK_CLAUDE_MODE != 'off'
-        run: |
-          set -eu
-          mkdir -p /tmp/mock-bin
-          cat > /tmp/mock-bin/claude <<'EOF'
-          #!/usr/bin/env bash
-          set -eu
-          exec python3 "$GITHUB_WORKSPACE/$WORK_REPO_DIR/.github/workflows/scripts/mock_claude.py" "$@"
-          EOF
-          chmod +x /tmp/mock-bin/claude
-          echo /tmp/mock-bin >> "$GITHUB_PATH"
-          export PATH="/tmp/mock-bin:${PATH}"
-          claude --version
-
-      - name: Write Claude settings.json
-        if: steps.detect.outputs.has_drift == 'true' && env.MOCK_CLAUDE_MODE == 'off'
-        run: |
-          set -eu
           mkdir -p "$HOME/.claude"
           cat > "$HOME/.claude/settings.json" <<EOF
           {
@@ -352,6 +332,21 @@ jobs:
           }
           EOF
           python3 -m json.tool "$HOME/.claude/settings.json" >/dev/null
+
+      - name: Install mock Claude CLI
+        if: steps.detect.outputs.has_drift == 'true' && env.MOCK_CLAUDE_MODE != 'off'
+        run: |
+          set -eu
+          mkdir -p /tmp/mock-bin
+          cat > /tmp/mock-bin/claude <<'EOF'
+          #!/usr/bin/env bash
+          set -eu
+          exec python3 "$GITHUB_WORKSPACE/$WORK_REPO_DIR/.github/workflows/scripts/mock_claude.py" "$@"
+          EOF
+          chmod +x /tmp/mock-bin/claude
+          echo /tmp/mock-bin >> "$GITHUB_PATH"
+          export PATH="/tmp/mock-bin:${PATH}"
+          claude --version
 
       - name: Initialize Claude session
         if: steps.detect.outputs.has_drift == 'true'
@@ -646,10 +641,8 @@ jobs:
             BISECT_ROUNDS_USED="${{ steps.bisect-loop.outputs.bisect_rounds_used }}"
           fi
 
-          echo "final_status=${FINAL_STATUS}" >> "$GITHUB_OUTPUT"
-          echo "fix_rounds_used=${FIX_ROUNDS_USED}" >> "$GITHUB_OUTPUT"
-          echo "bisect_rounds_used=${BISECT_ROUNDS_USED}" >> "$GITHUB_OUTPUT"
           echo "manual_review_required=${MANUAL_REVIEW_REQUIRED}" >> "$GITHUB_OUTPUT"
+          echo "::notice::final_status=${FINAL_STATUS}, fix_rounds_used=${FIX_ROUNDS_USED}, bisect_rounds_used=${BISECT_ROUNDS_USED}"
 
       - name: Determine publish readiness
         if: steps.detect.outputs.has_drift == 'true'
@@ -663,8 +656,9 @@ jobs:
             SHOULD_PUBLISH=false
             echo "::notice::Drift detected but no code adaptation was produced"
           fi
-          echo "count=${COMMIT_COUNT}" >> "$GITHUB_OUTPUT"
+
           echo "should_publish=${SHOULD_PUBLISH}" >> "$GITHUB_OUTPUT"
+          echo "::notice::commit_count=${COMMIT_COUNT}, should_publish=${SHOULD_PUBLISH}"
 
       - name: Publish draft PR
         if: steps.detect.outputs.has_drift == 'true' && steps.publication-state.outputs.should_publish == 'true'
@@ -672,9 +666,8 @@ jobs:
         working-directory: ${{ env.WORK_REPO_DIR }}
         run: |
           eval "${MAIN2MAIN_LOG_HELPERS}"
-
           BRANCH_NAME="${{ steps.branch.outputs.name }}"
-          echo "::group::Render PR body"
+          echo "Render PR body"
           python3 .github/workflows/scripts/main2main_simplified.py render-pr-body \
             --old-commit "${{ steps.detect.outputs.old_commit }}" \
             --new-commit "${{ steps.detect.outputs.new_commit }}" \
@@ -684,39 +677,37 @@ jobs:
               exit 1
             }
           print_group "PR body" /tmp/main2main-pr-body.md
-          echo "::endgroup::"
 
-          echo "::group::Normalize origin remote"
+          echo "Normalize origin remote"
           git remote set-url origin "https://github.com/Meihan-chen/vllm-benchmarks.git" || {
             echo "::error::Failed to normalize origin remote URL"
             exit 1
           }
           git remote -v
-          echo "::endgroup::"
 
-          echo "::group::Push branch"
+          echo "Push branch"
           git push --force-with-lease -u origin "${BRANCH_NAME}" || {
             echo "::error::Failed while pushing branch ${BRANCH_NAME}"
             exit 1
           }
-          echo "::endgroup::"
 
-          echo "::group::Create draft PR"
           SHORT_OLD=$(printf '%.8s' "${{ steps.detect.outputs.old_commit }}")
           SHORT_NEW=$(printf '%.8s' "${{ steps.detect.outputs.new_commit }}")
           PR_URL=$(gh pr create \
             --repo "${UPSTREAM_REPO}" \
             --draft \
-            --title "feat: adapt to vLLM main (${SHORT_OLD}...${SHORT_NEW})" \
+            --title "[Misc]feat: adapt to vLLM main (${SHORT_OLD}...${SHORT_NEW})" \
             --body-file /tmp/main2main-pr-body.md \
             --head "Meihan-chen:${BRANCH_NAME}" \
             --base main \
-            --label main2main) || {
+            --label main2main \
+            --label ready \
+            --label ready-for-test) || {
               echo "::error::Failed while creating draft PR"
               exit 1
             }
           echo "url=${PR_URL}" >> "$GITHUB_OUTPUT"
-          echo "::endgroup::"
+          echo "Created draft PR: ${PR_URL}"
 
       - name: Create manual review issue
         if: steps.create-pr.outcome == 'success' && steps.final-status.outputs.manual_review_required == 'true'

@@ -75,6 +75,36 @@ def _result_payload(phase: str, mode: str, session_id: str) -> dict[str, object]
     }
 
 
+def _stream_payloads(phase: str, mode: str, session_id: str) -> list[dict[str, object]]:
+    return [
+        {
+            "type": "system",
+            "subtype": "init",
+            "session_id": session_id,
+            "tools": [],
+            "model": "mock-claude",
+        },
+        {
+            "type": "assistant",
+            "session_id": session_id,
+            "message": {
+                "role": "assistant",
+                "type": "message",
+                "content": [{"type": "text", "text": f"mock {mode} {phase} response"}],
+            },
+        },
+        _result_payload(phase, mode, session_id),
+    ]
+
+
+def _print_result(*, phase: str, mode: str, session_id: str, output_format: str) -> None:
+    if output_format == "stream-json":
+        for payload in _stream_payloads(phase, mode, session_id):
+            print(json.dumps(payload))
+        return
+    print(json.dumps(_result_payload(phase, mode, session_id)))
+
+
 def _resolve_phase(prompt: str) -> str:
     explicit = os.environ.get("MOCK_CLAUDE_PHASE", "").strip()
     if explicit:
@@ -94,8 +124,8 @@ def _validate_inputs(
     upstream_repo: Path,
     phase: str,
 ) -> None:
-    if output_format != "json":
-        raise SystemExit("mock_claude.py requires --output-format json")
+    if output_format not in {"json", "stream-json"}:
+        raise SystemExit("mock_claude.py requires --output-format json or stream-json")
     if not system_prompt_path:
         raise SystemExit("mock_claude.py requires --append-system-prompt-file")
     if not Path(system_prompt_path).is_file():
@@ -130,6 +160,7 @@ def main() -> None:
     parser.add_argument("--model")
     parser.add_argument("--append-system-prompt-file")
     parser.add_argument("--output-format")
+    parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--allowedTools")
     parser.add_argument("--dangerously-skip-permissions", action="store_true")
     parser.add_argument("--permission-mode")
@@ -146,7 +177,7 @@ def main() -> None:
     work_repo = Path(os.environ["MOCK_CLAUDE_WORK_REPO"])
     upstream_repo = Path(os.environ["MOCK_CLAUDE_UPSTREAM_REPO"])
     new_commit = os.environ["MOCK_CLAUDE_NEW_COMMIT"]
-    session_id = args.session_id or "mock-session-default"
+    session_id = args.session_id or args.resume or "mock-session-default"
 
     _validate_inputs(
         prompt=prompt,
@@ -159,7 +190,12 @@ def main() -> None:
     )
 
     if mode == "nochange":
-        print(json.dumps(_result_payload(phase, mode, session_id)))
+        _print_result(
+            phase=phase,
+            mode=mode,
+            session_id=session_id,
+            output_format=args.output_format,
+        )
         return
 
     if mode != "success":
@@ -183,7 +219,12 @@ def main() -> None:
         if changed:
             _commit_all(work_repo, f"mock {phase}: update config for {new_commit[:8]}")
 
-    print(json.dumps(_result_payload(phase, mode, session_id)))
+    _print_result(
+        phase=phase,
+        mode=mode,
+        session_id=session_id,
+        output_format=args.output_format,
+    )
 
 
 if __name__ == "__main__":

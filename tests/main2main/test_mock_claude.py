@@ -160,6 +160,122 @@ def test_mock_claude_nochange_leaves_repo_clean(tmp_path):
     assert before == after
 
 
+def test_mock_claude_reports_resume_session_id(tmp_path):
+    bench = tmp_path / "vllm-benchmarks"
+    upstream = tmp_path / "vllm-upstream"
+    bench.mkdir()
+    upstream.mkdir()
+    init_repo(bench)
+    init_repo(upstream)
+
+    base = bench / "README.md"
+    base.write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=bench, check=True)
+    subprocess.run(["git", "commit", "-m", "base"], cwd=bench, check=True)
+
+    log_path = tmp_path / "main2main-test.log"
+    log_path.write_text("failure\n", encoding="utf-8")
+    skill_path = tmp_path / "skill.md"
+    skill_path.write_text("skill\n", encoding="utf-8")
+    env = os.environ.copy()
+    env.update(
+        {
+            "MOCK_CLAUDE_MODE": "nochange",
+            "MOCK_CLAUDE_PHASE": "fix",
+            "MOCK_CLAUDE_LOG_PATH": str(log_path),
+            "MOCK_CLAUDE_WORK_REPO": str(bench),
+            "MOCK_CLAUDE_UPSTREAM_REPO": str(upstream),
+            "MOCK_CLAUDE_OLD_COMMIT": "a" * 40,
+            "MOCK_CLAUDE_NEW_COMMIT": "b" * 40,
+        }
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT_PATH),
+            "-p",
+            "Use Main2Main skill to fix the current main2main test failures.\n"
+            "Context:\n"
+            "- Benchmark repo is checked out at ./vllm-benchmarks\n"
+            "- Upstream vLLM source is checked out at ./vllm-upstream\n"
+            f"- Main2Main test log path={log_path}\n",
+            "--resume",
+            "test-session-resume",
+            "--append-system-prompt-file",
+            str(skill_path),
+            "--output-format",
+            "json",
+            "--allowedTools",
+            "Bash(git *)",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    payload = json.loads(result.stdout)
+    assert payload["session_id"] == "test-session-resume"
+
+
+def test_mock_claude_supports_stream_json_output(tmp_path):
+    bench = tmp_path / "vllm-benchmarks"
+    upstream = tmp_path / "vllm-upstream"
+    bench.mkdir()
+    upstream.mkdir()
+    init_repo(bench)
+    init_repo(upstream)
+
+    base = bench / "README.md"
+    base.write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=bench, check=True)
+    subprocess.run(["git", "commit", "-m", "base"], cwd=bench, check=True)
+
+    skill_path = tmp_path / "skill.md"
+    skill_path.write_text("skill\n", encoding="utf-8")
+    env = os.environ.copy()
+    env.update(
+        {
+            "MOCK_CLAUDE_MODE": "nochange",
+            "MOCK_CLAUDE_PHASE": "detect",
+            "MOCK_CLAUDE_WORK_REPO": str(bench),
+            "MOCK_CLAUDE_UPSTREAM_REPO": str(upstream),
+            "MOCK_CLAUDE_OLD_COMMIT": "a" * 40,
+            "MOCK_CLAUDE_NEW_COMMIT": "b" * 40,
+        }
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT_PATH),
+            "-p",
+            "Use Main2Main skill to adapt vllm-benchmarks\n"
+            "Context:\n"
+            "- Benchmark repo is checked out at ./vllm-benchmarks\n"
+            "- Upstream vLLM source is checked out at ./vllm-upstream\n",
+            "--session-id",
+            "test-session-stream",
+            "--append-system-prompt-file",
+            str(skill_path),
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--allowedTools",
+            "Bash(git *)",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    events = [json.loads(line) for line in result.stdout.splitlines()]
+    assert [event["type"] for event in events] == ["system", "assistant", "result"]
+    assert events[-1]["session_id"] == "test-session-stream"
+
+
 def test_mock_claude_success_fix_creates_config_commit(tmp_path):
     bench = tmp_path / "vllm-benchmarks"
     upstream = tmp_path / "vllm-upstream"

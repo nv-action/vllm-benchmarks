@@ -133,6 +133,24 @@ def _print_group_if_nonempty(title: str, path: Path) -> None:
     _print_group(title, path)
 
 
+def _validate_stream_json_result(path: Path) -> dict[str, Any]:
+    final_result: dict[str, Any] | None = None
+    with path.open(encoding="utf-8") as handle:
+        for line_number, raw_line in enumerate(handle, start=1):
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Invalid Claude stream-json event in {path}:{line_number}") from exc
+            if event.get("type") == "result":
+                final_result = event
+    if final_result is None:
+        raise ValueError(f"Claude stream-json output did not contain a final result event: {path}")
+    return final_result
+
+
 def _arg_or_env(value: str | None, env_name: str) -> str:
     if value:
         return value
@@ -351,19 +369,20 @@ def run_claude_phase(
 
     prompt_path.write_text(prompt_text, encoding="utf-8")
     before_head = _run_git(work_repo_dir, "rev-parse", "HEAD").strip()
+    session_args = ["--session-id", session_id] if phase == "detect" else ["--resume", session_id]
     completed = _run_command(
         [
             "claude",
+            *session_args,
             "-p",
             prompt_text,
-            "--session-id",
-            session_id,
             "--model",
             model,
             "--append-system-prompt-file",
             str(skill_path),
             "--output-format",
-            "json",
+            "stream-json",
+            "--verbose",
             "--dangerously-skip-permissions",
             "--allowedTools",
             allowed_tools,
@@ -374,7 +393,7 @@ def run_claude_phase(
     if completed.returncode != 0:
         raise subprocess.CalledProcessError(completed.returncode, completed.args)
 
-    json.loads(stdout_path.read_text(encoding="utf-8"))
+    _validate_stream_json_result(stdout_path)
 
     status_output = _run_git(work_repo_dir, "status", "--porcelain").strip()
     if status_path is not None:
