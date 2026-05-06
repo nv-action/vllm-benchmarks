@@ -60,14 +60,26 @@ def test_v2_workflow_uses_one_long_lived_main_job():
 
 
 def test_v2_workflow_installs_and_configures_claude_cli():
+    workflow = load_yaml(MAIN_WORKFLOW_V2_PATH)
     text = read_text(MAIN_WORKFLOW_V2_PATH)
+    steps = workflow["jobs"]["main2main"]["steps"]
+    step_names = [step.get("name") for step in steps]
+    claude_install_step = next(
+        step
+        for step in steps
+        if step.get("name") == "Install Claude Code CLI"
+    )
 
     assert "Install Claude Code CLI" in text
     assert "Install mock Claude CLI" in text
-    assert "Write Claude settings.json" in text
+    assert "Write Claude settings.json" not in step_names
     assert "settings.json" in text
     assert "claude --version" in text
     assert "run-claude-phase" in text
+    assert claude_install_step["if"] == "steps.detect.outputs.has_drift == 'true' && env.MOCK_CLAUDE_MODE == 'off'"
+    assert "npm install -g @anthropic-ai/claude-code" in claude_install_step["run"]
+    assert 'cat > "$HOME/.claude/settings.json" <<EOF' in claude_install_step["run"]
+    assert 'python3 -m json.tool "$HOME/.claude/settings.json" >/dev/null' in claude_install_step["run"]
 
 
 def test_v2_workflow_uses_cli_loops_not_fixed_round_steps():
@@ -119,6 +131,50 @@ def test_v2_workflow_keeps_suite_and_log_file_contract():
     assert "- name: Push branch" not in text
     assert "- name: Create draft PR" not in text
     assert "Create manual review issue" in text
+
+
+def test_v2_workflow_publish_step_groups_pr_body_and_prints_notices():
+    workflow = load_yaml(MAIN_WORKFLOW_V2_PATH)
+    text = read_text(MAIN_WORKFLOW_V2_PATH)
+
+    final_status_step = next(
+        step
+        for step in workflow["jobs"]["main2main"]["steps"]
+        if step.get("name") == "Summarize final status"
+    )
+    publication_step = next(
+        step
+        for step in workflow["jobs"]["main2main"]["steps"]
+        if step.get("name") == "Determine publish readiness"
+    )
+    publish_step = next(
+        step
+        for step in workflow["jobs"]["main2main"]["steps"]
+        if step.get("name") == "Publish draft PR"
+    )
+
+    publish_script = publish_step["run"]
+    assert 'echo "::group::' not in publish_script
+    assert 'echo "::endgroup::"' not in publish_script
+    assert 'eval "${MAIN2MAIN_LOG_HELPERS}"' in publish_script
+    assert 'print_group "PR body" /tmp/main2main-pr-body.md' in publish_script
+    assert 'echo "Created draft PR: ${PR_URL}"' in publish_script
+    assert "--label main2main" in publish_script
+    assert "--label ready" in publish_script
+    assert "--label ready-for-test" in publish_script
+
+    assert (
+        'echo "::notice::final_status=${FINAL_STATUS}, '
+        'fix_rounds_used=${FIX_ROUNDS_USED}, '
+        'bisect_rounds_used=${BISECT_ROUNDS_USED}"'
+        in final_status_step["run"]
+    )
+    assert (
+        'echo "::notice::commit_count=${COMMIT_COUNT}, '
+        'should_publish=${SHOULD_PUBLISH}"'
+        in publication_step["run"]
+    )
+    assert text.count('echo "Created draft PR: ${PR_URL}"') == 1
 
 
 def test_v2_workflow_does_not_reference_env_context_inside_job_env_expression():
