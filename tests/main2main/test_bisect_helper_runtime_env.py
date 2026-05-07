@@ -56,7 +56,7 @@ def test_build_batch_matrix_uses_singlecard_full_runtime_workflow_config():
     entry = _entry_for_path(module, "tests/e2e/singlecard/test_sampler.py::test_x")
 
     assert entry["group"] == "e2e-singlecard"
-    assert entry["runner"] == "linux-aarch64-a2-1"
+    assert entry["runner"] == "linux-aarch64-a2-2"
     assert (
         entry["image"] == "swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-910b-ubuntu22.04-py3.11"
     )
