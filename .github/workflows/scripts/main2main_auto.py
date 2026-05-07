@@ -99,6 +99,7 @@ def _suite_artifact_paths(prefix: Path) -> dict[str, Path]:
         "summary": prefix.parent / "main2main-failure-summary.json",
         "summary_stdout": Path(f"{prefix}-summary.out"),
         "summary_stderr": Path(f"{prefix}-summary.err"),
+        "timing": Path(f"{prefix}-timing.json"),
     }
 
 
@@ -259,6 +260,7 @@ def run_suite_and_summarize(
     summary_path = paths["summary"]
     summary_stdout_path = paths["summary_stdout"]
     summary_stderr_path = paths["summary_stderr"]
+    timing_path = paths["timing"]
     # Keep the full suite log in one file so the workflow can print it directly.
     summary_path.unlink(missing_ok=True)
     summary_stdout_path.unlink(missing_ok=True)
@@ -270,6 +272,8 @@ def run_suite_and_summarize(
             "--suite",
             suite,
             "--continue-on-error",
+            "--timing-report-json",
+            str(timing_path),
         ],
         cwd=work_repo_dir,
         stdout_path=log_path,
@@ -306,6 +310,7 @@ def run_suite_and_summarize(
         "summary_path": str(summary_path),
         "summary_stdout_path": str(summary_stdout_path),
         "summary_stderr_path": str(summary_stderr_path),
+        "timing_path": str(timing_path),
     }
 
 
@@ -777,7 +782,7 @@ def run_bisect_round(
         find_result = _run_command(
             [
                 "python3",
-                str(work_repo_dir / ".github/workflows/scripts/main2main_simplified.py"),
+                str(work_repo_dir / ".github/workflows/scripts/main2main_auto.py"),
                 "find-bisect-run",
                 "--repo",
                 github_repo,
@@ -795,7 +800,7 @@ def run_bisect_round(
         list_result = _run_command(
             [
                 "python3",
-                str(work_repo_dir / ".github/workflows/scripts/main2main_simplified.py"),
+                str(work_repo_dir / ".github/workflows/scripts/main2main_auto.py"),
                 "list-bisect-runs",
                 "--repo",
                 github_repo,
@@ -810,13 +815,13 @@ def run_bisect_round(
 
     run_data = json.loads(run_json_path.read_text(encoding="utf-8"))
     bisect_run_id = int(run_data["databaseId"])
-    poll_timeout_minutes = int(os.environ.get("BISECT_POLL_TIMEOUT_MINUTES", "180"))
+    poll_timeout_minutes = int(os.environ.get("BISECT_POLL_TIMEOUT_MINUTES", "240"))
     poll_timeout_seconds = max(1, poll_timeout_minutes) * 60
 
     poll_result = _run_command(
         [
             "python3",
-            str(work_repo_dir / ".github/workflows/scripts/main2main_simplified.py"),
+            str(work_repo_dir / ".github/workflows/scripts/main2main_auto.py"),
             "poll-bisect-run",
             "--repo",
             github_repo,
@@ -935,7 +940,7 @@ def print_bisect_round_logs(*, artifact_prefix: Path) -> None:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Helper CLI for simplified main2main workflow.")
+    parser = argparse.ArgumentParser(description="Helper CLI for main2main auto workflow.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     summary_parser = subparsers.add_parser("extract-bisect-test-cmd")
