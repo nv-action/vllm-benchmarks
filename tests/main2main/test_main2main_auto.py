@@ -3,16 +3,22 @@ import json
 import subprocess
 from pathlib import Path
 
-SCRIPT_PATH = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "scripts" / "main2main_simplified.py"
+SCRIPT_PATH = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "scripts" / "main2main_auto.py"
 
 
 def load_module():
-    spec = importlib.util.spec_from_file_location("main2main_simplified", SCRIPT_PATH)
+    spec = importlib.util.spec_from_file_location("main2main_auto", SCRIPT_PATH)
     module = importlib.util.module_from_spec(spec)
     assert spec is not None
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
+
+
+def test_cli_description_uses_current_workflow_name():
+    module = load_module()
+
+    assert module._build_parser().description == "Helper CLI for main2main auto workflow."
 
 
 def test_extract_bisect_test_cmd_prefers_failed_test_cases():
@@ -47,7 +53,7 @@ def test_extract_bisect_test_cmd_falls_back_to_failed_test_files():
     assert module.extract_bisect_test_cmd(summary) == "pytest -sv tests/e2e/multicard/2-cards/test_expert_parallel.py"
 
 
-def test_extract_bisect_test_cmd_supports_real_mock_bisect_target():
+def test_extract_bisect_test_cmd_supports_real_bisect_target():
     module = load_module()
 
     summary = {
@@ -424,6 +430,45 @@ def test_run_suite_and_summarize_reports_success_without_summary(tmp_path):
     assert not summary_path.exists()
 
 
+def test_run_suite_and_summarize_writes_timing_report_outside_repo(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    script_dir = repo / ".github" / "workflows" / "scripts"
+    script_dir.mkdir(parents=True)
+
+    args_path = repo / "run-suite-args.json"
+    (script_dir / "run_suite.py").write_text(
+        "import json\n"
+        "import sys\n"
+        f"open({str(args_path)!r}, 'w', encoding='utf-8').write(json.dumps(sys.argv))\n",
+        encoding="utf-8",
+    )
+
+    artifact_prefix = tmp_path / "suite"
+    subprocess.run(
+        [
+            "python3",
+            str(SCRIPT_PATH),
+            "run-suite-and-summarize",
+            "--work-repo-dir",
+            str(repo),
+            "--suite",
+            "e2e-main2main",
+            "--artifact-prefix",
+            str(artifact_prefix),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    run_suite_args = json.loads(args_path.read_text(encoding="utf-8"))
+    timing_arg_index = run_suite_args.index("--timing-report-json")
+    timing_report_path = Path(run_suite_args[timing_arg_index + 1])
+    assert timing_report_path == artifact_prefix.with_name(f"{artifact_prefix.name}-timing.json")
+    assert repo not in timing_report_path.parents
+
+
 def test_run_suite_and_summarize_generates_summary_on_failure(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -675,12 +720,12 @@ def test_run_bisect_round_uses_run_command_helper_contract(tmp_path, monkeypatch
             assert stdout_path == tmp_path / "main2main-bisect-round1-dispatch.out"
             assert stderr_path == tmp_path / "main2main-bisect-round1-dispatch.err"
             return subprocess.CompletedProcess(args, 0)
-        if len(args) >= 2 and args[1].endswith("main2main_simplified.py") and args[2] == "find-bisect-run":
+        if len(args) >= 2 and args[1].endswith("main2main_auto.py") and args[2] == "find-bisect-run":
             assert stdout_path == tmp_path / "main2main-bisect-round1-run.json"
             assert stderr_path == tmp_path / "main2main-bisect-round1-find.err"
             stdout_path.write_text(json.dumps({"databaseId": 123, "url": "https://example.com/run/123"}), encoding="utf-8")
             return subprocess.CompletedProcess(args, 0)
-        if len(args) >= 2 and args[1].endswith("main2main_simplified.py") and args[2] == "poll-bisect-run":
+        if len(args) >= 2 and args[1].endswith("main2main_auto.py") and args[2] == "poll-bisect-run":
             assert stdout_path == tmp_path / "main2main-bisect-round1-complete.json"
             assert stderr_path == tmp_path / "main2main-bisect-round1-poll.err"
             stdout_path.write_text(json.dumps({"url": "https://example.com/run/123"}), encoding="utf-8")
@@ -742,11 +787,11 @@ def test_run_bisect_round_uses_poll_timeout_minutes_from_env(tmp_path, monkeypat
             return subprocess.CompletedProcess(args, 0)
         if args[:4] == ["gh", "workflow", "run", "dispatch_main2main_bisect.yaml"]:
             return subprocess.CompletedProcess(args, 0)
-        if len(args) >= 2 and args[1].endswith("main2main_simplified.py") and args[2] == "find-bisect-run":
+        if len(args) >= 2 and args[1].endswith("main2main_auto.py") and args[2] == "find-bisect-run":
             assert stdout_path is not None
             stdout_path.write_text(json.dumps({"databaseId": 123, "url": "https://example.com/run/123"}), encoding="utf-8")
             return subprocess.CompletedProcess(args, 0)
-        if len(args) >= 2 and args[1].endswith("main2main_simplified.py") and args[2] == "poll-bisect-run":
+        if len(args) >= 2 and args[1].endswith("main2main_auto.py") and args[2] == "poll-bisect-run":
             captured_poll_args.extend(args)
             assert stdout_path is not None
             stdout_path.write_text(json.dumps({"url": "https://example.com/run/123"}), encoding="utf-8")
