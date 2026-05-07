@@ -7,7 +7,6 @@ import yaml
 
 WORKFLOWS_DIR = Path(__file__).resolve().parents[2] / ".github" / "workflows"
 MAIN_WORKFLOW_PATH = WORKFLOWS_DIR / "schedule_main2main_auto.yaml"
-BISECT_WORKFLOW_PATH = WORKFLOWS_DIR / "dispatch_main2main_bisect.yaml"
 
 
 def read_text(path: Path) -> str:
@@ -39,34 +38,17 @@ def bash_syntax_check(script: str) -> None:
         temp_path.unlink(missing_ok=True)
 
 
+def test_auto_workflow_file_exists():
+    assert MAIN_WORKFLOW_PATH.exists()
+
+
 def test_auto_workflow_declares_only_target_commit_dispatch_input():
     workflow = load_yaml(MAIN_WORKFLOW_PATH)
     on_section = workflow_on_section(workflow)
 
-    assert "schedule" in on_section
     assert "workflow_dispatch" in on_section
-
     dispatch_inputs = on_section["workflow_dispatch"]["inputs"]
     assert list(dispatch_inputs) == ["target_commit", "fix_round_limit", "bisect_round_limit"]
-
-
-def test_auto_workflow_no_longer_uses_workflow_run_or_legacy_state_machine_inputs():
-    text = read_text(MAIN_WORKFLOW_PATH)
-
-    assert "workflow_run:" not in text
-    for token in [
-        "dispatch_token",
-        "pr_number",
-        "bisect_run_id",
-        "schedule_main2main_reconcile.yaml",
-        "dispatch_main2main_terminal.yaml",
-        "main2main_register_comment",
-        "main2main_state_comment",
-        "waiting_e2e",
-        "waiting_bisect",
-        "manual_review_pending",
-    ]:
-        assert token not in text
 
 
 def test_auto_workflow_uses_one_long_lived_main_job():
@@ -74,81 +56,200 @@ def test_auto_workflow_uses_one_long_lived_main_job():
     jobs = workflow["jobs"]
 
     assert list(jobs) == ["main2main"]
-    job = jobs["main2main"]
-    assert job["runs-on"] == "linux-aarch64-a3-4"
+    assert jobs["main2main"]["runs-on"] == "linux-aarch64-a2-4"
 
 
-def test_auto_workflow_runs_fixed_main2main_suite_and_llm_json_summary():
+def test_auto_workflow_installs_and_configures_claude_cli():
+    workflow = load_yaml(MAIN_WORKFLOW_PATH)
+    text = read_text(MAIN_WORKFLOW_PATH)
+    steps = workflow["jobs"]["main2main"]["steps"]
+    step_names = [step.get("name") for step in steps]
+    claude_install_step = next(
+        step
+        for step in steps
+        if step.get("name") == "Install Claude Code CLI"
+    )
+
+    assert "Install Claude Code CLI" in text
+    assert "Write Claude settings.json" not in step_names
+    assert "settings.json" in text
+    assert "claude --version" in text
+    assert "run-claude-phase" in text
+    assert claude_install_step["if"] == "steps.detect.outputs.has_drift == 'true'"
+    assert "npm install -g @anthropic-ai/claude-code" in claude_install_step["run"]
+    assert 'cat > "$HOME/.claude/settings.json" <<EOF' in claude_install_step["run"]
+    assert 'python3 -m json.tool "$HOME/.claude/settings.json" >/dev/null' in claude_install_step["run"]
+
+
+def test_auto_workflow_uses_cli_loops_not_fixed_round_steps():
+    text = read_text(MAIN_WORKFLOW_PATH)
+
+    assert "Run fix loop with Claude" in text
+    assert "Run bisect-fix loop with Claude" in text
+    assert "while true; do" in text
+    assert "Claude fix round 1" not in text
+    assert "Claude bisect-fix round 1" not in text
+    assert "FIX_ROUND_LIMIT" in text
+    assert "BISECT_ROUND_LIMIT" in text
+    assert "TARGET_COMMIT" in text
+    assert 'TARGET="${TARGET_COMMIT}"' in text
+    assert "max_fix_rounds" not in text
+    assert "max_bisect_rounds" not in text
+
+
+def test_auto_workflow_still_uses_bisect_workflow_and_helper_cli():
+    text = read_text(MAIN_WORKFLOW_PATH)
+
+    assert "run-bisect-round" in text
+    assert "print-bisect-round-logs" in text
+    assert "render-pr-body" in text
+    assert "render-manual-review-issue" in text
+    assert "run-claude-phase" in text
+
+
+def test_auto_workflow_keeps_suite_and_log_file_contract():
     text = read_text(MAIN_WORKFLOW_PATH)
 
     assert "--suite e2e-main2main" in text
-    assert "--continue-on-error" in text
-    assert "--format llm-json" in text
-    assert "/tmp/main2main-summary.json" in text
+    assert "/tmp/main2main-test.log" in text
+    assert "/tmp/main2main-failure-summary.json" in text
+    assert "/tmp/main2main-test-failure-summary.json" not in text
+    assert "/tmp/main2main-detect-meta.json" in text
+    assert "/tmp/main2main-fix-test-meta.json" in text
+    assert "/tmp/main2main-bisect-test-meta.json" in text
+    assert "main2main_auto.py" in text
+    assert "run-claude-phase" in text
+    assert "run-suite-and-summarize" in text
+    assert "print-bisect-round-logs" in text
+    assert "Determine publish readiness" in text
+    assert "Publish draft PR" in text
+    assert "Count generated commits" not in text
+    assert "Stop when no code adaptation was produced" not in text
+    assert "Render manual review issue" not in text
+    assert "- name: Render PR body" not in text
+    assert "- name: Push branch" not in text
+    assert "- name: Create draft PR" not in text
+    assert "Create manual review issue" in text
 
 
-def test_auto_workflow_uses_dispatch_inputs_to_gate_fix_and_bisect_rounds():
-    text = read_text(MAIN_WORKFLOW_PATH)
-
-    assert "inputs.fix_round_limit" in text
-    assert "inputs.bisect_round_limit" in text
-    assert "fromJSON(inputs.fix_round_limit)" in text
-    assert "fromJSON(inputs.bisect_round_limit)" in text
-
-
-def test_auto_workflow_triggers_bisect_via_gh_workflow_run():
-    text = read_text(MAIN_WORKFLOW_PATH)
-
-    assert "gh workflow run dispatch_main2main_bisect.yaml" in text
-    assert "request_id" in text
-    assert "gh run list" in text or "gh run view" in text
-
-
-def test_auto_workflow_uses_helper_cli_for_bisect_and_finalize_rendering():
-    text = read_text(MAIN_WORKFLOW_PATH)
-
-    assert "main2main_simplified.py extract-bisect-test-cmd" in text
-    assert "main2main_simplified.py build-request-id" in text
-    assert "main2main_simplified.py render-pr-body" in text
-    assert "main2main_simplified.py render-manual-review-issue" in text
-
-
-def test_auto_workflow_uses_multiple_visible_steps_and_claude_actions():
+def test_auto_workflow_publish_step_groups_pr_body_and_prints_notices():
     workflow = load_yaml(MAIN_WORKFLOW_PATH)
-    steps = workflow["jobs"]["main2main"]["steps"]
-    step_names = [step.get("name") for step in steps]
-
-    for name in [
-        "Detect vLLM version change",
-        "Stop when no drift is detected",
-        "Create working branch",
-        "Prepare Claude settings",
-        "Claude detect/adapt",
-        "Commit detect changes",
-        "Initial test",
-        "Summarize initial test",
-        "Claude fix round 1",
-        "Bisect round 1 dispatch",
-        "Bisect round 1 wait and download",
-        "Claude bisect-fix round 1",
-        "Determine final status",
-        "Create draft PR",
-    ]:
-        assert name in step_names
-
-    claude_steps = [
-        step for step in steps if str(step.get("uses", "")).startswith("anthropics/claude-code-action/base-action@")
-    ]
-    assert len(claude_steps) >= 3
-
-
-def test_auto_workflow_finalizes_with_single_push_and_optional_issue():
     text = read_text(MAIN_WORKFLOW_PATH)
 
-    assert "git push" in text
-    assert "gh pr create" in text
-    assert "--draft" in text
-    assert "gh issue create" in text
+    final_status_step = next(
+        step
+        for step in workflow["jobs"]["main2main"]["steps"]
+        if step.get("name") == "Summarize final status"
+    )
+    publication_step = next(
+        step
+        for step in workflow["jobs"]["main2main"]["steps"]
+        if step.get("name") == "Determine publish readiness"
+    )
+    publish_step = next(
+        step
+        for step in workflow["jobs"]["main2main"]["steps"]
+        if step.get("name") == "Publish draft PR"
+    )
+
+    publish_script = publish_step["run"]
+    assert 'echo "::group::' not in publish_script
+    assert 'echo "::endgroup::"' not in publish_script
+    assert 'eval "${MAIN2MAIN_LOG_HELPERS}"' in publish_script
+    assert 'print_group "PR body" /tmp/main2main-pr-body.md' in publish_script
+    assert 'echo "Created draft PR: ${PR_URL}"' in publish_script
+    assert "--label main2main" in publish_script
+    assert "--label ready" in publish_script
+    assert "--label ready-for-test" in publish_script
+
+    assert (
+        'echo "::notice::final_status=${FINAL_STATUS}, '
+        'fix_rounds_used=${FIX_ROUNDS_USED}, '
+        'bisect_rounds_used=${BISECT_ROUNDS_USED}"'
+        in final_status_step["run"]
+    )
+    assert (
+        'echo "::notice::commit_count=${COMMIT_COUNT}, '
+        'should_publish=${SHOULD_PUBLISH}"'
+        in publication_step["run"]
+    )
+    assert text.count('echo "Created draft PR: ${PR_URL}"') == 1
+
+
+def test_auto_workflow_does_not_reference_env_context_inside_job_env_expression():
+    text = read_text(MAIN_WORKFLOW_PATH)
+
+    assert "format('{0}/{1}/.agents/skills/main2main/SKILL.md', github.workspace, env.WORK_REPO_DIR)" not in text
+    assert "MAIN2MAIN_SKILL_PATH: ${{ github.workspace }}/vllm-benchmarks/.agents/skills/main2main/SKILL.md" in text
+
+
+def test_auto_workflow_prints_meta_and_bisect_debug_logs():
+    text = read_text(MAIN_WORKFLOW_PATH)
+
+    assert "MAIN2MAIN_LOG_HELPERS: |" in text
+    assert 'eval "${MAIN2MAIN_LOG_HELPERS}"' in text
+    assert text.count("print_group() {") == 1
+    assert text.count("print_group_if_nonempty() {") == 1
+    assert 'print_group "Claude detect meta" /tmp/main2main-detect-meta.json' in text
+    assert 'print_group "Initial test meta" /tmp/main2main-test-meta.json' in text
+    assert 'print_group "Claude fix round ${ROUND} meta" "/tmp/main2main-fix-round${ROUND}-meta.json"' in text
+    assert 'print_group "Claude fix round ${ROUND} stderr" "/tmp/main2main-fix-round${ROUND}-result.err"' in text
+    assert 'print_group "Claude fix round ${ROUND} stdout" "/tmp/main2main-fix-round${ROUND}-result.json"' in text
+    assert 'print_group "Fix loop ${ROUND} test meta" /tmp/main2main-fix-test-meta.json' in text
+    assert 'print-bisect-round-logs \\' in text
+    assert 'if ! python3 "${WORK_REPO_DIR}/.github/workflows/scripts/main2main_auto.py" \\' in text
+    assert 'run-bisect-round \\' in text
+    assert '--poll-timeout-seconds' not in text
+    assert 'print-bisect-round-logs \\' in text
+    assert 'Bisect round ${ROUND} setup failed; continue to next bisect round' in text
+    assert 'Claude fix round ${ROUND} failed; continue to next round' in text
+    assert 'Claude bisect fix round ${ROUND} failed; continue to next bisect round' in text
+    assert 'print_group "Claude bisect fix round ${ROUND} meta" "/tmp/main2main-bisect-fix-round${ROUND}-meta.json"' in text
+    assert 'print_group "Claude bisect fix round ${ROUND} stderr" "/tmp/main2main-bisect-fix-round${ROUND}-result.err"' in text
+    assert 'print_group "Claude bisect fix round ${ROUND} stdout" "/tmp/main2main-bisect-fix-round${ROUND}-result.json"' in text
+    assert 'cat "/tmp/main2main-bisect-round${ROUND}-meta.json"' not in text
+    assert 'print_group "Bisect loop ${ROUND} test meta" /tmp/main2main-bisect-test-meta.json' in text
+    assert 'print_group_if_nonempty "Initial test failure summary" /tmp/main2main-failure-summary.json' in text
+    assert 'print_group_if_nonempty "Fix loop ${ROUND} failure summary" /tmp/main2main-failure-summary.json' in text
+    assert 'print_group_if_nonempty "Bisect loop ${ROUND} failure summary" /tmp/main2main-failure-summary.json' in text
+    assert 'cat /tmp/main2main-' not in text
+    assert 'cp /tmp/main2main-' not in text
+
+
+def test_auto_workflow_uses_minutes_based_bisect_poll_timeout_env_and_step_timeout():
+    text = read_text(MAIN_WORKFLOW_PATH)
+    workflow = load_yaml(MAIN_WORKFLOW_PATH)
+
+    assert 'BISECT_POLL_TIMEOUT_MINUTES: "240"' in text
+
+    bisect_step = next(
+        step
+        for step in workflow["jobs"]["main2main"]["steps"]
+        if step.get("name") == "Run bisect-fix loop with Claude"
+    )
+    assert bisect_step["timeout-minutes"] == 720
+
+
+def test_auto_workflow_does_not_use_claude_code_action():
+    text = read_text(MAIN_WORKFLOW_PATH)
+    assert "anthropics/claude-code-action/base-action@" not in text
+
+
+def test_auto_workflow_does_not_include_fake_claude_support():
+    text = read_text(MAIN_WORKFLOW_PATH)
+
+    assert "mo" + "ck_claude" not in text
+    assert "MO" + "CK_CLAUDE" not in text
+    assert "mo" + "ck_claude.py" not in text
+
+
+def test_auto_workflow_lets_claude_commit_and_workflow_no_longer_commits_directly():
+    text = read_text(MAIN_WORKFLOW_PATH)
+
+    assert "Do not commit" not in text
+    assert "main2main_auto.py" in text
+    assert "run-claude-phase" in text
+    assert "git commit -F" not in text
 
 
 def test_auto_workflow_run_steps_are_bash_parseable():
@@ -156,38 +257,3 @@ def test_auto_workflow_run_steps_are_bash_parseable():
     for step in workflow["jobs"]["main2main"]["steps"]:
         if "run" in step:
             bash_syntax_check(step["run"])
-
-
-def test_bisect_workflow_exposes_only_simplified_dispatch_inputs():
-    workflow = load_yaml(BISECT_WORKFLOW_PATH)
-    dispatch_inputs = workflow_on_section(workflow)["workflow_dispatch"]["inputs"]
-
-    for key in ["good_commit", "bad_commit", "test_cmd", "request_id"]:
-        assert key in dispatch_inputs
-    for key in ["caller_type", "caller_run_id", "main2main_pr_number", "main2main_dispatch_token"]:
-        assert key not in dispatch_inputs
-
-
-def test_bisect_workflow_does_not_callback_into_reconcile():
-    workflow = load_yaml(BISECT_WORKFLOW_PATH)
-    text = read_text(BISECT_WORKFLOW_PATH)
-
-    assert "callback-main2main" not in workflow["jobs"]
-    assert "schedule_main2main_reconcile.yaml" not in text
-    assert "main2main_dispatch_token" not in text
-
-
-def test_bisect_workflow_writes_group_named_summary_files_and_request_named_artifacts():
-    text = read_text(BISECT_WORKFLOW_PATH)
-
-    assert '--summary-output "/tmp/bisect_summary_${{ matrix.group }}.md"' in text
-    assert "bisect-result-${{ inputs.request_id }}-${{ matrix.group }}" in text
-    assert "bisect-summary-${{ inputs.request_id }}" in text
-
-
-def test_bisect_workflow_uses_request_id_not_pr_concurrency():
-    text = read_text(BISECT_WORKFLOW_PATH)
-
-    assert "request_id" in text
-    assert "main2main_pr_number" not in text
-    assert "main2main_dispatch_token" not in text
