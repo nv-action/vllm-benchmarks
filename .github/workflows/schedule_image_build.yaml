@@ -41,7 +41,7 @@ jobs:
         #   - name: 310P openEuler
         #     dockerfile: Dockerfile.310p.openEuler
         #     suffix: '310p-openeuler'
-    uses: ./.github/workflows/_schedule_image_build.yaml
+    uses: ./.github/workflows/_image_build.yaml
     with:
       dockerfile: ${{ matrix.build_meta.dockerfile }}
       suffix: ${{ matrix.build_meta.suffix }}

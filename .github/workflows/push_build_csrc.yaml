@@ -48,14 +48,14 @@ env:
 
 jobs:
   build-cache:
-    name: linux-aarch64-${{ matrix.chip_type }}-${{ matrix.runner.arch }}-image
+    name: linux-${{ matrix.runner.arch }}-${{ matrix.chip_type }}-${{ matrix.runner.arch }}-image
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         runner:
           - linux-amd64-cpu-8-hk
-          - linux-aarch64-a3-0
+          - linux-arm64-cpu-8
 
         include:
           - chip_type: a2
