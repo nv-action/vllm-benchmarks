@@ -120,6 +120,7 @@ jobs:
       - name: Install vllm-project/vllm-ascend ARM
         env:
           SOC_VERSION: ${{ matrix.soc_version }}
+          MAX_JOBS: "2"
         run: |
           if ! find vllm_ascend -maxdepth 1 -name '*.so' -type f 2>/dev/null | grep -q .; then
             source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
