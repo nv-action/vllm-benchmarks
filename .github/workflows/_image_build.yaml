@@ -1,0 +1,158 @@
+name: Image_oncall
+on:
+  workflow_call:
+    inputs:
+      suffix:
+        description: 'The tag subfix to use'
+        required: true
+        type: string
+      should_push:
+        description: 'Whether to push the image'
+        required: false
+        type: boolean
+        default: False
+      dockerfile:
+        description: 'The Dockerfile to use'
+        required: false
+        type: string
+      quay_username:
+        description: 'Quay username for pushing images'
+        required: false
+        type: string
+      artifact_prefix:
+        description: 'Prefix for digest artifact names'
+        required: false
+        type: string
+        default: 'digests'
+    secrets:
+        QUAY_PASSWORD:
+            description: 'Quay password for pushing images'
+            required: false
+
+env:
+  QUAY_REPO: quay.io/ascend/vllm-ascend
+  CACHE_REPO: ghcr.io/vllm-project/vllm-ascend
+
+jobs:
+  build-push-digest:
+    name: build
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      packages: write
+      contents: read
+
+    strategy:
+      matrix:
+        include:
+          - arch: linux/amd64
+            runner: ubuntu-latest
+            tag: amd64
+          - arch: linux/arm64
+            runner: ubuntu-22.04-arm
+            tag: arm64
+    steps:
+
+    - uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+        ref: vllm-ascend-fork
+
+
+    - name: Free up disk space
+      uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+      with:
+        tool-cache: true
+        docker-images: false
+
+    - name: Publish - Login to Quay Container Registry
+      if: ${{ inputs.should_push }}
+      uses: docker/login-action@v4
+      with:
+        registry: quay.io
+        username: ${{ inputs.quay_username }}
+        password: ${{ secrets.QUAY_PASSWORD }}
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v4
+      with:
+        install: true
+        driver: docker-container
+        use: true
+
+    - name: Login to GitHub Container Registry (for cache)
+      uses: docker/login-action@v4
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Compute cache tag
+      id: cache-tag
+      run: |
+        if [ -n "${{ inputs.suffix }}" ]; then
+          echo "value=buildcache-${{ inputs.suffix }}-${{ matrix.tag }}" >> $GITHUB_OUTPUT
+        else
+          echo "value=buildcache-${{ matrix.tag }}" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Get csrc hash
+      id: get_csrc_hash
+      run: |
+        CSRC_HASH=$(find ./csrc ./setup.py ./CMakeLists.txt ./cmake \
+        -type f -not -path '*/.*' | sort | xargs sha256sum | sha256sum | awk '{print $1}')
+        echo "CSRC_HASH=$CSRC_HASH" >> $GITHUB_OUTPUT
+
+    - name: Get Dockerfile base image tag
+      id: get_base_image_tag
+      run: |
+        DOCKERFILE="${{ inputs.dockerfile || 'Dockerfile' }}"
+        BASE_IMAGE_TAG=$(grep -m1 '^FROM' "$DOCKERFILE" | awk -F: '{print $NF}')
+        echo "BASE_IMAGE_TAG=$BASE_IMAGE_TAG" >> $GITHUB_OUTPUT
+
+
+    - name: Cache vllm-ascend csrc
+      id: cache-csrc
+      uses: runs-on/cache@v4
+      with:
+        path: |
+            vllm_ascend/_cann_ops_custom
+            vllm_ascend/*.so
+            vllm_ascend/lib
+            vllm_ascend/include
+        key: vllm-ascend-build-v1-${{ runner.os }}-${{ steps.get_base_image_tag.outputs.BASE_IMAGE_TAG }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
+
+    - name: Build and push
+      uses: docker/build-push-action@v7
+      id: build
+      with:
+        platforms: ${{ matrix.arch }}
+        # use the current repo path as the build context, ensure .git is contained
+        context: .
+        file: ${{ inputs.dockerfile || 'Dockerfile' }}
+        # only trigger when tag, branch/main push
+        push: ${{ inputs.should_push }}
+        outputs: type=image,name=${{ env.QUAY_REPO }},push-by-digest=true,name-canonical=true,push=${{ inputs.should_push }}
+        build-args: |
+          PIP_INDEX_URL=https://pypi.org/simple
+          COMPILE_CUSTOM_KERNELS=${{ steps.cache-csrc.outputs.cache-hit == 'true' && '0' || '1' }}
+        provenance: false
+        # To speed up the build, we use registry cache. The cache tag is determined by the suffix and architecture, and shared across different workflow runs.
+        # For example, the cache tag for arm64 image with suffix "openeuler" will be "buildcache-openeuler-arm64".
+        # When a new image is built and pushed, the cache will also be updated in the registry, so that next build can benefit from it.
+        cache-from: type=registry,ref=${{ env.CACHE_REPO }}:${{ steps.cache-tag.outputs.value }}
+        cache-to: ${{ inputs.should_push && format('type=registry,ref={0}:{1},mode=max', env.CACHE_REPO, steps.cache-tag.outputs.value) || '' }}
+
+    - name: Export digest
+      run: |
+        mkdir -p ${{ runner.temp }}/digests
+        digest="${{ steps.build.outputs.digest }}"
+        touch "${{ runner.temp }}/digests/${digest#sha256:}"
+
+    - name: Upload digest
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ inputs.artifact_prefix }}-${{ inputs.suffix }}-${{ matrix.tag }}
+        path: ${{ runner.temp }}/digests/*
+        if-no-files-found: error
+        retention-days: 1
