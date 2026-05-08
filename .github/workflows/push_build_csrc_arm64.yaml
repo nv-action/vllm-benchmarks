@@ -80,6 +80,9 @@ jobs:
 
       - name: Config mirrors
         run: |
+          sed -Ei 's@(ports|archive).ubuntu.com@cache-service.nginx-pypi-cache.svc.cluster.local:8081@g' /etc/apt/sources.list
+          pip config set global.index-url http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+          pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
           apt-get update -y
           apt install git -y
           git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
@@ -125,7 +128,6 @@ jobs:
             vllm-ascend-build-v1-${{ runner.arch }}-${{ steps.get_image_tag.outputs.IMAGE_TAG }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
 
       - name: Install vllm-project/vllm-ascend ARM
-        if: ${{ runner.arch != 'X64' }}
         env:
           SOC_VERSION: ${{ matrix.soc_version }}
         run: |
@@ -138,17 +140,3 @@ jobs:
             uv pip install -v -e .
           fi
 
-      - name: Install vllm-project/vllm-ascend X64
-        if: ${{ runner.arch == 'X64' }}
-        env:
-          SOC_VERSION: ${{ matrix.soc_version }}
-        run: |
-          if ! find vllm_ascend -maxdepth 1 -name '*.so' -type f 2>/dev/null | grep -q .; then
-            source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
-            source /usr/local/Ascend/nnal/atb/set_env.sh && \
-            export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/Ascend/ascend-toolkit/latest/`uname -i`-linux/devlib
-            pip install uc-manager
-            export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/Ascend/ascend-toolkit/latest/x86_64-linux/devlib
-            uv pip install -v . --extra-index-url https://download.pytorch.org/whl/cpu/
-            uv pip install -r requirements-dev.txt --extra-index-url https://download.pytorch.org/whl/cpu/
-          fi
