@@ -112,6 +112,7 @@ jobs:
           echo "CSRC_HASH=$CSRC_HASH" >> $GITHUB_OUTPUT
 
       - name: Cache vllm-ascend csrc
+        id: cache-csrc
         uses: runs-on/cache@v4
         with:
           path: |
@@ -122,15 +123,14 @@ jobs:
           key: vllm-ascend-build-v1-X64-${{ steps.get_image_tag.outputs.IMAGE_TAG }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
 
       - name: Install vllm-project/vllm-ascend X64
+        if: ${{ steps.cache-csrc.outputs.cache-hit == 'true' && '0' || '1' }}
         env:
           SOC_VERSION: ${{ matrix.soc_version }}
         run: |
-          if ! find vllm_ascend -maxdepth 1 -name '*.so' -type f 2>/dev/null | grep -q .; then
-            source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
-            source /usr/local/Ascend/nnal/atb/set_env.sh && \
-            export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/Ascend/ascend-toolkit/latest/`uname -i`-linux/devlib
-            pip install uc-manager
-            export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/Ascend/ascend-toolkit/latest/x86_64-linux/devlib
-            uv pip install -v . --extra-index-url https://download.pytorch.org/whl/cpu/
-            uv pip install -r requirements-dev.txt --extra-index-url https://download.pytorch.org/whl/cpu/
-          fi
+          source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
+          source /usr/local/Ascend/nnal/atb/set_env.sh && \
+          export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/Ascend/ascend-toolkit/latest/`uname -i`-linux/devlib
+          pip install uc-manager
+          export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/Ascend/ascend-toolkit/latest/x86_64-linux/devlib
+          uv pip install -v . --extra-index-url https://download.pytorch.org/whl/cpu/
+          uv pip install -r requirements-dev.txt --extra-index-url https://download.pytorch.org/whl/cpu/
