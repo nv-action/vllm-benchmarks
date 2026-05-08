@@ -55,7 +55,6 @@ jobs:
       matrix:
         runner:
           - linux-amd64-cpu-8-hk
-          - linux-arm64-cpu-8
 
         include:
           - chip_type: a2

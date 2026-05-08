@@ -18,13 +18,6 @@
 # This workflow builds vllm-ascend csrc and uploads the build cache to GitHub Actions.
 name: 'Cache csrc Build Artifacts arm'
 on:
-  push:
-    branches: [ "main" ]
-    paths:
-      - 'csrc/**'
-      - 'setup.py'
-      - 'CMakeLists.txt'
-      - 'cmake/**'
   workflow_dispatch:
 
 # Bash shells do not use ~/.profile or ~/.bashrc so these shells need to be explicitly
@@ -54,7 +47,6 @@ jobs:
       fail-fast: false
       matrix:
         runner:
-          - linux-amd64-cpu-8-hk
           - linux-arm64-cpu-8
 
         include:
