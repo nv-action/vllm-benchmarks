@@ -16,7 +16,7 @@
 #
 
 # This workflow builds vllm-ascend csrc and uploads the build cache to GitHub Actions.
-name: 'Cache csrc Build Artifacts'
+name: 'Cache csrc Build Artifacts arm'
 on:
   push:
     branches: [ "main" ]
