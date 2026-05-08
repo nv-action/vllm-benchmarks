@@ -48,7 +48,7 @@ env:
 
 jobs:
   build-cache:
-    name: linux-aarch64-${{ matrix.platform }}-image
+    name: linux-aarch64-${{ matrix.chip_type }}-${{ matrix.runner.arch }}-image
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -58,7 +58,7 @@ jobs:
           - linux-aarch64-a3-0
 
         include:
-          - platform: a2
+          - chip_type: a2
             image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-910b-ubuntu22.04-py3.11
             install_clang: true
             soc_version: ascend910b1
