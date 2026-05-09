@@ -16,7 +16,7 @@
 #
 
 # This workflow builds vllm-ascend csrc and uploads the build cache to GitHub Actions.
-name: 'Cache csrc Build Artifacts arm'
+name: 'Cache csrc Build Artifacts ARM64'
 on:
   workflow_dispatch:
 
@@ -41,7 +41,7 @@ env:
 
 jobs:
   build-cache:
-    name: linux-${{ matrix.runner.arch }}-${{ matrix.chip_type }}-${{ matrix.runner.arch }}-image
+    name: linux-ARM64-${{ matrix.chip_type }}-image
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
