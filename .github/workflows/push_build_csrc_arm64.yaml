@@ -120,7 +120,7 @@ jobs:
         if: ${{ steps.cache-csrc.outputs.cache-hit != 'true' }}
         env:
           SOC_VERSION: ${{ matrix.soc_version }}
-          MAX_JOBS: "2"
+          MAX_JOBS: "4"
         run: |
             source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
             source /usr/local/Ascend/nnal/atb/set_env.sh && \
