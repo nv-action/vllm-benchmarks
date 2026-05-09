@@ -32,8 +32,8 @@ jobs:
 
     - name: Insatll zstd
       run: |
-        apt-get update
-        apt-get install -y zstd
+        sudo apt-get update
+        sudo apt-get install -y zstd
 
     - name: Get csrc hash
       id: get_csrc_hash
