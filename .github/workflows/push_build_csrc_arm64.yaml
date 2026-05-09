@@ -28,9 +28,9 @@ defaults:
     shell: bash -el {0}
 
 # only cancel in-progress runs of the same workflow
-# concurrency:
-#   group: ascend-csrc-build-${{ github.workflow }}-${{ github.ref }}
-#   cancel-in-progress: true
+concurrency:
+  group: ascend-csrc-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
@@ -47,7 +47,7 @@ jobs:
       fail-fast: false
       matrix:
         runner:
-          - linux-arm64-cpu-8
+          - linux-arm64-cpu-16
 
         include:
           - chip_type: a2
@@ -55,12 +55,10 @@ jobs:
             install_clang: true
             soc_version: ascend910b1
         #   - platform: a3
-        #     runner: linux-amd64-cpu-8-hk
         #     image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-a3-ubuntu22.04-py3.11
         #     install_clang: true
         #     soc_version: ascend910_9391
         #   - platform: 310p
-        #     runner: linux-amd64-cpu-8-hk
         #     image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-310p-ubuntu22.04-py3.11
         #     install_clang: false
         #     soc_version: ascend310p1
