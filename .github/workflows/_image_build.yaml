@@ -112,7 +112,7 @@ jobs:
 
     - name: Cache vllm-ascend csrc
       id: cache-csrc
-      uses: runs-on/cache@v4
+      uses: actions/cache@v4
       with:
         path: |
             vllm_ascend/_cann_ops_custom

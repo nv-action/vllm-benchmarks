@@ -54,14 +54,14 @@ jobs:
             image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-910b-ubuntu22.04-py3.11
             install_clang: true
             soc_version: ascend910b1
-        #   - platform: a3
-        #     image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-a3-ubuntu22.04-py3.11
-        #     install_clang: true
-        #     soc_version: ascend910_9391
-        #   - platform: 310p
-        #     image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-310p-ubuntu22.04-py3.11
-        #     install_clang: false
-        #     soc_version: ascend310p1
+          - platform: a3
+            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-a3-ubuntu22.04-py3.11
+            install_clang: true
+            soc_version: ascend910_9391
+          - platform: 310p
+            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-310p-ubuntu22.04-py3.11
+            install_clang: false
+            soc_version: ascend310p1
     container:
       image: ${{ matrix.image }}
     steps:
@@ -107,7 +107,7 @@ jobs:
 
       - name: Cache vllm-ascend csrc
         id: cache-csrc
-        uses: runs-on/cache@v4
+        uses: actions/cache@v4
         with:
           path: |
             vllm_ascend/_cann_ops_custom

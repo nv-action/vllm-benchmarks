@@ -48,7 +48,6 @@ jobs:
       matrix:
         runner:
           - linux-amd64-cpu-8-hk
-
         include:
           - chip_type: a2
             image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-910b-ubuntu22.04-py3.11
@@ -104,7 +103,7 @@ jobs:
 
       - name: Cache vllm-ascend csrc
         id: cache-csrc
-        uses: runs-on/cache@v4
+        uses: actions/cache@v4
         with:
           path: |
             vllm_ascend/_cann_ops_custom
