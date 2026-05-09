@@ -1,0 +1,61 @@
+name: Verify Cache Hit
+on:
+  workflow_dispatch:
+
+env:
+  QUAY_REPO: quay.io/ascend/vllm-ascend
+  CACHE_REPO: ghcr.io/nv-action/vllm-ascend-benchmarks
+
+jobs:
+  build-push-digest:
+    name: build
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      packages: write
+      contents: read
+
+    strategy:
+      matrix:
+        include:
+          - arch: linux/amd64
+            runner: ubuntu-latest
+            tag: amd64
+          - arch: linux/arm64
+            runner: ubuntu-22.04-arm
+            tag: arm64
+    steps:
+
+    - uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+
+    - name: Insatll zstd
+      run: |
+        apt-get update
+        apt-get install -y zstd
+
+    - name: Get csrc hash
+      id: get_csrc_hash
+      run: |
+        CSRC_HASH=$(find ./csrc ./setup.py ./CMakeLists.txt ./cmake \
+        -type f -not -path '*/.*' | sort | xargs sha256sum | sha256sum | awk '{print $1}')
+        echo "CSRC_HASH=$CSRC_HASH" >> $GITHUB_OUTPUT
+
+    - name: Get Dockerfile base image tag
+      id: get_base_image_tag
+      run: |
+        DOCKERFILE="Dockerfile"
+        BASE_IMAGE_TAG=$(grep -m1 '^FROM' "$DOCKERFILE" | awk -F: '{print $NF}')
+        echo "BASE_IMAGE_TAG=$BASE_IMAGE_TAG" >> $GITHUB_OUTPUT
+
+    - name: Cache vllm-ascend csrc
+      id: cache-csrc
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+            vllm_ascend/_cann_ops_custom
+            vllm_ascend/*.so
+            vllm_ascend/lib
+            vllm_ascend/include
+        key: vllm-ascend-build-v1-${{ runner.arch }}-${{ steps.get_base_image_tag.outputs.BASE_IMAGE_TAG }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}

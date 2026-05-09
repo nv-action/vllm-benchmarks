@@ -57,6 +57,9 @@ jobs:
 
       - name: Config mirrors
         run: |
+          pip config set global.index-url http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+          pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
+          sed -Ei 's@https?://[^/]+/(openeuler|centos|fedora)@http://cache-service.nginx-pypi-cache.svc.cluster.local:8081/\1@g' /etc/yum.repos.d/*.repo
           yum install -y git
           git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
           git config --global --add safe.directory /__w/vllm-benchmarks/vllm-benchmarks

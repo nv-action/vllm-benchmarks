@@ -64,6 +64,11 @@ jobs:
         tool-cache: true
         docker-images: false
 
+    - name: Insatll zstd
+      run: |
+        apt-get update
+        apt-get install -y zstd
+
     - name: Publish - Login to Quay Container Registry
       if: ${{ inputs.should_push }}
       uses: docker/login-action@v4
@@ -108,7 +113,6 @@ jobs:
         DOCKERFILE="${{ inputs.dockerfile || 'Dockerfile' }}"
         BASE_IMAGE_TAG=$(grep -m1 '^FROM' "$DOCKERFILE" | awk -F: '{print $NF}')
         echo "BASE_IMAGE_TAG=$BASE_IMAGE_TAG" >> $GITHUB_OUTPUT
-
 
     - name: Cache vllm-ascend csrc
       id: cache-csrc
