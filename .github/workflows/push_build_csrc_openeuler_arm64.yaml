@@ -1,0 +1,109 @@
+#
+# Copyright (c) 2026 Huawei Technologies Co., Ltd. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# This file is a part of the vllm-ascend project.
+#
+
+# This workflow builds vllm-ascend csrc on OpenEuler and uploads the build cache to GitHub Actions.
+name: 'Cache csrc Build Artifacts OpenEuler ARM64'
+on:
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash -el {0}
+
+concurrency:
+  group: ascend-csrc-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+  UV_EXTRA_INDEX_URL: https://mirrors.huaweicloud.com/ascend/repos/pypi
+  UV_INDEX_STRATEGY: unsafe-best-match
+  UV_NO_CACHE: 1
+  UV_SYSTEM_PYTHON: 1
+
+jobs:
+  build-cache:
+    name: linux-ARM64-${{ matrix.chip_type }}-openeuler-image
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - linux-arm64-cpu-16
+
+        include:
+          - chip_type: a2
+            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-910b-openeuler24.03-py3.11
+            soc_version: ascend910b1
+    container:
+      image: ${{ matrix.image }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+
+      - name: Config mirrors
+        run: |
+          yum install -y git
+          git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
+          git config --global --add safe.directory /__w/vllm-benchmarks/vllm-benchmarks
+
+      - name: Install system dependencies
+        run: |
+          yum install -y gcc gcc-c++ cmake numactl-devel clang
+          pip install uv
+
+      # We only need the image tag to distinguish different images, we don't care about the registry and repository part.
+      # So extract the image tag from the full image name and use it in the cache key.
+      - name: Get image tag
+        id: get_image_tag
+        run: |
+          IMAGE="${{ matrix.image }}"
+          IMAGE_TAG="${IMAGE##*:}"
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Get csrc hash
+        id: get_csrc_hash
+        run: |
+          CSRC_HASH=$(find ./csrc ./setup.py ./CMakeLists.txt ./cmake \
+            -type f -not -path '*/.*' | sort | xargs sha256sum | sha256sum | awk '{print $1}')
+          echo "CSRC_HASH=$CSRC_HASH" >> $GITHUB_OUTPUT
+
+      - name: Cache vllm-ascend csrc
+        id: cache-csrc
+        uses: actions/cache@v4
+        with:
+          path: |
+            vllm_ascend/_cann_ops_custom
+            vllm_ascend/*.so
+            vllm_ascend/lib
+            vllm_ascend/include
+          key: vllm-ascend-build-v1-ARM64-${{ steps.get_image_tag.outputs.IMAGE_TAG }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
+
+      - name: Install vllm-project/vllm-ascend ARM OpenEuler
+        if: ${{ steps.cache-csrc.outputs.cache-hit != 'true' }}
+        env:
+          SOC_VERSION: ${{ matrix.soc_version }}
+          MAX_JOBS: "4"
+        run: |
+          source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
+          source /usr/local/Ascend/nnal/atb/set_env.sh && \
+          export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/Ascend/ascend-toolkit/latest/`uname -i`-linux/devlib
+          ARCH=$(uname -i)
+          export CPLUS_INCLUDE_PATH=$CPLUS_INCLUDE_PATH:/usr/include/c++/12:/usr/include/c++/12/${ARCH}-openEuler-linux
+          pip install uc-manager
+          uv pip install -r requirements-dev.txt
+          uv pip install -v -e .

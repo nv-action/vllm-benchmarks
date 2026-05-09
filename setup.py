@@ -143,6 +143,7 @@ if not envs.SOC_VERSION:
             '  - Atlas A5: export SOC_VERSION="<value starting with ascend950>"\n'
             "You can also refer to the SOC_VERSION defaults in Dockerfile*."
         )
+
     envs.SOC_VERSION = soc_version
 
 
