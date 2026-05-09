@@ -18,13 +18,6 @@
 # This workflow builds vllm-ascend csrc and uploads the build cache to GitHub Actions.
 name: 'Cache csrc Build Artifacts amd'
 on:
-  push:
-    branches: [ "main" ]
-    paths:
-      - 'csrc/**'
-      - 'setup.py'
-      - 'CMakeLists.txt'
-      - 'cmake/**'
   workflow_dispatch:
 
 # Bash shells do not use ~/.profile or ~/.bashrc so these shells need to be explicitly
@@ -123,7 +116,7 @@ jobs:
           key: vllm-ascend-build-v1-X64-${{ steps.get_image_tag.outputs.IMAGE_TAG }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
 
       - name: Install vllm-project/vllm-ascend X64
-        if: ${{ steps.cache-csrc.outputs.cache-hit == 'true' && '0' || '1' }}
+        if: ${{ steps.cache-csrc.outputs.cache-hit != 'true' }}
         env:
           SOC_VERSION: ${{ matrix.soc_version }}
         run: |
