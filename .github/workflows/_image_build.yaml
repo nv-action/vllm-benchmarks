@@ -56,7 +56,6 @@ jobs:
       with:
         fetch-depth: 0
         persist-credentials: false
-        ref: vllm-ascend-fork
 
 
     - name: Free up disk space
