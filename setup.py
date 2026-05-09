@@ -149,6 +149,7 @@ if not envs.SOC_VERSION:
 def gen_build_info():
     soc_version = envs.SOC_VERSION
 
+
     soc_to_device = {
         "910b": "A2",
         "910c": "A3",
