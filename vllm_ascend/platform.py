@@ -755,13 +755,7 @@ class NPUPlatform(Platform):
                 model_config.disable_cascade_attn = False
 
         # ==================== 2. Cache Config ====================
-        if vllm_config.cache_config:
-            # Check and reset cpu_kvcache_space_bytes
-            if getattr(vllm_config.cache_config, "cpu_kvcache_space_bytes", False):
-                logger.warning(
-                    "Parameter 'cpu_kvcache_space_bytes' is tied to cpu backend. Resetting to None for Ascend."
-                )
-                vllm_config.cache_config.cpu_kvcache_space_bytes = None
+        # Note: cpu_kvcache_space_bytes was removed from CacheConfig in upstream vLLM
 
         # ==================== 3. MultiModal Config ====================
         multimodal_config = getattr(model_config, "multimodal_config", None) if model_config else None
@@ -889,3 +883,11 @@ class NPUPlatform(Platform):
     @classmethod
     def manual_seed_all(cls, seed: int) -> None:
         pass
+
+    @classmethod
+    def is_integrated_gpu(cls, device_id: int = 0) -> bool:
+        """Returns whether the GPU is an integrated (UMA) device.
+
+        Ascend NPUs are discrete devices, not integrated GPUs.
+        """
+        return False
