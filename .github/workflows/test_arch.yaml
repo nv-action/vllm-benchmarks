@@ -16,7 +16,7 @@
 #
 
 # This workflow builds vllm-ascend csrc and uploads the build cache to GitHub Actions.
-name: 'Cache csrc Build Artifacts X64'
+name: 'A test arch'
 on:
   workflow_dispatch:
 
@@ -61,4 +61,4 @@ jobs:
           run : |
             arch=$(uname -m)
             echo "Current architecture: $arch"
-            echo "Expected architecture: ${{ matrix.runner.arch }}"
+            echo "Expected architecture: ${{ runner.arch }}"
