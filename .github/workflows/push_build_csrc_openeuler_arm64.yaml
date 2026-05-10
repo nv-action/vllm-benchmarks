@@ -60,7 +60,7 @@ jobs:
           pip config set global.index-url http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
           pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
           sed -Ei 's@https?://[^/]+/(openeuler|centos|fedora)@http://cache-service.nginx-pypi-cache.svc.cluster.local:8081/\1@g' /etc/yum.repos.d/*.repo
-          yum install -y git
+          yum install -y git zstl
           git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
           git config --global --add safe.directory /__w/vllm-benchmarks/vllm-benchmarks
 
@@ -94,7 +94,7 @@ jobs:
             vllm_ascend/*.so
             vllm_ascend/lib
             vllm_ascend/include
-          key: vllm-ascend-build-v1-ARM64-${{ steps.get_image_tag.outputs.IMAGE_TAG }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
+          key: vllm-ascend-build-v1-ARM64-openEuler-${{ steps.get_image_tag.outputs.IMAGE_TAG }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
 
       - name: Install vllm-project/vllm-ascend ARM OpenEuler
         if: ${{ steps.cache-csrc.outputs.cache-hit != 'true' }}
