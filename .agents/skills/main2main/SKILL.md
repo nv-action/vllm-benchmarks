@@ -44,7 +44,7 @@ When adapting, the goal isn't to copy upstream changes mechanically — it's to 
 
 > **Upstream** adds a new abstract method `get_cache_config()` to the Platform base class.
 > **Wrong approach**: Ignore it because no test currently calls it.
-> **Right approach**: Check whether `AscendPlatform` inherits from this class — if yes, vllm-ascend will fail to instantiate at runtime with `TypeError: Can't instantiate abstract class`. Add the method immediately, even if the body is a stub.
+> **Right approach**: Check whether `AscendPlatform` inherits from this class — if yes, vllm-ascend will fail to instantiate at runtime with `TypeError: Can't instantiate abstract class`. Add the method immediately with the best Ascend-compatible implementation available; use a clearly marked stub only when the feature genuinely cannot be supported yet.
 
 The pattern to internalize: upstream changes to **abstract methods, function signatures, and config field locations, etc.** always need vllm-ascend follow-up, because vllm-ascend overrides or reads these directly. Changes to **internal implementation** of methods vllm-ascend doesn't override can usually be skipped.
 
@@ -87,11 +87,11 @@ Three rules that prevent subtle maintenance debt:
 
 ---
 
-## Pipeline Execution
+## Execution playbook
 
-Most of this is scripted — scripts have `--help` for argument details. This section describes the flow and the non-obvious decisions at each phase.
+Most of this is scripted — scripts have `--help` for argument details.
 
-### Phase 1–2: Detect and Plan (once)
+### Phase 1: Detect drift and Plan steps (once)
 
 ```bash
 # Detect base/target commits
@@ -108,7 +108,7 @@ If `has_drift` is false, stop — nothing to do.
 
 Record `last_verified_head` before starting.
 
-### Phase 3–7: Per-step loop
+### Phase 2: Step-wise adaptation and verification
 
 For each step in `steps.json`:
 
@@ -164,26 +164,9 @@ git -C <vllm_path> checkout <step_end_commit>
 
 7. **Write step summary.** After committing, write a brief summary for this step: what upstream changes were absorbed, what vllm-ascend files were modified, and any version guards added. Save to `/tmp/main2main/steps/<step-id>/summary.md`. This is important because later steps and the final report depend on it.
 
-### Phase 8: Final summary
+### Phase 3: Final summary
 
-Output a structured summary:
-
-```yaml
-status: completed | partial
-base_commit: <sha>
-target_commit: <sha>
-reached_commit: <sha>
-steps_completed: N
-steps_total: M
-commits:
-  - sha: <sha>
-    step: step-1
-    message: "..."
-partial_stop:              # only if status == partial
-  step_id: step-K
-  patch_path: /tmp/main2main/steps/step-K/failed.patch
-  reason: "..."
-```
+Output a reviewer-facing Markdown summary. Build it from the per-step summaries and CI results. Use the exact structure in `reference/final-summary.md`.
 
 ---
 
