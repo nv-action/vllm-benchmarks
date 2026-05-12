@@ -4,8 +4,6 @@ import json
 import subprocess
 from pathlib import Path
 
-import pytest
-
 SCRIPT_PATH = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "scripts" / "main2main_auto.py"
 
 
@@ -39,7 +37,7 @@ def test_cli_only_exposes_current_workflow_helpers():
     assert commands == {
         "collect-commit-range",
         "parse-final-summary",
-        "render-pr-body",
+        "print-claude-stream",
         "render-manual-review-issue",
     }
     assert "run-claude-phase" not in commands
@@ -48,19 +46,61 @@ def test_cli_only_exposes_current_workflow_helpers():
     assert "render-prompt" not in commands
 
 
-def test_render_pr_body_requires_summary_markdown_arg():
-    module = load_module()
-
-    with pytest.raises(SystemExit):
-        module._build_parser().parse_args(
+def test_print_claude_stream_cli_renders_readable_conversation(tmp_path):
+    stream_path = tmp_path / "claude.stream.jsonl"
+    stream_path.write_text(
+        "\n".join(
             [
-                "render-pr-body",
-                "--old-commit",
-                "aaaa",
-                "--new-commit",
-                "bbbb",
+                json.dumps({"type": "system", "subtype": "init", "session_id": "session-1"}),
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "content": [
+                                {"type": "text", "text": "I will inspect the repository."},
+                                {"type": "tool_use", "name": "Bash", "input": {"command": "git status --short"}},
+                            ]
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "user",
+                        "message": {
+                            "content": [
+                                {"type": "tool_result", "content": " M .github/workflows/schedule_main2main_auto.yaml"}
+                            ]
+                        },
+                    }
+                ),
+                json.dumps({"type": "result", "subtype": "success", "duration_ms": 1234}),
             ]
         )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            "python3",
+            str(SCRIPT_PATH),
+            "print-claude-stream",
+            "--input",
+            str(stream_path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "[system] init session_id=session-1" in result.stdout
+    assert "[assistant]" in result.stdout
+    assert "I will inspect the repository." in result.stdout
+    assert "[tool_use] Bash" in result.stdout
+    assert "git status --short" in result.stdout
+    assert "[tool_result]" in result.stdout
+    assert "M .github/workflows/schedule_main2main_auto.yaml" in result.stdout
+    assert "[result] success duration_ms=1234" in result.stdout
 
 
 def test_collect_commit_range_renders_sha_subject_and_body(tmp_path):
@@ -173,63 +213,6 @@ def test_collect_commit_range_cli_outputs_json(tmp_path):
     commits = json.loads(result.stdout)
     assert len(commits) == 1
     assert commits[0]["subject"] == "feat: current helper"
-
-
-def test_render_pr_body_places_summary_and_created_commits():
-    module = load_module()
-
-    pr_body = module.render_pr_body(
-        old_commit="1111111111111111111111111111111111111111",
-        new_commit="2222222222222222222222222222222222222222",
-        commits_markdown=(
-            "- sha: `abc1234511111111111111111111111111111111`\n"
-            "  subject: feat: adapt detect path\n"
-        ),
-        summary_markdown=(
-            "Status: completed\n"
-            "Steps: 1/1\n"
-        ),
-    )
-
-    assert pr_body.startswith("Automated adaptation to upstream vLLM main branch changes.")
-    assert (
-        "Commit range: 1111111111111111111111111111111111111111...2222222222222222222222222222222222222222" in pr_body
-    )
-    assert "## Created Commits" in pr_body
-    assert "## main2main Summary" in pr_body
-    assert "subject: feat: adapt detect path" in pr_body
-    assert "Status: completed" in pr_body
-
-
-def test_render_pr_body_cli_uses_summary_and_commits_files(tmp_path):
-    summary_path = tmp_path / "summary.md"
-    commits_path = tmp_path / "commits.md"
-    summary_path.write_text("Status: completed\nSteps: 1/1\n", encoding="utf-8")
-    commits_path.write_text("- `abc12345` feat: current helper\n", encoding="utf-8")
-
-    result = subprocess.run(
-        [
-            "python3",
-            str(SCRIPT_PATH),
-            "render-pr-body",
-            "--old-commit",
-            "aaaa",
-            "--new-commit",
-            "bbbb",
-            "--summary-md",
-            str(summary_path),
-            "--commits-md",
-            str(commits_path),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    assert "Commit range: aaaa...bbbb" in result.stdout
-    assert "## Created Commits" in result.stdout
-    assert "- `abc12345` feat: current helper" in result.stdout
-    assert "Status: completed" in result.stdout
 
 
 def test_parse_final_summary_markdown_extracts_status_and_partial_stop():
