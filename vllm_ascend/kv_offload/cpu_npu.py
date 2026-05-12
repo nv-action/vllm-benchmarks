@@ -2,8 +2,11 @@ import numpy as np
 import torch
 from vllm.logger import logger
 from vllm.utils.platform_utils import is_pin_memory_available
-from vllm.v1.attention.backend import AttentionBackend  # type: ignore
-from vllm.v1.kv_offload.mediums import CPULoadStoreSpec, GPULoadStoreSpec
+from vllm.v1.kv_offload.base import (
+    CanonicalKVCaches,
+    CPULoadStoreSpec,
+    GPULoadStoreSpec,
+)
 from vllm.v1.kv_offload.worker.worker import OffloadingHandler, TransferResult, TransferSpec
 
 
@@ -46,8 +49,7 @@ class CpuNpuOffloadingHandler(OffloadingHandler):
         gpu_block_size: int,
         cpu_block_size: int,
         num_cpu_blocks: int,
-        gpu_caches: dict[str, torch.Tensor],
-        attn_backends: dict[str, type[AttentionBackend]],
+        kv_caches: CanonicalKVCaches,
     ):
         assert cpu_block_size % gpu_block_size == 0
         self.block_size_factor = cpu_block_size // gpu_block_size
@@ -63,34 +65,29 @@ class CpuNpuOffloadingHandler(OffloadingHandler):
 
         pin_memory = is_pin_memory_available()
 
+        # Extract tensors from CanonicalKVCaches
+        # The new format stores tensors as a list of CanonicalKVCacheTensor objects
+        gpu_tensors = [kv_cache_tensor.tensor for kv_cache_tensor in kv_caches.tensors]
+
         # allocate cpu tensors
-        logger.info("Allocating %d CPU tensors...", len(gpu_caches))
+        logger.info("Allocating %d CPU tensors...", len(gpu_tensors))
         self.npu_tensors: list[torch.Tensor] = []
         self.cpu_tensors: list[torch.Tensor] = []
-        for layer_name, gpu_tensor in gpu_caches.items():
+        for gpu_tensor in gpu_tensors:
             self.npu_tensors.append(gpu_tensor)
 
-            gpu_shape = gpu_tensor[0].shape
-
+            gpu_shape = list(gpu_tensor.shape)
             num_blocks_idx = 0
             cpu_shape = list(gpu_shape)
             cpu_shape[num_blocks_idx] = num_cpu_blocks * self.block_size_factor
 
             logger.debug("Allocating CPU tensor of shape %r", cpu_shape)
             self.cpu_tensors.append(
-                (
-                    torch.zeros(
-                        cpu_shape,
-                        dtype=gpu_tensor[0].dtype,
-                        device="cpu",
-                        pin_memory=pin_memory,
-                    ),
-                    torch.zeros(
-                        cpu_shape,
-                        dtype=gpu_tensor[0].dtype,
-                        device="cpu",
-                        pin_memory=pin_memory,
-                    ),
+                torch.zeros(
+                    cpu_shape,
+                    dtype=gpu_tensor.dtype,
+                    device="cpu",
+                    pin_memory=pin_memory,
                 )
             )
 
@@ -136,11 +133,7 @@ class CpuNpuOffloadingHandler(OffloadingHandler):
         event = self.events_pool.pop() if self.events_pool else torch.npu.Event()
         with torch.npu.stream(stream):
             for src_tensor, dst_tensor in zip(src_tensors, dst_tensors):
-                src_key_cache, src_value_cache = src_tensor[0], src_tensor[1]
-                dst_key_cache, dst_value_cache = dst_tensor[0], dst_tensor[1]
-
-                torch.ops._C_ascend.swap_blocks(src_key_cache, dst_key_cache, src_to_dst_tensor)
-                torch.ops._C_ascend.swap_blocks(src_value_cache, dst_value_cache, src_to_dst_tensor)
+                torch.ops._C_ascend.swap_blocks(src_tensor, dst_tensor, src_to_dst_tensor)
 
             event.record(stream)
 
