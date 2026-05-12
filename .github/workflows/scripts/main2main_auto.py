@@ -50,30 +50,6 @@ def collect_commit_range(*, repo: Path, start_ref: str, end_ref: str) -> list[di
     return commits
 
 
-def render_pr_body(
-    *,
-    old_commit: str,
-    new_commit: str,
-    summary_markdown: str,
-    commits_markdown: str = "",
-) -> str:
-    lines = [
-        "Automated adaptation to upstream vLLM main branch changes.",
-        f"Commit range: {old_commit}...{new_commit}",
-        "",
-    ]
-
-    commits_markdown = commits_markdown.strip()
-    if commits_markdown:
-        lines.extend(["## Created Commits", "", commits_markdown, ""])
-
-    summary_markdown = summary_markdown.strip()
-    if summary_markdown:
-        lines.extend(["## main2main Summary", "", summary_markdown])
-
-    return "\n".join(lines).rstrip() + "\n"
-
-
 def _clean_summary_value(value: str) -> str:
     return value.strip().strip("`").strip()
 
@@ -149,6 +125,94 @@ def parse_final_summary_markdown(markdown: str) -> dict[str, Any]:
     return result
 
 
+def _message_content_items(message: dict[str, Any]) -> list[Any]:
+    content = message.get("content", [])
+    if isinstance(content, list):
+        return content
+    if isinstance(content, (str, dict)):
+        return [content]
+    return []
+
+
+def _stringify_content(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, ensure_ascii=False, indent=2)
+
+
+def _format_tool_input(value: Any) -> str:
+    if isinstance(value, dict) and isinstance(value.get("command"), str):
+        return value["command"]
+    return _stringify_content(value)
+
+
+def format_claude_stream_event(event: dict[str, Any]) -> list[str]:
+    event_type = event.get("type", "event")
+    if event_type == "system":
+        subtype = event.get("subtype", "")
+        session_id = event.get("session_id", "")
+        suffix = f" session_id={session_id}" if session_id else ""
+        return [f"[system] {subtype}{suffix}".rstrip()]
+
+    if event_type in {"assistant", "user"}:
+        lines: list[str] = []
+        message = event.get("message") if isinstance(event.get("message"), dict) else event
+        for item in _message_content_items(message):
+            if isinstance(item, str):
+                lines.extend([f"[{event_type}]", item])
+                continue
+            if not isinstance(item, dict):
+                lines.extend([f"[{event_type}]", _stringify_content(item)])
+                continue
+
+            item_type = item.get("type", "content")
+            if item_type == "text":
+                lines.extend([f"[{event_type}]", _stringify_content(item.get("text", ""))])
+            elif item_type == "tool_use":
+                lines.extend(
+                    [
+                        f"[tool_use] {item.get('name', '')}".rstrip(),
+                        _format_tool_input(item.get("input", "")),
+                    ]
+                )
+            elif item_type == "tool_result":
+                lines.extend(["[tool_result]", _stringify_content(item.get("content", ""))])
+            else:
+                lines.extend([f"[{event_type}:{item_type}]", _stringify_content(item)])
+        return [line for line in lines if line != ""]
+
+    if event_type == "result":
+        subtype = event.get("subtype", "")
+        if not subtype:
+            subtype = "error" if event.get("is_error") else "success"
+        details = [f"[result] {subtype}"]
+        if "duration_ms" in event:
+            details.append(f"duration_ms={event['duration_ms']}")
+        if "total_cost_usd" in event:
+            details.append(f"total_cost_usd={event['total_cost_usd']}")
+        return [" ".join(details)]
+
+    return [f"[{event_type}] {_stringify_content(event)}"]
+
+
+def render_claude_stream(stream_path: Path) -> str:
+    lines: list[str] = []
+    with stream_path.open(encoding="utf-8") as handle:
+        for line_number, raw_line in enumerate(handle, start=1):
+            raw_line = raw_line.rstrip("\n")
+            if not raw_line.strip():
+                continue
+            try:
+                event = json.loads(raw_line)
+            except json.JSONDecodeError:
+                lines.append(f"[raw:{line_number}] {raw_line}")
+                continue
+            lines.extend(format_claude_stream_event(event))
+    return "\n".join(lines).rstrip() + ("\n" if lines else "")
+
+
 def render_manual_review_issue(
     *,
     pr_url: str,
@@ -206,14 +270,11 @@ def _build_parser() -> argparse.ArgumentParser:
     commits_parser.add_argument("--start-ref", required=True)
     commits_parser.add_argument("--end-ref", required=True)
 
+    claude_stream_parser = subparsers.add_parser("print-claude-stream")
+    claude_stream_parser.add_argument("--input", type=Path, required=True)
+
     final_summary_parser = subparsers.add_parser("parse-final-summary")
     final_summary_parser.add_argument("--summary-md", type=Path, required=True)
-
-    pr_parser = subparsers.add_parser("render-pr-body")
-    pr_parser.add_argument("--old-commit", required=True)
-    pr_parser.add_argument("--new-commit", required=True)
-    pr_parser.add_argument("--summary-md", type=Path, required=True)
-    pr_parser.add_argument("--commits-md", type=Path)
 
     issue_parser = subparsers.add_parser("render-manual-review-issue")
     issue_parser.add_argument("--pr-url", required=True)
@@ -247,18 +308,8 @@ def main() -> None:
         )
         return
 
-    if args.command == "render-pr-body":
-        summary_markdown = args.summary_md.read_text(encoding="utf-8")
-        commits_markdown = args.commits_md.read_text(encoding="utf-8") if args.commits_md and args.commits_md.exists() else ""
-        print(
-            render_pr_body(
-                old_commit=args.old_commit,
-                new_commit=args.new_commit,
-                summary_markdown=summary_markdown,
-                commits_markdown=commits_markdown,
-            ),
-            end="",
-        )
+    if args.command == "print-claude-stream":
+        print(render_claude_stream(args.input), end="")
         return
 
     if args.command == "render-manual-review-issue":
