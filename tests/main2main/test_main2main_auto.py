@@ -39,7 +39,6 @@ def test_cli_only_exposes_current_workflow_helpers():
     assert commands == {
         "collect-commit-range",
         "parse-final-summary",
-        "print-claude-stream",
         "render-pr-body",
         "render-manual-review-issue",
     }
@@ -47,63 +46,6 @@ def test_cli_only_exposes_current_workflow_helpers():
     assert "run-suite-and-summarize" not in commands
     assert "run-bisect-round" not in commands
     assert "render-prompt" not in commands
-
-
-def test_print_claude_stream_cli_renders_readable_conversation(tmp_path):
-    stream_path = tmp_path / "claude.stream.jsonl"
-    stream_path.write_text(
-        "\n".join(
-            [
-                json.dumps({"type": "system", "subtype": "init", "session_id": "session-1"}),
-                json.dumps(
-                    {
-                        "type": "assistant",
-                        "message": {
-                            "content": [
-                                {"type": "text", "text": "I will inspect the repository."},
-                                {"type": "tool_use", "name": "Bash", "input": {"command": "git status --short"}},
-                            ]
-                        },
-                    }
-                ),
-                json.dumps(
-                    {
-                        "type": "user",
-                        "message": {
-                            "content": [
-                                {"type": "tool_result", "content": " M .github/workflows/schedule_main2main_auto.yaml"}
-                            ]
-                        },
-                    }
-                ),
-                json.dumps({"type": "result", "subtype": "success", "duration_ms": 1234}),
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    result = subprocess.run(
-        [
-            "python3",
-            str(SCRIPT_PATH),
-            "print-claude-stream",
-            "--input",
-            str(stream_path),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    assert "[system] init session_id=session-1" in result.stdout
-    assert "[assistant]" in result.stdout
-    assert "I will inspect the repository." in result.stdout
-    assert "[tool_use] Bash" in result.stdout
-    assert "git status --short" in result.stdout
-    assert "[tool_result]" in result.stdout
-    assert "M .github/workflows/schedule_main2main_auto.yaml" in result.stdout
-    assert "[result] success duration_ms=1234" in result.stdout
 
 
 def test_render_pr_body_requires_summary_markdown_arg():
