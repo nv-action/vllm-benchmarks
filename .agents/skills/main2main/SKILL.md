@@ -32,6 +32,8 @@ These protect the repo. The reasoning behind each one matters more than the rule
 
 - **Advance vllm after each step.** Each step's CI must run against the correct upstream version. If vllm stays on an old commit, tests pass for the wrong reasons.
 
+- **Do not stop because the run is long.** Estimated duration, session length, model cost, or the number of remaining steps is not a stop condition. After a step is committed and vllm is advanced, immediately continue to the next planned step.
+
 ---
 
 ## Adaptation and CI Diagnosis
@@ -50,16 +52,20 @@ The pattern to internalize: upstream changes to **abstract methods, function sig
 
 No-op adapt is allowed, but it does not skip CI: every step must run CI after the commit reference is updated.
 
-**Fix:** When CI fails, run `ci_log_summary.py` to get structured error data. Focus only on `code_bugs` (ignore `env_flakes`). For each bug, search `upstream.patch` for the function/class/field name from the error — this connects the symptom to the upstream change, giving you the full picture. Fix based on that complete context, not just the error message. Detailed diagnostic workflow and progress judgment are in `reference/diagnosis-guide.md`.
+**Fix:** When CI fails, read the structured summary written by `run_main2main_ci.py`. Focus only on `code_bugs` (ignore `env_flakes`). For each bug, search `upstream.patch` for the function/class/field name from the error — this connects the symptom to the upstream change, giving you the full picture. Fix based on that complete context, not just the error message. Detailed diagnostic workflow and progress judgment are in `reference/diagnosis-guide.md`.
 
 The fix loop ends when any of these is true — check before each round:
-1. Only `env_flakes` remain → treat as pass, proceed to commit
+1. Only `env_flakes` remain → record CI as `env_flake_pass`, proceed to commit
 2. Two consecutive rounds with identical error signatures → partial stop
 3. This round produced no code diff → partial stop
-4. `ci_log_summary` reports no actionable `code_bugs` → partial stop
+4. The CI summary reports no actionable `code_bugs` → partial stop
 5. Hard cap of 5 rounds → partial stop
 
-**Context management:** CI logs can be 10K+ lines. Never read raw logs into context — always use `ci_log_summary.py` first. If you need a specific log section, filter with `grep -A 10 '<pattern>' <log> | head -30`.
+These are the only partial-stop reasons during step execution. Do not create a
+partial final summary because the remaining steps would take many hours, because
+the current session is long, or because additional CI runs are required.
+
+**Context management:** CI logs can be 10K+ lines. Never read raw logs into context — use the `round-N-summary.json` produced by `run_main2main_ci.py` first. If you need a specific log section, filter with `grep -A 10 '<pattern>' <log> | head -30`.
 
 ---
 
@@ -136,14 +142,37 @@ Read the patch, identify affected subsystems, update vllm-ascend code if needed.
 Run CI after the commit reference update and adapt phase, even when adapt made no extra code changes. A step is only complete after CI passes.
 
 ```bash
-set -o pipefail
-export VLLM_WORKER_MULTIPROC_METHOD=spawn VLLM_USE_MODELSCOPE=true \
-python3 <ascend_path>/.github/workflows/scripts/run_suite.py \
-  --suite e2e-main2main --continue-on-error \
-  2>&1 | tee /tmp/main2main/steps/<step-id>/ci/round-1.log
+python3 <skill_dir>/scripts/run_main2main_ci.py \
+  --ascend-path <ascend_path> \
+  --step-id <step-id> \
+  --round 1
 ```
 
-5. **If CI passes, commit and advance.**
+The wrapper writes:
+- `/tmp/main2main/steps/<step-id>/ci/round-1.log`
+- `/tmp/main2main/steps/<step-id>/ci/round-1-summary.json`
+- `/tmp/main2main/steps/<step-id>/ci/round-1-result.json`
+
+Run the CI wrapper in the foreground and wait for it to finish; do not read raw
+CI logs or `/tmp/claude-*/tasks/*.output` for progress monitoring.
+
+Use `round-1-result.json` as the CI source of truth. It preserves the raw
+`run_suite.py` status in `run_suite_exit_code` and classifies the main2main
+outcome in `ci_result`.
+
+CI result labels:
+- `passed`: `ci_result` is `passed`; `run_suite_exit_code` is 0.
+- `env_flake_pass`: `ci_result` is `env_flake_pass`; `run_suite_exit_code`
+  is non-zero, but the summary has only `env_flakes` and no `code_bugs`. This
+  may proceed to commit, but do not call it `passed`.
+- `failed`: `ci_result` is `failed`; CI failed and the summary is available for
+  diagnosis.
+- `summary_error`: `ci_result` is `summary_error`; do not commit. Fix the
+  summary/log extraction issue or treat the step as a partial stop if no
+  actionable diagnosis can be produced.
+
+5. **If CI result allows commit, commit and advance.**
+Proceed only when `ci_result` is `passed` or `env_flake_pass`.
 Run `scripts/check_and_commit.py` to commit the changes (including the updated commit reference). Then checkout the step's end commit in the vLLM repo so the next step runs against the correct upstream.
 ```bash
 python3 <skill_dir>/scripts/check_and_commit.py \
@@ -152,7 +181,7 @@ python3 <skill_dir>/scripts/check_and_commit.py \
 git -C <vllm_path> checkout <step_end_commit>
 ```
 
-6. **If CI fails, diagnose and fix.** Follow `reference/diagnosis-guide.md` for the diagnostic workflow. Re-run CI after each fix round. Stop conditions listed above.
+6. **If CI result does not allow commit, diagnose and fix.** Follow `reference/diagnosis-guide.md` for the diagnostic workflow. Re-run CI after each fix round. Stop conditions listed above.
 
 **If the fix loop is exhausted** (stop conditions triggered in "Adaptation and CI Diagnosis"):
 - Save current changes: `git diff > /tmp/main2main/steps/<step-id>/failed.patch`
@@ -161,12 +190,21 @@ git -C <vllm_path> checkout <step_end_commit>
 - Stop the pipeline. Don't skip the failed step and continue to the next one.
 
 **If CI hangs (no output for 120+ minutes):** terminate and treat as CI failure.
+Normal long-running CI with regular output is not a hang and must keep running.
 
 7. **Write step summary.** After committing, write a brief summary for this step: what upstream changes were absorbed, what vllm-ascend files were modified, and any version guards added. Save to `/tmp/main2main/steps/<step-id>/summary.md`. This is important because later steps and the final report depend on it.
 
 ### Phase 3: Final summary
 
-Output a reviewer-facing Markdown summary. Build it from the per-step summaries and CI results. Use the exact structure in `reference/final-summary.md`.
+Output a reviewer-facing Markdown summary only when one of these is true:
+1. Every planned step has been completed, verified, committed, and the target
+   vLLM commit has been reached.
+2. A listed partial-stop condition was triggered and the required failed patch
+   plus failure summary were saved.
+
+Do not write a final summary after a successful intermediate step just to report
+remaining work. Build the final summary from the per-step summaries and CI
+results. Use the exact structure in `reference/final-summary.md`.
 
 ---
 
