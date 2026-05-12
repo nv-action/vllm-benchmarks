@@ -46,6 +46,7 @@ def test_auto_workflow_declares_only_target_commit_dispatch_input():
     workflow = load_yaml(MAIN_WORKFLOW_PATH)
     on_section = workflow_on_section(workflow)
 
+    assert on_section["schedule"] == [{"cron": "0 14 * * *"}]
     assert "workflow_dispatch" in on_section
     dispatch_inputs = on_section["workflow_dispatch"]["inputs"]
     assert list(dispatch_inputs) == ["target_commit", "fix_round_limit", "bisect_round_limit"]
@@ -204,6 +205,9 @@ def test_auto_workflow_prints_meta_and_bisect_debug_logs():
     assert 'Bisect round ${ROUND} setup failed; continue to next bisect round' in text
     assert 'Claude fix round ${ROUND} failed; continue to next round' in text
     assert 'Claude bisect fix round ${ROUND} failed; continue to next bisect round' in text
+    assert 'Dirty worktree after Claude fix round ${ROUND}; stop automatic retries' in text
+    assert 'Dirty worktree after Claude bisect fix round ${ROUND}; stop automatic retries' in text
+    assert text.count('git -C "${WORK_REPO_DIR}" status --porcelain') == 2
     assert 'print_group "Claude bisect fix round ${ROUND} meta" "/tmp/main2main-bisect-fix-round${ROUND}-meta.json"' in text
     assert 'print_group "Claude bisect fix round ${ROUND} stderr" "/tmp/main2main-bisect-fix-round${ROUND}-result.err"' in text
     assert 'print_group "Claude bisect fix round ${ROUND} stdout" "/tmp/main2main-bisect-fix-round${ROUND}-result.json"' in text
@@ -241,6 +245,14 @@ def test_auto_workflow_does_not_include_fake_claude_support():
     assert "mo" + "ck_claude" not in text
     assert "MO" + "CK_CLAUDE" not in text
     assert "mo" + "ck_claude.py" not in text
+
+
+def test_auto_workflow_creates_fallback_summary_for_manual_review_issue():
+    text = read_text(MAIN_WORKFLOW_PATH)
+
+    assert 'if [ ! -f /tmp/main2main-failure-summary.json ]; then' in text
+    assert "MissingFailureSummary" in text
+    assert "failure summary was unavailable" in text
 
 
 def test_auto_workflow_lets_claude_commit_and_workflow_no_longer_commits_directly():
