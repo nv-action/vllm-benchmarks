@@ -6,19 +6,22 @@ The goal of diagnosis isn't just "find the failing test" — it's to trace each 
 
 ---
 
-## Step 1: Extract structured errors
+## Step 1: Read structured CI output
 
-Run ci_log_summary.py to turn raw CI logs into structured data:
+`run_main2main_ci.py` already runs `ci_log_summary.py` after every CI round.
+Start diagnosis from these files:
 
-```bash
-# From a local log file (local CI run):
-python3 <ascend_path>/.github/workflows/scripts/ci_log_summary.py \
-  --log-file /tmp/main2main/steps/<step-id>/ci/<round>.log \
-  --format llm-json \
-  --output /tmp/main2main/steps/<step-id>/ci/<round>-summary.json
-```
+- `/tmp/main2main/steps/<step-id>/ci/round-<N>-result.json`
+- `/tmp/main2main/steps/<step-id>/ci/round-<N>-summary.json`
 
-The script does the heavy lifting: it extracts root-cause exceptions, filters wrapper errors (`Engine core initialization failed`), filters downstream effects (`KeyError: 'choices'` caused by engine crash), and deduplicates by normalized signature.
+Do not rerun `ci_log_summary.py` by hand during normal main2main execution. The
+wrapper output is the source of truth for `ci_result`, `run_suite_exit_code`,
+and the path to the structured summary.
+
+The summary does the heavy lifting: it extracts root-cause exceptions, filters
+wrapper errors (`Engine core initialization failed`), filters downstream effects
+(`KeyError: 'choices'` caused by engine crash), and deduplicates by normalized
+signature.
 
 **Relevant output fields:**
 
@@ -38,7 +41,8 @@ The script does the heavy lifting: it extracts root-cause exceptions, filters wr
 }
 ```
 
-Only `code_bugs` need fixing. If only `env_flakes` remain, treat as pass.
+Only `code_bugs` need fixing. If only `env_flakes` remain, record CI as
+`env_flake_pass` and proceed to commit.
 
 **Immediately write the skeleton of `vllm_error_analyze.md`:**
 
@@ -117,7 +121,8 @@ For each issue, apply the fix suggested in **Fix Suggestion**. Map each error to
 
 ## Step 3: Verify and Track progress
 
-After fixing, re-run CI refer to **Verify by CI** in SKILL.md. Then extract structured errors with `ci_log_summary.py` and compare error signatures with the previous round:
+After fixing, re-run CI using **Verify by CI** in SKILL.md. Then compare the new
+`round-<N>-summary.json` error signatures with the previous round:
 
 - **Fewer failing tests** → making progress, continue
 - **Same error signatures two rounds in a row** → all fix isn't working, trigger partial stop
@@ -126,7 +131,7 @@ After fixing, re-run CI refer to **Verify by CI** in SKILL.md. Then extract stru
 Update the Status column in `vllm_error_analyze.md` each round.
 
 **Stop conditions** (same as in SKILL.md):
-1. Only `env_flakes` remain → treat as pass
+1. Only `env_flakes` remain → record CI as `env_flake_pass`
 2. Two consecutive rounds with identical error signatures → partial stop
 3. This round produced no code diff → partial stop
 4. No actionable `code_bugs` in summary → partial stop
@@ -137,6 +142,6 @@ Update the Status column in `vllm_error_analyze.md` each round.
 ## Context management
 
 CI logs can be enormous. Never read raw logs into context:
-- Always use `ci_log_summary.py` first — it processes in a subprocess and returns only structured output
+- Always use `round-<N>-summary.json` first — it contains only structured output
 - To read a specific section of the raw log: `grep -A 10 '<pattern>' <logfile> | head -30`
 - Write `vllm_error_analyze.md` incrementally — it serves as external memory for this task. Re-orient by reading the file rather than reconstructing from context
