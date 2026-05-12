@@ -68,56 +68,33 @@ def test_auto_workflow_main_job_uses_bash_for_pipefail_and_pipestatus():
     assert run_defaults["working-directory"] == "${{ github.workspace }}"
 
 
-def test_auto_workflow_uses_claude_code_action():
+def test_auto_workflow_installs_and_configures_claude_cli():
     workflow = load_yaml(MAIN_WORKFLOW_PATH)
     text = read_text(MAIN_WORKFLOW_PATH)
     steps = workflow["jobs"]["main2main"]["steps"]
     step_names = [step.get("name") for step in steps]
-    claude_action_step = next(
+    claude_install_step = next(
         step
         for step in steps
-        if step.get("name") == "Run main2main skill"
+        if step.get("name") == "Install Claude Code CLI"
     )
 
-    assert "Install Node.js" not in step_names
-    assert "Install Claude Code CLI" not in step_names
+    assert "Install Claude Code CLI" in text
     assert "Write Claude settings.json" not in step_names
-    assert "npm install -g @anthropic-ai/claude-code" not in text
-    assert "claude --version" not in text
-    assert 'claude \\' not in text
-    assert claude_action_step["if"] == "steps.detect.outputs.has_drift == 'true'"
-    assert claude_action_step["uses"] == "anthropics/claude-code-action/base-action@v1"
-    assert claude_action_step["with"]["anthropic_api_key"] == "${{ secrets.ANTHROPIC_AUTH_TOKEN }}"
-    assert claude_action_step["with"]["show_full_output"] is True
-    assert "--dangerously-skip-permissions" in claude_action_step["with"]["claude_args"]
-    assert "--allowed-tools" in claude_action_step["with"]["claude_args"]
-    assert "MAIN2MAIN_MODEL" in claude_action_step["with"]["claude_args"]
-    assert claude_action_step["env"]["CLAUDE_WORKING_DIR"] == "${{ github.workspace }}"
-    assert claude_action_step["env"]["CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"] == "1"
-
-
-def test_auto_workflow_installs_claude_skills_before_running_action():
-    workflow = load_yaml(MAIN_WORKFLOW_PATH)
-    steps = workflow["jobs"]["main2main"]["steps"]
-    step_names = [step.get("name") for step in steps]
-    install_step = next(
-        step
-        for step in steps
-        if step.get("name") == "Install Claude skills"
-    )
-
-    assert step_names.index("Install Claude skills") < step_names.index("Run main2main skill")
-    assert install_step["if"] == "steps.detect.outputs.has_drift == 'true'"
-    assert "rm -rf .claude/skills" in install_step["run"]
-    assert "mkdir -p .claude" in install_step["run"]
-    assert 'cp -R "${WORK_REPO_DIR}/.agents/skills" .claude/skills' in install_step["run"]
+    assert "settings.json" in text
+    assert "claude --version" in text
+    assert "Run main2main skill" in text
+    assert claude_install_step["if"] == "steps.detect.outputs.has_drift == 'true'"
+    assert "npm install -g @anthropic-ai/claude-code" in claude_install_step["run"]
+    assert 'cat > "$HOME/.claude/settings.json" <<EOF' in claude_install_step["run"]
+    assert 'python3 -m json.tool "$HOME/.claude/settings.json" >/dev/null' in claude_install_step["run"]
 
 
 def test_auto_workflow_delegates_main2main_control_flow_to_skill():
     text = read_text(MAIN_WORKFLOW_PATH)
 
     assert "Run main2main skill" in text
-    assert "/main2main please help to upgrade vllm ascend" in text
+    assert "Use the main2main skill." in text
     assert "Run fix loop with Claude" not in text
     assert "Run bisect-fix loop with Claude" not in text
     assert "while true; do" not in text
@@ -229,28 +206,27 @@ def test_auto_workflow_prints_main2main_summary_logs():
     assert text.count("print_group() {") == 1
     assert text.count("print_group_if_nonempty() {") == 1
     assert 'print_group "main2main final summary" /tmp/main2main/final-summary.md' in text
+    assert 'print_group_if_nonempty "main2main Claude stderr" /tmp/main2main/claude.err' in text
     assert 'print_group_if_nonempty "main2main created commits" /tmp/main2main/created-commits.md' in text
     assert 'cat /tmp/main2main-' not in text
     assert 'cp /tmp/main2main-' not in text
 
 
-def test_auto_workflow_prints_claude_conversation_via_action_full_output():
+def test_auto_workflow_prints_readable_claude_conversation_stream():
     workflow = load_yaml(MAIN_WORKFLOW_PATH)
     run_step = next(
         step
         for step in workflow["jobs"]["main2main"]["steps"]
         if step.get("name") == "Run main2main skill"
     )
-    verify_step = next(
-        step
-        for step in workflow["jobs"]["main2main"]["steps"]
-        if step.get("name") == "Verify main2main output"
-    )
+    script = run_step["run"]
 
-    assert run_step["with"]["show_full_output"] is True
-    assert "tee /tmp/main2main/claude.stream.jsonl" not in read_text(MAIN_WORKFLOW_PATH)
-    assert "print-claude-stream" not in read_text(MAIN_WORKFLOW_PATH)
-    assert 'print_group "main2main final summary" /tmp/main2main/final-summary.md' in verify_step["run"]
+    assert "tee /tmp/main2main/claude.stream.jsonl" in script
+    assert 'CLAUDE_PIPE_STATUS=("${PIPESTATUS[@]}")' in script
+    assert "print-claude-stream" in script
+    assert "--input /tmp/main2main/claude.stream.jsonl" in script
+    assert 'print_group_if_nonempty "main2main Claude stderr" /tmp/main2main/claude.err' in script
+    assert 'exit "${CLAUDE_STATUS}"' in script
 
 
 def test_auto_workflow_removes_bisect_timeout_contract():
@@ -260,9 +236,9 @@ def test_auto_workflow_removes_bisect_timeout_contract():
     assert "timeout-minutes: 720" not in text
 
 
-def test_auto_workflow_uses_claude_code_action_instead_of_cli():
+def test_auto_workflow_does_not_use_claude_code_action():
     text = read_text(MAIN_WORKFLOW_PATH)
-    assert "anthropics/claude-code-action/base-action@v1" in text
+    assert "anthropics/claude-code-action/base-action@" not in text
 
 
 def test_auto_workflow_does_not_include_fake_claude_support():
