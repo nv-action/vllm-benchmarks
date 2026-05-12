@@ -23,8 +23,8 @@ run-name: >-
   }}
 
 on:
-  # schedule:
-  #   - cron: '0 14 * * *'
+  schedule:
+    - cron: '0 14 * * *'
   workflow_dispatch:
     inputs:
       target_commit:
@@ -425,6 +425,11 @@ jobs:
               print_group_if_nonempty "Claude fix round ${ROUND} stdout" "/tmp/main2main-fix-round${ROUND}-result.json"
               print_group_if_nonempty "Claude fix round ${ROUND} git status" "/tmp/main2main-fix-round${ROUND}-status.txt"
               FIX_ROUNDS_USED=${ROUND}
+              if [ -n "$(git -C "${WORK_REPO_DIR}" status --porcelain)" ]; then
+                echo "::warning::Dirty worktree after Claude fix round ${ROUND}; stop automatic retries"
+                STATUS="manual_review_required"
+                break
+              fi
               continue
             fi
 
@@ -528,6 +533,11 @@ jobs:
               print_group_if_nonempty "Claude bisect fix round ${ROUND} stdout" "/tmp/main2main-bisect-fix-round${ROUND}-result.json"
               print_group_if_nonempty "Claude bisect fix round ${ROUND} git status" "/tmp/main2main-bisect-fix-round${ROUND}-status.txt"
               BISECT_ROUNDS_USED=${ROUND}
+              if [ -n "$(git -C "${WORK_REPO_DIR}" status --porcelain)" ]; then
+                echo "::warning::Dirty worktree after Claude bisect fix round ${ROUND}; stop automatic retries"
+                echo "::endgroup::"
+                break
+              fi
               echo "::endgroup::"
               continue
             fi
@@ -677,6 +687,21 @@ jobs:
           LAST_ROUND="${{ steps.bisect-loop.outputs.bisect_rounds_used }}"
           if [ -n "${LAST_ROUND}" ] && [ "${LAST_ROUND}" != "0" ] && [ -f "/tmp/main2main-bisect-round${LAST_ROUND}-output/bisect_result.json" ]; then
             BISECT_JSON="--bisect-json /tmp/main2main-bisect-round${LAST_ROUND}-output/bisect_result.json"
+          fi
+          if [ ! -f /tmp/main2main-failure-summary.json ]; then
+            cat > /tmp/main2main-failure-summary.json <<'JSON'
+          {
+            "failed_test_files": [],
+            "failed_test_cases": [],
+            "code_bugs": [
+              {
+                "error_type": "MissingFailureSummary",
+                "error_message": "failure summary was unavailable; inspect the workflow logs for Claude/test failures"
+              }
+            ],
+            "env_flakes": []
+          }
+          JSON
           fi
           python3 .github/workflows/scripts/main2main_auto.py render-manual-review-issue \
             --pr-url "${{ steps.create-pr.outputs.url }}" \
