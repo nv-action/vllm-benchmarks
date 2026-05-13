@@ -4,30 +4,30 @@
   "partition_size": null,
   "commit_sha": "6589db1c38190a04cb63b8b8c675bedf58005a74",
   "github_run_id": "25814932897",
-  "timestamp": "2026-05-13T19:22:08.499620+00:00",
+  "timestamp": "2026-05-13T20:12:26.623515+00:00",
   "tests": [
     {
       "name": "tests/e2e/singlecard/model_runner_v2/test_basic.py",
       "passed": true,
-      "elapsed": 770.4950769649586,
+      "elapsed": 817.622015787987,
       "estimated": 27
     },
     {
       "name": "tests/e2e/singlecard/test_qwen3_multi_loras.py",
       "passed": true,
-      "elapsed": 112.2217500800034,
+      "elapsed": 109.50097550591454,
       "estimated": 100
     },
     {
       "name": "tests/e2e/multicard/2-cards/test_qwen3_moe.py::test_qwen3_moe_distributed_mp_tp2_ep",
       "passed": true,
-      "elapsed": 260.5828654739307,
+      "elapsed": 262.03931430995,
       "estimated": 191
     },
     {
       "name": "tests/e2e/multicard/4-cards/test_qwen3_next.py",
       "passed": true,
-      "elapsed": 1759.2872954340419,
+      "elapsed": 1659.3633302659728,
       "estimated": 1296
     }
   ]
