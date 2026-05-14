@@ -243,5 +243,5 @@ class AscendDflashProposer(AscendEagleProposer):
             input_ids=self.input_ids[:num_input_tokens], positions=self.positions[:num_input_tokens], inputs_embeds=None
         )
 
-    def _raise_if_multimodal(self):
+    def _warn_if_multimodal(self):
         pass
