@@ -1,0 +1,34 @@
+{
+  "suite": "e2e-main2main",
+  "partition_id": null,
+  "partition_size": null,
+  "commit_sha": "6589db1c38190a04cb63b8b8c675bedf58005a74",
+  "github_run_id": "25853410250",
+  "timestamp": "2026-05-14T11:04:24.058309+00:00",
+  "tests": [
+    {
+      "name": "tests/e2e/singlecard/model_runner_v2/test_basic.py",
+      "passed": true,
+      "elapsed": 1035.2586750489427,
+      "estimated": 27
+    },
+    {
+      "name": "tests/e2e/singlecard/test_qwen3_multi_loras.py",
+      "passed": true,
+      "elapsed": 123.27977299503982,
+      "estimated": 100
+    },
+    {
+      "name": "tests/e2e/multicard/2-cards/test_qwen3_moe.py::test_qwen3_moe_distributed_mp_tp2_ep",
+      "passed": true,
+      "elapsed": 294.5627805959666,
+      "estimated": 191
+    },
+    {
+      "name": "tests/e2e/multicard/4-cards/test_qwen3_next.py",
+      "passed": true,
+      "elapsed": 2009.4104599640705,
+      "estimated": 1296
+    }
+  ]
+}
