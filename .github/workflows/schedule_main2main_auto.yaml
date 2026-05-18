@@ -54,19 +54,18 @@ env:
 jobs:
   main2main:
     runs-on: linux-aarch64-a2-4
-    timeout-minutes: 1440
+    timeout-minutes: 2880
     # concurrency:
     #   group: main2main-auto
     #   cancel-in-progress: false
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.1-910b-ubuntu22.04-py3.11
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-910b-ubuntu22.04-py3.11
       env:
         VLLM_LOGGING_LEVEL: ERROR
         VLLM_USE_MODELSCOPE: True
         HCCL_BUFFSIZE: 1024
         HF_HUB_OFFLINE: 1
         IS_SANDBOX: 1
-        MODELSCOPE_HUB_FILE_LOCK: False
     defaults:
       run:
         shell: bash -el {0}
@@ -76,7 +75,7 @@ jobs:
       ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
       ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
       TARGET_COMMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.target_commit || '' }}
-      PIP_EXTRA_INDEX_URL: https://mirrors.huaweicloud.com/ascend/repos/pypi
+      PIP_EXTRA_INDEX_URL: "https://mirrors.huaweicloud.com/ascend/repos/pypi https://triton-ascend.osinfra.cn/pypi/simple"
       MAIN2MAIN_SKILL_PATH: ${{ github.workspace }}/vllm-ascend/.agents/skills/main2main/SKILL.md
       MAIN2MAIN_LOG_HELPERS: |
         print_group() {
@@ -215,17 +214,12 @@ jobs:
 
       - name: Install nv-action/vllm-benchmark
         if: steps.detect.outputs.has_drift == 'true'
-        env:
-          PIP_EXTRA_INDEX_URL: "https://mirrors.huaweicloud.com/ascend/repos/pypi https://triton-ascend.osinfra.cn/pypi/simple"
         working-directory: ${{ env.WORK_REPO_DIR }}
         run: |
           pip install uc-manager
           pip install -r requirements-dev.txt
-          if find vllm_ascend -maxdepth 1 -name '*.so' -type f 2>/dev/null | grep -q .; then
-            COMPILE_CUSTOM_KERNELS=0 pip install -e .
-          else
-            pip install -e .
-          fi
+          pip install -v -e .
+          pip install git+https://github.com/modelscope/modelscope.git@dbbcbf631fe6d10cc6446df2ad2fef24039fe7fe
 
       - name: Install Node.js
         if: steps.detect.outputs.has_drift == 'true'
@@ -328,7 +322,7 @@ jobs:
           cp -R "${WORK_REPO_DIR}/.agents/skills" .claude/skills
 
           cat > /tmp/main2main/main2main.prompt.md <<EOF
-          Use the main2main skill.
+          /main2main please help to upgrade vllm ascend to a newer vLLM commit ${{ env.TARGET_COMMIT }}
 
           Inputs:
           - vllm_path: ${GITHUB_WORKSPACE}/${VLLM_DIR}
