@@ -208,6 +208,14 @@ def test_auto_workflow_does_not_reference_env_context_inside_job_env_expression(
     assert f"MAIN2MAIN_SKILL_PATH: ${{{{ github.workspace }}}}/{work_repo_dir}/.agents/skills/main2main/SKILL.md" in text
 
 
+def test_auto_workflow_has_no_empty_step_env_blocks():
+    workflow = load_yaml(MAIN_WORKFLOW_PATH)
+
+    for step in workflow["jobs"]["main2main"]["steps"]:
+        if "env" in step:
+            assert step["env"], step.get("name")
+
+
 def test_auto_workflow_prints_main2main_summary_logs():
     text = read_text(MAIN_WORKFLOW_PATH)
 
