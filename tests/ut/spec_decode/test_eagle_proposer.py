@@ -633,7 +633,7 @@ class TestEagleProposerHelperMethods(TestBase):
     # TODO: This is equivalent to disable_padded_drafter_batch=True.
     # We need to add a test_prepare_inputs_padded in future.
     def test_prepare_inputs(self):
-        self.proposer.token_arange_np = np.arange(10)
+        self.proposer.token_arange_np = np.arange(10, dtype=np.int32)
         mock_attn = MagicMock()
         mock_attn.slot_mapping = torch.tensor([0, 1, 2, 3, 4, 5])
         num_rejected = torch.tensor([1, 0, 1], device=self.device)
@@ -2881,7 +2881,7 @@ class TestEagleProposerPrepareInputs:
         )
 
         # Setup token_arange_np
-        proposer.token_arange_np = np.arange(8192)
+        proposer.token_arange_np = np.arange(8192, dtype=np.int32)
 
         batch_spec = BatchSpec(
             seq_lens=[10, 8, 12],
@@ -3008,7 +3008,7 @@ class TestEagleProposerPrepareInputs:
             runner=self.runner,
         )
 
-        proposer.token_arange_np = np.arange(8192)
+        proposer.token_arange_np = np.arange(8192, dtype=np.int32)
 
         batch_spec = BatchSpec(
             seq_lens=[10, 8, 12],
