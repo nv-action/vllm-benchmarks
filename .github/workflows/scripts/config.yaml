@@ -171,12 +171,3 @@ e2e-multicard-4-cards:
   estimated_time: 695
 - name: tests/e2e/multicard/4-cards/test_profiling_chunk_performance.py
   estimated_time: 208
-e2e-main2main:
-- name: tests/e2e/singlecard/model_runner_v2/test_basic.py
-  estimated_time: 27
-- name: tests/e2e/singlecard/test_qwen3_multi_loras.py
-  estimated_time: 100
-- name: tests/e2e/multicard/2-cards/test_qwen3_moe.py::test_qwen3_moe_distributed_mp_tp2_ep
-  estimated_time: 191
-- name: tests/e2e/multicard/4-cards/test_qwen3_next.py
-  estimated_time: 1296

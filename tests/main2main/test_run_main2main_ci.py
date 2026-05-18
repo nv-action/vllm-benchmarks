@@ -241,8 +241,9 @@ def test_run_main2main_ci_allows_env_flake_pass(tmp_path: Path):
     assert payload["env_flakes_count"] == 1
 
 
-def test_run_main2main_ci_requires_explicit_suite(tmp_path: Path):
+def test_run_main2main_ci_defaults_to_singlecard_light_suite(tmp_path: Path):
     ascend_path = make_fake_ascend_repo(tmp_path, exit_code=0)
+    workspace = tmp_path / "main2main"
 
     result = subprocess.run(
         [
@@ -252,14 +253,28 @@ def test_run_main2main_ci_requires_explicit_suite(tmp_path: Path):
             str(ascend_path),
             "--step-id",
             "step-1",
+            "--workspace",
+            str(workspace),
         ],
         text=True,
         capture_output=True,
         check=False,
     )
 
-    assert result.returncode != 0
-    assert "the following arguments are required: --suite" in result.stderr
+    assert result.returncode == 0
+
+    log_text = (workspace / "steps" / "step-1" / "ci" / "round-1.log").read_text(
+        encoding="utf-8",
+    )
+    assert 'argv=["--suite", "e2e-singlecard-light", "--continue-on-error"]' in log_text
+
+    payload = json.loads(
+        (workspace / "steps" / "step-1" / "ci" / "round-1-result.json").read_text(
+            encoding="utf-8",
+        )
+    )
+    assert payload["suite"] == "e2e-singlecard-light"
+    assert payload["suites"] == ["e2e-singlecard-light"]
 
 
 def test_run_main2main_ci_forwards_repeated_suite_flags(tmp_path: Path):

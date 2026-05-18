@@ -145,7 +145,7 @@ Run CI after the commit reference update and adapt phase, even when adapt made n
 python3 <skill_dir>/scripts/run_main2main_ci.py \
   --ascend-path <ascend_path> \
   --step-id <step-id> \
-  --suite e2e-main2main \
+  --suite e2e-singlecard-light \
   --round 1
 ```
 

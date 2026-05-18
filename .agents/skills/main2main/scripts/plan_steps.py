@@ -35,7 +35,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-LINE_BUDGET = 500
+LINE_BUDGET = 1000
 
 
 def _run_git(repo: Path, *args: str) -> str:
