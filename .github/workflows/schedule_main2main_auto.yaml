@@ -145,16 +145,21 @@ jobs:
           echo "NEW_COMMIT=${NEW_COMMIT}"
           echo "COMMIT_COUNT=${COMMIT_COUNT}"
 
-          echo "old_commit=${OLD_COMMIT}" >> "$GITHUB_OUTPUT"
-          echo "new_commit=${NEW_COMMIT}" >> "$GITHUB_OUTPUT"
-          echo "commit_count=${COMMIT_COUNT}" >> "$GITHUB_OUTPUT"
+          {
+            echo "old_commit=${OLD_COMMIT}"
+            echo "new_commit=${NEW_COMMIT}"
+            echo "commit_count=${COMMIT_COUNT}"
+            if [ "${HAS_DRIFT}" != "true" ]; then
+              echo "has_drift=false"
+            else
+              echo "has_drift=true"
+            fi
+          } >> "$GITHUB_OUTPUT"
 
           if [ "${HAS_DRIFT}" != "true" ]; then
             echo "::notice::No drift detected: ${OLD_COMMIT}"
-            echo "has_drift=false" >> "$GITHUB_OUTPUT"
           else
             echo "::notice::Drift detected: ${OLD_COMMIT} -> ${NEW_COMMIT}"
-            echo "has_drift=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Stop when no drift is detected
@@ -267,9 +272,6 @@ jobs:
           python3 .github/workflows/scripts/run_suite.py \
             --suite e2e-4card-light \
             --suite e2e-2card-light \
-            --auto-partition-id "${{ matrix.part }}" \
-            --auto-partition-size 1 \
-            --auto-upgrade-estimated-times \
             --continue-on-error
 
       - name: Install Node.js
@@ -286,7 +288,7 @@ jobs:
           esac
           NODE_DIST="node-v${NODE_VERSION}-linux-${NODE_ARCH}"
           curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/${NODE_DIST}.tar.gz" -o "/tmp/${NODE_DIST}.tar.gz"
-          rm -rf "/usr/local/${NODE_DIST}"
+          rm -rf "/usr/local/${NODE_DIST:?}"
           tar -xzf "/tmp/${NODE_DIST}.tar.gz" -C /usr/local
           ln -sf "/usr/local/${NODE_DIST}/bin/node" /usr/local/bin/node
           ln -sf "/usr/local/${NODE_DIST}/bin/npm" /usr/local/bin/npm
@@ -387,13 +389,14 @@ jobs:
           - Write the reviewer-facing final summary to /tmp/main2main/final-summary.md
           EOF
 
-          setsid bash -c '
-            trap "exit 0" TERM INT
+          cat > /tmp/main2main/heartbeat.sh <<'HEARTBEAT'
+          trap "exit 0" TERM INT
+          echo "::notice::main2main heartbeat $(date -Is)"
+          while sleep 300; do
             echo "::notice::main2main heartbeat $(date -Is)"
-            while sleep 300; do
-              echo "::notice::main2main heartbeat $(date -Is)"
-            done
-          ' &
+          done
+          HEARTBEAT
+          setsid bash /tmp/main2main/heartbeat.sh &
           HEARTBEAT_PID="$!"
           cleanup_heartbeat() {
             if [ -n "${HEARTBEAT_PID:-}" ]; then
@@ -480,14 +483,16 @@ jobs:
             --end-ref HEAD \
             > /tmp/main2main/created-commits.json
 
-          git log --reverse --format='- `%H` %s' "${{ steps.branch.outputs.base_sha }}..HEAD" \
+          git log --reverse --format="- \`%H\` %s" "${{ steps.branch.outputs.base_sha }}..HEAD" \
             > /tmp/main2main/created-commits.md
 
           COMMIT_COUNT=$(python3 -c 'import json; print(len(json.load(open("/tmp/main2main/created-commits.json"))))')
 
-          echo "status=${FINAL_STATUS}" >> "$GITHUB_OUTPUT"
-          echo "commit_count=${COMMIT_COUNT}" >> "$GITHUB_OUTPUT"
-          echo "manual_review_required=${MANUAL_REVIEW_REQUIRED}" >> "$GITHUB_OUTPUT"
+          {
+            echo "status=${FINAL_STATUS}"
+            echo "commit_count=${COMMIT_COUNT}"
+            echo "manual_review_required=${MANUAL_REVIEW_REQUIRED}"
+          } >> "$GITHUB_OUTPUT"
           echo "::notice::final_status=${FINAL_STATUS}, reached_commit=${REACHED_COMMIT}, steps=${STEPS_COMPLETED}/${STEPS_TOTAL}, commit_count=${COMMIT_COUNT}"
           print_group_if_nonempty "main2main created commits" /tmp/main2main/created-commits.md
 
