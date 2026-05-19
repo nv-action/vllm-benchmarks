@@ -10,8 +10,8 @@ Algorithm:
   3. Classify files: vllm/ source → "vllm", requirements* → "requirements",
      everything else → "ignored"
   4. Requirements commits get their own step (dependency changes are isolated)
-  5. Commits accumulate into a step until vllm_changed_lines exceeds 500
-  6. A single commit with vllm_changed_lines > 500 becomes its own step
+  5. Commits accumulate into a step until vllm_changed_lines exceeds 1000
+  6. A single commit with vllm_changed_lines > 1000 becomes its own step
   7. "ignored" files (docs, tests, CI) can be batched into any step but don't
      count toward the line budget
 
