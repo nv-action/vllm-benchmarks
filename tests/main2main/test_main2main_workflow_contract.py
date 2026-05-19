@@ -68,6 +68,18 @@ def test_auto_workflow_main_job_uses_bash_for_pipefail_and_pipestatus():
     assert run_defaults["working-directory"] == "${{ github.workspace }}"
 
 
+def test_auto_workflow_runs_preflight_suite_inside_work_repo_dir():
+    workflow = load_yaml(MAIN_WORKFLOW_PATH)
+    run_suite_step = next(
+        step
+        for step in workflow["jobs"]["main2main"]["steps"]
+        if step.get("name") == "Run vllm-project/vllm-ascend test (light)"
+    )
+
+    assert run_suite_step["working-directory"] == "${{ env.WORK_REPO_DIR }}"
+    assert ".github/workflows/scripts/run_suite.py" in run_suite_step["run"]
+
+
 def test_auto_workflow_installs_and_configures_claude_cli():
     workflow = load_yaml(MAIN_WORKFLOW_PATH)
     text = read_text(MAIN_WORKFLOW_PATH)
@@ -197,6 +209,24 @@ def test_auto_workflow_publish_step_groups_pr_body_and_prints_notices():
         in publication_step["run"]
     )
     assert text.count('echo "Created draft PR: ${PR_URL}"') == 1
+
+
+def test_auto_workflow_caps_large_commit_ranges_at_80th_commit():
+    workflow = load_yaml(MAIN_WORKFLOW_PATH)
+    detect_step = next(
+        step
+        for step in workflow["jobs"]["main2main"]["steps"]
+        if step.get("name") == "Detect vLLM version change"
+    )
+    script = detect_step["run"]
+
+    assert "COMMIT_LIMIT=80" in script
+    assert 'mapfile -t DRIFT_COMMITS < <(git -C "${VLLM_DIR}" rev-list --reverse "${OLD_COMMIT}..${NEW_COMMIT}")' in script
+    assert 'COMMIT_COUNT="${#DRIFT_COMMITS[@]}"' in script
+    assert 'if [ "${COMMIT_COUNT}" -gt "${COMMIT_LIMIT}" ]; then' in script
+    assert 'NEW_COMMIT="${DRIFT_COMMITS[$((COMMIT_LIMIT - 1))]}"' in script
+    assert 'git -C "${VLLM_DIR}" checkout "${NEW_COMMIT}"' in script
+    assert 'echo "new_commit=${NEW_COMMIT}" >> "$GITHUB_OUTPUT"' in script
 
 
 def test_auto_workflow_does_not_reference_env_context_inside_job_env_expression():
