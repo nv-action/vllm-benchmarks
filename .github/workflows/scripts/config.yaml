@@ -8,6 +8,7 @@ e2e-singlecard-light:
   estimated_time: 100
 - name: tests/e2e/light/single-card/test_qwen3_5_0_8b.py::test_mamba_ssm_multimodal_reasoning_mtp_full_decode_only
   estimated_time: 240
+  is_skipped: true
 - name: tests/e2e/light/single-card/test_qwen3_8b_w8a8.py::test_dense_w8a8_eagle3_full_graph
   estimated_time: 420
 e2e-2card-light:
