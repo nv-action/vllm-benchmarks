@@ -129,11 +129,25 @@ jobs:
           NEW_COMMIT=$(python3 -c 'import json; print(json.load(open("/tmp/main2main-detect.json"))["target_commit"])')
           HAS_DRIFT=$(python3 -c 'import json; print(str(json.load(open("/tmp/main2main-detect.json"))["has_drift"]).lower())')
 
+          COMMIT_COUNT=0
+          if [ "${HAS_DRIFT}" = "true" ]; then
+            COMMIT_LIMIT=80
+            mapfile -t DRIFT_COMMITS < <(git -C "${VLLM_DIR}" rev-list --reverse "${OLD_COMMIT}..${NEW_COMMIT}")
+            COMMIT_COUNT="${#DRIFT_COMMITS[@]}"
+            if [ "${COMMIT_COUNT}" -gt "${COMMIT_LIMIT}" ]; then
+              NEW_COMMIT="${DRIFT_COMMITS[$((COMMIT_LIMIT - 1))]}"
+              echo "::notice::Detected ${COMMIT_COUNT} commits; limiting target to commit ${COMMIT_LIMIT}: ${NEW_COMMIT}"
+              git -C "${VLLM_DIR}" checkout "${NEW_COMMIT}"
+            fi
+          fi
+
           echo "OLD_COMMIT=${OLD_COMMIT}"
           echo "NEW_COMMIT=${NEW_COMMIT}"
+          echo "COMMIT_COUNT=${COMMIT_COUNT}"
 
           echo "old_commit=${OLD_COMMIT}" >> "$GITHUB_OUTPUT"
           echo "new_commit=${NEW_COMMIT}" >> "$GITHUB_OUTPUT"
+          echo "commit_count=${COMMIT_COUNT}" >> "$GITHUB_OUTPUT"
 
           if [ "${HAS_DRIFT}" != "true" ]; then
             echo "::notice::No drift detected: ${OLD_COMMIT}"
@@ -194,8 +208,10 @@ jobs:
         if: steps.detect.outputs.has_drift == 'true'
         working-directory: ${{ env.VLLM_DIR }}
         run: |
+          git checkout "${{ steps.detect.outputs.old_commit }}"
           VLLM_TARGET_DEVICE=empty pip install -e .
           pip uninstall -y triton || true
+          git checkout "${{ steps.detect.outputs.new_commit }}"
 
       - name: Create working branch
         if: steps.detect.outputs.has_drift == 'true'
@@ -212,6 +228,26 @@ jobs:
           echo "name=${BRANCH}" >> "$GITHUB_OUTPUT"
           echo "base_sha=${BASE_SHA}" >> "$GITHUB_OUTPUT"
 
+      - name: Install Mooncake wheel
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          apt-get update -y
+          apt-get install -y --no-install-recommends \
+            libibverbs1 \
+            ibverbs-providers \
+            librdmacm1 \
+            libnuma1 \
+            libcurl4
+          ldconfig
+
+          MOONCAKE_WHEEL="mooncake_transfer_engine_ascend-0.3.8.post1-cp311-cp311-manylinux_2_17_aarch64.manylinux_2_35_aarch64.whl"
+          pip install --no-cache-dir --no-deps \
+            "https://vllm-ascend.obs.cn-north-4.myhuaweicloud.com/vllm-ascend/${MOONCAKE_WHEEL}"
+
+          pip show mooncake-transfer-engine-ascend || true
+
       - name: Install nv-action/vllm-benchmark
         if: steps.detect.outputs.has_drift == 'true'
         working-directory: ${{ env.WORK_REPO_DIR }}
@@ -220,6 +256,21 @@ jobs:
           pip install -r requirements-dev.txt
           pip install -v -e .
           pip install git+https://github.com/modelscope/modelscope.git@dbbcbf631fe6d10cc6446df2ad2fef24039fe7fe
+
+
+      - name: Run vllm-project/vllm-ascend test (light)
+        env:
+          VLLM_WORKER_MULTIPROC_METHOD: spawn
+        shell: bash
+        working-directory: ${{ env.WORK_REPO_DIR }}
+        run: |
+          python3 .github/workflows/scripts/run_suite.py \
+            --suite e2e-4card-light \
+            --suite e2e-2card-light \
+            --auto-partition-id "${{ matrix.part }}" \
+            --auto-partition-size 1 \
+            --auto-upgrade-estimated-times \
+            --continue-on-error
 
       - name: Install Node.js
         if: steps.detect.outputs.has_drift == 'true'
@@ -322,7 +373,7 @@ jobs:
           cp -R "${WORK_REPO_DIR}/.agents/skills" .claude/skills
 
           cat > /tmp/main2main/main2main.prompt.md <<EOF
-          /main2main please help to upgrade vllm ascend to a newer vLLM commit ${{ env.TARGET_COMMIT }}
+          /main2main please help to upgrade vllm ascend to a newer vLLM commit ${{ steps.detect.outputs.new_commit }}
 
           Inputs:
           - vllm_path: ${GITHUB_WORKSPACE}/${VLLM_DIR}
