@@ -232,10 +232,13 @@ def test_parse_final_summary_markdown_extracts_status_and_partial_stop():
                 "### Partial Stop",
                 "- Stopped at: step-3, upstream range aaaa..bbbb",
                 "- Reason: two consecutive rounds with identical error signatures",
-                "- Unresolved failures: `TypeError`: missing arg",
+                "- Unresolved failures: missing arg",
                 "- Saved patch: /tmp/main2main/steps/step-3/failed.patch",
                 "- Saved failure summary: /tmp/main2main/steps/step-3/failed-summary.json",
                 "- Repository state: rolled back to last verified vllm-ascend commit cafe",
+                "",
+                "### Follow-up",
+                "- Reason: this belongs to a different section",
             ]
         )
     )
@@ -247,8 +250,13 @@ def test_parse_final_summary_markdown_extracts_status_and_partial_stop():
     assert summary["steps_total"] == 3
     assert summary["partial_stop"]["step_id"] == "step-3"
     assert summary["partial_stop"]["reason"] == "two consecutive rounds with identical error signatures"
+    assert summary["partial_stop"]["unresolved_failures"] == "missing arg"
     assert summary["partial_stop"]["patch_path"] == "/tmp/main2main/steps/step-3/failed.patch"
     assert summary["partial_stop"]["summary_path"] == "/tmp/main2main/steps/step-3/failed-summary.json"
+    assert (
+        summary["partial_stop"]["repository_state"]
+        == "rolled back to last verified vllm-ascend commit cafe"
+    )
 
 
 def test_parse_final_summary_cli_outputs_json(tmp_path):
