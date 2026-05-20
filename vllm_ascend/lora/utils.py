@@ -9,6 +9,7 @@ from vllm.lora.layers import (
     QKVParallelLinearWithShardedLoRA,
 )
 from vllm.lora.layers.utils import _fully_sharded_can_replace, _not_fully_sharded_can_replace
+from vllm.model_executor.custom_op import maybe_get_oot_by_class
 
 from vllm_ascend.ops.linear import (
     AscendQKVParallelLinear,
@@ -25,7 +26,10 @@ class AscendQKVParallelLinearWithLoRA(QKVParallelLinearWithLoRA):
         packed_modules_list: list,
         model_config: PretrainedConfig | None,
     ) -> bool:
-        return type(source_layer) is AscendQKVParallelLinear and len(packed_modules_list) == 1
+        return (
+            type(source_layer) is maybe_get_oot_by_class(AscendQKVParallelLinear)
+            and len(packed_modules_list) == 1
+        )
 
 
 class AscendMergedQKVParallelLinearWithLoRA(MergedQKVParallelLinearWithLoRA):
@@ -38,7 +42,10 @@ class AscendMergedQKVParallelLinearWithLoRA(MergedQKVParallelLinearWithLoRA):
         packed_modules_list: list,
         model_config: PretrainedConfig | None,
     ) -> bool:
-        return type(source_layer) is AscendQKVParallelLinear and len(packed_modules_list) == 3
+        return (
+            type(source_layer) is maybe_get_oot_by_class(AscendQKVParallelLinear)
+            and len(packed_modules_list) == 3
+        )
 
 
 class AscendMergedQKVParallelLinearWithShardedLoRA(MergedQKVParallelLinearWithShardedLoRA):
@@ -51,7 +58,10 @@ class AscendMergedQKVParallelLinearWithShardedLoRA(MergedQKVParallelLinearWithSh
         packed_modules_list: list,
         model_config: PretrainedConfig | None = None,
     ) -> bool:
-        return type(source_layer) is AscendQKVParallelLinear and len(packed_modules_list) == 3
+        return (
+            type(source_layer) is maybe_get_oot_by_class(AscendQKVParallelLinear)
+            and len(packed_modules_list) == 3
+        )
 
 
 class AscendQKVParallelLinearWithShardedLoRA(QKVParallelLinearWithShardedLoRA):
@@ -64,7 +74,10 @@ class AscendQKVParallelLinearWithShardedLoRA(QKVParallelLinearWithShardedLoRA):
         packed_modules_list: list,
         model_config: PretrainedConfig | None = None,
     ) -> bool:
-        return type(source_layer) is AscendQKVParallelLinear and len(packed_modules_list) == 1
+        return (
+            type(source_layer) is maybe_get_oot_by_class(AscendQKVParallelLinear)
+            and len(packed_modules_list) == 1
+        )
 
 
 def refresh_all_lora_classes():
