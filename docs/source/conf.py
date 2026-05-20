@@ -81,7 +81,7 @@ myst_substitutions = {
     # CANN image tag
     "cann_image_tag": "9.0.0-910b-ubuntu22.04-py3.11",
     # vLLM commit hash for main branch
-    "main_vllm_commit": "998714b21b413c78db8eb7af7f384dc90c0b10dc",
+    "main_vllm_commit": "e414e1f1c020108593526b706efaf89e427c05a2",
     # vLLM tag for main branch
     "main_vllm_tag": "v0.20.2",
     # Python version for main branch
