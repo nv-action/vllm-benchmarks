@@ -1,8 +1,8 @@
 name: 'Image build lint'
 on:
-  # schedule:
-  #   # Runs at 00:00 UTC+8 every day
-  #   - cron: '0 20 * * *' 
+  schedule:
+    # Runs at 00:00 UTC+8 every day
+    - cron: '0 20 * * *' 
   workflow_dispatch:
   push:
     paths:
@@ -62,7 +62,7 @@ jobs:
         platforms: 'linux/amd64'
         context: .
         file: .github/workflows/dockerfiles/Dockerfile.lint
-        push: false
+        push: true
         labels: ${{ steps.meta.outputs.labels }}
         tags: ${{ steps.meta.outputs.tags }}
         provenance: false
@@ -75,7 +75,7 @@ jobs:
         platforms: 'linux/amd64'
         context: .
         file: .github/workflows/dockerfiles/Dockerfile.lint
-        push: false
+        push: true
         labels: ${{ steps.meta.outputs.labels }}
         tags: ${{ steps.meta.outputs.tags }}
         provenance: false

@@ -24,7 +24,6 @@ requires = [
     "wheel",
     "msgpack",
     "quart",
-    "mcp",
     "numba",
     "xgrammar>=0.1.30",
     "fastapi<0.124.0",

@@ -18,19 +18,14 @@
 name: Auto Doc Translate
 
 on:
-  # schedule:
-  #   - cron: '0 0 * * *'
+  schedule:
+    - cron: '0 0 */3 * *'
   workflow_dispatch:
     inputs:
       target_branch:
         description: 'Target branch for the upstream PR'
         required: false
         default: 'main'
-        type: string
-      po_files:
-        description: 'Comma-separated PO file paths to translate (leave empty to auto-detect changed files)'
-        required: false
-        default: ''
         type: string
 
 concurrency:
@@ -44,12 +39,12 @@ jobs:
     permissions:
       contents: read
     env:
-      UPSTREAM_REPO: nv-action/vllm-benchmarks
+      UPSTREAM_REPO: vllm-project/vllm-ascend
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
-          repository: Meihan-chen/vllm-benchmarks
+          repository: vllm-ascend-ci/vllm-ascend
           token: ${{ secrets.PAT_TOKEN }}
           ref: main
 
@@ -72,7 +67,7 @@ jobs:
           git restore --staged .github/workflows/scripts/po_translate.py docs/requirements-docs.txt
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
@@ -87,18 +82,11 @@ jobs:
 
       - name: Detect PO files to translate
         id: detect
-        env:
-          INPUT_PO_FILES: ${{ inputs.po_files }}
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          if [ -n "$INPUT_PO_FILES" ]; then
-            po_files="$INPUT_PO_FILES"
-            echo "Using manually specified PO files: $po_files"
-          else
-            tracked=$(git diff --name-only --diff-filter=ACMUX || true)
-            untracked=$(git ls-files --others --exclude-standard || true)
-            po_files=$(printf "%s\n%s" "$tracked" "$untracked" | grep '\.po$' | tr '\n' ',' | sed 's/,$//' || true)
-          fi
+          tracked=$(git diff --name-only --diff-filter=ACMUX || true)
+          untracked=$(git ls-files --others --exclude-standard || true)
+          po_files=$(printf "%s\n%s" "$tracked" "$untracked" | grep '\.po$' | tr '\n' ',' | sed 's/,$//' || true)
 
           if [ -z "$po_files" ]; then
             echo "No PO files to translate"
@@ -169,7 +157,7 @@ jobs:
           FILE_LIST: ${{ steps.results.outputs.file_list }}
           FILE_COUNT: ${{ steps.results.outputs.file_count }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          PR_HEAD: Meihan-chen:${{ env.BRANCH_NAME }}
+          PR_HEAD: vllm-ascend-ci:${{ env.BRANCH_NAME }}
           PR_BASE: ${{ env.TARGET_BRANCH }}
         with:
           github-token: ${{ secrets.PAT_TOKEN }}
@@ -185,7 +173,7 @@ jobs:
                 process.env.FILE_LIST + '\n---\n\n' +
                 '[Workflow run](' + process.env.RUN_URL + ')';
               const pr = await github.rest.pulls.create({
-                owner: 'nv-action', repo: 'vllm-benchmarks',
+                owner: 'vllm-project', repo: 'vllm-ascend',
                 head: process.env.PR_HEAD, base: process.env.PR_BASE,
                 title: prTitle, body: prBody
               });
