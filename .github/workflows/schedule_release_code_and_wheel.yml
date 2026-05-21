@@ -58,7 +58,7 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/checkout@v6
         with:
-          ref: zxy_fix_wheel
+          ref: zxy_fix_wheel_1
 
       - name: Print
         run: |
@@ -108,7 +108,7 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/checkout@v6
         with:
-          ref: zxy_fix_wheel
+          ref: zxy_fix_wheel_1
 
       - name: Free up disk space
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
@@ -136,8 +136,34 @@ jobs:
 
       - name: Repair wheels with auditwheel
         run: |
-          python3 -m pip install auditwheel patchelf
-          python3 .github/workflows/scripts/wheel/auto_exclude.py dist
+          python3 -m pip install auditwheel
+          python3 -m pip install patchelf
+          mkdir -p dist/repaired
+          for whl in dist/*.whl; do
+            auditwheel repair "$whl" -w dist/repaired/ \
+            --exclude libplatform.so \
+            --exclude libregister.so \
+            --exclude libge_common_base.so \
+            --exclude libc10.so \
+            --exclude libc_sec.so \
+            --exclude libnnopbase.so \
+            --exclude libprofapi.so \
+            --exclude libgraph_base.so \
+            --exclude libgraph.so \
+            --exclude libexe_graph.so \
+            --exclude "libascend*.so" \
+            --exclude "libtorch*.so" \
+            --exclude "libopapi*.so" \
+            --exclude "libops*.so" \
+            --exclude "liberror_manager.so" \
+            --exclude "libruntime.so" \
+            --exclude "libmmpa.so" \
+            --exclude "libunified_dlog.so" \
+            --exclude "liboptiling.so"
+          done
+          rm -f dist/*.whl
+          mv dist/repaired/*.whl dist/
+          rmdir dist/repaired
           ls dist
 
       - name: Verify automatic platform tags
@@ -192,7 +218,7 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/checkout@v6
         with:
-          ref: zxy_fix_wheel
+          ref: zxy_fix_wheel_1
 
       - name: Free up disk space
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
@@ -220,8 +246,34 @@ jobs:
 
       - name: Repair wheels with auditwheel
         run: |
-          python3 -m pip install auditwheel patchelf
-          python3 .github/workflows/scripts/wheel/auto_exclude.py dist
+          python3 -m pip install auditwheel
+          python3 -m pip install patchelf
+          mkdir -p dist/repaired
+          for whl in dist/*.whl; do
+            auditwheel repair "$whl" -w dist/repaired/ \
+            --exclude libplatform.so \
+            --exclude libregister.so \
+            --exclude libge_common_base.so \
+            --exclude libc10.so \
+            --exclude libc_sec.so \
+            --exclude libnnopbase.so \
+            --exclude libprofapi.so \
+            --exclude libgraph_base.so \
+            --exclude libgraph.so \
+            --exclude libexe_graph.so \
+            --exclude "libascend*.so" \
+            --exclude "libtorch*.so" \
+            --exclude "libopapi*.so" \
+            --exclude "libops*.so" \
+            --exclude "liberror_manager.so" \
+            --exclude "libruntime.so" \
+            --exclude "libmmpa.so" \
+            --exclude "libunified_dlog.so" \
+            --exclude "liboptiling.so"
+          done
+          rm -f dist/*.whl
+          mv dist/repaired/*.whl dist/
+          rmdir dist/repaired
           ls dist
 
       - name: Verify automatic platform tags
@@ -270,7 +322,7 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/checkout@v6
         with:
-          ref: zxy_fix_wheel
+          ref: zxy_fix_wheel_1
 
       - name: Free up disk space
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
@@ -298,8 +350,34 @@ jobs:
 
       - name: Repair wheels with auditwheel
         run: |
-          python3 -m pip install auditwheel patchelf
-          python3 .github/workflows/scripts/wheel/auto_exclude.py dist
+          python3 -m pip install auditwheel
+          python3 -m pip install patchelf
+          mkdir -p dist/repaired
+          for whl in dist/*.whl; do
+            auditwheel repair "$whl" -w dist/repaired/ \
+            --exclude libplatform.so \
+            --exclude libregister.so \
+            --exclude libge_common_base.so \
+            --exclude libc10.so \
+            --exclude libc_sec.so \
+            --exclude libnnopbase.so \
+            --exclude libprofapi.so \
+            --exclude libgraph_base.so \
+            --exclude libgraph.so \
+            --exclude libexe_graph.so \
+            --exclude "libascend*.so" \
+            --exclude "libtorch*.so" \
+            --exclude "libopapi*.so" \
+            --exclude "libops*.so" \
+            --exclude "liberror_manager.so" \
+            --exclude "libruntime.so" \
+            --exclude "libmmpa.so" \
+            --exclude "libunified_dlog.so" \
+            --exclude "liboptiling.so"
+          done
+          rm -f dist/*.whl
+          mv dist/repaired/*.whl dist/
+          rmdir dist/repaired
           ls dist
 
       - name: Verify automatic platform tags
