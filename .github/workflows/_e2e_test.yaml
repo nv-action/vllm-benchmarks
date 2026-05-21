@@ -64,7 +64,7 @@ jobs:
   e2e-light:
     name: singlecard-light
     if: ${{ inputs.type == 'light' }}
-    runs-on: linux-aarch64-a2-1
+    runs-on: linux-aarch64-a2b3-1
     strategy:
       fail-fast: false
       matrix:
@@ -76,7 +76,7 @@ jobs:
         VLLM_USE_MODELSCOPE: True
         HF_HUB_OFFLINE: 1
     steps:
-      - name: Checkout nv-action/vllm-benchmark repo
+      - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v6
 
       - name: Check npu and CANN info
@@ -91,7 +91,7 @@ jobs:
           pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
           apt-get update -y
           apt install git -y
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
 
       - name: Install system dependencies
         run: |
@@ -136,6 +136,8 @@ jobs:
             vllm-ascend-build-v1-${{ runner.os }}-${{ inputs.image }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
 
       - name: Install vllm-project/vllm-ascend
+        env:
+          MAX_JOBS: "23"
         run: |
           pip install uc-manager
           uv pip install -r requirements-dev.txt
@@ -146,7 +148,7 @@ jobs:
             uv pip install -e .
           fi
 
-      - name: Run nv-action/vllm-benchmark test
+      - name: Run vllm-project/vllm-ascend test
         env:
           PYTORCH_NPU_ALLOC_CONF: max_split_size_mb:256
           VLLM_WORKER_MULTIPROC_METHOD: spawn
@@ -184,14 +186,14 @@ jobs:
         if: ${{ inputs.continue_on_error == true && github.event_name != 'pull_request' }}
         with:
           name: timing-data-singlecard-light-part${{ matrix.part }}
-          path: /tmp/test_timing_data.json
+          path: test_timing_data.json
           if-no-files-found: warn
           retention-days: 5
 
   e2e-full:
     name: singlecard-full
     if: ${{ inputs.type == 'full' || inputs.singlecard_tests != '' }}
-    runs-on: linux-aarch64-a2-2
+    runs-on: linux-aarch64-a2b3-1
     strategy:
       fail-fast: false
       matrix:
@@ -204,7 +206,7 @@ jobs:
         HF_HUB_OFFLINE: 1
         MODELSCOPE_HUB_FILE_LOCK: False
     steps:
-      - name: Checkout nv-action/vllm-benchmark repo
+      - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
@@ -221,7 +223,7 @@ jobs:
           pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
           apt-get update -y
           apt install git -y
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
 
       - name: Install system dependencies
         run: |
@@ -266,6 +268,8 @@ jobs:
             vllm-ascend-build-v1-${{ runner.os }}-${{ inputs.image }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
 
       - name: Install vllm-project/vllm-ascend
+        env:
+          MAX_JOBS: "23"
         run: |
           pip install uc-manager
           uv pip install -r requirements-dev.txt
@@ -315,7 +319,7 @@ jobs:
         if: ${{ inputs.continue_on_error == true && github.event_name != 'pull_request' }}
         with:
           name: timing-data-singlecard-full-part${{ matrix.part }}
-          path: /tmp/test_timing_data.json
+          path: test_timing_data.json
           if-no-files-found: warn
           retention-days: 5
 
@@ -343,7 +347,7 @@ jobs:
         HCCL_BUFFSIZE: 1024
         HF_HUB_OFFLINE: 1
     steps:
-      - name: Checkout nv-action/vllm-benchmark repo
+      - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v6
 
       - name: Check npu and CANN info
@@ -358,7 +362,7 @@ jobs:
           pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
           apt-get update -y
           apt install git -y
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
 
       - name: Install system dependencies
         run: |
@@ -412,7 +416,7 @@ jobs:
           else
             uv pip install -e .
           fi
-      - name: Run nv-action/vllm-benchmark test (light)
+      - name: Run vllm-project/vllm-ascend test (light)
         env:
           VLLM_WORKER_MULTIPROC_METHOD: spawn
         shell: bash
@@ -449,7 +453,7 @@ jobs:
         if: ${{ inputs.continue_on_error == true && github.event_name != 'pull_request' }}
         with:
           name: timing-data-2card-light-part${{ matrix.part }}
-          path: /tmp/test_timing_data.json
+          path: test_timing_data.json
           if-no-files-found: warn
           retention-days: 5
 
@@ -469,7 +473,7 @@ jobs:
         HCCL_BUFFSIZE: 1024
         HF_HUB_OFFLINE: 1
     steps:
-      - name: Checkout nv-action/vllm-benchmark repo
+      - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
@@ -486,7 +490,7 @@ jobs:
           pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
           apt-get update -y
           apt install git -y
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
 
       - name: Install system dependencies
         run: |
@@ -540,7 +544,7 @@ jobs:
           else
             uv pip install -e .
           fi
-      - name: Run nv-action/vllm-benchmark test (full)
+      - name: Run vllm-project/vllm-ascend test (full)
         if: ${{ inputs.type == 'full' }}
         env:
           VLLM_WORKER_MULTIPROC_METHOD: spawn
@@ -578,7 +582,7 @@ jobs:
         if: ${{ inputs.continue_on_error == true && github.event_name != 'pull_request' }}
         with:
           name: timing-data-2card-full-part${{ matrix.part }}
-          path: /tmp/test_timing_data.json
+          path: test_timing_data.json
           if-no-files-found: warn
           retention-days: 5
 
@@ -589,7 +593,7 @@ jobs:
         run: |
           pytest -sv --durations=0 ${{ inputs.multicard_2_tests }}
 
-      - name: Run nv-action/vllm-benchmark test (non triton)
+      - name: Run vllm-project/vllm-ascend test (non triton)
         if: ${{ inputs.type == 'full' && matrix.part == 0 }}
         env:
           VLLM_WORKER_MULTIPROC_METHOD: spawn
@@ -761,7 +765,7 @@ jobs:
         if: ${{ inputs.continue_on_error == true && github.event_name != 'pull_request' }}
         with:
           name: timing-data-4card-light-part${{ matrix.part }}
-          path: /tmp/test_timing_data.json
+          path: test_timing_data.json
           if-no-files-found: warn
           retention-days: 5
 
@@ -780,7 +784,7 @@ jobs:
         VLLM_USE_MODELSCOPE: True
         HF_HUB_OFFLINE: 1
     steps:
-      - name: Checkout nv-action/vllm-benchmark repo
+      - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
@@ -797,7 +801,7 @@ jobs:
           pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
           apt-get update -y
           apt install git -y
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
 
       - name: Install system dependencies
         run: |
@@ -852,7 +856,7 @@ jobs:
             uv pip install -e .
           fi
 
-      - name: Run nv-action/vllm-benchmark test for V1 Engine
+      - name: Run vllm-project/vllm-ascend test for V1 Engine
         if: ${{ inputs.type == 'full' }}
         env:
           VLLM_WORKER_MULTIPROC_METHOD: spawn
@@ -880,7 +884,7 @@ jobs:
         if: ${{ always() && inputs.type == 'full' }}
         run: |
           python3 .github/workflows/scripts/ci_log_summary.py \
-            --step-name "Run nv-action/vllm-benchmark test for V1 Engine" \
+            --step-name "Run vllm-project/vllm-ascend test for V1 Engine" \
             --log-file /tmp/e2e-4card-full-part${{ matrix.part }}.log \
             --output "$GITHUB_STEP_SUMMARY"
 
@@ -890,7 +894,7 @@ jobs:
         if: ${{ inputs.continue_on_error == true && github.event_name != 'pull_request' }}
         with:
           name: timing-data-4card-full-part${{ matrix.part }}
-          path: /tmp/test_timing_data.json
+          path: test_timing_data.json
           if-no-files-found: warn
           retention-days: 5
 
@@ -923,9 +927,9 @@ jobs:
           pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
           apt-get update -y
           apt install git -y
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
 
-      - name: Checkout nv-action/vllm-benchmark repo
+      - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
@@ -984,7 +988,7 @@ jobs:
         if: ${{ inputs.type == 'light' }}
         run: pip uninstall -y triton-ascend triton
 
-      - name: Run nv-action/vllm-benchmark test
+      - name: Run vllm-project/vllm-ascend test
         if: ${{ inputs.contains_310 }}
         env:
           PYTORCH_NPU_ALLOC_CONF: max_split_size_mb:256
@@ -1001,7 +1005,7 @@ jobs:
         if: ${{ always() && inputs.contains_310 }}
         run: |
           python3 .github/workflows/scripts/ci_log_summary.py \
-            --step-name "Run nv-action/vllm-benchmark test" \
+            --step-name "Run vllm-project/vllm-ascend test" \
             --log-file /tmp/e2e-310p-singlecard.log \
             --output "$GITHUB_STEP_SUMMARY"
 
@@ -1035,9 +1039,9 @@ jobs:
           pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
           apt-get update -y
           apt install git -y
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
 
-      - name: Checkout nv-action/vllm-benchmark repo
+      - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v6
 
       - name: Install system dependencies
@@ -1094,7 +1098,7 @@ jobs:
         if: ${{ inputs.type == 'light' }}
         run: pip uninstall -y triton-ascend triton
 
-      - name: Run nv-action/vllm-benchmark test
+      - name: Run vllm-project/vllm-ascend test
         env:
           PYTORCH_NPU_ALLOC_CONF: max_split_size_mb:256
           VLLM_WORKER_MULTIPROC_METHOD: spawn
@@ -1113,6 +1117,6 @@ jobs:
         if: ${{ always() && inputs.contains_310 }}
         run: |
           python3 .github/workflows/scripts/ci_log_summary.py \
-            --step-name "Run nv-action/vllm-benchmark test" \
+            --step-name "Run vllm-project/vllm-ascend test" \
             --log-file /tmp/e2e-310p-4cards.log \
             --output "$GITHUB_STEP_SUMMARY"

@@ -22,7 +22,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
-        runner: [linux-aarch64-a2-1, linux-aarch64-a3-0]
+        runner: [linux-aarch64-a2b3-0, linux-aarch64-a3-0]
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-cpu
 
@@ -31,7 +31,7 @@ jobs:
         run: |
           apt-get update -y && apt-get install git jq -y
           pip config set global.index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
-          pip install modelscope
+          pip install modelscope datasets
 
       - name: Show Current Disk Usage
         run: |
@@ -47,7 +47,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
           JSON_PATH=".github/workflows/misc/model_dataset_list.json"
 
           git fetch origin main

@@ -18,9 +18,9 @@
 name: Release Code and Wheel
 
 on:
-  # schedule:
-  #   # UTC+8: 10am, 16pm
-  #   - cron: '0 2,8 * * *'
+  schedule:
+    # UTC+8: 10am, 16pm
+    - cron: '0 2,8 * * *'
   push:
     tags:
       - 'v*'
@@ -58,7 +58,7 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.tag }}
+          ref: zxy_fix_wheel
 
       - name: Print
         run: |
@@ -80,11 +80,11 @@ jobs:
           python3 setup.py sdist
           ls dist
 
-      - name: Archive tar.gz
-        uses: actions/upload-artifact@v7
-        with:
-          name: vllm-ascend-src
-          path: dist/*
+      # - name: Archive tar.gz
+      #   uses: actions/upload-artifact@v7
+      #   with:
+      #     name: vllm-ascend-src
+      #     path: dist/*
 
       # - name: Release
       #   if: ${{ github.event_name == 'push' }}
@@ -108,7 +108,7 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.tag }}
+          ref: zxy_fix_wheel
 
       - name: Free up disk space
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
@@ -136,32 +136,8 @@ jobs:
 
       - name: Repair wheels with auditwheel
         run: |
-          python3 -m pip install auditwheel
-          python3 -m pip install patchelf
-          mkdir -p dist/repaired
-          for whl in dist/*.whl; do
-            auditwheel repair "$whl" -w dist/repaired/ \
-            --exclude libplatform.so \
-            --exclude libregister.so \
-            --exclude libge_common_base.so \
-            --exclude libc10.so \
-            --exclude libc_sec.so \
-            --exclude libnnopbase.so \
-            --exclude libprofapi.so \
-            --exclude libgraph_base.so \
-            --exclude libgraph.so \
-            --exclude libexe_graph.so \
-            --exclude "libascend*.so" \
-            --exclude "libtorch*.so" \
-            --exclude "libopapi.so" \
-            --exclude "liberror_manager.so" \
-            --exclude "libruntime.so" \
-            --exclude "libmmpa.so"
-
-          done
-          rm -f dist/*.whl
-          mv dist/repaired/*.whl dist/
-          rmdir dist/repaired
+          python3 -m pip install auditwheel patchelf
+          python3 .github/workflows/scripts/wheel/auto_exclude.py dist
           ls dist
 
       - name: Verify automatic platform tags
@@ -186,11 +162,11 @@ jobs:
           echo "Generated variant wheels:"
           ls dist/variants/
 
-      - name: Archive wheel
-        uses: actions/upload-artifact@v7
-        with:
-          name: vllm-ascend-${{ matrix.os }}-py${{ matrix.python-version }}-wheel
-          path: dist/
+      # - name: Archive wheel
+      #   uses: actions/upload-artifact@v7
+      #   with:
+      #     name: vllm-ascend-${{ matrix.os }}-py${{ matrix.python-version }}-wheel
+      #     path: dist/
 
       # - name: Release
       #   if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
@@ -216,7 +192,7 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.tag }}
+          ref: zxy_fix_wheel
 
       - name: Free up disk space
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
@@ -244,32 +220,8 @@ jobs:
 
       - name: Repair wheels with auditwheel
         run: |
-          python3 -m pip install auditwheel
-          python3 -m pip install patchelf
-          mkdir -p dist/repaired
-          for whl in dist/*.whl; do
-            auditwheel repair "$whl" -w dist/repaired/ \
-            --exclude libplatform.so \
-            --exclude libregister.so \
-            --exclude libge_common_base.so \
-            --exclude libc10.so \
-            --exclude libc_sec.so \
-            --exclude libnnopbase.so \
-            --exclude libprofapi.so \
-            --exclude libgraph_base.so \
-            --exclude libgraph.so \
-            --exclude libexe_graph.so \
-            --exclude "libascend*.so" \
-            --exclude "libtorch*.so" \
-            --exclude "libopapi.so" \
-            --exclude "liberror_manager.so" \
-            --exclude "libruntime.so" \
-            --exclude "libmmpa.so"
-
-          done
-          rm -f dist/*.whl
-          mv dist/repaired/*.whl dist/
-          rmdir dist/repaired
+          python3 -m pip install auditwheel patchelf
+          python3 .github/workflows/scripts/wheel/auto_exclude.py dist
           ls dist
 
       - name: Verify automatic platform tags
@@ -294,11 +246,11 @@ jobs:
           echo "Generated variant wheels:"
           ls dist/variants/
 
-      - name: Archive wheel
-        uses: actions/upload-artifact@v7
-        with:
-          name: vllm-ascend-a3-${{ matrix.os }}-py${{ matrix.python-version }}-wheel
-          path: dist/
+      # - name: Archive wheel
+      #   uses: actions/upload-artifact@v7
+      #   with:
+      #     name: vllm-ascend-a3-${{ matrix.os }}-py${{ matrix.python-version }}-wheel
+      #     path: dist/
 
 
   build_and_release_wheel_310p:
@@ -318,7 +270,7 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.tag }}
+          ref: zxy_fix_wheel
 
       - name: Free up disk space
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
@@ -346,32 +298,8 @@ jobs:
 
       - name: Repair wheels with auditwheel
         run: |
-          python3 -m pip install auditwheel
-          python3 -m pip install patchelf
-          mkdir -p dist/repaired
-          for whl in dist/*.whl; do
-            auditwheel repair "$whl" -w dist/repaired/ \
-            --exclude libplatform.so \
-            --exclude libregister.so \
-            --exclude libge_common_base.so \
-            --exclude libc10.so \
-            --exclude libc_sec.so \
-            --exclude libnnopbase.so \
-            --exclude libprofapi.so \
-            --exclude libgraph_base.so \
-            --exclude libgraph.so \
-            --exclude libexe_graph.so \
-            --exclude "libascend*.so" \
-            --exclude "libtorch*.so" \
-            --exclude "libopapi.so" \
-            --exclude "liberror_manager.so" \
-            --exclude "libruntime.so" \
-            --exclude "libmmpa.so"
-
-          done
-          rm -f dist/*.whl
-          mv dist/repaired/*.whl dist/
-          rmdir dist/repaired
+          python3 -m pip install auditwheel patchelf
+          python3 .github/workflows/scripts/wheel/auto_exclude.py dist
           ls dist
 
       - name: Verify automatic platform tags
@@ -396,11 +324,11 @@ jobs:
           echo "Generated variant wheels:"
           ls dist/variants/
 
-      - name: Archive wheel
-        uses: actions/upload-artifact@v7
-        with:
-          name: vllm-ascend-310p-${{ matrix.os }}-py${{ matrix.python-version }}-wheel
-          path: dist/
+      # - name: Archive wheel
+      #   uses: actions/upload-artifact@v7
+      #   with:
+      #     name: vllm-ascend-310p-${{ matrix.os }}-py${{ matrix.python-version }}-wheel
+      #     path: dist/
 
 
   # generate_and_upload_variant_index:
@@ -410,7 +338,7 @@ jobs:
   #   runs-on: ubuntu-24.04
   #   steps:
   #     - name: Download all variant wheels
-  #       uses: actions/download-artifact@v4
+  #       uses: actions/download-artifact@v8
   #       with:
   #         pattern: '*-wheel'
   #         path: all-wheels/

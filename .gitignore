@@ -216,3 +216,5 @@ fusion_result.json
 csrc/output/
 csrc/third_party/
 
+# claude code skills
+.claude/skills/*
