@@ -38,7 +38,7 @@ defaults:
 
 env:
   UPSTREAM_REPO: vllm-project/vllm-ascend
-  WORK_REPO_DIR: .
+  WORK_REPO_DIR: ${{ github.workspace }}
   VLLM_DIR: vllm-upstream
   MAIN2MAIN_MODEL: ${{ vars.MAIN2MAIN_MODEL || 'deepseek/deepseek-v4-pro' }}
   MAIN2MAIN_IMAGE: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-910b-ubuntu22.04-py3.11
@@ -122,7 +122,7 @@ jobs:
           pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
           apt-get update -y
           apt-get -y install git
-          git config --global --add safe.directory "$GITHUB_WORKSPACE/${WORK_REPO_DIR}"
+          git config --global --add safe.directory "${WORK_REPO_DIR}"
           git config --global --add safe.directory "$GITHUB_WORKSPACE/${VLLM_DIR}"
 
       - name: Install system dependencies
@@ -279,7 +279,7 @@ jobs:
           set +e
           kickoff \
             --vllm-path "${GITHUB_WORKSPACE}/${VLLM_DIR}" \
-            --vllm-ascend-path "${GITHUB_WORKSPACE}/${WORK_REPO_DIR}" \
+            --vllm-ascend-path "${WORK_REPO_DIR}" \
             --target-commit "${TARGET_COMMIT}" \
             2> /tmp/main2main/kickoff.err \
             | tee /tmp/main2main/kickoff.log
