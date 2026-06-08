@@ -53,7 +53,7 @@ env:
 
 jobs:
   main2main:
-    runs-on: linux-aarch64-a2b3-4
+    runs-on: linux-aarch64-a2-4
     timeout-minutes: 2880
     concurrency:
       group: main2main
