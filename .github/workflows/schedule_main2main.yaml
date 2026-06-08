@@ -38,16 +38,9 @@ defaults:
 
 env:
   UPSTREAM_REPO: vllm-project/vllm-ascend
-<<<<<<< HEAD
   WORK_REPO_DIR: ${{ github.workspace }}
   VLLM_DIR: vllm-upstream
   MAIN2MAIN_MODEL: deepseek/deepseek-v4-pro
-=======
-  WORK_REPO_DIR: vllm-ascend
-  VLLM_DIR: vllm-upstream
-  NODE_VERSION: 18.20.8
-  MAIN2MAIN_MODEL: ${{ vars.MAIN2MAIN_MODEL || 'glm-5' }}
->>>>>>> 5847de66 (Add main2main CI)
   MAIN2MAIN_IMAGE: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-910b-ubuntu22.04-py3.11
   UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
   UV_EXTRA_INDEX_URL: "https://repo.huaweicloud.com/ascend/repos/pypi http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu/"
@@ -59,11 +52,7 @@ env:
 
 jobs:
   main2main:
-<<<<<<< HEAD
     runs-on: linux-aarch64-a2-4
-=======
-    runs-on: linux-aarch64-a2b3-4
->>>>>>> 5847de66 (Add main2main CI)
     timeout-minutes: 2880
     concurrency:
       group: main2main
@@ -82,22 +71,12 @@ jobs:
         working-directory: ${{ github.workspace }}
     env:
       GH_TOKEN: ${{ secrets.PAT_TOKEN }}
-<<<<<<< HEAD
       TARGET_COMMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.target_commit || '' }}
       PUSH_TO_GITHUB: 'true'
       GITHUB_REPO: vllm-project/vllm-ascend
       HEAD_FORK: wjunlu/vllm-ascend
       MAIN2MAIN_KEEP_BRANCH: 'true'
       MAIN2MAIN_WORKSPACE: /tmp/main2main_flow/workspace
-=======
-      ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
-      ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-      TARGET_COMMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.target_commit || '' }}
-      PUSH_TO_GITHUB: 'true'
-      GITHUB_REPO: vllm-project/vllm-ascend
-      HEAD_FORK: vllm-ascend-ci/vllm-ascend
-      MAIN2MAIN_KEEP_BRANCH: 'true'
->>>>>>> 5847de66 (Add main2main CI)
       MAIN2MAIN_LOG_HELPERS: |
         print_group() {
           local title="$1"
@@ -115,17 +94,7 @@ jobs:
     steps:
       - name: Checkout workflow repo
         uses: actions/checkout@v6
-<<<<<<< HEAD
         with:
-=======
-
-      - name: Checkout vLLM-ascend fork repo
-        uses: actions/checkout@v6
-        with:
-          repository: vllm-ascend-ci/vllm-ascend
-          token: ${{ secrets.PAT_TOKEN }}
-          path: ${{ env.WORK_REPO_DIR }}
->>>>>>> 5847de66 (Add main2main CI)
           fetch-depth: 0
 
       - name: Checkout vllm-project/vllm repo
@@ -154,11 +123,7 @@ jobs:
           pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
           apt-get update -y
           apt-get -y install git
-<<<<<<< HEAD
           git config --global --add safe.directory "${WORK_REPO_DIR}"
-=======
-          git config --global --add safe.directory "$GITHUB_WORKSPACE/${WORK_REPO_DIR}"
->>>>>>> 5847de66 (Add main2main CI)
           git config --global --add safe.directory "$GITHUB_WORKSPACE/${VLLM_DIR}"
 
       - name: Install system dependencies
@@ -182,11 +147,6 @@ jobs:
           gh --version
           gh auth status
           gh api graphql -f query='query { viewer { login } }' >/dev/null
-<<<<<<< HEAD
-=======
-          test -n "$ANTHROPIC_BASE_URL" || { echo "::error::ANTHROPIC_BASE_URL is empty"; exit 1; }
-          test -n "$ANTHROPIC_AUTH_TOKEN" || { echo "::error::ANTHROPIC_AUTH_TOKEN is empty"; exit 1; }
->>>>>>> 5847de66 (Add main2main CI)
 
       - name: Check npu and CANN info
         if: always()
@@ -196,7 +156,6 @@ jobs:
             cat /usr/local/Ascend/ascend-toolkit/latest/"$(uname -i)"-linux/ascend_toolkit_install.info || true
           fi
 
-<<<<<<< HEAD
       - name: Install opencode + main2main-flow
         run: |
           set -eu
@@ -235,8 +194,6 @@ jobs:
           fi
           pip install -e "${M2M_FLOW_DIR}"
 
-=======
->>>>>>> 5847de66 (Add main2main CI)
       - name: Install vllm-project/vllm from source
         working-directory: ${{ env.VLLM_DIR }}
         run: |
@@ -244,10 +201,6 @@ jobs:
           pip uninstall -y triton
 
       - name: Get csrc hash
-<<<<<<< HEAD
-=======
-        if: always()
->>>>>>> 5847de66 (Add main2main CI)
         id: get_csrc_hash
         working-directory: ${{ env.WORK_REPO_DIR }}
         run: |
@@ -256,10 +209,6 @@ jobs:
           echo "CSRC_HASH=$CSRC_HASH" >> $GITHUB_OUTPUT
 
       - name: Cache vllm-ascend csrc
-<<<<<<< HEAD
-=======
-        if: always()
->>>>>>> 5847de66 (Add main2main CI)
         uses: runs-on/cache@v4
         with:
           path: |
@@ -272,10 +221,6 @@ jobs:
             vllm-ascend-build-v1-${{ runner.os }}-${{ env.MAIN2MAIN_IMAGE }}-
 
       - name: Create working branch
-<<<<<<< HEAD
-=======
-        if: always()
->>>>>>> 5847de66 (Add main2main CI)
         id: branch
         working-directory: ${{ env.WORK_REPO_DIR }}
         run: |
@@ -290,10 +235,6 @@ jobs:
           echo "base_sha=${BASE_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Install Mooncake wheel
-<<<<<<< HEAD
-=======
-        if: always()
->>>>>>> 5847de66 (Add main2main CI)
         shell: bash
         run: |
           set -euxo pipefail
@@ -314,10 +255,6 @@ jobs:
           pip show mooncake-transfer-engine-ascend || true
 
       - name: Install vllm-ascend
-<<<<<<< HEAD
-=======
-        if: always()
->>>>>>> 5847de66 (Add main2main CI)
         working-directory: ${{ env.WORK_REPO_DIR }}
         run: |
           pip install uc-manager
@@ -329,30 +266,12 @@ jobs:
             uv pip install -e .
           fi
 
-<<<<<<< HEAD
       - name: Run main2main flow
-=======
-      - name: Install main2main-flow
-        if: always()
-        run: |
-          set -eu
-          M2M_FLOW_DIR="/tmp/main2main_flow"
-          if [ ! -d "${M2M_FLOW_DIR}/.git" ]; then
-            git clone https://github.com/cosdt/main2main_flow.git "${M2M_FLOW_DIR}"
-          fi
-          pip install -e "${M2M_FLOW_DIR}"
-
-      - name: Run main2main flow
-        if: always()
->>>>>>> 5847de66 (Add main2main CI)
         id: run-main2main
         working-directory: ${{ github.workspace }}
         run: |
           set -euo pipefail
-<<<<<<< HEAD
           export PATH="/root/.opencode/bin:$PATH"
-=======
->>>>>>> 5847de66 (Add main2main CI)
           eval "${MAIN2MAIN_LOG_HELPERS}"
 
           rm -rf /tmp/main2main
@@ -378,11 +297,7 @@ jobs:
           set +e
           kickoff \
             --vllm-path "${GITHUB_WORKSPACE}/${VLLM_DIR}" \
-<<<<<<< HEAD
             --vllm-ascend-path "${WORK_REPO_DIR}" \
-=======
-            --vllm-ascend-path "${GITHUB_WORKSPACE}/${WORK_REPO_DIR}" \
->>>>>>> 5847de66 (Add main2main CI)
             --target-commit "${TARGET_COMMIT}" \
             2> /tmp/main2main/kickoff.err \
             | tee /tmp/main2main/kickoff.log
@@ -405,11 +320,7 @@ jobs:
           fi
 
           # Copy final summary from workspace
-<<<<<<< HEAD
           FINAL_SUMMARY="${MAIN2MAIN_WORKSPACE}/final_summary.md"
-=======
-          FINAL_SUMMARY="/tmp/main2main_flow/workspace/final_summary.md"
->>>>>>> 5847de66 (Add main2main CI)
           if [ -f "${FINAL_SUMMARY}" ]; then
             cp "${FINAL_SUMMARY}" /tmp/main2main/final-summary.md
           fi
@@ -430,11 +341,7 @@ jobs:
           eval "${MAIN2MAIN_LOG_HELPERS}"
 
           # Read structured status from main2main_flow workspace
-<<<<<<< HEAD
           STATUS_JSON="${MAIN2MAIN_WORKSPACE}/final_status.json"
-=======
-          STATUS_JSON="/tmp/main2main_flow/workspace/final_status.json"
->>>>>>> 5847de66 (Add main2main CI)
           OLD_COMMIT=$(python3 -c "import json; print(json.load(open('${STATUS_JSON}'))['old_commit'])")
           NEW_COMMIT=$(python3 -c "import json; print(json.load(open('${STATUS_JSON}'))['new_commit'])")
           FINAL_STATUS=$(python3 -c "import json; print(json.load(open('${STATUS_JSON}'))['status'])")
