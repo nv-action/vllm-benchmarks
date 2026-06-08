@@ -40,7 +40,7 @@ env:
   UPSTREAM_REPO: vllm-project/vllm-ascend
   WORK_REPO_DIR: ${{ github.workspace }}
   VLLM_DIR: vllm-upstream
-  MAIN2MAIN_MODEL: ${{ vars.MAIN2MAIN_MODEL || 'deepseek/deepseek-v4-pro' }}
+  MAIN2MAIN_MODEL: deepseek/deepseek-v4-pro
   MAIN2MAIN_IMAGE: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-910b-ubuntu22.04-py3.11
   UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
   UV_EXTRA_INDEX_URL: "https://repo.huaweicloud.com/ascend/repos/pypi http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu/"
