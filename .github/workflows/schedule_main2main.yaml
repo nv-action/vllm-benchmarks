@@ -227,18 +227,14 @@ jobs:
             uv pip install -e .
           fi
 
-      - name: Install main2main-flow
+      - name: Install opencode and main2main-flow
         run: |
           set -eu
-          M2M_FLOW_DIR="/tmp/main2main_flow"
-          if [ ! -d "${M2M_FLOW_DIR}/.git" ]; then
-            git config --global credential.helper "!gh auth git-credential"
-            git clone https://github.com/wjunLu/main2main_flow.git "${M2M_FLOW_DIR}"
-          fi
-          pip install -e "${M2M_FLOW_DIR}"
 
-      - name: Configure opencode auth
-        run: |
+          # install opencode
+          curl -fsSL https://opencode.ai/install | bash
+
+          # configure opencode auth
           mkdir -p ~/.local/share/opencode
           cat > ~/.local/share/opencode/auth.json <<EOF
           {
@@ -248,6 +244,14 @@ jobs:
             }
           }
           EOF
+
+          # install main2main_flow
+          M2M_FLOW_DIR="/tmp/main2main_flow"
+          if [ ! -d "${M2M_FLOW_DIR}/.git" ]; then
+            git config --global credential.helper "!gh auth git-credential"
+            git clone https://github.com/wjunLu/main2main_flow.git "${M2M_FLOW_DIR}"
+          fi
+          pip install -e "${M2M_FLOW_DIR}"
 
       - name: Run main2main flow
         id: run-main2main
