@@ -21,9 +21,9 @@
 name: Nightly-A3
 
 on:
-  schedule:
-      # Run test at 23:45 Beijing time (UTC+8)
-      - cron: "45 15 * * *"
+  # schedule:
+  #     # Run test at 23:45 Beijing time (UTC+8)
+  #     - cron: "45 15 * * *"
   workflow_dispatch:
     inputs:
       vllm_ascend_branch:
@@ -70,7 +70,7 @@ jobs:
     if: >-
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch'
-    runs-on: linux-aarch64-a2b3-0
+    runs-on: linux-aarch64-a2-0
     outputs:
       run: ${{ steps.parse.outputs.run }}
       filter: ${{ steps.parse.outputs.filter }}
