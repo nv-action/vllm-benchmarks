@@ -40,6 +40,11 @@ on:
         required: false
         default: ''
         type: string
+      skip_build_image:
+        description: 'Skip build-image job (used when triggered by /nightly command)'
+        required: false
+        default: 'false'
+        type: string
 
 permissions:
   contents: read
@@ -132,7 +137,9 @@ jobs:
 
   build-image:
     name: Build nightly-a2 image
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && inputs.skip_build_image != 'true')
     strategy:
       matrix:
         vllm_ascend_branch: >-

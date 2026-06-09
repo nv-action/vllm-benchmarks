@@ -76,16 +76,17 @@ jobs:
       - name: Resolve test cases and branch
         id: resolve
         if: steps.auth.outputs.is_authorized == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+          ALL_ARGS: ${{ github.event.client_payload.slash_command.args.all }}
+          PR_URL: ${{ github.event.client_payload.github.payload.issue.pull_request.url }}
         run: |
-          ALL_ARGS=$(echo '${{ github.event.client_payload.slash_command.args.all }}' | xargs)
+          ALL_ARGS=$(echo "$ALL_ARGS" | xargs)
           if [ -z "$ALL_ARGS" ]; then
-            {
-              echo "test_cases=all"
-              echo "branch=main"
-              echo "dispatch_a2=true"
-              echo "dispatch_a3=true"
-            } >> "$GITHUB_OUTPUT"
-            exit 0
+            gh api "repos/${{ github.event.client_payload.github.payload.repository.full_name }}/issues/${{ github.event.client_payload.github.payload.issue.number }}/comments" \
+              -f body='[Bot]: `/nightly` without test names will not dispatch. Please specify test names, e.g. `/nightly all` or `/nightly test_custom_op`.' \
+              --silent
+            exit 1
           fi
 
           BRANCH="main"
@@ -106,63 +107,34 @@ jobs:
             fi
           done
 
-          # If --branch was the last word (no branch name given), ignore it
-          if [ "$NEXT_IS_BRANCH" = "1" ]; then
-            NEXT_IS_BRANCH=0
+          if [ -z "$TEST_CASES" ]; then
+            gh api "repos/${{ github.event.client_payload.github.payload.repository.full_name }}/issues/${{ github.event.client_payload.github.payload.issue.number }}/comments" \
+              -f body='[Bot]: `/nightly` without test names will not dispatch. Please specify test names, e.g. `/nightly all` or `/nightly test_custom_op`.' \
+              --silent
+            exit 1
           fi
 
-          if [ -z "$TEST_CASES" ]; then
-            TEST_CASES="all"
-            {
-              echo "test_cases=all"
-              echo "branch=$BRANCH"
-              echo "dispatch_a2=true"
-              echo "dispatch_a3=true"
-            } >> "$GITHUB_OUTPUT"
+          echo "test_cases=$TEST_CASES" >> "$GITHUB_OUTPUT"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+          if [ "$TEST_CASES" = "all" ]; then
+            echo "dispatch_a2=true" >> "$GITHUB_OUTPUT"
+            echo "dispatch_a3=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          {
-            echo "test_cases=$TEST_CASES"
-            echo "branch=$BRANCH"
-          } >> "$GITHUB_OUTPUT"
+          # Parse test matrices from the PR branch's workflow YAML files
+          pip install pyyaml -q 2>/dev/null
 
-          # Determine which platform(s) to dispatch based on test name conventions:
-          # - Names ending with -A2 or in A2-only list -> A2
-          # - Names ending with -A3 or in A3-only list -> A3
-          # - Names without platform suffix -> dispatch both (conservative)
-          # - "accuracy-group" -> dispatch both
-          A2_ONLY="test_custom_op test_custom_op_multi_card"
-          A3_ONLY="custom-multi-ops"
-          DISPATCH_A2=false
-          DISPATCH_A3=false
+          PR_BRANCH=$(gh api "$PR_URL" --jq '.head.ref')
+          HEAD_REPO=$(gh api "$PR_URL" --jq '.head.repo.full_name')
 
-          IFS=','
-          for TC in $TEST_CASES; do
-            TC=$(echo "$TC" | xargs)
-            # Check explicit platform suffix
-            if [[ "$TC" == *"-A2" ]]; then
-              DISPATCH_A2=true
-            elif [[ "$TC" == *"-A3" ]]; then
-              DISPATCH_A3=true
-            # Check A2-only list
-            elif echo "$A2_ONLY" | grep -qw "$TC"; then
-              DISPATCH_A2=true
-            # Check A3-only list
-            elif echo "$A3_ONLY" | grep -qw "$TC"; then
-              DISPATCH_A3=true
-            # No platform indicator -> dispatch both to be safe
-            else
-              DISPATCH_A2=true
-              DISPATCH_A3=true
-            fi
-          done
-          unset IFS
+          export A2_RAW=$(gh api "repos/$HEAD_REPO/contents/.github/workflows/schedule_nightly_test_a2.yaml?ref=$PR_BRANCH" --jq '.content' 2>/dev/null || echo "")
+          export A3_RAW=$(gh api "repos/$HEAD_REPO/contents/.github/workflows/schedule_nightly_test_a3.yaml?ref=$PR_BRANCH" --jq '.content' 2>/dev/null || echo "")
+          export A2_ACC_GROUPS=$(gh api "repos/$HEAD_REPO/contents/tests/e2e/models/configs/accuracy_groups_a2.json?ref=$PR_BRANCH" --jq '.content' 2>/dev/null || echo "")
+          export TEST_CASES
 
-          {
-            echo "dispatch_a2=$DISPATCH_A2"
-            echo "dispatch_a3=$DISPATCH_A3"
-          } >> "$GITHUB_OUTPUT"
+          python3 .github/workflows/scripts/resolve_nightly_tests.py
 
   dispatch-a2:
     name: Trigger Nightly-A2
@@ -184,7 +156,8 @@ jobs:
             --ref main \
             -f test_cases='${{ needs.authorize.outputs.test_cases }}' \
             -f vllm_ascend_branch='${{ needs.authorize.outputs.branch }}' \
-            -f request_id="$REQUEST_ID"
+            -f request_id="$REQUEST_ID" \
+            -f skip_build_image=true
           sleep 8
           A2_RUN_ID=$(gh api "repos/$REPO/actions/workflows/schedule_nightly_test_a2.yaml/runs?per_page=1" \
             --jq '.workflow_runs[0].id')
@@ -211,7 +184,8 @@ jobs:
             --ref main \
             -f test_cases='${{ needs.authorize.outputs.test_cases }}' \
             -f vllm_ascend_branch='${{ needs.authorize.outputs.branch }}' \
-            -f request_id="$REQUEST_ID"
+            -f request_id="$REQUEST_ID" \
+            -f skip_build_image=true
           sleep 8
           A3_RUN_ID=$(gh api "repos/$REPO/actions/workflows/schedule_nightly_test_a3.yaml/runs?per_page=1" \
             --jq '.workflow_runs[0].id')
