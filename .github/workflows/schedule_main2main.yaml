@@ -260,11 +260,11 @@ jobs:
           pip install uc-manager
           uv pip install -r requirements-dev.txt
           uv pip install --force-reinstall --no-deps triton-ascend==3.2.1
-          if find vllm_ascend -maxdepth 1 -name '*.so' -type f 2>/dev/null | grep -q .; then
-            COMPILE_CUSTOM_KERNELS=0 uv pip install -e .
-          else
-            uv pip install -e .
-          fi
+          #if find vllm_ascend -maxdepth 1 -name '*.so' -type f 2>/dev/null | grep -q .; then
+          #  COMPILE_CUSTOM_KERNELS=0 uv pip install -e .
+          #else
+          #  uv pip install -e .
+          #fi
 
       - name: Run main2main flow
         id: run-main2main
