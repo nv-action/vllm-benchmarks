@@ -237,7 +237,8 @@ jobs:
 
       - name: Build codegraph
         run: |
-          export PATH="/root/.opencode/bin:$HOME/.opencode/bin:$PATH"
+          export PATH="$HOME/.local/bin:/root/.opencode/bin:$HOME/.opencode/bin:$PATH"
+          which codegraph || find / -name codegraph -type f 2>/dev/null | head -3
           codegraph build .
 
       - name: Install Mooncake wheel
