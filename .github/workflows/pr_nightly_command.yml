@@ -123,6 +123,7 @@ jobs:
             exit 1
           fi
 
+
           echo "test_cases=$TEST_CASES" >> "$GITHUB_OUTPUT"
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
 
