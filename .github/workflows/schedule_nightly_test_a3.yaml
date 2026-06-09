@@ -180,6 +180,7 @@ jobs:
       config_file_path: ${{ matrix.test_config.config_file_path }}
       name: ${{ matrix.test_config.name }}
       vllm_ascend_ref: ${{ needs.parse-trigger.outputs.ref }}
+      request_id: ${{ inputs.request_id || '' }}
       should_run: >-
         ${{
           needs.parse-trigger.outputs.run == 'true' && (
@@ -247,6 +248,7 @@ jobs:
       config_file_path: ${{ matrix.test_config.config_file_path }}
       name: ${{ matrix.test_config.name }}
       vllm_ascend_ref: ${{ needs.parse-trigger.outputs.ref }}
+      request_id: ${{ inputs.request_id || '' }}
       should_run: >-
         ${{
           needs.parse-trigger.outputs.run == 'true' && (
@@ -336,6 +338,7 @@ jobs:
             contains(needs.parse-trigger.outputs.filter, format(',{0},', matrix.test_config.name))
           )
         }}
+      request_id: ${{ inputs.request_id || '' }}
 
   multi-card-tests:
     name: single-node
@@ -389,6 +392,7 @@ jobs:
             contains(needs.parse-trigger.outputs.filter, format(',{0},', matrix.test_config.name))
           )
         }}
+      request_id: ${{ inputs.request_id || '' }}
     secrets:
       OBS_ACCESS_KEY: ${{ secrets.OBS_ACCESS_KEY }}
       OBS_SECRET_KEY: ${{ secrets.OBS_SECRET_KEY }}

@@ -198,6 +198,7 @@ jobs:
       config_file_path: ${{ matrix.test_config.config_file_path }}
       name: ${{ matrix.test_config.name }}
       vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
+      request_id: ${{ inputs.request_id || '' }}
       should_run: >-
         ${{
           needs.parse-trigger.outputs.run == 'true' && (
@@ -238,6 +239,7 @@ jobs:
       image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a2'
       ascend_log_prefix: ${{ needs.setup-vars.outputs.ascend_log_prefix }}/${{ matrix.vllm_ascend_branch }}
       vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
+      request_id: ${{ inputs.request_id || '' }}
       replicas: 1
       size: ${{ matrix.test_config.size }}
       config_file_path: ${{ matrix.test_config.config_file_path }}
@@ -306,6 +308,7 @@ jobs:
             contains(needs.parse-trigger.outputs.filter, format(',{0},', matrix.test_config.name))
           )
         }}
+      request_id: ${{ inputs.request_id || '' }}
       upload: false
 
   single-node-accuracy-tests-pr-only:
@@ -333,6 +336,7 @@ jobs:
           needs.parse-trigger.outputs.filter != 'all' &&
           contains(needs.parse-trigger.outputs.filter, format(',{0},', matrix.test_config.name))
         }}
+      request_id: ${{ inputs.request_id || '' }}
       upload: false
 
   doc-test:
