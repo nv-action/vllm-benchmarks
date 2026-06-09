@@ -236,10 +236,11 @@ jobs:
           echo "base_sha=${BASE_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Build codegraph
+        working-directory: ${{ env.WORK_REPO_DIR }}
         run: |
           export PATH="$HOME/.local/bin:/root/.opencode/bin:$HOME/.opencode/bin:$PATH"
-          which codegraph || find / -name codegraph -type f 2>/dev/null | head -3
-          codegraph build .
+          codegraph install --yes --target opencode
+          codegraph init -i
 
       - name: Install Mooncake wheel
         shell: bash
