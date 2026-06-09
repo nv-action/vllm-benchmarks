@@ -1,5 +1,5 @@
 name: "Close stale resolved/wait-feedback issues"
-on:
+# on:
   schedule:
     - cron: '0 2 * * *'
   issue_comment:
