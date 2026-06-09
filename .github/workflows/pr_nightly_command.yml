@@ -37,6 +37,7 @@ jobs:
       is_authorized: ${{ steps.auth.outputs.is_authorized }}
       dispatch_a2: ${{ steps.resolve.outputs.dispatch_a2 }}
       dispatch_a3: ${{ steps.resolve.outputs.dispatch_a3 }}
+      vllm_ascend_ref: ${{ steps.resolve.outputs.vllm_ascend_ref }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -125,6 +126,11 @@ jobs:
           echo "test_cases=$TEST_CASES" >> "$GITHUB_OUTPUT"
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
 
+          PR_BRANCH=$(gh api "$PR_URL" --jq '.head.ref')
+          HEAD_REPO=$(gh api "$PR_URL" --jq '.head.repo.full_name')
+          PR_SHA=$(gh api "$PR_URL" --jq '.head.sha')
+          echo "vllm_ascend_ref=$PR_SHA" >> "$GITHUB_OUTPUT"
+
           if [ "$TEST_CASES" = "all" ]; then
             echo "dispatch_a2=true" >> "$GITHUB_OUTPUT"
             echo "dispatch_a3=true" >> "$GITHUB_OUTPUT"
@@ -133,9 +139,6 @@ jobs:
 
           # Parse test matrices from the PR branch's workflow YAML files
           pip install pyyaml -q 2>/dev/null
-
-          PR_BRANCH=$(gh api "$PR_URL" --jq '.head.ref')
-          HEAD_REPO=$(gh api "$PR_URL" --jq '.head.repo.full_name')
 
           export A2_RAW=$(gh api "repos/$HEAD_REPO/contents/.github/workflows/schedule_nightly_test_a2.yaml?ref=$PR_BRANCH" --jq '.content' 2>/dev/null || echo "")
           export A3_RAW=$(gh api "repos/$HEAD_REPO/contents/.github/workflows/schedule_nightly_test_a3.yaml?ref=$PR_BRANCH" --jq '.content' 2>/dev/null || echo "")
@@ -165,7 +168,8 @@ jobs:
             -f test_cases='${{ needs.authorize.outputs.test_cases }}' \
             -f vllm_ascend_branch='${{ needs.authorize.outputs.branch }}' \
             -f request_id="$REQUEST_ID" \
-            -f skip_build_image=true
+            -f skip_build_image=true \
+            -f vllm_ascend_ref='${{ needs.authorize.outputs.vllm_ascend_ref }}'
           sleep 8
           A2_RUN_ID=$(gh api "repos/$REPO/actions/workflows/schedule_nightly_test_a2.yaml/runs?per_page=1" \
             --jq '.workflow_runs[0].id')
@@ -193,7 +197,8 @@ jobs:
             -f test_cases='${{ needs.authorize.outputs.test_cases }}' \
             -f vllm_ascend_branch='${{ needs.authorize.outputs.branch }}' \
             -f request_id="$REQUEST_ID" \
-            -f skip_build_image=true
+            -f skip_build_image=true \
+            -f vllm_ascend_ref='${{ needs.authorize.outputs.vllm_ascend_ref }}'
           sleep 8
           A3_RUN_ID=$(gh api "repos/$REPO/actions/workflows/schedule_nightly_test_a3.yaml/runs?per_page=1" \
             --jq '.workflow_runs[0].id')

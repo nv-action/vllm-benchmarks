@@ -45,6 +45,11 @@ on:
         required: false
         default: 'false'
         type: string
+      vllm_ascend_ref:
+        description: 'PR commit SHA for PR-triggered tests'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -199,6 +204,7 @@ jobs:
       name: ${{ matrix.test_config.name }}
       vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
       request_id: ${{ inputs.request_id || '' }}
+      vllm_ascend_ref: ${{ inputs.vllm_ascend_ref || '' }}
       should_run: >-
         ${{
           needs.parse-trigger.outputs.run == 'true' && (
@@ -244,7 +250,7 @@ jobs:
       size: ${{ matrix.test_config.size }}
       config_file_path: ${{ matrix.test_config.config_file_path }}
       name: ${{ matrix.test_config.name }}
-      vllm_ascend_ref: ${{ needs.parse-trigger.outputs.ref }}
+      vllm_ascend_ref: ${{ inputs.vllm_ascend_ref || needs.parse-trigger.outputs.ref }}
       should_run: >-
         ${{
           needs.parse-trigger.outputs.run == 'true' && (
@@ -309,6 +315,7 @@ jobs:
           )
         }}
       request_id: ${{ inputs.request_id || '' }}
+      vllm_ascend_ref: ${{ inputs.vllm_ascend_ref || '' }}
       upload: false
 
   single-node-accuracy-tests-pr-only:
@@ -337,6 +344,7 @@ jobs:
           contains(needs.parse-trigger.outputs.filter, format(',{0},', matrix.test_config.name))
         }}
       request_id: ${{ inputs.request_id || '' }}
+      vllm_ascend_ref: ${{ inputs.vllm_ascend_ref || '' }}
       upload: false
 
   doc-test:

@@ -54,6 +54,11 @@ on:
         type: string
         default: ''
         description: non-empty when triggered by PR /nightly command
+      vllm_ascend_ref:
+        required: false
+        type: string
+        default: ''
+        description: PR commit SHA for PR-triggered checkout
     secrets:
       OBS_ACCESS_KEY:
         required: false
@@ -111,6 +116,7 @@ jobs:
         if: ${{ inputs.request_id != '' }}
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.vllm_ascend_ref }}
           path: ./temp-vllm-ascend
           fetch-depth: 1
 
