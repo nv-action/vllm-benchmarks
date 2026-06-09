@@ -160,8 +160,9 @@ jobs:
         run: |
           set -eu
 
-          # install opencode
+          # install opencode + codegraph
           curl -fsSL https://opencode.ai/install | bash
+          curl -fsSL https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.sh | sh
 
           # configure opencode auth
           mkdir -p ~/.local/share/opencode
@@ -233,6 +234,11 @@ jobs:
           BASE_SHA=$(git rev-parse HEAD)
           echo "name=${BRANCH}" >> "$GITHUB_OUTPUT"
           echo "base_sha=${BASE_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Build codegraph
+        run: |
+          export PATH="/root/.opencode/bin:$HOME/.opencode/bin:$PATH"
+          codegraph build .
 
       - name: Install Mooncake wheel
         shell: bash
