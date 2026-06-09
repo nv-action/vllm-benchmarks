@@ -195,12 +195,6 @@ jobs:
           fi
           pip install -e "${M2M_FLOW_DIR}"
 
-      - name: Install vllm-project/vllm from source
-        working-directory: ${{ env.VLLM_DIR }}
-        run: |
-          VLLM_TARGET_DEVICE=empty uv pip install -e .
-          pip uninstall -y triton
-
       - name: Get csrc hash
         id: get_csrc_hash
         working-directory: ${{ env.WORK_REPO_DIR }}
@@ -241,6 +235,8 @@ jobs:
           export PATH="$HOME/.local/bin:/root/.opencode/bin:$HOME/.opencode/bin:$PATH"
           codegraph install --yes --target opencode
           codegraph init -i
+          echo "Verifying codegraph config..."
+          grep -c codegraph ~/.config/opencode/opencode.jsonc 2>/dev/null || echo "WARNING: codegraph not in opencode config"
 
       - name: Install Mooncake wheel
         shell: bash
