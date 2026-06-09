@@ -2,7 +2,7 @@
   "nightly": [
     {
       "name": "accuracy-group-1",
-      "os": "linux-aarch64-a2b3-1",
+      "os": "linux-aarch64-a2-1",
       "model_list": [
         "Qwen3-VL-8B-Instruct-W8A8",
         "Qwen3-8B",
@@ -14,7 +14,7 @@
     },
     {
       "name": "accuracy-group-2",
-      "os": "linux-aarch64-a2b3-1",
+      "os": "linux-aarch64-a2-1",
       "model_list": [
         "ERNIE-4.5-21B-A3B-PT",
         "InternVL3_5-8B-hf",
@@ -25,7 +25,7 @@
     },
     {
       "name": "accuracy-group-3",
-      "os": "linux-aarch64-a2b3-2",
+      "os": "linux-aarch64-a2-2",
       "model_list": [
         "Qwen3-30B-A3B",
         "Qwen3-VL-30B-A3B-Instruct",
@@ -34,7 +34,7 @@
     },
     {
       "name": "accuracy-group-4",
-      "os": "linux-aarch64-a2b3-4",
+      "os": "linux-aarch64-a2-4",
       "model_list": [
         "Qwen3-Next-80B-A3B-Instruct",
         "Qwen3-Omni-30B-A3B-Instruct",
@@ -46,7 +46,7 @@
   "pr_only": [
     {
       "name": "pr-accuracy-group-1",
-      "os": "linux-aarch64-a2b3-1",
+      "os": "linux-aarch64-a2-1",
       "model_list": [
         "gemma-3-4b-it",
         "internlm3-8b-instruct",
@@ -55,7 +55,7 @@
     },
     {
       "name": "pr-accuracy-group-2",
-      "os": "linux-aarch64-a2b3-4",
+      "os": "linux-aarch64-a2-4",
       "model_list": [
         "Qwen2.5-Math-RM-72B"
       ]

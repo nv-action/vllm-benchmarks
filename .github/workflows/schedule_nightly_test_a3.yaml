@@ -75,7 +75,7 @@ jobs:
     if: >-
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch'
-    runs-on: linux-aarch64-a2-0
+    runs-on: linux-amd64-cpu-8-hk
     outputs:
       run: ${{ steps.parse.outputs.run }}
       filter: ${{ steps.parse.outputs.filter }}
@@ -405,7 +405,7 @@ jobs:
 
   merge-benchmark-artifacts:
     name: Merge benchmark artifacts into nightly-a3.zip
-    needs: [parse-trigger, single-node-tests, multi-node-tests, double-node-tests]
+    needs: [parse-trigger, single-node-tests, multi-node-tests, double-node-tests, multi-card-tests]
     if: >-
       always() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&

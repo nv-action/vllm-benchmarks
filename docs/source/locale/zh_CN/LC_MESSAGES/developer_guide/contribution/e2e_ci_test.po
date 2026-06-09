@@ -229,8 +229,8 @@ msgid "one_card A2 NPU"
 msgstr "one_card A2 NPU"
 
 #: ../../source/developer_guide/contribution/e2e_ci_test.md:55
-msgid "`linux-aarch64-a2b3-1`"
-msgstr "`linux-aarch64-a2b3-1`"
+msgid "`linux-aarch64-a2-1`"
+msgstr "`linux-aarch64-a2-1`"
 
 #: ../../source/developer_guide/contribution/e2e_ci_test.md:79
 msgid ""
