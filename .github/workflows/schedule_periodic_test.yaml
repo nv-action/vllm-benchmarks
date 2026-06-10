@@ -76,7 +76,6 @@ jobs:
       multi_node_matrix:     ${{ steps.parse.outputs.multi_node_matrix }}
       accuracy_matrix:       ${{ steps.parse.outputs.accuracy_matrix }}
       ops_matrix:            ${{ steps.parse.outputs.ops_matrix }}
-      image_build_targets:   ${{ steps.parse.outputs.image_build_targets }}
       selected_cases_summary: ${{ steps.parse.outputs.selected_cases_summary }}
       branch_ref:            ${{ steps.branches.outputs.branch_ref }}
       branch_tag:            ${{ steps.branches.outputs.branch_tag }}
@@ -113,38 +112,17 @@ jobs:
         run: echo "${{ steps.parse.outputs.selected_cases_summary }}"
 
   # ---------------------------------------------------------------------------
-  # 2. Build nightly images (one per hardware target)
-  # ---------------------------------------------------------------------------
-  build-image:
-    name: Build nightly image (${{ matrix.target }} / ${{ needs.parse-config.outputs.branch_tag }})
-    needs: parse-config
-    if: needs.parse-config.outputs.image_build_targets != '[]'
-    strategy:
-      fail-fast: false
-      matrix:
-        target: ${{ fromJSON(needs.parse-config.outputs.image_build_targets) }}
-    uses: ./.github/workflows/_nightly_image_build.yaml
-    with:
-      target: ${{ matrix.target }}
-      # Pass branch_ref (real branch) for checkout; the image-build workflow
-      # normalizes it internally to the same tag the test jobs reference.
-      vllm_ascend_branch: ${{ needs.parse-config.outputs.branch_ref }}
-    secrets:
-      HW_USERNAME: ${{ secrets.HW_USERNAME }}
-      HW_TOKEN: ${{ secrets.HW_TOKEN }}
-      GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-
-  # ---------------------------------------------------------------------------
-  # 3. Multi-node tests (sequential, max-parallel: 1 to respect A3 NPU budget)
+  # 2. Multi-node tests (sequential, max-parallel: 1 to respect A3 NPU budget)
   #    Parser pre-sorts: 4-node entries first (largest resource consumer).
+  #    Temporarily reuse main nightly images and install the selected source ref
+  #    inside the test environment, matching the comment-triggered workflow.
   # ---------------------------------------------------------------------------
   multi-node-tests:
     name: multi-node / ${{ matrix.test_config.name }}
-    needs: [parse-config, build-image]
+    needs: [parse-config]
     if: >-
       always() &&
-      needs.parse-config.outputs.multi_node_matrix != '[]' &&
-      (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
+      needs.parse-config.outputs.multi_node_matrix != '[]'
     strategy:
       fail-fast: false
       max-parallel: 1
@@ -153,7 +131,7 @@ jobs:
     uses: ./.github/workflows/_e2e_nightly_multi_node.yaml
     with:
       soc_version:      ${{ matrix.test_config.chip }}
-      image:            swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ needs.parse-config.outputs.branch_tag }}-${{ matrix.test_config.chip }}
+      image:            swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-main-${{ matrix.test_config.chip }}
       config_path:      ${{ matrix.test_config.config_path }}
       multi_node_type:  ${{ matrix.test_config.multi_node_type }}
       extra_components: ${{ matrix.test_config.extra_components }}
@@ -162,21 +140,22 @@ jobs:
       should_run:       true
       ascend_log_prefix: /root/.cache/ascend-logs/${{ needs.parse-config.outputs.branch_tag }}
       vllm_ascend_branch: ${{ needs.parse-config.outputs.branch_ref }}
+      request_id:       ${{ github.run_id }}
+      vllm_ascend_ref:  ${{ needs.parse-config.outputs.branch_ref }}
     secrets:
       KUBECONFIG_B64:  ${{ matrix.test_config.chip == 'a2' && secrets.KUBECONFIG_HK_001_INTERNAL_B64 || secrets.KUBECONFIG_B64 }}
       OBS_ACCESS_KEY:  ${{ secrets.OBS_ACCESS_KEY }}
       OBS_SECRET_KEY:  ${{ secrets.OBS_SECRET_KEY }}
 
   # ---------------------------------------------------------------------------
-  # 4. Single-node tests (after multi-node, to keep A3 resource window clear)
+  # 3. Single-node tests (after multi-node, to keep A3 resource window clear)
   # ---------------------------------------------------------------------------
   single-node-tests:
     name: single-node / ${{ matrix.test_config.name }}
-    needs: [parse-config, build-image, multi-node-tests]
+    needs: [parse-config, multi-node-tests]
     if: >-
       always() &&
-      needs.parse-config.outputs.single_node_matrix != '[]' &&
-      (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
+      needs.parse-config.outputs.single_node_matrix != '[]'
     strategy:
       fail-fast: false
       max-parallel: 7
@@ -185,26 +164,27 @@ jobs:
     uses: ./.github/workflows/_e2e_nightly_single_node.yaml
     with:
       runner:      ${{ matrix.test_config.runner }}
-      image:       swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ needs.parse-config.outputs.branch_tag }}-${{ matrix.test_config.chip }}
+      image:       swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-main-${{ matrix.test_config.chip }}
       config_path: ${{ matrix.test_config.config_path }}
       tests:       ${{ matrix.test_config.tests }}
       name:        ${{ matrix.test_config.name }}
       should_run:  true
       vllm_ascend_branch: ${{ needs.parse-config.outputs.branch_ref }}
+      request_id:  ${{ github.run_id }}
+      vllm_ascend_ref: ${{ needs.parse-config.outputs.branch_ref }}
     secrets:
       OBS_ACCESS_KEY: ${{ secrets.OBS_ACCESS_KEY }}
       OBS_SECRET_KEY: ${{ secrets.OBS_SECRET_KEY }}
 
   # ---------------------------------------------------------------------------
-  # 5. Accuracy tests (parallel with single-node, independent resource pool)
+  # 4. Accuracy tests (parallel with single-node, independent resource pool)
   # ---------------------------------------------------------------------------
   accuracy-tests:
     name: accuracy / ${{ matrix.test_config.name }}
-    needs: [parse-config, build-image]
+    needs: [parse-config]
     if: >-
       always() &&
-      needs.parse-config.outputs.accuracy_matrix != '[]' &&
-      (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
+      needs.parse-config.outputs.accuracy_matrix != '[]'
     strategy:
       fail-fast: false
       matrix:
@@ -214,20 +194,21 @@ jobs:
       runner:       ${{ matrix.test_config.runner }}
       config_paths: ${{ toJson(matrix.test_config.config_paths) }}
       model_filter: all
-      image:        swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ needs.parse-config.outputs.branch_tag }}-${{ matrix.test_config.chip }}
+      image:        swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-main-${{ matrix.test_config.chip }}
       is_run:       true
       upload:       false
+      request_id:   ${{ github.run_id }}
+      vllm_ascend_ref: ${{ needs.parse-config.outputs.branch_ref }}
 
   # ---------------------------------------------------------------------------
-  # 6. Ops tests (lightweight pytest-driven, independent resource pool)
+  # 5. Ops tests (lightweight pytest-driven, independent resource pool)
   # ---------------------------------------------------------------------------
   ops-tests:
     name: ops / ${{ matrix.test_config.name }}
-    needs: [parse-config, build-image]
+    needs: [parse-config]
     if: >-
       always() &&
-      needs.parse-config.outputs.ops_matrix != '[]' &&
-      (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
+      needs.parse-config.outputs.ops_matrix != '[]'
     strategy:
       fail-fast: false
       matrix:
@@ -235,14 +216,16 @@ jobs:
     uses: ./.github/workflows/_e2e_periodic_ops.yaml
     with:
       runner:             ${{ matrix.test_config.runner }}
-      image:              swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ needs.parse-config.outputs.branch_tag }}-${{ matrix.test_config.chip }}
+      image:              swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-main-${{ matrix.test_config.chip }}
       tests:              ${{ matrix.test_config.tests }}
       name:               ${{ matrix.test_config.name }}
       should_run:         true
       vllm_ascend_branch: ${{ needs.parse-config.outputs.branch_ref }}
+      request_id:         ${{ github.run_id }}
+      vllm_ascend_ref:    ${{ needs.parse-config.outputs.branch_ref }}
 
   # ---------------------------------------------------------------------------
-  # 7. Clear PVC logs (schedule-only, runs after multi-node completes)
+  # 6. Clear PVC logs (schedule-only, runs after multi-node completes)
   # ---------------------------------------------------------------------------
   clear-pre-logs:
     name: Clear pre-run logs from PVC
@@ -256,7 +239,7 @@ jobs:
         run: rm -rf "${ASCEND_LOG_PREFIX:?}"/* || true
 
   # ---------------------------------------------------------------------------
-  # 8. Merge benchmark artifacts
+  # 7. Merge benchmark artifacts
   # ---------------------------------------------------------------------------
   merge-benchmark-artifacts:
     name: Merge benchmark artifacts

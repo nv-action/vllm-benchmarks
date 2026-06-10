@@ -69,13 +69,6 @@ jobs:
     if: inputs.should_run
     container:
       image: ${{ inputs.image }}
-      options: --network host --shm-size 1g --device /dev/davinci_manager --device /dev/hisi_hdc --device /dev/devmm_svm
-      volumes:
-        - /usr/local/dcmi:/usr/local/dcmi
-        - /usr/local/bin/npu-smi:/usr/local/bin/npu-smi
-        - /usr/local/Ascend/driver/lib64/:/usr/local/Ascend/driver/lib64/
-        - /usr/local/Ascend/driver/version.info:/usr/local/Ascend/driver/version.info
-        - /etc/ascend_install.info:/etc/ascend_install.info
 
     steps:
       - name: Checkout vllm-ascend
