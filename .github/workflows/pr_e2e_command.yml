@@ -31,6 +31,9 @@ permissions:
   issues: write
   actions: read
 
+env:
+  DEFAULT_VLLM_VERSIONS: '["9090368b650896bf5fc990c921df7eb4c20355a5","v0.20.2"]'
+
 jobs:
   e2e-test:
     name: Run /e2e tests
