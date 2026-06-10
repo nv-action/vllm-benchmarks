@@ -77,6 +77,15 @@ jobs:
       HEAD_FORK: wjunlu/vllm-ascend
       MAIN2MAIN_KEEP_BRANCH: 'true'
       MAIN2MAIN_WORKSPACE: /tmp/main2main_flow/workspace
+      MAIN2MAIN_TEST_CASES: >-
+        tests/e2e/pull_request/one_card/test_qwen3_0_6b.py::test_dense_piecewise_graph
+        tests/e2e/pull_request/one_card/test_qwen3_embedding_0_6b.py::test_embedding_full_decode_only
+        tests/e2e/pull_request/one_card/test_qwen3_5_0_8b.py::test_mamba_ssm_multimodal_reasoning_mtp_full_decode_only
+        tests/e2e/pull_request/one_card/test_qwen3_8b_w8a8.py::test_dense_w8a8_eagle3_full_graph
+        tests/e2e/pull_request/two_card/test_qwen3_30b_a3b.py::test_moe_tp_ep_eplb_full_decode_only
+        tests/e2e/pull_request/two_card/test_qwen3_vl_30b_a3b_instruct.py::test_multimodal_reasoning_pp_full_decode_only
+        tests/e2e/pull_request/four_card/test_deepseek_v3_2_w8a8_pruning.py::test_moe_w8a8_tp_pp_ep_full_decode_only
+        tests/e2e/pull_request/four_card/test_deepseek_v3_2_w8a8_pruning.py::test_pd_disaggregation_w8a8_sfa_dsa_full_decode_only
       MAIN2MAIN_LOG_HELPERS: |
         print_group() {
           local title="$1"
@@ -277,6 +286,8 @@ jobs:
       - name: Run main2main flow
         id: run-main2main
         working-directory: ${{ github.workspace }}
+        env:
+          RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES: 1
         run: |
           set -euo pipefail
           export PATH="/root/.opencode/bin:$PATH"
