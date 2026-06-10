@@ -1,9 +1,9 @@
 name: Docs link check
 
 on:
-  schedule:
-    # GitHub cron uses UTC. This runs every Sunday at 20:00 UTC+8.
-    - cron: '0 12 * * 0'
+#   schedule:
+#     # GitHub cron uses UTC. This runs every Sunday at 20:00 UTC+8.
+#     - cron: '0 12 * * 0'
   pull_request:
     branches:
       - 'main'

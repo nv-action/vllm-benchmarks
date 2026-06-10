@@ -17,8 +17,8 @@
 name: Main2Main
 
 on:
-  schedule:
-    - cron: '0 14 * * *'
+#   schedule:
+#     - cron: '0 14 * * *'
   workflow_dispatch:
     inputs:
       target_commit:
@@ -336,6 +336,15 @@ jobs:
             echo "Status: completed" > /tmp/main2main/final-summary.md
             echo "Steps: 0/0" >> /tmp/main2main/final-summary.md
           fi
+
+      - name: Upload test logs
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: main2main-test-logs
+          path: /tmp/main2main_flow/workspace/steps/*/tests/
+          retention-days: 7
 
       - name: Summarize final status
         id: final-status
