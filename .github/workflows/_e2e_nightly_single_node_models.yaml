@@ -57,7 +57,7 @@ on:
         required: false
         type: string
         default: ''
-        description: branch name used for manual path-check checkout
+        description: branch name passed by periodic or PR callers
       dry_run:
         required: false
         type: boolean
@@ -97,35 +97,10 @@ jobs:
           echo "model_filter=${{ inputs.model_filter }}"
           echo "upload=${{ inputs.upload }}"
 
-  path-check:
-    name: path-check / accuracy test
-    runs-on: ${{ inputs.runner }}
-    if: ${{ inputs.is_run && !inputs.dry_run && (inputs.request_id != '' || inputs.vllm_ascend_branch != '') }}
-    timeout-minutes: 10
-    container:
-      image: ${{ inputs.image }}
-    steps:
-      - name: Checkout vllm-ascend
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ inputs.request_id != '' && inputs.vllm_ascend_ref || inputs.vllm_ascend_branch || github.ref }}
-
-      - name: Run accuracy pytest entry
-        env:
-          CONFIG_PATHS_JSON: ${{ inputs.config_paths }}
-        run: |
-          set -euo pipefail
-          config_path="$(python3 -c 'import json, os; print(json.loads(os.environ["CONFIG_PATHS_JSON"])[0])')"
-          echo "Running accuracy pytest entry with config: ${config_path}"
-          python3 -m pytest -sv -p no:cacheprovider \
-            --confcutdir=tests/e2e/schedule/scripts/accuracy \
-            tests/e2e/schedule/scripts/accuracy/test_lm_eval_correctness.py \
-            --config "${config_path}"
-
   e2e-nightly:
     name: accuracy test
     runs-on: ${{ inputs.runner }}
-    if: ${{ inputs.is_run && !inputs.dry_run && false }}
+    if: ${{ inputs.is_run && !inputs.dry_run }}
     container:
       image: "${{ inputs.image }}"
       env:

@@ -82,33 +82,10 @@ jobs:
           echo "name=${{ inputs.name }}"
           echo "vllm_ascend_branch=${{ inputs.vllm_ascend_branch }}"
 
-  path-check:
-    name: path-check / ${{ inputs.name }}
-    runs-on: ${{ inputs.runner }}
-    if: ${{ inputs.should_run && !inputs.dry_run && (inputs.request_id != '' || inputs.vllm_ascend_branch != '') }}
-    timeout-minutes: 10
-    container:
-      image: ${{ inputs.image }}
-    steps:
-      - name: Checkout vllm-ascend
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ inputs.request_id != '' && inputs.vllm_ascend_ref || inputs.vllm_ascend_branch || github.ref }}
-
-      - name: Run ops pytest entry
-        env:
-          PYTEST_TARGETS: ${{ inputs.tests }}
-        run: |
-          first_target="${PYTEST_TARGETS%% *}"
-          echo "Running ops pytest target(s): ${PYTEST_TARGETS}"
-          python3 -m pytest -q -p no:cacheprovider \
-            --confcutdir="$(dirname "$first_target")" \
-            ${PYTEST_TARGETS}
-
   ops-test:
     name: ${{ inputs.name }}
     runs-on: ${{ inputs.runner }}
-    if: ${{ inputs.should_run && !inputs.dry_run && false }}
+    if: ${{ inputs.should_run && !inputs.dry_run }}
     container:
       image: ${{ inputs.image }}
       options: --network host --shm-size 1g --device /dev/davinci_manager --device /dev/hisi_hdc --device /dev/devmm_svm

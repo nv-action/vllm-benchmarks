@@ -47,12 +47,12 @@ periodic_tests:
   - name: nightly-main
     cron: "45 15 * * *"
     files:
-      # Temporary path-check targets for nightly workflow refactor validation.
+      # Temporary workflow validation targets.
       - tests/e2e/schedule/model/PathCheck/two_node/path_check_external_dp.yaml
       - tests/e2e/schedule/model/PathCheck/one_card/path_check_single_node.yaml
       - tests/e2e/schedule/accuracy/one_card/a3/path_check_accuracy.yaml
       - tests/e2e/schedule/ops/one_card/test_path_check_ops.py
-    disabled_files_for_path_check:
+    disabled_files:
       # -------------------------------------------------------------------
       # A3 four-node  (64 NPUs, runs first to claim largest resource window)
       # -------------------------------------------------------------------
@@ -153,12 +153,12 @@ periodic_tests:
   - name: weekly-main
     cron: "45 15 * * 1"
     files:
-      # Temporary path-check targets for nightly workflow refactor validation.
+      # Temporary workflow validation targets.
       - tests/e2e/schedule/model/PathCheck/two_node/path_check_external_dp.yaml
       - tests/e2e/schedule/model/PathCheck/one_card/path_check_single_node.yaml
       - tests/e2e/schedule/accuracy/one_card/a3/path_check_accuracy.yaml
       - tests/e2e/schedule/ops/one_card/test_path_check_ops.py
-    disabled_files_for_path_check:
+    disabled_files:
       # -------------------------------------------------------------------
       # A3 two-node (weekly-only configs)
       # -------------------------------------------------------------------

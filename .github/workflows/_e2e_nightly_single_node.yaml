@@ -95,44 +95,10 @@ jobs:
           echo "name=${{ inputs.name }}"
           echo "vllm_ascend_branch=${{ inputs.vllm_ascend_branch }}"
 
-  path-check:
-    name: path-check / ${{ inputs.name || inputs.config_path || inputs.tests }}
-    runs-on: ${{ inputs.runner }}
-    if: ${{ inputs.should_run && !inputs.dry_run && (inputs.request_id != '' || inputs.vllm_ascend_branch != '') }}
-    timeout-minutes: 10
-    container:
-      image: ${{ inputs.image }}
-    steps:
-      - name: Checkout vllm-ascend
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ inputs.request_id != '' && inputs.vllm_ascend_ref || inputs.vllm_ascend_branch || github.ref }}
-
-      - name: Run single-node pytest entry
-        env:
-          CONFIG_YAML_PATH: ${{ inputs.config_path }}
-          PYTEST_TARGETS: ${{ inputs.tests }}
-        run: |
-          set -euo pipefail
-          if [ -n "${CONFIG_YAML_PATH}" ]; then
-            echo "Running YAML-driven single-node pytest entry"
-            echo "CONFIG_YAML_PATH=${CONFIG_YAML_PATH}"
-            python3 -m pytest -q -p no:cacheprovider \
-              --confcutdir=tests/e2e/schedule/scripts/single_node \
-              tests/e2e/schedule/scripts/single_node/test_single_node.py
-          fi
-          if [ -n "${PYTEST_TARGETS}" ]; then
-            first_target="${PYTEST_TARGETS%% *}"
-            echo "Running py-driven single-node pytest target(s): ${PYTEST_TARGETS}"
-            python3 -m pytest -q -p no:cacheprovider \
-              --confcutdir="$(dirname "$first_target")" \
-              ${PYTEST_TARGETS}
-          fi
-
   e2e-nightly:
     name: ${{ inputs.name || inputs.config_path || inputs.tests }}
     runs-on: ${{ inputs.runner }}
-    if: ${{ inputs.should_run && !inputs.dry_run && false }}
+    if: ${{ inputs.should_run && !inputs.dry_run }}
     timeout-minutes: 600
     container:
       image: ${{ inputs.image }}

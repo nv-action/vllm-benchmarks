@@ -121,42 +121,12 @@ jobs:
           echo "name=${{ inputs.name }}"
           echo "vllm_ascend_branch=${{ inputs.vllm_ascend_branch }}"
 
-  path-check:
-    name: path-check / ${{ inputs.config_path || inputs.name }}
-    runs-on: ${{ inputs.runner || (inputs.soc_version == 'a2' && 'linux-amd64-cpu-8-hk' || 'linux-aarch64-a3-0') }}
-    if: ${{ inputs.should_run && !inputs.dry_run && (inputs.request_id != '' || inputs.vllm_ascend_branch != '') }}
-    timeout-minutes: 10
-    container:
-      image: ${{ inputs.image }}
-    steps:
-      - name: Checkout vllm-ascend
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ inputs.request_id != '' && inputs.vllm_ascend_ref || inputs.vllm_ascend_branch || github.ref }}
-
-      - name: Run multi-node pytest entry
-        env:
-          CONFIG_YAML_PATH: ${{ inputs.config_path }}
-          MULTI_NODE_TYPE: ${{ inputs.multi_node_type }}
-        run: |
-          set -euo pipefail
-          if [ "${MULTI_NODE_TYPE}" = "external_dp" ]; then
-            test_path="tests/e2e/schedule/scripts/multi_node/external_dp/test_external_dp.py"
-          else
-            test_path="tests/e2e/schedule/scripts/multi_node/internal_dp/test_multi_node.py"
-          fi
-          echo "Running multi-node pytest entry: ${test_path}"
-          echo "CONFIG_YAML_PATH=${CONFIG_YAML_PATH}"
-          python3 -m pytest -sv -p no:cacheprovider \
-            --confcutdir="$(dirname "$test_path")" \
-            "$test_path"
-
   e2e:
     name: ${{ inputs.config_path || inputs.name }}
     timeout-minutes: 120
     # This is the runner with no NPU for k8s controller
     runs-on: ${{ inputs.runner || (inputs.soc_version == 'a2' && 'linux-amd64-cpu-8-hk' || 'linux-aarch64-a3-0') }}
-    if: ${{ inputs.should_run && !inputs.dry_run && false }}
+    if: ${{ inputs.should_run && !inputs.dry_run }}
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-cpu
       env:

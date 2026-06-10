@@ -149,7 +149,7 @@ jobs:
               echo "accuracy_matrix=[]"
               echo "ops_matrix=[]"
               echo "image_build_targets=[]"
-              echo 'selected_cases_summary="parse_only=true: validated nightly and weekly schedule parsing"'
+              echo "selected_cases_summary=parse_only=true: validated nightly and weekly schedule parsing"
             } >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -163,7 +163,9 @@ jobs:
             --test-filter "${{ inputs.test_filter || 'all' }}"
 
       - name: Print selected cases summary
-        run: echo "${{ steps.parse.outputs.selected_cases_summary }}"
+        env:
+          SELECTED_CASES_SUMMARY: ${{ steps.parse.outputs.selected_cases_summary }}
+        run: printf '%s\n' "$SELECTED_CASES_SUMMARY"
 
   # ---------------------------------------------------------------------------
   # 2. Build nightly images (one per hardware target)
@@ -214,6 +216,7 @@ jobs:
     uses: ./.github/workflows/_e2e_nightly_multi_node.yaml
     with:
       soc_version:      ${{ matrix.test_config.chip }}
+      runner:           ${{ matrix.test_config.chip == 'a2' && 'linux-amd64-cpu-8-hk' || 'linux-aarch64-a3-2' }}
       image:            swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ needs.parse-config.outputs.image_tag }}-${{ matrix.test_config.chip }}
       config_path:      ${{ matrix.test_config.config_path }}
       multi_node_type:  ${{ matrix.test_config.multi_node_type }}
