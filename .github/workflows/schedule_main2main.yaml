@@ -160,9 +160,8 @@ jobs:
         run: |
           set -eu
 
-          # install opencode + codegraph
+          # install opencode
           curl -fsSL https://opencode.ai/install | bash
-          curl -fsSL https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.sh | sh
 
           # configure opencode auth
           mkdir -p ~/.local/share/opencode
@@ -180,9 +179,13 @@ jobs:
 
           # verify opencode works
           echo "Verifying opencode..."
-          opencode run --model "${MAIN2MAIN_MODEL}" "echo hello" 2>&1 | head -5
-          if [ "${PIPESTATUS[0]}" -ne 0 ]; then
-            echo "::error::opencode verification failed"
+          set +e
+          opencode run --model "${MAIN2MAIN_MODEL}" "say hello and nothing else" > /tmp/opencode_verify.log 2>&1
+          OCODE_EXIT=$?
+          set -e
+          cat /tmp/opencode_verify.log
+          if [ "${OCODE_EXIT}" -ne 0 ]; then
+            echo "::error::opencode verification failed (exit ${OCODE_EXIT})"
             exit 1
           fi
           echo "opencode verification passed"
@@ -229,14 +232,15 @@ jobs:
           echo "name=${BRANCH}" >> "$GITHUB_OUTPUT"
           echo "base_sha=${BASE_SHA}" >> "$GITHUB_OUTPUT"
 
-      - name: Build codegraph
+      - name: Setup codegraph (optional)
+        continue-on-error: true
         working-directory: ${{ env.WORK_REPO_DIR }}
         run: |
-          export PATH="$HOME/.local/bin:/root/.opencode/bin:$HOME/.opencode/bin:$PATH"
-          codegraph install --yes --target opencode
-          codegraph init -i
-          echo "Verifying codegraph config..."
-          grep -c codegraph ~/.config/opencode/opencode.jsonc 2>/dev/null || echo "WARNING: codegraph not in opencode config"
+          export PATH="$HOME/.local/bin:/root/.opencode/bin:$PATH"
+          curl -fsSL https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.sh | sh
+          codegraph install --yes --target opencode || true
+          codegraph init -i || true
+          echo "codegraph setup done (errors ignored)"
 
       - name: Install Mooncake wheel
         shell: bash
