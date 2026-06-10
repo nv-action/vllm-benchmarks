@@ -677,15 +677,13 @@ def _write_outputs(
         f"accuracy_matrix={json.dumps(outputs.get('accuracy_matrix', []))}",
         f"ops_matrix={json.dumps(outputs.get('ops_matrix', []))}",
         f"image_build_targets={json.dumps(image_targets)}",
+        f"selected_cases_summary={json.dumps(summary)}",
     ]
 
     output_path = os.environ.get("GITHUB_OUTPUT", "")
     if output_path:
         with open(output_path, "a", encoding="utf-8") as f:
             f.write("\n".join(lines) + "\n")
-            f.write("selected_cases_summary<<SELECTED_CASES_SUMMARY\n")
-            f.write(summary)
-            f.write("\nSELECTED_CASES_SUMMARY\n")
     else:
         print("\n=== Outputs ===")
         for output_name in _MATRIX_OUTPUT_NAMES:

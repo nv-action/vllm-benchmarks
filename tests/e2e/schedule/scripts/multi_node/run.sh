@@ -162,15 +162,21 @@ checkout_src() {
 
     if [ ! -d "$WORKSPACE/vllm-ascend" ]; then
         echo "Cloning vllm-ascend from $VLLM_ASCEND_REMOTE_URL"
-        git clone --depth 1 "$VLLM_ASCEND_REMOTE_URL" "$WORKSPACE/vllm-ascend"
+        git init "$WORKSPACE/vllm-ascend"
         cd "$WORKSPACE/vllm-ascend"
-        PR_REF=$(git ls-remote origin 'refs/pull/*/head' | grep "^${VLLM_ASCEND_REF}" | awk '{print $2}' | head -1)
+        git remote add origin "$VLLM_ASCEND_REMOTE_URL"
+        if git fetch --depth 1 origin "$VLLM_ASCEND_REF"; then
+            git checkout --detach FETCH_HEAD
+            return
+        fi
+
+        PR_REF=$(git ls-remote origin 'refs/pull/*/head' | awk -v sha="$VLLM_ASCEND_REF" '$1 == sha {print $2; exit}')
         if [ -n "$PR_REF" ]; then
             git fetch --depth 1 origin "$PR_REF"
-            git checkout FETCH_HEAD
+            git checkout --detach FETCH_HEAD
         else
-            git fetch origin '+refs/pull/*/head:refs/remotes/pull/*' 2>/dev/null || true
-            git checkout "$VLLM_ASCEND_REF"
+            echo "Unable to resolve vllm-ascend ref: $VLLM_ASCEND_REF" >&2
+            exit 1
         fi
     fi
 }
