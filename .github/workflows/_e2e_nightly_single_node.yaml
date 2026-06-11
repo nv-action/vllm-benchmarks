@@ -59,11 +59,6 @@ on:
         type: string
         default: ''
         description: PR commit SHA for PR-triggered checkout
-      dry_run:
-        required: false
-        type: boolean
-        default: false
-        description: print resolved inputs and skip test execution
     secrets:
       OBS_ACCESS_KEY:
         required: false
@@ -84,26 +79,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  dry-run:
-    name: dry-run / ${{ inputs.name || inputs.config_path || inputs.tests }}
-    runs-on: ${{ inputs.runner }}
-    if: ${{ inputs.should_run && inputs.dry_run }}
-    steps:
-      - name: Print dry-run inputs
-        run: |
-          echo "workflow=e2e_nightly_single_node"
-          echo "runner=${{ inputs.runner }}"
-          echo "image=${{ inputs.image }}"
-          echo "config_path=${{ inputs.config_path }}"
-          echo "tests=${{ inputs.tests }}"
-          echo "name=${{ inputs.name }}"
-          echo "vllm_ascend_branch=${{ inputs.vllm_ascend_branch }}"
-
   e2e-nightly:
     name: ${{ inputs.name || inputs.config_file_path || inputs.tests }}
     runs-on: ${{ inputs.runner }}
-    if: ${{ inputs.should_run && !inputs.dry_run }}
-    timeout-minutes: 600
+    if: ${{ inputs.should_run }}
+    timeout-minutes: 120
     container:
       image: ${{ inputs.image }}
     env:
@@ -126,21 +106,22 @@ jobs:
           pip install uv
 
       - name: uninstall vlm vllm-ascend and remove code (if pr test)
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ inputs.request_id != '' }}
         run: |
           pip uninstall -y vllm-ascend || true
           cp -r /vllm-workspace/vllm-ascend/benchmark /tmp/aisbench-backup || true
           rm -rf  /vllm-workspace/vllm-ascend
 
       - name: Checkout vllm-project/vllm-ascend repo
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ inputs.request_id != '' }}
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.vllm_ascend_ref }}
           path: ./temp-vllm-ascend
           fetch-depth: 1
 
       - name: Move code to /vllm-workspace
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ inputs.request_id != '' }}
         run: |
           mv ./temp-vllm-ascend /vllm-workspace/vllm-ascend
           ls -R /vllm-workspace
@@ -151,7 +132,7 @@ jobs:
           echo "MAX_JOBS=$((CARDS * 23))" >> $GITHUB_ENV
 
       - name: Install vllm-project/vllm-ascend
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ inputs.request_id != '' }}
         working-directory: /vllm-workspace/vllm-ascend
         env:
           MAX_JOBS: ${{ env.MAX_JOBS }}
@@ -163,7 +144,7 @@ jobs:
           uv pip install -e .
 
       - name: Install aisbench
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ inputs.request_id != '' }}
         shell: bash -l {0}
         run: |
           cp -r /tmp/aisbench-backup /vllm-workspace/vllm-ascend/benchmark

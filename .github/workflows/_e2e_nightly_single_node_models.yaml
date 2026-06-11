@@ -50,16 +50,6 @@ on:
         type: string
         default: ''
         description: PR commit SHA for PR-triggered checkout
-      vllm_ascend_branch:
-        required: false
-        type: string
-        default: ''
-        description: branch name passed by periodic or PR callers
-      dry_run:
-        required: false
-        type: boolean
-        default: false
-        description: print resolved inputs and skip accuracy execution
     secrets:
       OBS_ACCESS_KEY:
         required: false
@@ -80,24 +70,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  dry-run:
-    name: dry-run / accuracy test
-    runs-on: ${{ inputs.runner }}
-    if: ${{ inputs.is_run && inputs.dry_run }}
-    steps:
-      - name: Print dry-run inputs
-        run: |
-          echo "workflow=e2e_nightly_single_node_models"
-          echo "runner=${{ inputs.runner }}"
-          echo "image=${{ inputs.image }}"
-          echo "config_paths=${{ inputs.config_paths }}"
-          echo "model_filter=${{ inputs.model_filter }}"
-          echo "upload=${{ inputs.upload }}"
-
   e2e-nightly:
     name: ${{inputs.model_list}} accuracy test
     runs-on: ${{ inputs.runner }}
-    if: ${{ inputs.is_run && !inputs.dry_run }}
+    if: ${{ inputs.is_run }}
     container:
       image: "${{ inputs.image }}"
       env:
@@ -118,20 +94,21 @@ jobs:
           pip install uv
 
       - name: Uninstall vllm and remove code (if pr test)
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ inputs.request_id != '' }}
         run: |
           pip uninstall -y vllm-ascend || true
           rm -rf  /vllm-workspace/vllm-ascend
 
       - name: Checkout vllm-project/vllm-ascend repo
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ inputs.request_id != '' }}
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.vllm_ascend_ref }}
           path: ./temp-vllm-ascend
           fetch-depth: 1
 
       - name: Move vllm-ascend code to /vllm-workspace
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ inputs.request_id != '' }}
         run: |
           mv ./temp-vllm-ascend /vllm-workspace/vllm-ascend
 
@@ -141,7 +118,7 @@ jobs:
           echo "MAX_JOBS=$((CARDS * 23))" >> $GITHUB_ENV
 
       - name: Install vllm-project/vllm-ascend
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ inputs.request_id != '' }}
         working-directory: /vllm-workspace/vllm-ascend
         env:
           MAX_JOBS: ${{ env.MAX_JOBS }}
