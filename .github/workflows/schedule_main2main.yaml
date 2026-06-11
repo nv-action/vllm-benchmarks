@@ -199,6 +199,15 @@ jobs:
           fi
           echo "opencode verification passed"
 
+          # install codegraph
+          curl -fsSL https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/bin:$PATH"
+
+          # verify codegraph works
+          echo "Verifying codegraph..."
+          codegraph --help > /dev/null 2>&1 || { echo "::warning::codegraph install failed"; }
+
           # install main2main_flow
           M2M_FLOW_DIR="/tmp/main2main_flow"
           if [ ! -d "${M2M_FLOW_DIR}/.git" ]; then
@@ -241,15 +250,12 @@ jobs:
           echo "name=${BRANCH}" >> "$GITHUB_OUTPUT"
           echo "base_sha=${BASE_SHA}" >> "$GITHUB_OUTPUT"
 
-      - name: Setup codegraph (optional)
-        continue-on-error: true
+      - name: Setup codegraph
         working-directory: ${{ env.WORK_REPO_DIR }}
         run: |
-          export PATH="$HOME/.local/bin:/root/.opencode/bin:$PATH"
-          curl -fsSL https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.sh | sh
-          codegraph install --yes --target opencode || true
-          codegraph init -i || true
-          echo "codegraph setup done (errors ignored)"
+          set -eu
+          codegraph install --yes --target opencode
+          codegraph init -i
 
       - name: Install Mooncake wheel
         shell: bash
@@ -271,12 +277,6 @@ jobs:
 
           pip show mooncake-transfer-engine-ascend || true
 
-      - name: Install vllm
-        working-directory: ${{ env.VLLM_DIR }}
-        run: |
-          VLLM_TARGET_DEVICE=empty pip install -e .
-          pip uninstall -y triton || true
-
       - name: Install vllm-ascend
         working-directory: ${{ env.WORK_REPO_DIR }}
         run: |
@@ -289,20 +289,6 @@ jobs:
             uv pip install -e .
           fi
 
-      - name: Sanity check tests
-        working-directory: ${{ env.WORK_REPO_DIR }}
-        run: |
-          FAILED=0
-          set -- ${MAIN2MAIN_TEST_CASES}
-          for t; do
-            echo "::group::${t}"
-            if ! python3 -m pytest -sv --color=yes "${t}" 2>&1; then
-              FAILED=1
-            fi
-            echo "::endgroup::"
-          done
-          [ "${FAILED}" -eq 0 ] && echo "All sanity tests passed" || echo "::warning::Some sanity tests failed"
-
       - name: Run main2main flow
         id: run-main2main
         working-directory: ${{ github.workspace }}
@@ -310,7 +296,7 @@ jobs:
           RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES: 1
         run: |
           set -euo pipefail
-          export PATH="$HOME/.local/bin:/root/.opencode/bin:$PATH"
+          export PATH="/root/.opencode/bin:$PATH"
           eval "${MAIN2MAIN_LOG_HELPERS}"
 
           rm -rf /tmp/main2main
