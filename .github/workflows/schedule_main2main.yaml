@@ -253,6 +253,7 @@ jobs:
           echo "base_sha=${BASE_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Setup codegraph
+        if: false  # SKIP FOR DRY RUN
         working-directory: ${{ env.WORK_REPO_DIR }}
         run: |
           set -eu
@@ -260,6 +261,7 @@ jobs:
           codegraph init -i
 
       - name: Install Mooncake wheel
+        if: false  # SKIP FOR DRY RUN
         shell: bash
         run: |
           set -euxo pipefail
@@ -277,6 +279,7 @@ jobs:
           pip show mooncake-transfer-engine-ascend || true
 
       - name: Install vllm-ascend
+        if: false  # SKIP FOR DRY RUN
         working-directory: ${{ env.WORK_REPO_DIR }}
         run: |
           pip install uc-manager
