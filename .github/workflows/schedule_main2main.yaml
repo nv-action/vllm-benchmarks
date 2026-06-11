@@ -157,6 +157,7 @@ jobs:
           git config user.name "main2main-bot"
           git config user.email "main2main-bot@users.noreply.github.com"
           gh --version
+          echo "$GH_TOKEN" | gh auth login --with-token
           gh auth status
           gh api user --jq .login >/dev/null
 
