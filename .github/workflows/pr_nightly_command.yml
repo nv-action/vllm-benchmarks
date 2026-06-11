@@ -197,7 +197,7 @@ jobs:
       always() &&
       needs.authorize-and-parse.result == 'success' &&
       needs.authorize-and-parse.outputs.single_node_matrix != '[]' &&
-      (needs.multi-node-tests.result == 'success' || needs.multi-node-tests.result == 'skipped')
+      (needs.multi-node-tests.result == 'success' || needs.multi-node-tests.result == 'failure' || needs.multi-node-tests.result == 'skipped')
     strategy:
       fail-fast: false
       max-parallel: 7
@@ -238,6 +238,7 @@ jobs:
       upload: false
       request_id: ${{ needs.authorize-and-parse.outputs.request_id }}
       vllm_ascend_ref: ${{ needs.authorize-and-parse.outputs.vllm_ascend_ref }}
+      vllm_ascend_branch: ${{ needs.authorize-and-parse.outputs.branch }}
 
   ops-tests:
     name: ops / ${{ matrix.test_config.name }}
