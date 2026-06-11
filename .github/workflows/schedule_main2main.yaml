@@ -106,7 +106,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          persist-credentials: false
+          token: ${{ secrets.PAT_TOKEN }}
 
       - name: Checkout vllm-project/vllm repo
         uses: actions/checkout@v6
@@ -115,7 +115,6 @@ jobs:
           ref: ${{ env.TARGET_COMMIT != '' && env.TARGET_COMMIT || 'main' }}
           path: ${{ env.VLLM_DIR }}
           fetch-depth: 0
-          persist-credentials: false
 
       - name: Validate target commit
         run: |
@@ -150,21 +149,14 @@ jobs:
           update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-15 20
           pip install uv
 
-      - name: Configure git identity and auth
+      - name: Configure git identity
         if: always()
         working-directory: ${{ env.WORK_REPO_DIR }}
-        env:
-          PAT: ${{ secrets.PAT_TOKEN }}
         run: |
           set -eu
           git config user.name "main2main-bot"
           git config user.email "main2main-bot@users.noreply.github.com"
-          # Persist PAT in gh's local config so credential helper
-          # survives past this step.  Must unset GH_TOKEN (and any
-          # GITHUB_TOKEN override) or gh skips writing hosts.yml.
-          gh auth login --with-token <<< "${PAT}"
           gh --version
-          gh auth status
 
       - name: Check npu and CANN info
         if: always()
