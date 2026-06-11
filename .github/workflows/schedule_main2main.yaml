@@ -142,7 +142,9 @@ jobs:
           if [ -s "${WORK_REPO_DIR}/packages.txt" ]; then
             xargs -r apt-get -y install < "${WORK_REPO_DIR}/packages.txt"
           fi
-          apt-get -y install curl ca-certificates gcc g++ cmake libnuma-dev clang-15 jq gh
+          apt-get -y install curl ca-certificates gcc g++ cmake libnuma-dev clang-15 jq
+          # gh 2.4 is too old for 'gh auth git-credential', install latest
+          curl -fsSL https://github.com/cli/cli/releases/download/v2.68.1/gh_2.68.1_linux_arm64.deb -o /tmp/gh.deb && dpkg -i /tmp/gh.deb && rm /tmp/gh.deb || apt-get -y install gh
           update-alternatives --install /usr/bin/clang clang /usr/bin/clang-15 20
           update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-15 20
           pip install uv
