@@ -23,45 +23,31 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
+  actions: write
+  pull-requests: write
   issues: write
 
-defaults:
-  run:
-    shell: bash -el {0}
-
 jobs:
-  authorize-and-parse:
-    name: Authorize and parse nightly cases
+  authorize:
+    name: Check user authorization
     runs-on: ubuntu-latest
     outputs:
-      single_node_matrix: ${{ steps.parse.outputs.single_node_matrix }}
-      multi_node_matrix: ${{ steps.parse.outputs.multi_node_matrix }}
-      accuracy_matrix: ${{ steps.parse.outputs.accuracy_matrix }}
-      ops_matrix: ${{ steps.parse.outputs.ops_matrix }}
-      selected_cases_summary: ${{ steps.parse.outputs.selected_cases_summary }}
+      test_cases: ${{ steps.resolve.outputs.test_cases }}
       branch: ${{ steps.resolve.outputs.branch }}
-      branch_tag: ${{ steps.branch.outputs.branch_tag }}
-      test_filter: ${{ steps.resolve.outputs.test_filter }}
-      request_id: ${{ github.run_id }}
-      vllm_ascend_ref: ${{ steps.resolve.outputs.vllm_ascend_ref }}
-      has_cases: ${{ steps.count.outputs.has_cases }}
+      is_authorized: ${{ steps.auth.outputs.is_authorized }}
     steps:
-      - name: Checkout base repository
-        uses: actions/checkout@v6
-
       - name: Check user authorization
         id: auth
         env:
-          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ACTOR='${{ github.event.client_payload.github.payload.comment.user.login }}'
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
 
-          ROLE_NAME=$(gh api "repos/$REPO/collaborators/$ACTOR/permission" --jq '.role_name' 2>/dev/null || echo "none")
-          case "$ROLE_NAME" in
+          PERMISSION=$(gh api "repos/$REPO/collaborators/$ACTOR/permission" --jq '.permission')
+          case "$PERMISSION" in
             triage|write|maintain|admin)
-              echo "User $ACTOR has $ROLE_NAME role, authorized."
+              echo "User $ACTOR has $PERMISSION permission, authorized."
               echo "is_authorized=true" >> "$GITHUB_OUTPUT"
               ;;
             *)
@@ -70,42 +56,45 @@ jobs:
               ;;
           esac
 
+      - name: Post workflow URL
+        if: steps.auth.outputs.is_authorized == 'true'
+        uses: peter-evans/create-or-update-comment@v5
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
+          repository: ${{ github.event.client_payload.github.payload.repository.full_name }}
+          issue-number: ${{ github.event.client_payload.github.payload.issue.number }}
+          body: |
+            nightly command triggered. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
+          reactions: rocket
+
       - name: Post unauthorized comment
         if: steps.auth.outputs.is_authorized == 'false'
         uses: peter-evans/create-or-update-comment@v5
         with:
           token: ${{ secrets.PAT_TOKEN }}
           repository: ${{ github.event.client_payload.github.payload.repository.full_name }}
-          comment-id: ${{ github.event.client_payload.github.payload.comment.id }}
+          issue-number: ${{ github.event.client_payload.github.payload.issue.number }}
           body: |
-            [Bot]: nightly command failed: you do not have permission. Only users with triage+ permission can trigger /nightly.
+            nightly command failed: you do not have permission. Only users with triage+ permission can trigger /nightly.
           reactions: confused
 
       - name: Fail if unauthorized
         if: steps.auth.outputs.is_authorized == 'false'
         run: exit 1
 
-      - name: Resolve arguments and PR ref
+      - name: Resolve test cases and branch
         id: resolve
-        env:
-          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
-          ALL_ARGS: ${{ github.event.client_payload.slash_command.args.all }}
-          PR_URL: ${{ github.event.client_payload.github.payload.issue.pull_request.url }}
-          REPO: ${{ github.event.client_payload.github.payload.repository.full_name }}
-          ISSUE_NUMBER: ${{ github.event.client_payload.github.payload.issue.number }}
+        if: steps.auth.outputs.is_authorized == 'true'
         run: |
-          post_comment() {
-            gh api "repos/$REPO/issues/$ISSUE_NUMBER/comments" -f body="$1" --silent
-          }
-
-          ALL_ARGS=$(echo "$ALL_ARGS" | xargs)
+          ALL_ARGS=$(echo '${{ github.event.client_payload.slash_command.args.all }}' | xargs)
           if [ -z "$ALL_ARGS" ]; then
-            post_comment "[Bot]: \`/nightly\` without test names will not dispatch. Please specify test names, e.g. \`/nightly all\` or \`/nightly test_custom_op\`."
-            exit 1
+            echo "test_cases=all" >> "$GITHUB_OUTPUT"
+            echo "branch=main" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
           BRANCH="main"
-          TEST_FILTER=""
+          TEST_CASES=""
           NEXT_IS_BRANCH=0
           for WORD in $ALL_ARGS; do
             if [ "$NEXT_IS_BRANCH" = "1" ]; then
@@ -114,102 +103,47 @@ jobs:
             elif [ "$WORD" = "--branch" ]; then
               NEXT_IS_BRANCH=1
             else
-              if [ -z "$TEST_FILTER" ]; then
-                TEST_FILTER="$WORD"
+              if [ -z "$TEST_CASES" ]; then
+                TEST_CASES="$WORD"
               else
-                TEST_FILTER="$TEST_FILTER,$WORD"
+                TEST_CASES="$TEST_CASES,$WORD"
               fi
             fi
           done
 
+          # If --branch was the last word (no branch name given), ignore it
           if [ "$NEXT_IS_BRANCH" = "1" ]; then
-            post_comment "[Bot]: nightly command failed: \`--branch\` requires a branch name."
-            exit 1
-          fi
-          if [ -z "$TEST_FILTER" ]; then
-            post_comment "[Bot]: \`/nightly\` without test names will not dispatch. Please specify test names, e.g. \`/nightly all\` or \`/nightly test_custom_op\`."
-            exit 1
+            NEXT_IS_BRANCH=0
           fi
 
-          HEAD_REPO=$(gh api "$PR_URL" --jq '.head.repo.full_name')
-          PR_SHA=$(gh api "$PR_URL" --jq '.head.sha')
+          if [ -z "$TEST_CASES" ]; then
+            TEST_CASES="all"
+          fi
+          echo "test_cases=$TEST_CASES" >> "$GITHUB_OUTPUT"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
 
-          {
-            echo "branch=$BRANCH"
-            echo "test_filter=$TEST_FILTER"
-            echo "head_repo=$HEAD_REPO"
-            echo "vllm_ascend_ref=$PR_SHA"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Resolve branch tag
-        id: branch
-        run: |
-          branch_tag=$(echo "${{ steps.resolve.outputs.branch }}" | tr '/' '-')
-          echo "branch_tag=${branch_tag}" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout PR source tree
-        uses: actions/checkout@v6
-        with:
-          repository: ${{ steps.resolve.outputs.head_repo }}
-          ref: ${{ steps.resolve.outputs.vllm_ascend_ref }}
-          path: pr-source
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Install parser dependencies
-        run: pip install pyyaml regex
-
-      - name: Parse PR nightly schedule config
-        id: parse
-        working-directory: pr-source
-        run: |
-          python3 ../.github/workflows/scripts/parse_schedule_config.py \
-            --config .github/workflows/scripts/schedule_config.yaml \
-            --runner-label .github/workflows/scripts/runner_label.json \
-            --event-name workflow_dispatch \
-            --schedule-name nightly-main \
-            --test-filter "${{ steps.resolve.outputs.test_filter }}"
-
-      - name: Count selected cases
-        id: count
+  dispatch-a2:
+    name: Trigger Nightly-A2
+    needs: [authorize]
+    if: needs.authorize.outputs.is_authorized == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch nightly-a2 workflow
         env:
-          SINGLE_NODE_MATRIX: ${{ steps.parse.outputs.single_node_matrix }}
-          MULTI_NODE_MATRIX: ${{ steps.parse.outputs.multi_node_matrix }}
-          ACCURACY_MATRIX: ${{ steps.parse.outputs.accuracy_matrix }}
-          OPS_MATRIX: ${{ steps.parse.outputs.ops_matrix }}
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
-          total=$(jq -n \
-            --argjson single "$SINGLE_NODE_MATRIX" \
-            --argjson multi "$MULTI_NODE_MATRIX" \
-            --argjson accuracy "$ACCURACY_MATRIX" \
-            --argjson ops "$OPS_MATRIX" \
-            '($single | length) + ($multi | length) + ($accuracy | length) + ($ops | length)')
-          echo "selected_count=${total}" >> "$GITHUB_OUTPUT"
-          if [ "$total" -gt 0 ]; then
-            echo "has_cases=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_cases=false" >> "$GITHUB_OUTPUT"
-          fi
+          REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
+          gh workflow run schedule_nightly_test_a2.yaml \
+            --repo "$REPO" \
+            --ref main \
+            -f test_cases='${{ needs.authorize.outputs.test_cases }}' \
+            -f vllm_ascend_branch='${{ needs.authorize.outputs.branch }}'
+          echo "Dispatched Nightly-A2 with test_cases='${{ needs.authorize.outputs.test_cases }}', branch='${{ needs.authorize.outputs.branch }}'"
 
-      - name: Post no matched cases comment
-        if: steps.count.outputs.has_cases == 'false'
-        uses: peter-evans/create-or-update-comment@v5
-        with:
-          token: ${{ secrets.PAT_TOKEN }}
-          repository: ${{ github.event.client_payload.github.payload.repository.full_name }}
-          comment-id: ${{ github.event.client_payload.github.payload.comment.id }}
-          body: |
-            [Bot]: nightly command found no cases for `${{ steps.resolve.outputs.test_filter }}` in `nightly-main`.
-          reactions: confused
-
-      - name: Fail if no cases matched
-        if: steps.count.outputs.has_cases == 'false'
-        run: exit 1
-
-  post-started:
-    name: Post nightly workflow link
-    needs: [authorize-and-parse]
-    if: needs.authorize-and-parse.outputs.has_cases == 'true'
+  dispatch-a3:
+    name: Trigger Nightly-A3
+    needs: [authorize]
+    if: needs.authorize.outputs.is_authorized == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Post workflow URL

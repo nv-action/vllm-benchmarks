@@ -10,28 +10,21 @@ on:
       runner:
         required: false
         type: string
-        default: ''
-        description: optional controller runner override; defaults by soc_version
+        default: linux-aarch64-a3-0
       image:
         required: false
         type: string
         description: base image for pods
         default: "swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-910b-ubuntu22.04-py3.12"
-      config_path:
+      config_file_path:
+        required: true
+        type: string
+        description: the model config for multi_node test
+      config_base_path:
         required: false
         type: string
         default: ''
-        description: full relative path to the YAML config (e.g. tests/e2e/schedule/model/DeepSeek/two_node/X.yaml)
-      multi_node_type:
-        required: false
-        type: string
-        default: internal_dp
-        description: "'internal_dp' or 'external_dp' — selects test_multi_node.py vs test_external_dp.py via MULTI_NODE_TYPE env var"
-      extra_components:
-        required: false
-        type: boolean
-        default: false
-        description: set EXTRA_COMPONENTS_REQUIRED=true in pod env (for tests needing custom CANN ops)
+        description: override CONFIG_BASE_PATH used by the yaml loader inside the pod (defaults to nightly path)
       replicas:
         required: false
         default: "1"
@@ -93,15 +86,15 @@ defaults:
 # only cancel in-progress runs of the same workflow
 # and ignore the lint / 8 cards test type
 concurrency:
-  group: ascend-nightly-${{ github.workflow_ref }}-${{ github.ref }}-${{ inputs.soc_version }}-${{ inputs.config_path }}
+  group: ascend-nightly-${{ github.workflow_ref }}-${{ github.ref }}-${{ inputs.soc_version }}-${{ inputs.config_file_path }}
   cancel-in-progress: true
 
 jobs:
   e2e:
-    name: ${{ inputs.config_path || inputs.name }}
+    name: ${{ inputs.config_file_path }}
     timeout-minutes: 120
     # This is the runner with no NPU for k8s controller
-    runs-on: ${{ inputs.runner || (inputs.soc_version == 'a2' && 'linux-amd64-cpu-8-hk' || 'linux-aarch64-a3-0') }}
+    runs-on: ${{ inputs.runner }}
     if: ${{ inputs.should_run }}
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-cpu
@@ -111,7 +104,7 @@ jobs:
     steps:
       - name: Decode kubeconfig
         run: |
-          if [ -n "${{ inputs.request_id }}" ]; then
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
             if [ "${{ inputs.soc_version }}" = "a3" ]; then
               # NOTE: This is too hack, we should find a better way to manage kubeconfig for pr tests.
               cp /root/.cache/.kube/kubeconfig.yaml "$KUBECONFIG"
@@ -128,10 +121,10 @@ jobs:
       - name: Set job variables
         id: vars
         run: |
-          # Derive a unique, valid k8s resource name from config_path (basename without extension).
+          # Derive a unique, valid k8s resource name from config_file_path.
           # Append 6-char random suffix to avoid conflicts; total length capped at 63 chars.
 
-          config_file="$(basename "${{ inputs.config_path }}")"
+          config_file="${{ inputs.config_file_path }}"
           config_stem="${config_file%.yaml}"
           lws_suffix=$(echo "$config_stem" | tr '[:upper:]' '[:lower:]' | tr '._' '-' | cut -c1-43)
           rand_suffix=$(tr -d '-' < /proc/sys/kernel/random/uuid | cut -c1-6)
@@ -163,7 +156,7 @@ jobs:
 
       - name: Prepare scripts
         run: |
-          install -D tests/e2e/schedule/scripts/multi_node/run.sh /root/.cache/tests/run.sh
+          install -D tests/e2e/nightly/multi_node/scripts/run.sh /root/.cache/tests/run.sh
 
       - name: Clear resources
         run: |
@@ -202,11 +195,10 @@ jobs:
           size="${{ inputs.size }}"
           replicas="${{ inputs.replicas }}"
           image="${{ inputs.image }}"
-          config_yaml_path="${{ inputs.config_path }}"
-          multi_node_type="${{ inputs.multi_node_type }}"
-          extra_components_required="${{ inputs.extra_components }}"
-          fail_tag="FAIL_TAG_$(basename "${{ inputs.config_path }}")"
-          is_pr_test="${{ inputs.request_id != '' }}"
+          config_file_path="${{ inputs.config_file_path }}"
+          config_base_path="${{ inputs.config_base_path }}"
+          fail_tag="FAIL_TAG_${{ inputs.config_file_path }}"
+          is_pr_test="${{ github.event_name == 'pull_request' }}"
           vllm_ascend_ref="${{ inputs.vllm_ascend_ref }}"
           vllm_ascend_remote_url="${{ inputs.vllm_ascend_remote_url }}"
           runner="${{ inputs.soc_version }}"
@@ -222,15 +214,14 @@ jobs:
 
           benchmark_job_name="${{ steps.vars.outputs.benchmark_job_name }}"
 
-          jinja2 tests/e2e/schedule/scripts/multi_node/lws.yaml.jinja2 \
+          jinja2 tests/e2e/nightly/multi_node/scripts/lws.yaml.jinja2 \
             -D lws_name="$LWS_NAME" \
             -D log_prefix="$LOG_PREFIX" \
             -D size="$size" \
             -D replicas="$replicas" \
             -D image="$image" \
-            -D config_yaml_path="$config_yaml_path" \
-            -D multi_node_type="$multi_node_type" \
-            -D extra_components_required="$extra_components_required" \
+            -D config_file_path="$config_file_path" \
+            -D config_base_path="$config_base_path" \
             -D npu_per_node="$npu_per_node" \
             -D fail_tag="$fail_tag" \
             -D is_pr_test="$is_pr_test" \
@@ -414,7 +405,7 @@ jobs:
         with:
           access_key: ${{ secrets.OBS_ACCESS_KEY }}
           secret_key: ${{ secrets.OBS_SECRET_KEY }}
-          name: ${{ inputs.name || inputs.config_path }}-ascend-logs
+          name: ${{ inputs.config_file_path }}-ascend-logs
           path: /tmp/ascend-logs.tar.gz
           retention-days: 7
 
@@ -439,7 +430,7 @@ jobs:
         with:
           access_key: ${{ secrets.OBS_ACCESS_KEY }}
           secret_key: ${{ secrets.OBS_SECRET_KEY }}
-          name: nightly-test-benchmark-results-${{ inputs.name }}-${{ steps.bench_ts.outputs.artifact_ts }}
+          name: nightly-test-benchmark-results-${{ inputs.name || inputs.config_file_path }}-${{ steps.bench_ts.outputs.artifact_ts }}
           path: /tmp/benchmark_results/
           if-no-files-found: warn
           retention-days: 90
