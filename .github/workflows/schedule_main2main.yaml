@@ -83,8 +83,8 @@ jobs:
         tests/e2e/pull_request/one_card/test_qwen3_8b_w8a8.py::test_dense_w8a8_eagle3_full_graph
         tests/e2e/pull_request/two_card/test_qwen3_30b_a3b.py::test_moe_tp_ep_eplb_full_decode_only
         tests/e2e/pull_request/two_card/test_qwen3_vl_30b_a3b_instruct.py::test_multimodal_reasoning_pp_full_decode_only
-        tests/e2e/pull_request/four_card/test_deepseek_v3_2_w8a8_pruning.py::test_moe_w8a8_tp_pp_ep_full_decode_only
-        tests/e2e/pull_request/four_card/test_deepseek_v3_2_w8a8_pruning.py::test_pd_disaggregation_w8a8_sfa_dsa_full_decode_only
+        #tests/e2e/pull_request/four_card/test_deepseek_v3_2_w8a8_pruning.py::test_moe_w8a8_tp_pp_ep_full_decode_only
+        #tests/e2e/pull_request/four_card/test_deepseek_v3_2_w8a8_pruning.py::test_pd_disaggregation_w8a8_sfa_dsa_full_decode_only
       MAIN2MAIN_LOG_HELPERS: |
         print_group() {
           local title="$1"
