@@ -71,7 +71,6 @@ jobs:
         shell: bash -el {0}
         working-directory: ${{ github.workspace }}
     env:
-      GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
       TARGET_COMMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.target_commit || '' }}
       PUSH_TO_GITHUB: 'true'
       GITHUB_REPO: vllm-project/vllm-ascend
@@ -137,7 +136,6 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE/${VLLM_DIR}"
 
       - name: Install system dependencies
-        if: false
         run: |
           if [ -s "${WORK_REPO_DIR}/packages.txt" ]; then
             xargs -r apt-get -y install < "${WORK_REPO_DIR}/packages.txt"
@@ -152,10 +150,16 @@ jobs:
       - name: Configure git identity and auth
         if: always()
         working-directory: ${{ env.WORK_REPO_DIR }}
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
           set -eu
           git config user.name "main2main-bot"
           git config user.email "main2main-bot@users.noreply.github.com"
+          # gh 2.4 only reads GITHUB_TOKEN, not GH_TOKEN. Set up CLI-level
+          # auth so that --with-token takes precedence before we hit the
+          # credential helper.
+          gh auth login --with-token <<< "${GH_TOKEN}"
           gh --version
           gh auth status
 
