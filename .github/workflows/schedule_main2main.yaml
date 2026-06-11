@@ -155,7 +155,7 @@ jobs:
           git config user.email "main2main-bot@users.noreply.github.com"
           gh --version
           gh auth status
-          gh api graphql -f query='query { viewer { login } }' >/dev/null
+          gh api user --jq .login >/dev/null
 
       - name: Check npu and CANN info
         if: always()
@@ -271,6 +271,12 @@ jobs:
 
           pip show mooncake-transfer-engine-ascend || true
 
+      - name: Install vllm
+        working-directory: ${{ env.VLLM_DIR }}
+        run: |
+          VLLM_TARGET_DEVICE=empty pip install -e .
+          pip uninstall -y triton || true
+
       - name: Install vllm-ascend
         working-directory: ${{ env.WORK_REPO_DIR }}
         run: |
@@ -282,6 +288,20 @@ jobs:
           else
             uv pip install -e .
           fi
+
+      - name: Sanity check tests
+        working-directory: ${{ env.WORK_REPO_DIR }}
+        run: |
+          FAILED=0
+          set -- ${MAIN2MAIN_TEST_CASES}
+          for t; do
+            echo "::group::${t}"
+            if ! python3 -m pytest -sv --color=yes "${t}" 2>&1 | tail -30; then
+              FAILED=1
+            fi
+            echo "::endgroup::"
+          done
+          [ "${FAILED}" -eq 0 ] && echo "All sanity tests passed" || echo "::warning::Some sanity tests failed"
 
       - name: Run main2main flow
         id: run-main2main
