@@ -100,6 +100,40 @@ jobs:
       - name: Parse schedule config
         id: parse
         run: |
+<<<<<<< HEAD
+=======
+          if [ "${{ inputs.parse_only == true }}" = "true" ]; then
+            for schedule in nightly weekly; do
+              if [ "$schedule" = "nightly" ]; then
+                cron="45 15 * * *"
+              else
+                cron="45 15 * * 1"
+              fi
+
+              echo "::group::Parse ${schedule} schedule (${cron})"
+              tmp_output="$(mktemp)"
+              GITHUB_OUTPUT="$tmp_output" python3 .github/workflows/scripts/parse_schedule_config.py \
+                --config .github/workflows/scripts/schedule_config.yaml \
+                --runner-label .github/workflows/scripts/runner_label.json \
+                --event-name schedule \
+                --cron "$cron" \
+                --test-filter all
+              rm -f "$tmp_output"
+              echo "::endgroup::"
+            done
+
+            {
+              echo "single_node_matrix=[]"
+              echo "multi_node_matrix=[]"
+              echo "accuracy_matrix=[]"
+              echo "ops_matrix=[]"
+              echo "image_build_targets=[]"
+              echo 'selected_cases_summary="parse_only=true: validated nightly and weekly schedule parsing"'
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+>>>>>>> parent of 0d391bd6 (fix1)
           python3 .github/workflows/scripts/parse_schedule_config.py \
             --config .github/workflows/scripts/schedule_config.yaml \
             --runner-label .github/workflows/scripts/runner_label.json \
@@ -131,7 +165,7 @@ jobs:
     uses: ./.github/workflows/_e2e_nightly_multi_node.yaml
     with:
       soc_version:      ${{ matrix.test_config.chip }}
-      image:            swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-main-${{ matrix.test_config.chip }}
+      image:            swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ needs.parse-config.outputs.image_tag }}-${{ matrix.test_config.chip }}
       config_path:      ${{ matrix.test_config.config_path }}
       multi_node_type:  ${{ matrix.test_config.multi_node_type }}
       extra_components: ${{ matrix.test_config.extra_components }}
