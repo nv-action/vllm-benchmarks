@@ -71,7 +71,7 @@ jobs:
         shell: bash -el {0}
         working-directory: ${{ github.workspace }}
     env:
-      GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
       TARGET_COMMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.target_commit || '' }}
       PUSH_TO_GITHUB: 'true'
       GITHUB_REPO: vllm-project/vllm-ascend
@@ -137,7 +137,7 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE/${VLLM_DIR}"
 
       - name: Install system dependencies
-        if: always()
+        if: false
         run: |
           if [ -s "${WORK_REPO_DIR}/packages.txt" ]; then
             xargs -r apt-get -y install < "${WORK_REPO_DIR}/packages.txt"
