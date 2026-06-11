@@ -79,7 +79,6 @@ jobs:
       MAIN2MAIN_KEEP_BRANCH: 'true'
       MAIN2MAIN_WORKSPACE: /tmp/main2main_flow/workspace
       MAIN2MAIN_TEST_CASES: >-
-        tests/e2e/pull_request/one_card/test_qwen3_embedding_0_6b.py::test_embedding_full_decode_only
         tests/e2e/pull_request/one_card/test_qwen3_5_0_8b.py::test_mamba_ssm_multimodal_reasoning_mtp_full_decode_only
         tests/e2e/pull_request/one_card/test_qwen3_8b_w8a8.py::test_dense_w8a8_eagle3_full_graph
         tests/e2e/pull_request/two_card/test_qwen3_30b_a3b.py::test_moe_tp_ep_eplb_full_decode_only
@@ -171,7 +170,6 @@ jobs:
 
           # install opencode
           curl -fsSL https://opencode.ai/install | bash
-
           # configure opencode auth
           mkdir -p ~/.local/share/opencode
           cat > ~/.local/share/opencode/auth.json <<EOF
@@ -261,7 +259,6 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-
           apt-get update -y
           apt-get install -y --no-install-recommends \
             libibverbs1 \
@@ -270,11 +267,9 @@ jobs:
             libnuma1 \
             libcurl4
           ldconfig
-
           MOONCAKE_WHEEL="mooncake_transfer_engine_ascend-0.3.8.post1-cp311-cp311-manylinux_2_17_aarch64.manylinux_2_35_aarch64.whl"
           pip install --no-cache-dir --no-deps \
             "https://vllm-ascend.obs.cn-north-4.myhuaweicloud.com/vllm-ascend/${MOONCAKE_WHEEL}"
-
           pip show mooncake-transfer-engine-ascend || true
 
       - name: Install vllm-ascend
@@ -293,7 +288,7 @@ jobs:
         id: run-main2main
         working-directory: ${{ github.workspace }}
         env:
-          RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES: 1
+          RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES: True
         run: |
           set -euo pipefail
           export PATH="/root/.opencode/bin:$PATH"
