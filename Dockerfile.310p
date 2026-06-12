@@ -1,3 +1,7 @@
+FROM alpine:latest
+
+# 容器启动后执行的命令
+CMD ["echo", "Hello Docker! 这是最简Dockerfile"]
 #
 # Copyright (c) 2025 Huawei Technologies Co., Ltd. All Rights Reserved.
 #
@@ -61,7 +65,4 @@
 # RUN echo "export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib" >> ~/.bashrc
 
 # CMD ["/bin/bash"]
-FROM alpine:latest
 
-# 容器启动后执行的命令
-CMD ["echo", "Hello Docker! 这是最简Dockerfile"]
