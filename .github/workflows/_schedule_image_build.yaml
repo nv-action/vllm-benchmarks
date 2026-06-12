@@ -10,7 +10,7 @@ on:
         description: 'Whether to push the image'
         required: false
         type: boolean
-        default: False
+        default: true
       dockerfile:
         description: 'The Dockerfile to use'
         required: false

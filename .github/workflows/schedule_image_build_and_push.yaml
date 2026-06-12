@@ -57,31 +57,31 @@ jobs:
     strategy:
       matrix:
         build_meta:
-          - name: A2 Ubuntu
-            dockerfile: Dockerfile
-            suffix: ''
-          - name: A2 openeuler
-            dockerfile: Dockerfile.openEuler
-            suffix: 'openeuler'
-          - name: A3 Ubuntu
-            dockerfile: Dockerfile.a3
-            suffix: 'a3'
-          - name: A3 openEuler
-            dockerfile: Dockerfile.a3.openEuler
-            suffix: 'a3-openeuler'
+          # - name: A2 Ubuntu
+          #   dockerfile: Dockerfile
+          #   suffix: ''
+          # - name: A2 openeuler
+          #   dockerfile: Dockerfile.openEuler
+          #   suffix: 'openeuler'
+          # - name: A3 Ubuntu
+          #   dockerfile: Dockerfile.a3
+          #   suffix: 'a3'
+          # - name: A3 openEuler
+          #   dockerfile: Dockerfile.a3.openEuler
+          #   suffix: 'a3-openeuler'
           - name: 310P Ubuntu
             dockerfile: Dockerfile.310p
             suffix: '310p'
-          - name: 310P openEuler
-            dockerfile: Dockerfile.310p.openEuler
-            suffix: '310p-openeuler'
+          # - name: 310P openEuler
+          #   dockerfile: Dockerfile.310p.openEuler
+          #   suffix: '310p-openeuler'
     uses: ./.github/workflows/_schedule_image_build.yaml
     with:
       dockerfile: ${{ matrix.build_meta.dockerfile }}
       suffix: ${{ matrix.build_meta.suffix }}
       quay_username: ${{ vars.QUAY_USERNAME }}
       quay_temp_username: ${{ vars.QUAY_TEMP_USERNAME }}
-      should_push: ${{ github.repository_owner == 'vllm-project' && (github.event_name != 'pull_request') }}
+      should_push: true
       workflow_dispatch_tag: ${{ inputs.tag != 'none' && inputs.tag || '' }}
       branch_ref: ${{ inputs.branch != 'none' && inputs.branch || '' }}
     secrets:
