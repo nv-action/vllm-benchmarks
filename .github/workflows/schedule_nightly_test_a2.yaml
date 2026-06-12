@@ -20,9 +20,9 @@
 name: Nightly-A2
 
 on:
-  schedule:
-      # Run test at 23:45 Beijing time (UTC+8)
-      - cron: "45 15 * * *"
+#   schedule:
+#       # Run test at 23:45 Beijing time (UTC+8)
+#       - cron: "45 15 * * *"
   workflow_dispatch:
     inputs:
       vllm_ascend_branch:
