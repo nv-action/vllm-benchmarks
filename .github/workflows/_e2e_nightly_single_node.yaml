@@ -221,10 +221,12 @@ jobs:
           VLLM_CI_RUNNER: ${{ inputs.runner }}
         working-directory: /vllm-workspace/vllm-ascend
         run: |
+          LOGFILE=/tmp/nightly-single_node.log
           export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
           echo "Running pytest with tests path: ${{ inputs.tests }}"
           pytest -sv "${{ inputs.tests }}" \
-          --ignore=tests/e2e/nightly/single_node/ops/singlecard_ops/test_fused_moe.py
+          --ignore=tests/e2e/nightly/single_node/ops/singlecard_ops/test_fused_moe.py 2>&1 | tee -a "$LOGFILE"
+          exit ${PIPESTATUS[0]}
 
       - name: Run Pytest (YAML-driven)
         if: ${{ always() && inputs.config_file_path != '' }}
@@ -237,10 +239,12 @@ jobs:
           BENCHMARK_JOB_NAME: ${{ inputs.vllm_ascend_branch }}-${{ inputs.name }}
         working-directory: /vllm-workspace/vllm-ascend
         run: |
+          LOGFILE=/tmp/nightly-single_node.log
           export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
           echo "export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib" >> ~/.bashrc
           echo "Running YAML-driven test with config: ${{ inputs.config_file_path }}"
-          pytest -sv tests/e2e/nightly/single_node/models/scripts/test_single_node.py
+          pytest -sv tests/e2e/nightly/single_node/models/scripts/test_single_node.py 2>&1 | tee -a "$LOGFILE"
+          exit ${PIPESTATUS[0]}
 
       - name: Set benchmark artifact timestamp
         if: ${{ always() && inputs.config_file_path != '' }}
@@ -271,3 +275,55 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
           compression-level: 0
+
+      - name: Stage benchmark results for diagnosis
+        if: ${{ always() && inputs.config_file_path != '' }}
+        continue-on-error: true
+        run: |
+          mkdir -p /tmp/benchmark_results
+          SRC="/vllm-workspace/vllm-ascend/benchmark_results/${{ steps.bench_ts.outputs.effective_name }}.json"
+          if [ -f "$SRC" ]; then
+            cp "$SRC" /tmp/benchmark_results/
+            echo "Benchmark results staged for diagnosis: $SRC"
+          fi
+
+      - name: Collect Ascend logs for diagnosis
+        if: always()
+        continue-on-error: true
+        run: |
+          ADIR=/tmp/ci-diagnosis-artifacts/ascend_logs
+          mkdir -p "$ADIR"/{plog,container}
+          # Collect NPU runtime logs from standard Ascend paths.
+          # Best-effort: the runner may or may not have these.
+          for src in /root/ascend/log /var/log/npu /var/log/ascend; do
+            if [ -d "$src" ]; then
+              cp -r "$src" "$ADIR/plog/" 2>/dev/null || true
+            fi
+          done
+          # Container logs if running in Docker.
+          if command -v docker &>/dev/null; then
+            docker logs "$(docker ps -q | head -1)" > "$ADIR/container/docker.log" 2>/dev/null || true
+          fi
+          echo "Ascend logs collected under $ADIR:"
+          find "$ADIR" -type f 2>/dev/null | sort || true
+
+      - name: Collect CI diagnosis evidence
+        if: failure()
+        continue-on-error: true
+        run: |
+          LOGFILE=/tmp/nightly-single_node.log
+          if [ ! -f "$LOGFILE" ]; then
+            echo "Log file not found at $LOGFILE, skipping diagnosis"
+            exit 0
+          fi
+          SHA=$(git rev-parse HEAD)
+          python3 "$GITHUB_WORKSPACE/.github/workflows/scripts/ci_diagnosis_agent.py" \
+            --log-file "$LOGFILE" \
+            --step-name "${{ inputs.name || inputs.config_file_path || inputs.tests }}" \
+            --artifact-dir /tmp/ci-diagnosis-artifacts \
+            --benchmark-dir /tmp/benchmark_results \
+            --ref "${{ inputs.vllm_ascend_ref || github.ref_name }}" \
+            --sha "$SHA" \
+            --repo-dir "$GITHUB_WORKSPACE" \
+            --output-json /tmp/ci-diagnosis-evidence.json \
+            --write-summary

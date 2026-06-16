@@ -1,0 +1,101 @@
+# This file is a part of the vllm-ascend project.
+#
+# Reusable AI failure diagnosis step. Wire this into a failed job via
+# `uses: ./.github/workflows/_ci_ai_diagnosis.yaml` and pass the log
+# file path with `with: log-file`. The diagnosis tool builds an evidence
+# bundle (index + evidence + git context) for downstream LLM consumption.
+# It NEVER breaks CI: it always exits 0.
+name: CI AI diagnosis
+
+on:
+  workflow_call:
+    inputs:
+      log-file:
+        description: Path to the failed job's log file.
+        required: true
+        type: string
+      step-name:
+        description: Human label for this job in the prompt.
+        required: false
+        type: string
+        default: tests
+      artifact-dir:
+        description: Optional directory of related artifacts (ascend logs, etc.).
+        required: false
+        type: string
+        default: ""
+      k8s-dir:
+        description: Optional directory of K8s diagnostics (pods.json, events).
+        required: false
+        type: string
+        default: ""
+      benchmark-dir:
+        description: Optional directory of benchmark results JSON.
+        required: false
+        type: string
+        default: ""
+      ref:
+        description: Git ref (branch/tag) being tested.
+        required: false
+        type: string
+        default: ""
+      sha:
+        description: Git commit SHA being tested.
+        required: false
+        type: string
+        default: ""
+      repo-dir:
+        description: Path to checked-out git repo for context extraction.
+        required: false
+        type: string
+        default: ""
+      output-json:
+        description: Where to write the evidence bundle JSON artifact.
+        required: false
+        type: string
+        default: ci-ai-diagnosis-evidence.json
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Build CI diagnosis evidence bundle
+        run: |
+          set -e
+          ARGS="--log-file ${{ inputs.log-file }} --step-name '${{ inputs.step-name }}' --output-json ${{ inputs.output-json }} --write-summary"
+          if [ -n "${{ inputs.artifact-dir }}" ]; then
+            ARGS="$ARGS --artifact-dir ${{ inputs.artifact-dir }}"
+          fi
+          if [ -n "${{ inputs.k8s-dir }}" ]; then
+            ARGS="$ARGS --k8s-dir ${{ inputs.k8s-dir }}"
+          fi
+          if [ -n "${{ inputs.benchmark-dir }}" ]; then
+            ARGS="$ARGS --benchmark-dir ${{ inputs.benchmark-dir }}"
+          fi
+          if [ -n "${{ inputs.ref }}" ]; then
+            ARGS="$ARGS --ref ${{ inputs.ref }}"
+          fi
+          if [ -n "${{ inputs.sha }}" ]; then
+            ARGS="$ARGS --sha ${{ inputs.sha }}"
+          fi
+          if [ -n "${{ inputs.repo-dir }}" ]; then
+            ARGS="$ARGS --repo-dir ${{ inputs.repo-dir }}"
+          fi
+          python3 "$GITHUB_WORKSPACE/.github/workflows/scripts/ci_diagnosis_agent.py" $ARGS
+
+      - name: Upload evidence bundle JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-ai-diagnosis-evidence
+          path: ${{ inputs.output-json }}
+          if-no-files-found: ignore

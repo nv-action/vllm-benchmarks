@@ -241,11 +241,11 @@ jobs:
             fi
             echo "  model_type=${model_type} → ${test_script}"
             pytest -sv "${test_script}" \
-              --config "${config_path}" || {
+              --config "${config_path}" 2>&1 | tee -a /tmp/nightly-models.log
+            if [ ${PIPESTATUS[0]} -ne 0 ]; then
               echo "Test failed for model: $model"
               any_failure=1
-            }
-          done
+            fi
 
           if [ $any_failure -ne 0 ]; then
             exit 1
@@ -289,3 +289,40 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
           overwrite: true
+
+      - name: Collect Ascend logs for diagnosis
+        if: always()
+        continue-on-error: true
+        run: |
+          ADIR=/tmp/ci-diagnosis-artifacts/ascend_logs
+          mkdir -p "$ADIR"/{plog,container}
+          for src in /root/ascend/log /var/log/npu /var/log/ascend; do
+            if [ -d "$src" ]; then
+              cp -r "$src" "$ADIR/plog/" 2>/dev/null || true
+            fi
+          done
+          if command -v docker &>/dev/null; then
+            docker logs "$(docker ps -q | head -1)" > "$ADIR/container/docker.log" 2>/dev/null || true
+          fi
+          echo "Ascend logs collected under $ADIR:"
+          find "$ADIR" -type f 2>/dev/null | sort || true
+
+      - name: Collect CI diagnosis evidence
+        if: failure()
+        continue-on-error: true
+        run: |
+          LOGFILE=/tmp/nightly-models.log
+          if [ ! -f "$LOGFILE" ]; then
+            echo "Log file not found at $LOGFILE, skipping diagnosis"
+            exit 0
+          fi
+          SHA=$(git rev-parse HEAD)
+          python3 "$GITHUB_WORKSPACE/.github/workflows/scripts/ci_diagnosis_agent.py" \
+            --log-file "$LOGFILE" \
+            --step-name "${{ inputs.model_list }}" \
+            --artifact-dir /tmp/ci-diagnosis-artifacts \
+            --ref "${{ inputs.vllm_ascend_ref || github.ref_name }}" \
+            --sha "$SHA" \
+            --repo-dir "$GITHUB_WORKSPACE" \
+            --output-json /tmp/ci-diagnosis-evidence.json \
+            --write-summary
