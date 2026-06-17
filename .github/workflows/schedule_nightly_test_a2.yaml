@@ -81,7 +81,7 @@ jobs:
     if: >-
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch'
-    runs-on: linux-aarch64-a2b3-0
+    runs-on: linux-aarch64-a2-0
     outputs:
       run: ${{ steps.parse.outputs.run }}
       filter: ${{ steps.parse.outputs.filter }}
@@ -119,7 +119,7 @@ jobs:
   setup-vars:
     name: Export global env vars as job outputs
     needs: parse-trigger
-    runs-on: linux-aarch64-a2b3-0
+    runs-on: linux-aarch64-a2-0
     outputs:
       cann_image: ${{ steps.export.outputs.cann_image }}
       ascend_log_prefix: ${{ steps.export.outputs.ascend_log_prefix }}
@@ -271,7 +271,7 @@ jobs:
         needs.parse-trigger.outputs.filter == 'all' ||
         contains(needs.parse-trigger.outputs.filter, 'accuracy-group')
       )
-    runs-on: linux-aarch64-a2b3-0
+    runs-on: linux-aarch64-a2-0
     outputs:
       nightly_matrix: ${{ steps.set-matrix.outputs.nightly_matrix }}
       pr_only_matrix: ${{ steps.set-matrix.outputs.pr_only_matrix }}
@@ -346,7 +346,7 @@ jobs:
 
   clear-pre-logs:
     needs: [parse-trigger, multi-node-tests]
-    runs-on: linux-aarch64-a2b3-0
+    runs-on: linux-aarch64-a2-0
     if: github.event_name == 'schedule' && needs.multi-node-tests.result != 'skipped'
     steps:
       - name: Clear pre-logs on pvc
@@ -361,7 +361,7 @@ jobs:
       always() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
       needs.parse-trigger.result == 'success'
-    runs-on: linux-aarch64-a2b3-0
+    runs-on: linux-aarch64-a2-0
     steps:
       - name: Merge all benchmark result artifacts
         continue-on-error: true
