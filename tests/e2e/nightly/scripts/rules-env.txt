@@ -1,0 +1,32 @@
+# Environment failure patterns (network / hardware / infra)
+# One regex per line. Lines starting with # are comments.
+# Used by aop_classify.sh via grep -Ef
+
+(Connection|MaxRetry)(Error|RefusedError)
+(Read|Connect)Timeout
+Failed to resolve
+Name or service not known
+Could not resolve host
+Network is unreachable
+Temporary failure in name resolution
+MaxRetries
+huggingface\.co
+modelscope
+swr\.cn-southwest
+cache-service
+can not found available resource
+npu-smi.*(failed|error)
+ACL_ERROR|aclError
+(HCCL|hccl)
+driver error
+device not (found|available)
+(OutOf|M)emory(Error)?
+memory.*exhausted
+Allocate.*memory.*failed
+kubectl.*error
+pod.*(failed|not found)
+Server.*did not start
+VLLM_ENGINE_READY_TIMEOUT
+apt-get.*failed
+git.*(clone|fetch).*failed
+No space left on device

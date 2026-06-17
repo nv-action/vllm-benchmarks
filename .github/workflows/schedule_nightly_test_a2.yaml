@@ -17,7 +17,7 @@
 
 # This workflow related to the resources atlas 800 A2
 # We will not limit the concurrency of jobs on A2
-name: Nightly-A2
+name: Nightly-A2-new
 
 on:
 #   schedule:
@@ -81,7 +81,7 @@ jobs:
     if: >-
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch'
-    runs-on: linux-aarch64-a2b3-0
+    runs-on: linux-amd64-cpu-8-hk
     outputs:
       run: ${{ steps.parse.outputs.run }}
       filter: ${{ steps.parse.outputs.filter }}
@@ -119,7 +119,7 @@ jobs:
   setup-vars:
     name: Export global env vars as job outputs
     needs: parse-trigger
-    runs-on: linux-aarch64-a2b3-0
+    runs-on: linux-amd64-cpu-8-hk
     outputs:
       cann_image: ${{ steps.export.outputs.cann_image }}
       ascend_log_prefix: ${{ steps.export.outputs.ascend_log_prefix }}
@@ -142,9 +142,7 @@ jobs:
 
   build-image:
     name: Build nightly-a2 image
-    if: >-
-      github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && inputs.skip_build_image != 'true')
+    if: github.event_name == 'schedule' 
     strategy:
       matrix:
         vllm_ascend_branch: >-
@@ -174,23 +172,23 @@ jobs:
         test_config:
           # pytest-driven tests
           - name: test_custom_op_multi_card
-            os: linux-aarch64-a2b3-4
+            os: linux-aarch64-a2-4
             tests: tests/e2e/nightly/single_node/ops/multicard_ops_a2/
           # YAML-driven tests
           - name: qwen3-vl-32b-instruct-w8a8
-            os: linux-aarch64-a2b3-4
+            os: linux-aarch64-a2-4
             config_file_path: Qwen3-VL-32B-Instruct-W8A8.yaml
           - name: qwen3-32b-int8
-            os: linux-aarch64-a2b3-4
+            os: linux-aarch64-a2-4
             config_file_path: Qwen3-32B-Int8-A2.yaml
           - name: MiniMax-M2.5-w8a8-QuaRot-A2
-            os: linux-aarch64-a2b3-8
+            os: linux-aarch64-a2-8
             config_file_path: MiniMax-M2.5-w8a8-QuaRot-A2.yaml
           - name: Qwen3.5-27B-w8a8-A2
-            os: linux-aarch64-a2b3-2
+            os: linux-aarch64-a2-2
             config_file_path: Qwen3.5-27B-w8a8-A2.yaml
           - name: Qwen3.5-397B-A17B-w4a8-mtp
-            os: linux-aarch64-a2b3-8
+            os: linux-aarch64-a2-8
             config_file_path: Qwen3.5-397B-A17B-w4a8-mtp-A2.yaml
     uses: ./.github/workflows/_e2e_nightly_single_node.yaml
     with:
@@ -269,7 +267,7 @@ jobs:
         needs.parse-trigger.outputs.filter == 'all' ||
         contains(needs.parse-trigger.outputs.filter, 'accuracy-group')
       )
-    runs-on: linux-aarch64-a2b3-0
+    runs-on: linux-amd64-cpu-8-hk
     outputs:
       nightly_matrix: ${{ steps.set-matrix.outputs.nightly_matrix }}
       pr_only_matrix: ${{ steps.set-matrix.outputs.pr_only_matrix }}
@@ -346,7 +344,7 @@ jobs:
 
   clear-pre-logs:
     needs: [parse-trigger, multi-node-tests]
-    runs-on: linux-aarch64-a2b3-0
+    runs-on: linux-amd64-cpu-8-hk
     if: github.event_name == 'schedule' && needs.multi-node-tests.result != 'skipped'
     steps:
       - name: Clear pre-logs on pvc
@@ -361,7 +359,7 @@ jobs:
       always() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
       needs.parse-trigger.result == 'success'
-    runs-on: linux-aarch64-a2b3-0
+    runs-on: linux-amd64-cpu-8-hk
     steps:
       - name: Merge all benchmark result artifacts
         continue-on-error: true

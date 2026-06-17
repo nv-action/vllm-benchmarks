@@ -74,7 +74,7 @@ on path patterns:
 | `four_card` in path | four_card A3 NPU | `linux-aarch64-a3-4` |
 | `_310p` in filename under one/two_card | Ascend 310P x1 | `linux-aarch64-310p-*` |
 | `_310p` in filename under four_card | Ascend 310P x4 | `linux-aarch64-310p-*` |
-| All other paths | one_card A2 NPU | `linux-aarch64-a2b3-1` |
+| All other paths | one_card A2 NPU | `linux-aarch64-a2-1` |
 
 When paths from multiple categories are listed in a single comment, each category's
 tests run on its respective hardware in parallel.

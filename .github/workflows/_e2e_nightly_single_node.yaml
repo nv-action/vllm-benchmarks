@@ -214,6 +214,7 @@ jobs:
           fi
 
       - name: Run Pytest (py-driven)
+        id: pytest-driven
         if: ${{ inputs.tests != '' }}
         env:
           VLLM_WORKER_MULTIPROC_METHOD: spawn
@@ -223,10 +224,14 @@ jobs:
         run: |
           export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
           echo "Running pytest with tests path: ${{ inputs.tests }}"
+          mkdir -p /tmp/test-logs
+          set -o pipefail
           pytest -sv "${{ inputs.tests }}" \
-          --ignore=tests/e2e/nightly/single_node/ops/singlecard_ops/test_fused_moe.py
+            --ignore=tests/e2e/nightly/single_node/ops/singlecard_ops/test_fused_moe.py \
+            2>&1 | tee /tmp/test-logs/pytest-driven.log
 
       - name: Run Pytest (YAML-driven)
+        id: yaml-test
         if: ${{ always() && inputs.config_file_path != '' }}
         env:
           VLLM_WORKER_MULTIPROC_METHOD: spawn
@@ -240,7 +245,87 @@ jobs:
           export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
           echo "export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib" >> ~/.bashrc
           echo "Running YAML-driven test with config: ${{ inputs.config_file_path }}"
-          pytest -sv tests/e2e/nightly/single_node/models/scripts/test_single_node.py
+          mkdir -p /tmp/test-logs
+          set -o pipefail
+          pytest -sv tests/e2e/nightly/single_node/models/scripts/test_single_node.py \
+            2>&1 | tee /tmp/test-logs/yaml-test.log
+
+      # ============================================
+      # AOP hooks: intercept test results uniformly
+      # ============================================
+
+      - name: Capture test result
+        id: test-result
+        if: ${{ always() && (inputs.config_file_path != '' || inputs.tests != '') }}
+        working-directory: /vllm-workspace/vllm-ascend
+        run: |
+          bash tests/e2e/nightly/scripts/aop_capture.sh \
+            "${{ steps.yaml-test.outcome }}" \
+            "${{ steps.pytest-driven.outcome }}"
+
+      - name: Classify failure
+        id: classify
+        if: ${{ always() && steps.test-result.outputs.result == 'failure' }}
+        working-directory: /vllm-workspace/vllm-ascend
+        run: bash tests/e2e/nightly/scripts/aop_classify.sh
+
+      - name: Check commit age
+        id: commit-age
+        if: ${{ always() && steps.test-result.outputs.result == 'failure' }}
+        working-directory: /vllm-workspace/vllm-ascend
+        run: |
+          bash tests/e2e/nightly/scripts/aop_commit_age.sh \
+            "${{ inputs.name || inputs.config_file_path || inputs.tests }}" \
+            "/root/.cache/commit-table.csv"
+
+      # ============================================================
+      # Decision gate: skip or process?
+      #
+      #   Skip if:  env_failure          (environment issue)
+      #          OR commit_age > 3 days   (too old to care)
+      #
+      #   Process if: NOT env_failure AND commit <= 3 days
+      # ============================================================
+
+      - name: Skip - env issue or old commit
+        if: >-
+          ${{ always() &&
+          steps.test-result.outputs.result == 'failure' &&
+          (steps.classify.outputs.failure_type == 'env_failure' ||
+           steps.commit-age.outputs.is_old == 'true') }}
+        working-directory: /vllm-workspace/vllm-ascend
+        run: |
+          bash tests/e2e/nightly/scripts/aop_skip.sh \
+            "${{ steps.classify.outputs.failure_type }}" \
+            "${{ steps.commit-age.outputs.last_status }}" \
+            "${{ steps.commit-age.outputs.last_date }}" \
+            "${{ steps.commit-age.outputs.commit_age_days }}" \
+            "${{ steps.test-result.outputs.pytest_summary }}" \
+            "${{ steps.test-result.outputs.yaml_summary }}"
+
+      - name: Process - recent real failure
+        if: >-
+          ${{ always() &&
+          steps.test-result.outputs.result == 'failure' &&
+          steps.classify.outputs.failure_type != 'env_failure' &&
+          steps.commit-age.outputs.is_old == 'false' }}
+        working-directory: /vllm-workspace/vllm-ascend
+        run: |
+          bash tests/e2e/nightly/scripts/aop_process.sh \
+            "${{ steps.classify.outputs.failure_type }}" \
+            "${{ steps.commit-age.outputs.commit_age_days }}" \
+            "${{ inputs.runner }}" \
+            "${{ inputs.tests }}" \
+            "${{ inputs.config_file_path }}" \
+            "${{ steps.test-result.outputs.pytest_summary }}" \
+            "${{ steps.test-result.outputs.yaml_summary }}"
+
+      - name: On success
+        if: ${{ always() && steps.test-result.outputs.result == 'success' }}
+        run: |
+          echo ">>> All tests passed!"
+
+      # ============================================
 
       - name: Set benchmark artifact timestamp
         if: ${{ always() && inputs.config_file_path != '' }}
