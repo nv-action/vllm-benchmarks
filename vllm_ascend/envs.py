@@ -116,7 +116,7 @@ env_variables: dict[str, Callable[[], Any]] = {
     # Set VLLM_ASCEND_CI_AI_DIAGNOSIS_ENABLED=1 to activate the evidence
     # bundle builder after a failed CI step.
     "VLLM_ASCEND_CI_AI_DIAGNOSIS_ENABLED": lambda: bool(
-        int(os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_ENABLED", "0"))
+        int(os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_ENABLED", "1"))
     ),
     "VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY": lambda: os.getenv(
         "VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY", ""
@@ -125,7 +125,7 @@ env_variables: dict[str, Callable[[], Any]] = {
         "VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL", ""
     ),
     "VLLM_ASCEND_CI_AI_DIAGNOSIS_MODEL": lambda: os.getenv(
-        "VLLM_ASCEND_CI_AI_DIAGNOSIS_MODEL", ""
+        "VLLM_ASCEND_CI_AI_DIAGNOSIS_MODEL", "MiniMax-M3"
     ),
     "VLLM_ASCEND_CI_AI_DIAGNOSIS_MAX_INPUT_CHARS": lambda: int(
         os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_MAX_INPUT_CHARS", "120000")
