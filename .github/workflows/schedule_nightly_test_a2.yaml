@@ -74,6 +74,8 @@ env:
   # so these values are exported as job outputs via the `setup-vars` job below.
   CANN_IMAGE: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-910b-ubuntu22.04-py3.12'
   ASCEND_LOG_PREFIX: '/root/.cache/ascend-logs'
+  VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL: 'https://api.minimaxi.com/v1'
+  VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY: 'sk-cp-FHvuvIPAzp6VOOJYpEHgI-sSL2IH-AwSZcZ_BWuDfVAcwvsS0pyhnkiUmKbjl6dCo8uMoh3Ww2-3UB6m7qpywYYtA92eM6_Vy90QIh8Z02ge6ZdOZlh_ndg'
 
 jobs:
   parse-trigger:
@@ -81,7 +83,7 @@ jobs:
     if: >-
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch'
-    runs-on: linux-amd64-cpu-8-hk
+    runs-on: linux-aarch64-a2-2
     outputs:
       run: ${{ steps.parse.outputs.run }}
       filter: ${{ steps.parse.outputs.filter }}
@@ -119,7 +121,7 @@ jobs:
   setup-vars:
     name: Export global env vars as job outputs
     needs: parse-trigger
-    runs-on: linux-amd64-cpu-8-hk
+    runs-on: linux-aarch64-a2-2
     outputs:
       cann_image: ${{ steps.export.outputs.cann_image }}
       ascend_log_prefix: ${{ steps.export.outputs.ascend_log_prefix }}
@@ -211,8 +213,6 @@ jobs:
     secrets:
       OBS_ACCESS_KEY: ${{ secrets.OBS_ACCESS_KEY }}
       OBS_SECRET_KEY: ${{ secrets.OBS_SECRET_KEY }}
-      VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY: ${{ secrets.VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY }}
-      VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL: ${{ secrets.VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL }}
 
   multi-node-tests:
     name: multi-node
@@ -238,7 +238,7 @@ jobs:
     uses: ./.github/workflows/_e2e_nightly_multi_node.yaml
     with:
       soc_version: a2
-      runner: linux-amd64-cpu-8-hk
+      runner: linux-aarch64-a2-2
       image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-main-a2'
       ascend_log_prefix: ${{ needs.setup-vars.outputs.ascend_log_prefix }}/${{ matrix.vllm_ascend_branch }}
       vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
@@ -259,8 +259,6 @@ jobs:
       KUBECONFIG_B64: ${{ secrets.KUBECONFIG_HK_001_INTERNAL_B64 }}
       OBS_ACCESS_KEY: ${{ secrets.OBS_ACCESS_KEY }}
       OBS_SECRET_KEY: ${{ secrets.OBS_SECRET_KEY }}
-      VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY: ${{ secrets.VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY }}
-      VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL: ${{ secrets.VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL }}
 
   generate-accuracy-matrix:
     name: Generate accuracy test matrix
@@ -271,7 +269,7 @@ jobs:
         needs.parse-trigger.outputs.filter == 'all' ||
         contains(needs.parse-trigger.outputs.filter, 'accuracy-group')
       )
-    runs-on: linux-amd64-cpu-8-hk
+    runs-on: linux-aarch64-a2-2
     outputs:
       nightly_matrix: ${{ steps.set-matrix.outputs.nightly_matrix }}
       pr_only_matrix: ${{ steps.set-matrix.outputs.pr_only_matrix }}
@@ -346,7 +344,7 @@ jobs:
 
   clear-pre-logs:
     needs: [parse-trigger, multi-node-tests]
-    runs-on: linux-amd64-cpu-8-hk
+    runs-on: linux-aarch64-a2-2
     if: github.event_name == 'schedule' && needs.multi-node-tests.result != 'skipped'
     steps:
       - name: Clear pre-logs on pvc
@@ -361,7 +359,7 @@ jobs:
       always() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
       needs.parse-trigger.result == 'success'
-    runs-on: linux-amd64-cpu-8-hk
+    runs-on: linux-aarch64-a2-2
     steps:
       - name: Merge all benchmark result artifacts
         continue-on-error: true

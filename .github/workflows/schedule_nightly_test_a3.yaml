@@ -73,6 +73,8 @@ env:
   # NOTE: GitHub Actions does not support env context in reusable workflow `with:` inputs,
   # so these values are exported as job outputs via the `setup-vars` job below.
   ASCEND_LOG_PREFIX: '/root/.cache/ascend-logs'
+  VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL: 'https://api.minimaxi.com/v1'
+  VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY: 'sk-cp-FHvuvIPAzp6VOOJYpEHgI-sSL2IH-AwSZcZ_BWuDfVAcwvsS0pyhnkiUmKbjl6dCo8uMoh3Ww2-3UB6m7qpywYYtA92eM6_Vy90QIh8Z02ge6ZdOZlh_ndg'
 
 jobs:
   parse-trigger:
@@ -197,8 +199,6 @@ jobs:
       KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
       OBS_ACCESS_KEY: ${{ secrets.OBS_ACCESS_KEY }}
       OBS_SECRET_KEY: ${{ secrets.OBS_SECRET_KEY }}
-      VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY: ${{ secrets.VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY }}
-      VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL: ${{ secrets.VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL }}
 
   double-node-tests:
     name: double-node
@@ -267,8 +267,6 @@ jobs:
       KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
       OBS_ACCESS_KEY: ${{ secrets.OBS_ACCESS_KEY }}
       OBS_SECRET_KEY: ${{ secrets.OBS_SECRET_KEY }}
-      VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY: ${{ secrets.VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY }}
-      VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL: ${{ secrets.VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL }}
 
   single-node-tests:
     name: single-node
@@ -396,8 +394,6 @@ jobs:
     secrets:
       OBS_ACCESS_KEY: ${{ secrets.OBS_ACCESS_KEY }}
       OBS_SECRET_KEY: ${{ secrets.OBS_SECRET_KEY }}
-      VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY: ${{ secrets.VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY }}
-      VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL: ${{ secrets.VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL }}
 
   clear-pre-logs:
     runs-on: linux-aarch64-a3-0
