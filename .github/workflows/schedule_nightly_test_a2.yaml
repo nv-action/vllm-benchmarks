@@ -140,33 +140,32 @@ jobs:
             fi
           } >> $GITHUB_OUTPUT
 
-  build-image:
-    name: Build nightly-a2 image
-    if: >-
-      github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && inputs.skip_build_image != 'true')
-    strategy:
-      matrix:
-        vllm_ascend_branch: >-
-          ${{ github.event_name == 'workflow_dispatch' 
-              && fromJSON(format('["{0}"]', inputs.vllm_ascend_branch))
-              || fromJSON('["main"]') }}
-    uses: ./.github/workflows/_nightly_image_build.yaml
-    with:
-      target: a2
-      vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
-    secrets:
-      HW_USERNAME: ${{ secrets.HW_USERNAME }}
-      HW_TOKEN: ${{ secrets.HW_TOKEN }}
-      GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+#  build-image:
+#    name: Build nightly-a2 image
+#    if: >-
+#      github.event_name == 'schedule' ||
+#      (github.event_name == 'workflow_dispatch' && inputs.skip_build_image != 'true')
+#    strategy:
+#      matrix:
+#        vllm_ascend_branch: >-
+#          ${{ github.event_name == 'workflow_dispatch' 
+#              && fromJSON(format('["{0}"]', inputs.vllm_ascend_branch))
+#              || fromJSON('["main"]') }}
+#    uses: ./.github/workflows/_nightly_image_build.yaml
+#    with:
+#      target: a2
+#      vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
+#    secrets:
+#      HW_USERNAME: ${{ secrets.HW_USERNAME }}
+#      HW_TOKEN: ${{ secrets.HW_TOKEN }}
+#      GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
 
   single-node-tests:
     name: single-node
-    needs: [setup-vars, parse-trigger, build-image]
+    needs: [setup-vars, parse-trigger]
     if: >-
       always() &&
-      needs.parse-trigger.outputs.run == 'true' &&
-      (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
+      needs.parse-trigger.outputs.run == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -195,7 +194,7 @@ jobs:
     uses: ./.github/workflows/_e2e_nightly_single_node.yaml
     with:
       runner: ${{ matrix.test_config.os }}
-      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a2'
+      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-main-a2'
       tests: ${{ matrix.test_config.tests }}
       config_file_path: ${{ matrix.test_config.config_file_path }}
       name: ${{ matrix.test_config.name }}
@@ -217,11 +216,10 @@ jobs:
 
   multi-node-tests:
     name: multi-node
-    needs: [setup-vars, parse-trigger, build-image, single-node-tests, single-node-accuracy-tests]
+    needs: [setup-vars, parse-trigger, single-node-tests, single-node-accuracy-tests]
     if: >-
       always() &&
-      needs.parse-trigger.outputs.run == 'true' &&
-      (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
+      needs.parse-trigger.outputs.run == 'true'
     strategy:
       fail-fast: false
       max-parallel: 5
@@ -241,7 +239,7 @@ jobs:
     with:
       soc_version: a2
       runner: linux-amd64-cpu-8-hk
-      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a2'
+      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-main-a2'
       ascend_log_prefix: ${{ needs.setup-vars.outputs.ascend_log_prefix }}/${{ matrix.vllm_ascend_branch }}
       vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
       request_id: ${{ inputs.request_id || '' }}
@@ -291,12 +289,11 @@ jobs:
           echo "pr_only_matrix=${PR_ONLY}" >> "$GITHUB_OUTPUT"
 
   single-node-accuracy-tests:
-    needs: [setup-vars, parse-trigger, build-image, generate-accuracy-matrix]
+    needs: [setup-vars, parse-trigger, generate-accuracy-matrix]
     if: >-
       always() &&
       needs.parse-trigger.outputs.run == 'true' &&
-      needs.generate-accuracy-matrix.result != 'skipped' &&
-      (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
+      needs.generate-accuracy-matrix.result != 'skipped'
     strategy:
       fail-fast: false
       matrix:
@@ -307,7 +304,7 @@ jobs:
       runner: ${{ matrix.test_config.os }}
       model_list: ${{ toJson(matrix.test_config.model_list) }}
       model_filter: ${{ needs.parse-trigger.outputs.filter }}
-      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a2'
+      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-main-a2'
       is_run: >-
         ${{
           needs.parse-trigger.outputs.run == 'true' && (
@@ -320,13 +317,12 @@ jobs:
       upload: false
 
   single-node-accuracy-tests-pr-only:
-    needs: [setup-vars, parse-trigger, build-image, generate-accuracy-matrix]
+    needs: [setup-vars, parse-trigger, generate-accuracy-matrix]
     if: >-
       always() &&
       needs.parse-trigger.outputs.run == 'true' &&
       needs.parse-trigger.outputs.filter != 'all' &&
-      needs.generate-accuracy-matrix.result != 'skipped' &&
-      (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
+      needs.generate-accuracy-matrix.result != 'skipped'
     strategy:
       fail-fast: false
       matrix:
@@ -337,7 +333,7 @@ jobs:
       runner: ${{ matrix.test_config.os }}
       model_list: ${{ toJson(matrix.test_config.model_list) }}
       model_filter: ${{ needs.parse-trigger.outputs.filter }}
-      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a2'
+      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-main-a2'
       is_run: >-
         ${{
           needs.parse-trigger.outputs.run == 'true' &&
