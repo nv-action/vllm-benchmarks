@@ -122,23 +122,6 @@ jobs:
             echo "vllm_ascend_branches=[\"${normalized}\"]"
           } >> $GITHUB_OUTPUT
 
-  build-image:
-    name: Build nightly-a3 image
-    if: >-
-      (github.event_name == 'workflow_dispatch' && inputs.skip_build_image != 'true')
-    strategy:
-      matrix:
-        vllm_ascend_branch: >-
-          ${{ fromJSON(format('["{0}"]', inputs.vllm_ascend_branch)) }}
-    uses: ./.github/workflows/_nightly_image_build.yaml
-    with:
-      target: a3
-      vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
-    secrets:
-      HW_USERNAME: ${{ secrets.HW_USERNAME }}
-      HW_TOKEN: ${{ secrets.HW_TOKEN }}
-      GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-
   multi-node-tests:
     name: multi-node
     needs: [setup-vars, parse-trigger, build-image]

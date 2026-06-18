@@ -14,7 +14,7 @@ permissions:
 jobs:
   force-cancel:
     name: Force cancel nightly runs
-    runs-on: linux-amd64-cpu-8-hk
+    runs-on: ubuntu-latest
     steps:
       - name: Force cancel matching runs
         shell: bash
