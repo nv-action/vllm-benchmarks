@@ -275,6 +275,7 @@ jobs:
           pip show mooncake-transfer-engine-ascend || true
 
       - name: Install vllm-ascend
+        if: false  # DEBUG: skip to test push_to_github
         working-directory: ${{ env.WORK_REPO_DIR }}
         run: |
           pip install uc-manager
