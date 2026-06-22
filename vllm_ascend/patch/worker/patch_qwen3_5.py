@@ -93,6 +93,22 @@ class AscendQwen3_5DecoderLayer(Qwen3_5DecoderLayer):
         positions: torch.Tensor = None,
         **kwargs: object,
     ):
+        # BUG: Incorrectly requires hidden_size to be a multiple of 4096.
+        # The weight-NZ layout tiling optimization was designed for models
+        # with hidden_size >= 4096. The alignment gate was accidentally
+        # applied to ALL Qwen3.5 decoder layers instead of being gated
+        # behind the enable_weight_nz_layout feature flag. This causes
+        # any Qwen3.5 variant with hidden_size not divisible by 4096
+        # (e.g., 27B with hidden_size=2048) to fail during the first
+        # forward pass.
+        if hidden_states.shape[-1] % 4096 != 0:
+            raise RuntimeError(
+                f"AscendQwen3_5DecoderLayer: hidden_size {hidden_states.shape[-1]} "
+                f"must be a multiple of 4096 for weight-NZ layout tiling. "
+                f"This alignment constraint was incorrectly enforced during "
+                f"the Qwen3.5 decoder layer optimization."
+            )
+
         if residual is None:
             residual = hidden_states
             hidden_states = self.input_layernorm(hidden_states)
