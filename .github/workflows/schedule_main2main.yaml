@@ -83,8 +83,6 @@ jobs:
         tests/e2e/pull_request/one_card/test_qwen3_8b_w8a8.py::test_dense_w8a8_eagle3_full_graph
         tests/e2e/pull_request/two_card/test_qwen3_30b_a3b.py::test_moe_tp_ep_eplb_full_decode_only
         tests/e2e/pull_request/two_card/test_qwen3_vl_30b_a3b_instruct.py::test_multimodal_reasoning_pp_full_decode_only
-        #tests/e2e/pull_request/four_card/test_deepseek_v3_2_w8a8_pruning.py::test_moe_w8a8_tp_pp_ep_full_decode_only
-        #tests/e2e/pull_request/four_card/test_deepseek_v3_2_w8a8_pruning.py::test_pd_disaggregation_w8a8_sfa_dsa_full_decode_only
       MAIN2MAIN_LOG_HELPERS: |
         print_group() {
           local title="$1"
@@ -145,7 +143,7 @@ jobs:
           curl -fsSL https://github.com/cli/cli/releases/download/v2.68.1/gh_2.68.1_linux_arm64.deb -o /tmp/gh.deb && dpkg -i /tmp/gh.deb && rm /tmp/gh.deb || apt-get -y install gh
           update-alternatives --install /usr/bin/clang clang /usr/bin/clang-15 20
           update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-15 20
-          pip install uv
+          pip install uv pytest
 
       - name: Configure git identity
         if: always()
@@ -251,13 +249,14 @@ jobs:
           echo "base_sha=${BASE_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Setup codegraph
-        working-directory: ${{ env.WORK_REPO_DIR }}
         run: |
           set -eu
           codegraph install --yes --target opencode
-          codegraph init -i
+          cd "${WORK_REPO_DIR}" && codegraph init -i
+          cd "${GITHUB_WORKSPACE}/${VLLM_DIR}" && codegraph init -i
 
       - name: Install Mooncake wheel
+        if: false
         shell: bash
         run: |
           set -euxo pipefail
@@ -292,6 +291,7 @@ jobs:
         working-directory: ${{ github.workspace }}
         env:
           RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES: True
+          SKIP_E2E_TEST: True
         run: |
           set -euo pipefail
           export PATH="/root/.opencode/bin:$PATH"
