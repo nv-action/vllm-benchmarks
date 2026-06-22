@@ -39,7 +39,7 @@ defaults:
 env:
   UPSTREAM_REPO: vllm-project/vllm-ascend
   WORK_REPO_DIR: ${{ github.workspace }}
-  VLLM_DIR: /tmp/vllm-upstream
+  VLLM_DIR: vllm-upstream
   MAIN2MAIN_MODEL: deepseek/deepseek-v4-pro
   MAIN2MAIN_IMAGE: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-910b-ubuntu22.04-py3.11
   UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
@@ -102,6 +102,9 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.PAT_TOKEN }}
 
+      - name: Exclude vllm dir from ascend git
+        run: echo "vllm-upstream/" >> .git/info/exclude
+
       - name: Checkout vllm-project/vllm repo
         uses: actions/checkout@v6
         with:
@@ -129,7 +132,7 @@ jobs:
           apt-get update -y
           apt-get -y install git
           git config --global --add safe.directory "${WORK_REPO_DIR}"
-          git config --global --add safe.directory "$GITHUB_WORKSPACE/${VLLM_DIR}"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/$GITHUB_WORKSPACE/${VLLM_DIR}"
 
       - name: Install system dependencies
         run: |
@@ -298,7 +301,7 @@ jobs:
 
           set +e
           kickoff \
-            --vllm-path "${VLLM_DIR}" \
+            --vllm-path "$GITHUB_WORKSPACE/${VLLM_DIR}" \
             --vllm-ascend-path "${WORK_REPO_DIR}" \
             --target-commit "${TARGET_COMMIT}" \
             2> /tmp/main2main/kickoff.err \
