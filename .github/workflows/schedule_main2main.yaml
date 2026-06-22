@@ -249,6 +249,7 @@ jobs:
           echo "base_sha=${BASE_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Setup codegraph
+        if: false  # DEBUG: skip to test push_to_github
         run: |
           set -eu
           codegraph install --yes --target opencode
@@ -356,13 +357,13 @@ jobs:
             echo "Steps: 0/0" >> /tmp/main2main/final-summary.md
           fi
 
-      - name: Upload test logs
+      - name: Upload workspace
         if: always()
         continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
-          name: main2main-test-logs
-          path: /tmp/main2main_flow/workspace/steps/*/tests/
+          name: main2main-workspace
+          path: /tmp/main2main_flow/workspace/
           retention-days: 7
 
       - name: Summarize final status
