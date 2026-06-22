@@ -164,6 +164,7 @@ export HCCL_CONNECT_TIMEOUT=7200
 export ASCEND_CONNECT_TIMEOUT=10000
 export ASCEND_TRANSFER_TIMEOUT=10000
 export VLLM_RPC_TIMEOUT=1800000
+export VLLM_ASCEND_APPLY_DSV4_PATCH=1
 
 vllm serve /root/.cache/modelscope/hub/models/vllm-ascend/DeepSeek-V4-Pro-w4a8-mtp \
   --host 0.0.0.0 \
@@ -242,6 +243,7 @@ export HCCL_CONNECT_TIMEOUT=7200
 export ASCEND_CONNECT_TIMEOUT=10000
 export ASCEND_TRANSFER_TIMEOUT=10000
 export VLLM_RPC_TIMEOUT=1800000
+export VLLM_ASCEND_APPLY_DSV4_PATCH=1
 
 vllm serve /root/.cache/modelscope/hub/models/vllm-ascend/DeepSeek-V4-Pro-w4a8-mtp \
   --host 0.0.0.0 \
@@ -318,6 +320,7 @@ export OMP_PROC_BIND=false
 export OMP_NUM_THREADS=10
 export TASK_QUEUE_ENABLE=1
 export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:$LD_PRELOAD
+export VLLM_ASCEND_APPLY_DSV4_PATCH=1
 export VLLM_ASCEND_ENABLE_FLASHCOMM1=1
 
 vllm serve /root/.cache/modelscope/hub/models/vllm-ascend/DeepSeek-V4-Pro-w4a8-mtp \
@@ -377,6 +380,7 @@ export OMP_PROC_BIND=false
 export OMP_NUM_THREADS=10
 export TASK_QUEUE_ENABLE=1
 export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:$LD_PRELOAD
+export VLLM_ASCEND_APPLY_DSV4_PATCH=1
 export VLLM_ASCEND_ENABLE_FLASHCOMM1=1
 
 vllm serve /root/.cache/modelscope/hub/models/vllm-ascend/DeepSeek-V4-Pro-w4a8-mtp \
@@ -550,6 +554,7 @@ Before you start, please
         export TASK_QUEUE_ENABLE=1
         export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:$LD_PRELOAD
         export ASCEND_RT_VISIBLE_DEVICES=$1
+        export VLLM_ASCEND_APPLY_DSV4_PATCH=1
         export VLLM_ASCEND_ENABLE_FUSED_MC2=1
         export VLLM_ASCEND_ENABLE_FLASHCOMM1=1
 
@@ -621,6 +626,7 @@ Before you start, please
         export TASK_QUEUE_ENABLE=1
         export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:$LD_PRELOAD
         export ASCEND_RT_VISIBLE_DEVICES=$1
+        export VLLM_ASCEND_APPLY_DSV4_PATCH=1
         export VLLM_ASCEND_ENABLE_FUSED_MC2=1
         export VLLM_ASCEND_ENABLE_FLASHCOMM1=1
 
@@ -691,6 +697,7 @@ Before you start, please
         export OMP_NUM_THREADS=10
         export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
         export HCCL_BUFFSIZE=1024
+        export VLLM_ASCEND_APPLY_DSV4_PATCH=1
         export ASCEND_RT_VISIBLE_DEVICES=$1
 
         vllm serve /root/.cache/modelscope/hub/models/vllm-ascend/DeepSeek-V4-Pro-w4a8-mtp \
@@ -920,6 +927,7 @@ Before you start, please
       
       export VLLM_ASCEND_ENABLE_FLASHCOMM1=1
       export ASCEND_RT_VISIBLE_DEVICES=$1
+      export VLLM_ASCEND_APPLY_DSV4_PATCH=1
       
       vllm serve /root/.cache/modelscope/hub/models/vllm-ascend/DeepSeek-V4-Pro-w4a8-mtp \
           --host 0.0.0.0 \
@@ -996,6 +1004,7 @@ Before you start, please
       sysctl kernel.sched_migration_cost_ns=50000
       
       export ASCEND_RT_VISIBLE_DEVICES=$1
+      export VLLM_ASCEND_APPLY_DSV4_PATCH=1
       
       vllm serve /root/.cache/modelscope/hub/models/vllm-ascend/DeepSeek-V4-Pro-w4a8-mtp \
           --host 0.0.0.0 \

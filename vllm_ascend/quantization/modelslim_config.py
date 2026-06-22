@@ -270,7 +270,7 @@ QUANT_MODEL_PREFIX_MAPPINGS = {
 
 QUANT_MODEL_SUBSTR_MAPPINGS = {
     "deepseek_v4": {
-        ".attn.": ".self_attn.",
+        ".attn.": ".sefl_attn.",
         ".w1.": ".gate_proj.",
         ".w2.": ".down_proj.",
         ".w3.": ".up_proj.",

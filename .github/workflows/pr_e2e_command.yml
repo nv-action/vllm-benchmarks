@@ -34,34 +34,18 @@ permissions:
 jobs:
   e2e-test:
     name: Run /e2e tests
-    runs-on: linux-amd64-cpu-8-hk
+    runs-on: ubuntu-latest
     outputs:
       pr_sha: ${{ steps.resolve.outputs.pr_sha }}
       test_groups: ${{ steps.groups.outputs.test_groups }}
       has_tests: ${{ steps.groups.outputs.has_tests }}
+      vllm_versions: ${{ steps.resolve.outputs.vllm_versions }}
       notify_comment_id: ${{ steps.notify.outputs.comment-id }}
-      main_commit: ${{ steps.vllm.outputs.main_commit }}
-      release_tag: ${{ steps.vllm.outputs.release_tag }}
     steps:
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update -y && sudo apt-get install -y curl
-          sudo mkdir -p -m 755 /etc/apt/keyrings
-          curl -sL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null
-          sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-          sudo apt-get update -y
-          sudo apt-get install gh -y
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-
       - name: Check user authorization
         id: auth
         env:
-          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ACTOR='${{ github.event.client_payload.github.payload.comment.user.login }}'
           PR_AUTHOR='${{ github.event.client_payload.pull_request.user.login }}'
@@ -71,10 +55,10 @@ jobs:
             echo "User $ACTOR is the PR author, authorized."
             echo "authorized=true" >> "$GITHUB_OUTPUT"
           else
-            ROLE_NAME=$(gh api "repos/$REPO/collaborators/$ACTOR/permission" --jq '.role_name' 2>/dev/null || true)
-            case "$ROLE_NAME" in
+            PERMISSION=$(gh api "repos/$REPO/collaborators/$ACTOR/permission" --jq '.permission')
+            case "$PERMISSION" in
               triage|write|maintain|admin)
-                echo "User $ACTOR has $ROLE_NAME role, authorized."
+                echo "User $ACTOR has $PERMISSION permission, authorized."
                 echo "authorized=true" >> "$GITHUB_OUTPUT"
                 ;;
               *)
@@ -112,12 +96,15 @@ jobs:
         run: exit 1
 
       - name: Checkout repo
+        if: steps.auth.outputs.authorized == 'true'
         uses: actions/checkout@v6
         with:
+          ref: ${{ github.event.client_payload.pull_request.head.sha }}
           fetch-depth: 1
 
       - name: Read verified vLLM refs
         id: vllm
+        if: steps.auth.outputs.authorized == 'true'
         run: |
           main_commit="$(tr -d '[:space:]' < .github/vllm-main-verified.commit)"
           release_tag="$(tr -d '[:space:]' < .github/vllm-release-tag.commit)"
@@ -136,19 +123,50 @@ jobs:
 
       - name: Resolve PR info and test names
         id: resolve
+        if: steps.auth.outputs.authorized == 'true'
         run: |
           PR_SHA='${{ github.event.client_payload.pull_request.head.sha }}'
           echo "pr_sha=$PR_SHA" >> "$GITHUB_OUTPUT"
 
           ALL_ARGS="${{ github.event.client_payload.slash_command.args.all }}"
-          echo "all_args=$ALL_ARGS" >> "$GITHUB_OUTPUT"
+
+          DEFAULT_VLLM_VERSIONS="[\"${{ steps.vllm.outputs.main_commit }}\",\"${{ steps.vllm.outputs.release_tag }}\"]"
+          VLLM_VERSIONS="$DEFAULT_VLLM_VERSIONS"
+          CLEAN_ARGS=""
+          NEXT_IS_VLLM=0
+          VLLM_FLAG_COUNT=0
+          for WORD in $(echo "$ALL_ARGS" | tr '\n' ' ' | xargs); do
+            if [ "$NEXT_IS_VLLM" = "1" ]; then
+              VLLM_VERSIONS=$(printf '%s' "$WORD" | python3 -c "import sys,json; print(json.dumps([v for v in sys.stdin.read().strip().split(',') if v]))")
+              NEXT_IS_VLLM=0
+            elif [ "$WORD" = "--vllm" ]; then
+              NEXT_IS_VLLM=1
+              VLLM_FLAG_COUNT=$((VLLM_FLAG_COUNT + 1))
+              if [ "$VLLM_FLAG_COUNT" -gt 1 ]; then
+                echo "::error::--vllm can only be specified once."
+                exit 1
+              fi
+            else
+              CLEAN_ARGS="$CLEAN_ARGS $WORD"
+            fi
+          done
+
+          if [ "$NEXT_IS_VLLM" = "1" ]; then
+            echo "::error::--vllm requires a value."
+            exit 1
+          fi
+
+          CLEAN_ARGS=$(echo "$CLEAN_ARGS" | xargs)
+          echo "all_args=$CLEAN_ARGS" >> "$GITHUB_OUTPUT"
+          echo "vllm_versions=$VLLM_VERSIONS" >> "$GITHUB_OUTPUT"
 
       - name: Validate test paths
         id: validate
+        if: steps.auth.outputs.authorized == 'true'
         env:
           ALL_ARGS: ${{ steps.resolve.outputs.all_args }}
         run: |
-          TESTS=$(echo "$ALL_ARGS" | tr '\n' ' ')
+          TESTS=$(echo "$ALL_ARGS" | tr '\n' ' ' | xargs)
           if [ -z "$TESTS" ]; then
             echo "::error::No test paths provided. Usage: /e2e <test-path-1> [test-path-2] ..."
             exit 1
@@ -165,27 +183,20 @@ jobs:
 
       - name: Categorize tests by runner
         id: groups
+        if: steps.auth.outputs.authorized == 'true'
         run: |
-          pip install regex pyyaml
+          pip install regex
           TESTS=$(echo "${{ steps.validate.outputs.tests }}" | tr '\n' ' ')
           read -ra TEST_ARRAY <<< "$TESTS"
           python3 .github/workflows/scripts/select_tests.py \
-            --explicit-e2e-tests "${TEST_ARRAY[@]}"
-
-      - name: Fail if no valid tests
-        if: steps.groups.outputs.has_tests != 'true'
-        run: |
-          echo "::error::No valid test paths matched. Please verify the paths exist and try again."
-          exit 1
+            --changed-files "${TEST_ARRAY[@]}"
 
   trigger-selected-tests:
     name: e2e-comment (${{ matrix.vllm_version }})
     strategy:
       fail-fast: false
       matrix:
-        vllm_version:
-          - ${{ needs.e2e-test.outputs.main_commit }}
-          - ${{ needs.e2e-test.outputs.release_tag }}
+        vllm_version: ${{ fromJSON(needs.e2e-test.outputs.vllm_versions) }}
     needs: [e2e-test]
     if: ${{ needs.e2e-test.outputs.has_tests == 'true' }}
     uses: ./.github/workflows/_selected_tests.yaml
@@ -198,7 +209,7 @@ jobs:
     name: Report result
     needs: [e2e-test, trigger-selected-tests]
     if: always() && needs.e2e-test.result == 'success' && needs.e2e-test.outputs.notify_comment_id != ''
-    runs-on: linux-amd64-cpu-8-hk
+    runs-on: ubuntu-latest
     steps:
       - name: Update comment with result
         uses: peter-evans/create-or-update-comment@v5
@@ -207,5 +218,5 @@ jobs:
           repository: ${{ github.event.client_payload.github.payload.repository.full_name }}
           comment-id: ${{ needs.e2e-test.outputs.notify_comment_id }}
           body: |
-            [Bot]: e2e command ${{ (needs.trigger-selected-tests.result == 'success' || needs.trigger-selected-tests.result == 'skipped') && 'completed successfully' || 'failed' }}.
-          reactions: ${{ (needs.trigger-selected-tests.result == 'success' || needs.trigger-selected-tests.result == 'skipped') && 'hooray' || 'confused' }}
+            [Bot]: e2e command ${{ (needs.trigger-selected-tests.result == 'success' && 'completed successfully') || (needs.trigger-selected-tests.result == 'skipped' && 'found no tests to run (please check the test paths)') || (needs.trigger-selected-tests.result == 'cancelled' && 'was cancelled') || 'failed' }}.
+          reactions: ${{ (needs.trigger-selected-tests.result == 'success' && 'hooray') || 'confused' }}

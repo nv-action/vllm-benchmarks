@@ -1206,15 +1206,17 @@ class MooncakeConnectorScheduler:
     def _compute_transfer_block_ids(self, block_ids: BlockIds, prompt_len: int) -> BlockIds:
         transfer_block_ids = []
         for i, blocks in enumerate(block_ids):
-            if self.use_compress and self.num_swa_blocks[i] == 0:
-                group_token_len = prompt_len // self.group_compress_ratio[i]
+            if self.num_swa_blocks[i] == 0:
+                if self.use_compress:
+                    group_block_len = math.ceil((prompt_len // self.group_compress_ratio[i]) / self.group_block_size[i])
+                else:
+                    group_block_len = math.ceil(prompt_len / self.group_block_size[i])
+                if group_block_len > 0:
+                    transfer_block_ids.append(blocks[:group_block_len])
+                else:
+                    transfer_block_ids.append([])
             else:
-                group_token_len = prompt_len
-            group_block_len = math.ceil(group_token_len / self.group_block_size[i])
-            if group_block_len > 0:
-                transfer_block_ids.append(blocks[:group_block_len])
-            else:
-                transfer_block_ids.append([])
+                transfer_block_ids.append(blocks)
         return tuple(transfer_block_ids)
 
     def get_num_new_matched_tokens(self, request: "Request", num_computed_tokens: int) -> tuple[int, bool]:
@@ -1327,17 +1329,16 @@ class MooncakeConnectorScheduler:
         ):
             return False, None
 
-        # P-side truncation can leave block ids allocated for the original
-        # prompt length. Drop those unwritten blocks before SWA tail clipping.
-        computed_block_ids = self._compute_transfer_block_ids(block_ids, request.num_prompt_tokens)
-        computed_block_ids = self.get_sw_clipped_blocks(computed_block_ids)
+        computed_block_ids = block_ids
         computed_block_lens = [len(block_id_list) for block_id_list in computed_block_ids]
         delay_free_blocks = sum(computed_block_lens) > 0
         if delay_free_blocks:
-            logger.info("Delaying free of %d blocks for request %s", sum(computed_block_lens), request.request_id)
+            logger.info("Delaying free of %d blocks for request %s", len(computed_block_ids), request.request_id)
             self._reqs_need_send[request.request_id] = time.time()
+            computed_block_ids = self.get_sw_clipped_blocks(computed_block_ids)
 
-        num_prompt_blocks = math.ceil(request.num_prompt_tokens / self.block_size)
+        num_prompt_blocks = math.ceil(len(request.prompt_token_ids) / self.block_size)
+        computed_block_ids = self._compute_transfer_block_ids(computed_block_ids, len(request.prompt_token_ids))
 
         return delay_free_blocks, dict(
             do_remote_prefill=True,
@@ -1540,7 +1541,6 @@ class MooncakeConnectorWorker:
                 if share_tensor_addr:
                     ptrs.append(min(share_tensor_addr))
                     lengths.append(kv_cache_tensor.size)
-            self.block_stride_per_addr.extend(self.block_len_per_addr)
         elif self.use_compress:
             layer_group_idx = dict[str, int]()
             for i, group in enumerate(self.kv_cache_config.kv_cache_groups):

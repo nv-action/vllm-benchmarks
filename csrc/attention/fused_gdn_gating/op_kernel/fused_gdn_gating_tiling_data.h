@@ -23,7 +23,6 @@ struct alignas(8) FusedGdnGatingTilingData {
     uint32_t rowsPerIter;
     uint32_t useBulkDma;
     float    beta;
-    float    threshold;
 };
 #pragma pack(pop)
 

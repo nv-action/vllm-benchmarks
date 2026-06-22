@@ -59,7 +59,6 @@ class EplbUpdator:
                 self.num_expert_load_gather = self.expert_heat_collection_interval
                 self.periodic_load_gather = False
         except Exception:
-            logger.debug("[eplb/updator] VLLM_ALLOW_EXPERT_LOAD_COLLECTING unavailable in current vllm version.")
             self.num_expert_load_gather = self.expert_heat_collection_interval
             self.periodic_load_gather = False
 
@@ -72,14 +71,13 @@ class EplbUpdator:
 
         self.process = process
 
-        logger.info("[eplb/updator] Launched EPLB subprocess, pid=%s", self.process.pid)
+        logger.info("[ModelRunner] Launched EPLB process (pid=%s)", self.process.pid)
 
     def update_iteration(self):
         self.cur_iterations += 1
         if self.cur_iterations == (
             self.expert_heat_collection_interval + self.algorithm_execution_interval + self.num_moe_layers
         ):
-            logger.debug("[eplb/updator] Full EPLB cycle completed, clearing moe loads and resetting iteration counter")
             if self.expert_map_record_path is not None:
                 self.adaptor._export_tensor_to_file(self.shared_dict["expert_maps"], self.expert_map_record_path)
 
@@ -143,19 +141,17 @@ class EplbUpdator:
             moe_load = moe_load.permute(2, 0, 1, 3)
 
         self.shared_dict["moe_load"] = moe_load
-        logger.debug("[eplb/updator] Updated shared_dict['moe_load'] shape=%s", moe_load.shape)
+        logger.debug("[ModelRunner] Updated shared_dict['moe_load'] shape=%s", moe_load.shape)
 
         return moe_load
 
     def warm_up_eplb(self):
-        logger.info("[eplb/updator] Starting EPLB warm-up, rank=%s, world_size=%s", self.rank_id, self.world_size)
         self.shared_dict["expert_maps"] = self.adaptor.get_global_expert_map()
         self.compute_and_set_moe_load()
 
         src_tensor = torch.empty((1,), device=self.device)
 
         comm_op_list = []
-        reqs = []
 
         for dst_rank in range(self.world_size):
             if dst_rank == self.rank_id:
@@ -171,7 +167,6 @@ class EplbUpdator:
 
         for req in reqs:
             req.wait()
-        logger.info("[eplb/updator] EPLB warm-up completed")
 
     def shutdown(self):
         """
@@ -180,4 +175,4 @@ class EplbUpdator:
         if self.process.is_alive():
             self.process.terminate()
             self.process.join()
-            logger.info("[eplb/updator] EPLB subprocess terminated")
+            logger.info("[ModelRunner] EPLB process terminated")

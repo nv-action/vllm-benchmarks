@@ -23,6 +23,8 @@ import torch_npu
 from vllm.config import VllmConfig
 from vllm.distributed import (
     get_dcp_group,
+    get_decode_context_model_parallel_rank,
+    get_decode_context_model_parallel_world_size,
     get_pcp_group,
 )
 from vllm.v1.attention.backend import AttentionCGSupport
@@ -55,10 +57,6 @@ from vllm_ascend.compilation.acl_graph import (
     update_graph_params_workspaces,
 )
 from vllm_ascend.device.device_op import DeviceOperator
-from vllm_ascend.distributed.utils import (
-    get_decode_context_model_parallel_rank,
-    get_decode_context_model_parallel_world_size,
-)
 from vllm_ascend.utils import cp_chunkedprefill_comm_stream, weak_ref_tensors
 
 
@@ -803,6 +801,7 @@ class AscendAttentionCPImpl(AscendAttentionBackendImpl):
         attn_metadata: AscendMetadata,
         output: torch.Tensor,
     ):
+        num_tokens = query.shape[0]
         num_decode_tokens = attn_metadata.num_decode_tokens
         has_decode = attn_metadata.num_decodes > 0
         has_prefill = attn_metadata.num_prefills > 0
@@ -836,9 +835,8 @@ class AscendAttentionCPImpl(AscendAttentionBackendImpl):
                         key, value = all_kv.split([self.head_size, self.head_size], dim=-1)
                     else:
                         query, key, value = self._gather_and_restore_pcp_qkv(query, key, value, attn_metadata)
-                        output_local_padded_tokens_fa = (
-                            attn_metadata.num_actual_tokens_pcp_padded // self.pcp_size - output_padded.shape[0]
-                        )
+                        num_actual_tokens_pcp_padded = attn_metadata.num_actual_tokens_pcp_padded
+                        output_local_padded_tokens_fa = num_actual_tokens_pcp_padded // self.pcp_size - num_tokens
                         if output_local_padded_tokens_fa > 0:
                             output_padded = F.pad(
                                 output, pad=(0, 0, 0, 0, 0, output_local_padded_tokens_fa), mode="constant", value=0
@@ -879,10 +877,7 @@ class AscendAttentionCPImpl(AscendAttentionBackendImpl):
             [query.reshape(num_tokens, -1), key.reshape(num_tokens, -1), value.reshape(num_tokens, -1)],
             dim=-1,
         )
-        # The hybrid linear partitioning may result in different data on two cards, so padding is required here.
-        real_num_tokens = attn_metadata.prefill.pcp_metadata.total_num_scheduled_tokens
-        qkv_fla = qkv_fla[:real_num_tokens]
-        if pcp_padded_tokens_fla > 0:
+        if num_tokens == attn_metadata.prefill.pcp_metadata.total_num_scheduled_tokens and pcp_padded_tokens_fla > 0:
             qkv_fla = F.pad(qkv_fla, pad=(0, 0, 0, pcp_padded_tokens_fla), mode="constant", value=0)
         all_qkv = get_pcp_group().all_gather(
             qkv_fla[: attn_metadata.prefill.pcp_metadata.max_num_tokens_across_pcp].contiguous(), dim=0
@@ -901,7 +896,6 @@ class AscendAttentionCPImpl(AscendAttentionBackendImpl):
 
         pcp_unpad_mask = attn_metadata.prefill.pcp_metadata.pcp_unpad_mask[attn_metadata.num_decodes * self.pcp_size :]
         qkv_fa_padding_workspace[decode_offset:][pcp_unpad_mask] = actual_qkv[decode_offset:]
-        qkv_fa_padding_workspace[decode_offset:][~pcp_unpad_mask] = 0
 
         q, k, v = qkv_fa_padding_workspace.split(
             [

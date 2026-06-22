@@ -521,7 +521,7 @@ ge::graphStatus DequantSwigluQuantDskTiling::GetShapeAttrsInfoInner() {
   // set the relevant param of group, hasGroupIndex_, groupNum_ and speGroupType_
   auto shapeGroupIndex = context_->GetOptionalInputShape(INPUT_GROUP_INDEX);
   hasGroupIndex_ = shapeGroupIndex != nullptr;
-  groupNum_ = 1;
+  groupNum_ = 0;
   speGroupType_ = false;
   if (hasGroupIndex_) {
     const gert::Shape& inputShapeGroupIndex = shapeGroupIndex->GetStorageShape();
@@ -557,14 +557,7 @@ bool DequantSwigluQuantDskTiling::IsPerformanceAndGroupIndexBrach() {
   if (shapeGroupIndex != nullptr) {
     return true;
   }
-
-  auto xPtr = context_->GetInputDesc(X_INDEX);
-  auto attrs = context_->GetAttrs();
-  if (xPtr == nullptr || attrs == nullptr) {
-    return false;
-  }
-  auto* swigluMode = attrs->GetAttrPointer<int>(SWIGLU_MODE_INDEX);
-  return xPtr->GetDataType() == ge::DT_INT32 && swigluMode != nullptr && *swigluMode == 1;
+  return false;
 }
 
 bool DequantSwigluQuantDskTiling::IsCapable() {
