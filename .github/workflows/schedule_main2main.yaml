@@ -39,7 +39,7 @@ defaults:
 env:
   UPSTREAM_REPO: vllm-project/vllm-ascend
   WORK_REPO_DIR: ${{ github.workspace }}
-  VLLM_DIR: vllm-upstream
+  VLLM_DIR: /tmp/vllm-upstream
   MAIN2MAIN_MODEL: deepseek/deepseek-v4-pro
   MAIN2MAIN_IMAGE: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-910b-ubuntu22.04-py3.11
   UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
@@ -64,8 +64,6 @@ jobs:
         VLLM_USE_MODELSCOPE: True
         HCCL_BUFFSIZE: 1024
         HF_HUB_OFFLINE: 1
-        IS_SANDBOX: 1
-        RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES: True
     defaults:
       run:
         shell: bash -el {0}
@@ -195,15 +193,6 @@ jobs:
           fi
           echo "opencode verification passed"
 
-          # install codegraph
-          curl -fsSL https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.sh | sh
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          export PATH="$HOME/.local/bin:$PATH"
-
-          # verify codegraph works
-          echo "Verifying codegraph..."
-          codegraph --help > /dev/null 2>&1 || { echo "::warning::codegraph install failed"; }
-
           # ensure git push uses gh token
           git config --global credential.helper "!gh auth git-credential"
 
@@ -248,16 +237,7 @@ jobs:
           echo "name=${BRANCH}" >> "$GITHUB_OUTPUT"
           echo "base_sha=${BASE_SHA}" >> "$GITHUB_OUTPUT"
 
-      - name: Setup codegraph
-        if: false  # DEBUG: skip to test push_to_github
-        run: |
-          set -eu
-          codegraph install --yes --target opencode
-          cd "${WORK_REPO_DIR}" && codegraph init -i
-          cd "${GITHUB_WORKSPACE}/${VLLM_DIR}" && codegraph init -i
-
       - name: Install Mooncake wheel
-        if: false
         shell: bash
         run: |
           set -euxo pipefail
@@ -275,7 +255,6 @@ jobs:
           pip show mooncake-transfer-engine-ascend || true
 
       - name: Install vllm-ascend
-        if: false  # DEBUG: skip to test push_to_github
         working-directory: ${{ env.WORK_REPO_DIR }}
         run: |
           pip install uc-manager
@@ -292,7 +271,6 @@ jobs:
         working-directory: ${{ github.workspace }}
         env:
           RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES: True
-          SKIP_E2E_TEST: True
         run: |
           set -euo pipefail
           export PATH="/root/.opencode/bin:$PATH"
@@ -320,7 +298,7 @@ jobs:
 
           set +e
           kickoff \
-            --vllm-path "${GITHUB_WORKSPACE}/${VLLM_DIR}" \
+            --vllm-path "${VLLM_DIR}" \
             --vllm-ascend-path "${WORK_REPO_DIR}" \
             --target-commit "${TARGET_COMMIT}" \
             2> /tmp/main2main/kickoff.err \
