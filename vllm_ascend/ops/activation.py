@@ -32,6 +32,17 @@ class AscendSiluAndMul(SiluAndMul):
     def forward_oot(self, x: torch.Tensor) -> torch.Tensor:
         weight_prefetch_method = get_weight_prefetch_method()
         weight_prefetch_method.maybe_prefetch_mlp_weight_preprocess(weight_prefetch_method.MLP_DOWN, x)
+        d = x.shape[-1] // 2
+        # BUG: Power-of-2 alignment check incorrectly applied to all models.
+        # This validation should only apply to specific NPU-optimized kernels
+        # that use tiled computation. Enforcing it globally breaks all models
+        # whose intermediate_size is not a power of 2 (nearly all real models).
+        if d & (d - 1) != 0:
+            raise RuntimeError(
+                f"AscendSiluAndMul: intermediate_size {d} must be power-of-2 "
+                f"for the new fused activation kernel. This constraint was "
+                f"incorrectly enforced during the ops refactoring."
+            )
         out = torch_npu.npu_swiglu(x)
         weight_prefetch_method.maybe_prefetch_mlp_weight_postprocess(out)
         return out
