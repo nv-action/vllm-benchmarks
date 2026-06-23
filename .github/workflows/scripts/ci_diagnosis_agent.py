@@ -356,8 +356,11 @@ SYSTEM_PROMPT = (
     "  - If the index has last_traceback AND it differs from first_traceback, "
     "include get_last_exception_context.\n"
     "  - If the index has wrapper_hits, include get_wrapper_upstream_context.\n"
-    "  - If the artifact_manifest has ascend_logs.present, include "
-    "get_artifact_manifest and search_artifacts with a broad error pattern.\n"
+    "  - If ANY of these signals indicates Ascend / NPU logs exist, include\n"
+    "    get_artifact_manifest AND search_artifacts with a broad error pattern:\n"
+    "    * artifact_manifest.ascend_logs.present == true\n"
+    "    * index.artifacts lists non-empty files under ascend_logs/\n"
+    "    * failure_layer hints at NPU / CANN / HCCL / hardware\n"
     "  - If the artifact_summary.benchmark has tasks_failed > 0, include "
     "get_benchmark_summary.\n"
     "  - If the artifact_summary.k8s has abnormal_reasons or non-running "
@@ -980,6 +983,18 @@ def _enforce_min_evidence_requests_artifact(
             have.add("get_k8s_summary")
 
     ascend_present = (manifest.get("ascend_logs") or {}).get("present")
+    # Defence in depth: if the manifest says "no Ascend logs" but the raw
+    # artifact file-list (from _scan_artifacts, independent of path-naming
+    # assumptions) contains non-empty files under ascend_logs/, treat them
+    # as present anyway.  This prevents a future manifest-path mismatch
+    # from silently hiding device logs from the LLM.
+    if not ascend_present:
+        raw_artifacts: list[dict[str, Any]] = index.get("artifacts") or []
+        ascend_present = any(
+            (a.get("path") or "").startswith("ascend_logs/")
+            and int(a.get("size") or 0) > 0
+            for a in raw_artifacts
+        )
     if ascend_present:
         if "get_artifact_manifest" not in have:
             out.insert(0, {"tool": "get_artifact_manifest"})
