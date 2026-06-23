@@ -105,31 +105,60 @@ class AgentConfig:
     timeout_s: int
     max_input_chars: int
 
+    @staticmethod
+    def _to_bool(value: object) -> bool:
+        """Convert an env-var value (str, bool, int, None, …) to bool.
+
+        Accepted true forms: True, 1, '1', 'true', 'yes', 'on' (case-insensitive).
+        Anything else is treated as false.
+        """
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, int):
+            return bool(value)
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return False
+
+    @staticmethod
+    def _to_int(value: object, default: int) -> int:
+        """Convert an env-var value to int, swallowing TypeError / ValueError."""
+        if isinstance(value, bool):
+            return int(value)
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.strip():
+            try:
+                return int(value.strip())
+            except (TypeError, ValueError):
+                pass
+        return default
+
     @classmethod
     def from_env(cls) -> "AgentConfig":
         try:
             import vllm_ascend.envs as envs
 
             return cls(
-                enabled=bool(int(str(envs.VLLM_ASCEND_CI_AI_DIAGNOSIS_ENABLED))),
+                enabled=cls._to_bool(envs.VLLM_ASCEND_CI_AI_DIAGNOSIS_ENABLED),
                 api_key=str(envs.VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY or "").strip(),
                 base_url=str(envs.VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL or "").strip(),
                 model=str(envs.VLLM_ASCEND_CI_AI_DIAGNOSIS_MODEL or "").strip(),
                 backend=str(envs.VLLM_ASCEND_CI_AI_DIAGNOSIS_BACKEND or "openai_compatible").strip(),
-                max_rounds=int(envs.VLLM_ASCEND_CI_AI_DIAGNOSIS_MAX_ROUNDS),
-                timeout_s=int(envs.VLLM_ASCEND_CI_AI_DIAGNOSIS_TIMEOUT_S),
-                max_input_chars=int(envs.VLLM_ASCEND_CI_AI_DIAGNOSIS_MAX_INPUT_CHARS),
+                max_rounds=cls._to_int(envs.VLLM_ASCEND_CI_AI_DIAGNOSIS_MAX_ROUNDS, 3),
+                timeout_s=cls._to_int(envs.VLLM_ASCEND_CI_AI_DIAGNOSIS_TIMEOUT_S, 30),
+                max_input_chars=cls._to_int(envs.VLLM_ASCEND_CI_AI_DIAGNOSIS_MAX_INPUT_CHARS, 120000),
             )
         except (ImportError, AttributeError):
             return cls(
-                enabled=bool(int(os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_ENABLED") or "0")),
+                enabled=cls._to_bool(os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_ENABLED", "0")),
                 api_key=os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY", "").strip(),
                 base_url=os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL", "").strip(),
                 model=os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_MODEL", "").strip(),
                 backend=os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_BACKEND", "openai_compatible").strip(),
-                max_rounds=int(os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_MAX_ROUNDS", "3")),
-                timeout_s=int(os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_TIMEOUT_S", "30")),
-                max_input_chars=int(os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_MAX_INPUT_CHARS", "120000")),
+                max_rounds=cls._to_int(os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_MAX_ROUNDS", "3"), 3),
+                timeout_s=cls._to_int(os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_TIMEOUT_S", "30"), 30),
+                max_input_chars=cls._to_int(os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_MAX_INPUT_CHARS", "120000"), 120000),
             )
 
     def llm_ready(self) -> bool:
