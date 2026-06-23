@@ -501,6 +501,46 @@ def _chat_one(
 _JSON_FENCE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
 
 
+def _extract_json_blocks(text: str) -> list[str]:
+    """Extract outermost JSON objects from markdown fenced blocks.
+
+    Uses bracket counting (not regex) to correctly handle nested objects,
+    arrays, and escaped characters inside strings.  Returns the raw text
+    of each top-level ``{...}`` found inside a `` ```json `` (or `` ``` ``) fence.
+    """
+    blocks: list[str] = []
+    for m in re.finditer(r"```(?:json)?[ \t]*\n?", text):
+        pos = m.end()
+        depth = 0
+        in_str = False
+        escape = False
+        block_start = -1
+        while pos < len(text):
+            ch = text[pos]
+            if escape:
+                escape = False
+                pos += 1
+                continue
+            if ch == "\\" and in_str:
+                escape = True
+                pos += 1
+                continue
+            if ch == '"':
+                in_str = not in_str
+            elif not in_str:
+                if ch == "{":
+                    if depth == 0:
+                        block_start = pos
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0 and block_start >= 0:
+                        blocks.append(text[block_start : pos + 1])
+                        break
+            pos += 1
+    return blocks
+
+
 def _strip_text(s: str, cap: int) -> str:
     if len(s) <= cap:
         return s
@@ -635,10 +675,16 @@ def _sanitize_routing(raw: dict[str, Any]) -> dict[str, Any]:
 def _sanitize_diagnosis(raw: dict[str, Any], routing: dict[str, Any], failed_tests: list[str]) -> dict[str, Any]:
     classification = raw.get("classification") if raw.get("classification") in ALLOWED_CLASS else "unknown"
     confidence = raw.get("confidence") if raw.get("confidence") in ALLOWED_CONF else "low"
+    # Normalise root_cause: LLM sometimes returns a dict {type, description}
+    # instead of a plain string.
+    root_cause_raw = raw.get("root_cause") or ""
+    if isinstance(root_cause_raw, dict):
+        root_cause_raw = root_cause_raw.get("description") or root_cause_raw.get("hypothesis") or str(root_cause_raw)
+    root_cause = str(root_cause_raw).strip()
     return {
         "routing": routing,
         "failure_family": str(raw.get("failure_family") or "unknown"),
-        "root_cause": str(raw.get("root_cause") or "").strip(),
+        "root_cause": root_cause,
         "classification": classification,
         "confidence": confidence,
         "evidence": _ensure_evidence_list(raw.get("evidence")),
@@ -1079,14 +1125,16 @@ def run_diagnosis(
     _log("round2", f"received hypothesis reply chars={len(reply2)}")
 
     # Parse the FINAL block (HYPOTHESES + FINAL pair, we take FINAL when present).
+    # Use bracket counting to correctly handle nested JSON objects/arrays.
     final_raw: dict[str, Any] | None = None
-    for block_match in re.finditer(r"```(?:json)?\s*(\{.*?\})\s*```", reply2, re.DOTALL):
+    for candidate in _extract_json_blocks(reply2):
         try:
-            obj = json.loads(block_match.group(1))
+            obj = json.loads(candidate)
         except json.JSONDecodeError:
             continue
-        if isinstance(obj, dict) and {"root_cause", "classification", "confidence"} & set(obj.keys()):
+        if isinstance(obj, dict) and "root_cause" in obj:
             final_raw = obj
+            break
     if final_raw is None:
         final_raw = _parse_json_block(reply2) or {}
 
