@@ -325,32 +325,10 @@ jobs:
           VLLM_ASCEND_REPO=/vllm-workspace/vllm-ascend
           SHA=$(git -C "$VLLM_ASCEND_REPO" rev-parse HEAD)
           AGENT_SCRIPT="$VLLM_ASCEND_REPO/.github/workflows/scripts/ci_diagnosis_agent.py"
-          # ------------------------------------------------------------------
-          # Hot-patch the agent script so it survives bool-valued env vars
-          # from vllm_ascend.envs (e.g. VLLM_ASCEND_CI_AI_DIAGNOSIS_ENABLED
-          # returns Python True instead of "1", which makes
-          # int(str(True)) -> ValueError).  The patch widens the except
-          # clause in AgentConfig.from_env() to also catch ValueError, so
-          # the graceful os.getenv fallback kicks in.
-          # This is a self-healing band-aid until the container image
-          # is rebuilt with the properly fixed ci_diagnosis_agent.py.
-          # ------------------------------------------------------------------
-          python3 -c "
-import re, sys
-with open('$AGENT_SCRIPT', 'r') as f:
-    text = f.read()
-old = 'except (ImportError, AttributeError):'
-new = 'except (ImportError, AttributeError, ValueError):'
-if old in text and new not in text:
-    text = text.replace(old, new, 1)
-    with open('$AGENT_SCRIPT', 'w') as f:
-        f.write(text)
-    print('[hotpatch] widened except clause in from_env()', file=sys.stderr)
-elif new in text:
-    print('[hotpatch] already patched', file=sys.stderr)
-else:
-    print('[hotpatch] WARNING: target except line not found', file=sys.stderr)
-"
+          # Hot-patch: vllm_ascend.envs returns bool for DIAGNOSIS_ENABLED,
+          # but the agent does int(str(bool)) -> ValueError.  Widen the
+          # except clause so it falls through to the os.getenv path.
+          sed -i 's/except (ImportError, AttributeError):/except (ImportError, AttributeError, ValueError):/' "$AGENT_SCRIPT"
           python3 "$AGENT_SCRIPT" \
             --log-file "$LOGFILE" \
             --step-name "${{ inputs.name || inputs.config_file_path || inputs.tests }}" \
