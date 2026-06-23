@@ -116,6 +116,7 @@ jobs:
         if: ${{ inputs.request_id != '' || github.event_name == 'workflow_dispatch' }}
         uses: actions/checkout@v6
         with:
+
           ref: ${{ inputs.vllm_ascend_ref || inputs.vllm_ascend_branch }}
           path: ./temp-vllm-ascend
           fetch-depth: 1
@@ -310,13 +311,19 @@ jobs:
       - name: Collect CI diagnosis evidence
         if: failure()
         continue-on-error: true
+        env:
+          VLLM_ASCEND_CI_AI_DIAGNOSIS_ENABLED: '1'
+          VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY: 'sk-e67cb689d8644aa3bf03d3050d726730'
+          VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL: 'https://api.deepseek.com'
+          VLLM_ASCEND_CI_AI_DIAGNOSIS_MODEL: 'deepseek-v4-flash'
         run: |
           LOGFILE=/tmp/nightly-single_node.log
           if [ ! -f "$LOGFILE" ]; then
             echo "Log file not found at $LOGFILE, skipping diagnosis"
             exit 0
           fi
-          SHA=$(git rev-parse HEAD)
+          VLLM_ASCEND_REPO=/vllm-workspace/vllm-ascend
+          SHA=$(git -C "$VLLM_ASCEND_REPO" rev-parse HEAD)
           python3 "$GITHUB_WORKSPACE/.github/workflows/scripts/ci_diagnosis_agent.py" \
             --log-file "$LOGFILE" \
             --step-name "${{ inputs.name || inputs.config_file_path || inputs.tests }}" \
@@ -324,6 +331,6 @@ jobs:
             --benchmark-dir /tmp/benchmark_results \
             --ref "${{ inputs.vllm_ascend_ref || github.ref_name }}" \
             --sha "$SHA" \
-            --repo-dir "$GITHUB_WORKSPACE" \
+            --repo-dir "$VLLM_ASCEND_REPO" \
             --output-json /tmp/ci-diagnosis-evidence.json \
             --write-summary
