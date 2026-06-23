@@ -324,7 +324,7 @@ jobs:
           fi
           VLLM_ASCEND_REPO=/vllm-workspace/vllm-ascend
           SHA=$(git -C "$VLLM_ASCEND_REPO" rev-parse HEAD)
-          python3 "$GITHUB_WORKSPACE/.github/workflows/scripts/ci_diagnosis_agent.py" \
+          python3 "$VLLM_ASCEND_REPO/.github/workflows/scripts/ci_diagnosis_agent.py" \
             --log-file "$LOGFILE" \
             --step-name "${{ inputs.name || inputs.config_file_path || inputs.tests }}" \
             --artifact-dir /tmp/ci-diagnosis-artifacts \
