@@ -274,6 +274,8 @@ def build_index(
     log_path: Path,
     *,
     artifact_dir: Path | None = None,
+    benchmark_dir: Path | None = None,
+    k8s_dir: Path | None = None,
     git_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build and return the index as a JSON-serialisable dict.
@@ -284,6 +286,10 @@ def build_index(
     ``artifacts: [{path,size}]`` file list. Missing artifact sources
     appear in the summary with ``present=False`` so the agent can
     distinguish "no benchmark JSON" from "benchmark passed".
+
+    When ``benchmark_dir`` or ``k8s_dir`` are provided separately from
+    ``artifact_dir``, they take precedence for their respective summary
+    entries; otherwise the summary falls back to ``artifact_dir``.
 
     When ``git_context`` is provided (a dict with keys like ``ref``,
     ``sha``, ``commit``, ``changed_files``), it is attached to the index
@@ -301,8 +307,8 @@ def build_index(
 
         index["artifact_manifest"] = build_manifest(Path(artifact_dir))
         index["artifact_summary"] = {
-            "benchmark": summarize_benchmark_results(Path(artifact_dir)),
-            "k8s": summarize_k8s_state(Path(artifact_dir)),
+            "benchmark": summarize_benchmark_results(benchmark_dir or Path(artifact_dir)),
+            "k8s": summarize_k8s_state(k8s_dir or Path(artifact_dir)),
         }
     if git_context:
         index["git_context"] = git_context

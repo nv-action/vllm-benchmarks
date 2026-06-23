@@ -32,10 +32,10 @@ Configuration (env vars, prefixed by VLLM_ASCEND_CI_AI_DIAGNOSIS_*):
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as _dt
 import json
 import os
-import re
 import subprocess
 import sys
 import urllib.error
@@ -43,6 +43,8 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+import regex as re
 
 # Ensure sibling scripts are importable when run as a CLI from the
 # workflow scripts directory.
@@ -75,6 +77,17 @@ ALLOWED_LAYERS = {
 }
 ALLOWED_CONF = {"high", "medium", "low"}
 ALLOWED_CLASS = {"flake", "test_bug", "product_bug", "infra_issue", "unknown"}
+
+# Cap on evidence requests to keep the agent loop bounded. Must be high
+# enough to accommodate all forced evidence (failure block, first/last
+# traceback, wrapper upstream, artifact manifest + search, benchmark,
+# k8s) plus any the LLM adds.
+MAX_EVIDENCE_REQUESTS = 12
+
+# Strip caps for the LLM prompt. Larger values keep more context visible
+# but increase token cost.
+ROUND1_INDEX_CHARS = 80_000
+ROUND2_EVIDENCE_CHARS = 80_000
 
 # Playbooks the agent is allowed to reference. It is an *open* hint set,
 # not a closed list: the agent can also report `matched_playbooks = []`
@@ -330,11 +343,25 @@ SYSTEM_PROMPT = (
     "  - {tool:'get_last_exception_context', before:M, after:K}  -> window around last Traceback\n"
     "  - {tool:'get_wrapper_upstream_context', before:M, after:K}  -> trace each wrapper hit upstream\n"
     "  - {tool:'list_artifacts'}  -> list artifact files when artifact_dir is set\n"
-    "  - {tool:'get_artifact_window', artifact:'rel/path', line:N, before:M, after:K}\n\n"
+    "  - {tool:'get_artifact_window', artifact:'rel/path', line:N, before:M, after:K}\n"
+    "  - {tool:'get_artifact_manifest'}  -> typed manifest of artifact bundle "
+    "(ascend_logs, k8s, benchmark_results)\n"
+    "  - {tool:'search_artifacts', pattern:'REGEX'}  -> regex search across artifact "
+    "files (plog, k8s events, pod stdout)\n"
+    "  - {tool:'get_benchmark_summary'}  -> pass/fail summary of benchmark_results JSON\n"
+    "  - {tool:'get_k8s_summary'}  -> K8s pod state, container states, abnormal reasons\n\n"
     "MINIMUM EVIDENCE REQUESTS (always include in round 1 when applicable):\n"
     "  - If the index has failed_tests, include get_failure_block for the first test.\n"
     "  - If the index has first_traceback, include get_first_exception_context.\n"
+    "  - If the index has last_traceback AND it differs from first_traceback, "
+    "include get_last_exception_context.\n"
     "  - If the index has wrapper_hits, include get_wrapper_upstream_context.\n"
+    "  - If the artifact_manifest has ascend_logs.present, include "
+    "get_artifact_manifest and search_artifacts with a broad error pattern.\n"
+    "  - If the artifact_summary.benchmark has tasks_failed > 0, include "
+    "get_benchmark_summary.\n"
+    "  - If the artifact_summary.k8s has abnormal_reasons or non-running "
+    "containers, include get_k8s_summary.\n"
     "  - If the failure_layer hints at a domain (NPU / network / storage), add a\n"
     "    search for the relevant tokens (CANN|HCCL|ACL|timeout|400|503|OOM|image pull).\n\n"
     "WRAPPER ERRORS ARE SYMPTOMS, never root causes, unless you have direct log\n"
@@ -488,7 +515,7 @@ def _build_round1_user(index: dict[str, Any], step_name: str, user_hint: str | N
     return (
         f"### Step\n{step_name}\n"
         f"### Deterministic log index (built by ci_diagnosis_index.py)\n"
-        f"```json\n{_strip_text(index_text, 60000)}\n```\n"
+        f"```json\n{_strip_text(index_text, ROUND1_INDEX_CHARS)}\n```\n"
         f"{hint}\n"
         f"Produce a routing JSON. Do NOT pick a root cause yet.\n"
         f"Schema:\n"
@@ -511,7 +538,7 @@ def _build_round2_user(
     evs = json.dumps(evidence_collected, ensure_ascii=False, indent=2)
     return (
         f"### Routing decision (round 1)\n```json\n{_strip_text(routed, 20000)}\n```\n"
-        f"### Evidence collected (round 2)\n```json\n{_strip_text(evs, 60000)}\n```\n"
+        f"### Evidence collected (round 2)\n```json\n{_strip_text(evs, ROUND2_EVIDENCE_CHARS)}\n```\n"
         f"### Index summary\n"
         f"failed_tests: {index.get('failed_tests')}\n"
         f"wrapper_hits: {(index.get('wrapper_hits') or [])[:8]}\n\n"
@@ -862,13 +889,20 @@ def _enforce_min_evidence_requests(index: dict[str, Any], requests: list[dict[st
         if isinstance(r, dict) and r.get("tool"):
             have.add(r["tool"])
     out = list(requests)
-    failed = (index.get("failed_tests") or [])
+    failed = index.get("failed_tests") or []
     if failed and "get_failure_block" not in have:
         out.insert(0, {"tool": "get_failure_block", "test": failed[0], "before": 5, "after": 200})
         have.add("get_failure_block")
     if index.get("first_traceback") and "get_first_exception_context" not in have:
         out.insert(0, {"tool": "get_first_exception_context", "before": 40, "after": 120})
         have.add("get_first_exception_context")
+    if (
+        index.get("last_traceback")
+        and index.get("last_traceback") != index.get("first_traceback")
+        and "get_last_exception_context" not in have
+    ):
+        out.insert(0, {"tool": "get_last_exception_context", "before": 40, "after": 120})
+        have.add("get_last_exception_context")
     if (index.get("wrapper_hits") or []) and "get_wrapper_upstream_context" not in have:
         out.insert(0, {"tool": "get_wrapper_upstream_context", "before": 200, "after": 40})
         have.add("get_wrapper_upstream_context")
@@ -899,10 +933,8 @@ def _enforce_min_evidence_requests_artifact(
             out.insert(0, {"tool": "get_k8s_summary"})
             have.add("get_k8s_summary")
 
-    main_total = index.get("total_lines") or 0
-    no_pytest = not (index.get("failed_tests") or index.get("first_traceback"))
     ascend_present = (manifest.get("ascend_logs") or {}).get("present")
-    if ascend_present and (no_pytest or main_total < 200):
+    if ascend_present:
         if "get_artifact_manifest" not in have:
             out.insert(0, {"tool": "get_artifact_manifest"})
             have.add("get_artifact_manifest")
@@ -911,7 +943,13 @@ def _enforce_min_evidence_requests_artifact(
                 0,
                 {
                     "tool": "search_artifacts",
-                    "pattern": r"Traceback|Error|FAILED|ACL|CANN|HCCL|OOM|CrashLoopBackOff|ImagePullBackOff|FailedMount|Unschedulable",
+                    "pattern": (
+                        r"Traceback|Exception|Error|RuntimeError|ValueError|"
+                        r"AssertionError|fatal error|must be|"
+                        r"FAILED|ACL|CANN|HCCL|OOM|"
+                        r"CrashLoopBackOff|ImagePullBackOff|FailedMount|"
+                        r"Unschedulable"
+                    ),
                     "max_matches": 30,
                 },
             )
@@ -929,15 +967,21 @@ def run_diagnosis(
     git_context: dict[str, Any] | None = None,
     k8s_dir: Path | None = None,
     benchmark_dir: Path | None = None,
+    *,
+    index: dict[str, Any] | None = None,
+    collector: EvidenceCollector | None = None,
 ) -> dict[str, Any]:
-    """Run the bounded LLM diagnosis loop. Caller must verify ``cfg.llm_ready()``."""
+    """Run the bounded LLM diagnosis loop. Caller must verify ``cfg.llm_ready()``.
+
+    ``index`` and ``collector`` are optional; when provided from ``main()`` the
+    caller already built them (plus baseline evidence), so we skip the duplicate
+    pass.
+    """
     if not cfg.llm_ready():
         missing = cfg.missing_llm_config()
         _log("skip", f"LLM not configured: {', '.join(missing)}")
         return _skip_diagnosis(
-            "LLM analysis not performed (CI secrets/variables not configured: "
-            + ", ".join(missing)
-            + ")",
+            "LLM analysis not performed (CI secrets/variables not configured: " + ", ".join(missing) + ")",
             step_name,
         )
     if cfg.backend != "openai_compatible":
@@ -949,19 +993,29 @@ def run_diagnosis(
 
     _log("init", f"log={log_file} size={log_file.stat().st_size} model={cfg.model} max_rounds={cfg.max_rounds}")
 
-    _log("index", "building deterministic log index")
-    index = build_index(log_file, artifact_dir=artifact_dir, git_context=git_context)
-    _log(
-        "index",
-        f"total_lines={index.get('total_lines')} failed_tests={len(index.get('failed_tests') or [])} "
-        f"wrappers={len(index.get('wrapper_hits') or [])} first_tb={index.get('first_traceback')}",
-    )
-    collector = EvidenceCollector(
-        log_file=log_file,
-        artifact_dir=artifact_dir,
-        k8s_dir=k8s_dir,
-        benchmark_dir=benchmark_dir,
-    )
+    if index is None:
+        _log("index", "building deterministic log index")
+        index = build_index(
+            log_file,
+            artifact_dir=artifact_dir,
+            benchmark_dir=benchmark_dir,
+            k8s_dir=k8s_dir,
+            git_context=git_context,
+        )
+        _log(
+            "index",
+            f"total_lines={index.get('total_lines')} failed_tests={len(index.get('failed_tests') or [])} "
+            f"wrappers={len(index.get('wrapper_hits') or [])} first_tb={index.get('first_traceback')}",
+        )
+    if collector is None:
+        collector = EvidenceCollector(
+            log_file=log_file,
+            artifact_dir=artifact_dir,
+            k8s_dir=k8s_dir,
+            benchmark_dir=benchmark_dir,
+        )
+    else:
+        _log("evidence", f"reusing collector with {len(collector.collected)} pre-existing payload(s)")
 
     messages: list[dict[str, str]] = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -989,7 +1043,7 @@ def run_diagnosis(
     # Force minimum evidence requests so the agent cannot skip them.
     routing["evidence_requests"] = _enforce_min_evidence_requests(
         index, routing["evidence_requests"]
-    )[:8]
+    )[:MAX_EVIDENCE_REQUESTS]
     _log(
         "round1",
         f"routing stage={routing['failure_stage']} layer={routing['failure_layer']} "
@@ -1146,6 +1200,28 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    try:
+        return _main_impl(argv)
+    except Exception as exc:
+        import traceback
+
+        tb = traceback.format_exc()
+        safe_type = type(exc).__name__
+        safe_msg = str(exc)[:500]
+        md = (
+            "## CI AI 失败定位\n\n"
+            "**Agent 自身异常**：诊断脚本内部出错，未产出诊断结论。\n\n"
+            f"| 异常类型 | 信息 |\n|---|---|\n"
+            f"| `{safe_type}` | `{safe_msg}` |\n\n"
+        )
+        with contextlib.suppress(Exception):
+            _append_step_summary(md)
+        sys.stderr.write(f"[ci-ai-diagnosis] fatal: {safe_type}: {safe_msg}\n")
+        sys.stderr.write(tb[-4000:])
+        return 0
+
+
+def _main_impl(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     cfg = AgentConfig.from_env()
     git_context = _build_git_context(
@@ -1159,17 +1235,19 @@ def main(argv: list[str] | None = None) -> int:
         diag = _skip_diagnosis("log file missing or empty", args.step_name)
         if args.output_json is not None:
             args.output_json.parent.mkdir(parents=True, exist_ok=True)
-            args.output_json.write_text(
-                json.dumps(diag, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-            )
+            args.output_json.write_text(json.dumps(diag, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         if args.write_summary:
-            _append_step_summary(render_evidence_summary({
-                "step_name": args.step_name,
-                "log_file": str(args.log_file),
-                "index": {},
-                "collected_evidence": [],
-                "missing_llm_config": ["log file missing or empty"],
-            }))
+            _append_step_summary(
+                render_evidence_summary(
+                    {
+                        "step_name": args.step_name,
+                        "log_file": str(args.log_file),
+                        "index": {},
+                        "collected_evidence": [],
+                        "missing_llm_config": ["log file missing or empty"],
+                    }
+                )
+            )
         return 0
 
     _log("init", f"log={args.log_file} size={args.log_file.stat().st_size}")
@@ -1178,6 +1256,8 @@ def main(argv: list[str] | None = None) -> int:
     index = build_index(
         args.log_file,
         artifact_dir=args.artifact_dir,
+        benchmark_dir=args.benchmark_dir,
+        k8s_dir=args.k8s_dir,
         git_context=git_context if any(git_context.values()) else None,
     )
     collector = EvidenceCollector(
@@ -1202,6 +1282,8 @@ def main(argv: list[str] | None = None) -> int:
             git_context=ctx,
             k8s_dir=args.k8s_dir,
             benchmark_dir=args.benchmark_dir,
+            index=index,
+            collector=collector,
         )
         summary_md = render_markdown(diag)
     else:
@@ -1219,9 +1301,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.output_json is not None:
         args.output_json.parent.mkdir(parents=True, exist_ok=True)
-        args.output_json.write_text(
-            json.dumps(diag, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-        )
+        args.output_json.write_text(json.dumps(diag, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     if args.write_summary:
         _append_step_summary(summary_md)
     else:
