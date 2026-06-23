@@ -80,14 +80,29 @@ def build_manifest(artifact_dir: Path) -> dict[str, Any]:
         }
 
     ascend_tar = root / ASCEND_TAR
-    collected_dir = root / ASCEND_COLLECTED_GLOB[0] / ASCEND_COLLECTED_GLOB[1]
+    # The single-node workflow collects into ascend_logs/plog/ while
+    # the multi-node workflow uses ascend_logs/collected-logs/.  Accept both.
+    _ascend_candidates = [
+        root / "ascend_logs" / "collected-logs",
+        root / "ascend_logs" / "plog",
+    ]
     ascend_files: list[str] = []
-    if collected_dir.is_dir():
-        ascend_files.extend(str(p.relative_to(root)) for p in sorted(collected_dir.rglob("*")) if p.is_file())
+    _found_dir: Path | None = None
+    for _cand in _ascend_candidates:
+        if _cand.is_dir():
+            ascend_files.extend(
+                str(p.relative_to(root))
+                for p in sorted(_cand.rglob("*"))
+                if p.is_file()
+            )
+            if _found_dir is None:
+                _found_dir = _cand
     manifest["ascend_logs"] = {
         "present": bool(ascend_files) or ascend_tar.is_file(),
         "tar": str(ASCEND_TAR) if ascend_tar.is_file() else None,
-        "collected_logs_dir": (str(Path(*ASCEND_COLLECTED_GLOB)) if collected_dir.is_dir() else None),
+        "collected_logs_dir": (
+            str(_found_dir.relative_to(root)) if _found_dir is not None else None
+        ),
         "files": ascend_files,
     }
 

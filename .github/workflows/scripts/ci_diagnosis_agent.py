@@ -82,7 +82,7 @@ ALLOWED_CLASS = {"flake", "test_bug", "product_bug", "infra_issue", "unknown"}
 # enough to accommodate all forced evidence (failure block, first/last
 # traceback, wrapper upstream, artifact manifest + search, benchmark,
 # k8s) plus any the LLM adds.
-MAX_EVIDENCE_REQUESTS = 12
+MAX_EVIDENCE_REQUESTS = 20
 
 # Strip caps for the LLM prompt. Larger values keep more context visible
 # but increase token cost.

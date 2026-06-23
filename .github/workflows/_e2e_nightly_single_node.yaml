@@ -296,7 +296,7 @@ jobs:
           mkdir -p "$ADIR"/{plog,container}
           # Collect NPU runtime logs from standard Ascend paths.
           # Best-effort: the runner may or may not have these.
-          for src in /root/ascend/log /var/log/npu /var/log/ascend; do
+          for src in /root/.cache/ascend-logs /root/ascend/log /var/log/npu /var/log/ascend; do
             if [ -d "$src" ]; then
               cp -r "$src" "$ADIR/plog/" 2>/dev/null || true
             fi
