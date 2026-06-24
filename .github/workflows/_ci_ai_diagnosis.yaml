@@ -2,9 +2,9 @@
 #
 # Reusable AI failure diagnosis step. Wire this into a failed job via
 # `uses: ./.github/workflows/_ci_ai_diagnosis.yaml` and pass the log
-# file path with `with: log-file`. The diagnosis tool builds an evidence
-# bundle (index + evidence + git context) for downstream LLM consumption.
-# It NEVER breaks CI: it always exits 0.
+# file path with `with: log-file`. On failure the agent builds an index,
+# collects evidence, calls the configured LLM, and writes a diagnosis
+# report to GITHUB_STEP_SUMMARY. It NEVER breaks CI: it always exits 0.
 name: CI AI diagnosis
 
 on:
@@ -50,10 +50,15 @@ on:
         type: string
         default: ""
       output-json:
-        description: Where to write the evidence bundle JSON artifact.
+        description: Where to write the diagnosis JSON artifact.
         required: false
         type: string
-        default: ci-ai-diagnosis-evidence.json
+        default: ci-ai-diagnosis.json
+    secrets:
+      VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY:
+        required: false
+      VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL:
+        required: false
 
 jobs:
   diagnose:
@@ -68,7 +73,12 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Build CI diagnosis evidence bundle
+      - name: Run CI AI diagnosis
+        env:
+          VLLM_ASCEND_CI_AI_DIAGNOSIS_ENABLED: ${{ vars.VLLM_ASCEND_CI_AI_DIAGNOSIS_ENABLED }}
+          VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY: ${{ secrets.VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY }}
+          VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL: ${{ secrets.VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL }}
+          VLLM_ASCEND_CI_AI_DIAGNOSIS_MODEL: ${{ vars.VLLM_ASCEND_CI_AI_DIAGNOSIS_MODEL }}
         run: |
           set -e
           ARGS="--log-file ${{ inputs.log-file }} --step-name '${{ inputs.step-name }}' --output-json ${{ inputs.output-json }} --write-summary"
@@ -92,10 +102,10 @@ jobs:
           fi
           python3 "$GITHUB_WORKSPACE/.github/workflows/scripts/ci_diagnosis_agent.py" $ARGS
 
-      - name: Upload evidence bundle JSON
+      - name: Upload diagnosis JSON
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ci-ai-diagnosis-evidence
+          name: ci-ai-diagnosis
           path: ${{ inputs.output-json }}
           if-no-files-found: ignore

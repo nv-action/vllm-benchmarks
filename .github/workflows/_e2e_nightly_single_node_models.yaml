@@ -318,7 +318,7 @@ jobs:
           VLLM_ASCEND_CI_AI_DIAGNOSIS_ENABLED: '1'
           VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY: ${{ secrets.VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY }}
           VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL: ${{ secrets.VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL }}
-          VLLM_ASCEND_CI_AI_DIAGNOSIS_MODEL: 'deepseek-v4-flash'
+          VLLM_ASCEND_CI_AI_DIAGNOSIS_MODEL: 'deepseek-v4-pro'
         run: |
           LOGFILE=/tmp/nightly-models.log
           if [ ! -f "$LOGFILE" ]; then
