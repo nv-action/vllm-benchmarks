@@ -75,6 +75,10 @@ on:
         required: false
       OBS_SECRET_KEY:
         required: false
+      VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY:
+        required: false
+      VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL:
+        required: false
 
 # Bash shells do not use ~/.profile or ~/.bashrc so these shells need to be explicitly
 # declared as "shell: bash -el {0}" on steps that need to be properly activated.
@@ -527,6 +531,11 @@ jobs:
       - name: Collect CI diagnosis evidence
         if: failure()
         continue-on-error: true
+        env:
+          VLLM_ASCEND_CI_AI_DIAGNOSIS_ENABLED: '1'
+          VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY: ${{ secrets.VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY }}
+          VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL: ${{ secrets.VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL }}
+          VLLM_ASCEND_CI_AI_DIAGNOSIS_MODEL: 'deepseek-v4-flash'
         run: |
           set -euo pipefail
           LEADER_LOG="/tmp/${LEADER_POD}_logs.txt"

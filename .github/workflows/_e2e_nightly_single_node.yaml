@@ -64,6 +64,10 @@ on:
         required: false
       OBS_SECRET_KEY:
         required: false
+      VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY:
+        required: false
+      VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL:
+        required: false
 
 # Bash shells do not use ~/.profile or ~/.bashrc so these shells need to be explicitly
 # declared as "shell: bash -el {0}" on steps that need to be properly activated.
