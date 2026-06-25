@@ -138,15 +138,11 @@ jobs:
             exit 0
           fi
 
-          # Parse test matrices from the PR branch's workflow YAML files
+          # Parse test matrices from the PR branch's nightly config
           pip install pyyaml -q 2>/dev/null
 
-          A2_RAW=$(gh api "repos/$HEAD_REPO/contents/.github/workflows/schedule_nightly_test_a2.yaml?ref=$PR_BRANCH" --jq '.content' 2>/dev/null || echo "")
-          export A2_RAW
-          A3_RAW=$(gh api "repos/$HEAD_REPO/contents/.github/workflows/schedule_nightly_test_a3.yaml?ref=$PR_BRANCH" --jq '.content' 2>/dev/null || echo "")
-          export A3_RAW
-          A2_ACC_GROUPS=$(gh api "repos/$HEAD_REPO/contents/tests/e2e/models/configs/accuracy_groups_a2.json?ref=$PR_BRANCH" --jq '.content' 2>/dev/null || echo "")
-          export A2_ACC_GROUPS
+          NIGHTLY_MATRIX=$(gh api "repos/$HEAD_REPO/contents/.github/workflows/configs/nightly_config.yaml?ref=$PR_BRANCH" --jq '.content' 2>/dev/null || echo "")
+          export NIGHTLY_MATRIX
           export TEST_CASES
 
           python3 .github/workflows/scripts/resolve_nightly_tests.py
