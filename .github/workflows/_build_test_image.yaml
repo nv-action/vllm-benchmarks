@@ -16,8 +16,9 @@
 #
 
 # Reusable workflow that builds CI test images on CPU runners and pushes them
-# to the Quay temp repo.  Each matrix entry produces one single-arch image
-# tagged:  vllm-ascend-<vllm_short>-<ascend_short>-<npu_type>-<arch>
+# to the Quay temp repo.  Always builds all 4 npu_types x 2 vllm versions = 8
+# images.  Image tag format:
+#   vllm-ascend-pr<pr_number>-<vllm_label>-<npu_type>-<arch>
 #
 # The image contains vllm + vllm-ascend fully installed (source baked in at
 # /vllm-workspace/vllm-ascend) so that _selected_tests.yaml only needs to run
@@ -28,12 +29,18 @@ name: Build Test Image
 on:
   workflow_call:
     inputs:
-      build_matrix:
+      vllm_main_commit:
         type: string
         required: true
-        description: >-
-          JSON array of build configs.  Each entry must have:
-          npu_type, cann_tag, soc, arch, mode, runner, vllm_version, vllm_short
+        description: 'vLLM main commit hash (from .github/vllm-main-verified.commit).'
+      vllm_release_tag:
+        type: string
+        required: true
+        description: 'vLLM release tag (from .github/vllm-release-tag.commit).'
+      pr_number:
+        type: string
+        required: true
+        description: 'PR number for image tag construction.'
       ascend_ref:
         type: string
         required: true
@@ -62,12 +69,80 @@ permissions:
 
 jobs:
   build-push:
-    name: build-${{ matrix.entry.npu_type }}-${{ matrix.entry.arch }}
-    runs-on: ${{ matrix.entry.runner }}
+    name: build-${{ matrix.npu_type }}-${{ matrix.vllm_label }}
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        entry: ${{ fromJSON(inputs.build_matrix) }}
+        include:
+          # A2 (ARM64, device)
+          - npu_type: a2
+            cann_tag: "9.0.0-910b-ubuntu22.04-py3.12"
+            soc: "ascend910b1"
+            arch: arm64
+            mode: device
+            runner: linux-arm64-cpu-16
+            vllm_label: main
+            vllm_version: ${{ inputs.vllm_main_commit }}
+          - npu_type: a2
+            cann_tag: "9.0.0-910b-ubuntu22.04-py3.12"
+            soc: "ascend910b1"
+            arch: arm64
+            mode: device
+            runner: linux-arm64-cpu-16
+            vllm_label: release
+            vllm_version: ${{ inputs.vllm_release_tag }}
+          # A3 (ARM64, device)
+          - npu_type: a3
+            cann_tag: "9.0.0-a3-ubuntu22.04-py3.12"
+            soc: "ascend910_9391"
+            arch: arm64
+            mode: device
+            runner: linux-arm64-cpu-16
+            vllm_label: main
+            vllm_version: ${{ inputs.vllm_main_commit }}
+          - npu_type: a3
+            cann_tag: "9.0.0-a3-ubuntu22.04-py3.12"
+            soc: "ascend910_9391"
+            arch: arm64
+            mode: device
+            runner: linux-arm64-cpu-16
+            vllm_label: release
+            vllm_version: ${{ inputs.vllm_release_tag }}
+          # 310P (ARM64, device)
+          - npu_type: 310p
+            cann_tag: "9.1.0-beta.1-310p-ubuntu22.04-py3.12"
+            soc: "ascend310p1"
+            arch: arm64
+            mode: device
+            runner: linux-arm64-cpu-16
+            vllm_label: main
+            vllm_version: ${{ inputs.vllm_main_commit }}
+          - npu_type: 310p
+            cann_tag: "9.1.0-beta.1-310p-ubuntu22.04-py3.12"
+            soc: "ascend310p1"
+            arch: arm64
+            mode: device
+            runner: linux-arm64-cpu-16
+            vllm_label: release
+            vllm_version: ${{ inputs.vllm_release_tag }}
+          # CPU (AMD64, nodevice)
+          - npu_type: cpu
+            cann_tag: "9.0.0-910b-ubuntu22.04-py3.12"
+            soc: "ascend910b1"
+            arch: amd64
+            mode: nodevice
+            runner: linux-amd64-cpu-16-hk
+            vllm_label: main
+            vllm_version: ${{ inputs.vllm_main_commit }}
+          - npu_type: cpu
+            cann_tag: "9.0.0-910b-ubuntu22.04-py3.12"
+            soc: "ascend910b1"
+            arch: amd64
+            mode: nodevice
+            runner: linux-amd64-cpu-16-hk
+            vllm_label: release
+            vllm_version: ${{ inputs.vllm_release_tag }}
     steps:
       - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v7
@@ -109,18 +184,7 @@ jobs:
             vllm_ascend/*.so
             vllm_ascend/lib
             vllm_ascend/include
-          key: vllm-ascend-build-v1-${{ steps.get_arch.outputs.arch }}-${{ matrix.entry.cann_tag }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
-
-      - name: Compute image tag
-        id: image_tag
-        run: |
-          VLLM_SHORT="${{ matrix.entry.vllm_short }}"
-          ASCEND_SHORT=$(echo "${{ inputs.ascend_ref }}" | cut -c1-7)
-          NPU_TYPE="${{ matrix.entry.npu_type }}"
-          ARCH="${{ matrix.entry.arch }}"
-          TAG="vllm-ascend-${VLLM_SHORT}-${ASCEND_SHORT}-${NPU_TYPE}-${ARCH}"
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "image=${{ env.QUAY_TEMP_REPO }}:$TAG" >> $GITHUB_OUTPUT
+          key: vllm-ascend-build-v1-${{ steps.get_arch.outputs.arch }}-${{ matrix.cann_tag }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
 
       - name: Login to Quay Temp
         uses: docker/login-action@v4
@@ -129,18 +193,7 @@ jobs:
           username: ${{ inputs.quay_temp_username }}
           password: ${{ secrets.QUAY_TEMP_PASSWORD }}
 
-      - name: Check if image already exists
-        id: exists
-        run: |
-          if docker manifest inspect "${{ steps.image_tag.outputs.image }}" >/dev/null 2>&1; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-            echo "Image already exists, skipping build: ${{ steps.image_tag.outputs.image }}"
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
-
       - name: Set up Docker Buildx
-        if: steps.exists.outputs.exists != 'true'
         uses: docker/setup-buildx-action@v4
         with:
           install: true
@@ -148,7 +201,6 @@ jobs:
           use: true
 
       - name: Login to GitHub Container Registry (for cache)
-        if: steps.exists.outputs.exists != 'true'
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
@@ -156,26 +208,24 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Compute cache tag
-        if: steps.exists.outputs.exists != 'true'
         id: cache_tag
         run: |
-          echo "value=buildcache-ci-${{ matrix.entry.npu_type }}-${{ matrix.entry.arch }}" >> $GITHUB_OUTPUT
+          echo "value=buildcache-ci-${{ matrix.npu_type }}-${{ matrix.arch }}" >> $GITHUB_OUTPUT
 
       - name: Build and push image
-        if: steps.exists.outputs.exists != 'true'
         uses: docker/build-push-action@v7
         id: build
         with:
           context: .
           file: .github/workflows/dockerfiles/Dockerfile.ci_test
-          platforms: linux/${{ matrix.entry.arch }}
+          platforms: linux/${{ matrix.arch }}
           push: true
-          tags: ${{ steps.image_tag.outputs.image }}
+          tags: ${{ env.QUAY_TEMP_REPO }}:vllm-ascend-pr${{ inputs.pr_number }}-${{ matrix.vllm_label }}-${{ matrix.npu_type }}-${{ matrix.arch }}
           build-args: |
-            CANN_TAG=${{ matrix.entry.cann_tag }}
-            VLLM_COMMIT=${{ matrix.entry.vllm_version }}
-            SOC_VERSION=${{ matrix.entry.soc }}
-            INSTALL_MODE=${{ matrix.entry.mode }}
+            CANN_TAG=${{ matrix.cann_tag }}
+            VLLM_COMMIT=${{ matrix.vllm_version }}
+            SOC_VERSION=${{ matrix.soc }}
+            INSTALL_MODE=${{ matrix.mode }}
           provenance: false
           cache-from: type=registry,ref=${{ env.CACHE_REPO }}:${{ steps.cache_tag.outputs.value }}
           cache-to: type=registry,ref=${{ env.CACHE_REPO }}:${{ steps.cache_tag.outputs.value }},mode=max
