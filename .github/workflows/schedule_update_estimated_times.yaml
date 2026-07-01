@@ -18,8 +18,8 @@
 name: Update estimated test times
 
 on:
-  schedule:
-    - cron: '0 8 */3 * *'  # Every 3 days at 16:00 Beijing (UTC+8)
+#   schedule:
+#     - cron: '0 8 */3 * *'  # Every 3 days at 16:00 Beijing (UTC+8)
   workflow_dispatch:
     inputs:
       filter_npu_type:
