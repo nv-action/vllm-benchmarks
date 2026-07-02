@@ -137,12 +137,12 @@ jobs:
         tar -xzf /tmp/buildkit.tar.gz -C /tmp/buildkit 
         export PATH=$PATH:/tmp/buildkit/bin/
         
-        chmod +x /tmp/buildkit/bin/buildc 
+        chmod +x /tmp/buildkit/bin/buildctl 
 
         echo "buildctl installed successfully" buildctl --version
         set -ex
         which buildctl
-        
+
         DOCKERFILE="${{ inputs.dockerfile || 'Dockerfile' }}"
         DOCKERFILE_DIR=$(dirname "$DOCKERFILE")
         DOCKERFILE_NAME=$(basename "$DOCKERFILE")
