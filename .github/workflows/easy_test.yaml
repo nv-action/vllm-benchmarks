@@ -1,0 +1,43 @@
+# This is a docker build check and publish job:
+# 1. PR Triggered docker image build check
+#   - 'image-build' label should be added
+#   - is for image build check
+#   - Enable on main/releases branch
+#   - push: ${{ github.event_name != 'pull_request' }} ==> false
+# 2. branches push trigger image publish
+#   - is for branch/dev/nightly image
+#   - commits are merge into main/*-dev  ==> vllm-ascend:main / vllm-ascend:*-dev
+# 3. tags push trigger image publish
+#   - is for final release image
+#   - Publish when tag with v* (pep440 version)  ===>  vllm-ascend:v1.2.3 / vllm-ascend:v1.2.3rc1
+name: I need run pod workflow
+on:
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash -el {0}
+
+jobs:
+  build-push-digest:
+    name: build
+    runs-on: ${{ matrix.runner }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: linux/amd64
+            runner: linux-amd64-cpu-32-hk
+            tag: amd64
+          - arch: linux/amd64
+            runner: linux-amd64-cpu-16-hk
+            tag: amd64
+          - arch: linux/amd64
+            runner: linux-amd64-cpu-8-hk
+            tag: amd64
+    steps:
+
+    - name: Validate inputs (workflow_dispatch only)
+      run: |
+        sleep 600
