@@ -126,16 +126,16 @@ jobs:
           }
         }
         EOF
-        
-    - name: Debug env
-      run: |
-        echo "BUILDKITD_ADDR=${BUILDKITD_ADDR:-<not set>}"
-        echo "CA_PEM=${CA_PEM:-<not set>}"
-        echo "CERT_PEM=${CERT_PEM:-<not set>}"
-        echo "KEY_PEM=${KEY_PEM:-<not set>}"
-        echo "DOCKER_CONFIG=${DOCKER_CONFIG:-<not set>}"
-        echo "--- relevant env vars ---"
-        env | grep -iE 'build|docker|cert|tls|key|quay' || true
+
+    # - name: Debug env
+    #   run: |
+    #     echo "BUILDKITD_ADDR=${BUILDKITD_ADDR:-<not set>}"
+    #     echo "CA_PEM=${CA_PEM:-<not set>}"
+    #     echo "CERT_PEM=${CERT_PEM:-<not set>}"
+    #     echo "KEY_PEM=${KEY_PEM:-<not set>}"
+    #     echo "DOCKER_CONFIG=${DOCKER_CONFIG:-<not set>}"
+    #     echo "--- relevant env vars ---"
+    #     env | grep -iE 'build|docker|cert|tls|key|quay' || true
 
     - name: Build and push
       id: build
@@ -160,9 +160,9 @@ jobs:
 
         ARGS=(
           --addr="${BUILDKITD_ADDR}"
-          --tlscacert="${CA_PEM}"
-          --tlscert="${CERT_PEM}"
-          --tlskey="${KEY_PEM}"
+          --tlscacert= ${{ secrets.CA_PEM }}
+          --tlscert= ${{ secrets.CERT_PEM }}
+          --tlskey= ${{ secrets.KEY_PEM }}
           build
           --frontend dockerfile.v0
           --local context=.
