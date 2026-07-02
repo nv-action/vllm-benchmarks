@@ -199,7 +199,7 @@ jobs:
         echo "buildctl installed successfully" buildctl --version
         set -ex
         which buildctl
-
+        sleep 600
         DOCKERFILE="${{ inputs.dockerfile || 'Dockerfile' }}"
         DOCKERFILE_DIR=$(dirname "$DOCKERFILE")
         DOCKERFILE_NAME=$(basename "$DOCKERFILE")
