@@ -74,6 +74,7 @@ jobs:
     container:
       image: ${{ matrix.image }}
 
+
     
     steps:
 
@@ -202,7 +203,7 @@ jobs:
         mkdir -p /tmp/buildkit
         BUILDKIT_VERSION="v0.29.0"
         ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
-        curl -fsSL "https://github.com/moby/buildkit/releases/download/${BUILDKIT_VERSION}/buildkit-${BUILDKIT_VERSION}.linux-${ARCH}.tar.gz" -o /tmp/buildkit.tar.gz
+        wget -q "https://github.com/moby/buildkit/releases/download/${BUILDKIT_VERSION}/buildkit-${BUILDKIT_VERSION}.linux-${ARCH}.tar.gz" -O /tmp/buildkit.tar.gz
         tar -xzf /tmp/buildkit.tar.gz -C /tmp/buildkit
         export PATH=$PATH:/tmp/buildkit/bin/
         chmod +x /tmp/buildkit/bin/buildctl /tmp/buildkit/bin/buildkitd
@@ -215,7 +216,6 @@ jobs:
         BUILDKITD_PID=$!
         sleep 3
 
-        # 确认 buildkitd 存活
         if ! kill -0 $BUILDKITD_PID 2>/dev/null; then
           echo "ERROR: buildkitd failed to start"
           cat /tmp/buildkitd.log
