@@ -38,8 +38,8 @@ defaults:
 
 env:
   UPSTREAM_REPO: vllm-project/vllm-ascend
-  WORK_REPO_DIR: ${{ github.workspace }}
-  VLLM_DIR: vllm-upstream
+  WORK_REPO_DIR: ${{ github.workspace }}/vllm-ascend
+  VLLM_DIR: ${{ github.workspace }}/vllm
   MAIN2MAIN_MODEL: deepseek/deepseek-v4-pro
 
 jobs:
@@ -66,7 +66,7 @@ jobs:
     defaults:
       run:
         shell: bash -el {0}
-        working-directory: ${{ github.workspace }}
+        working-directory: ${{ env.WORK_REPO_DIR }}
     env:
       GH_TOKEN: ${{ secrets.PAT_TOKEN }}
       MAIN2MAIN_IMAGE_TAG: 9.0.0-910b-ubuntu22.04-py3.12
@@ -76,7 +76,7 @@ jobs:
       HEAD_FORK: vllm-ascend-ci/vllm-ascend
       MAIN2MAIN_KEEP_BRANCH: 'true'
       MAIN2MAIN_WORKSPACE: /tmp/main2main_flow/workspace
-      MAIN2MAIN_CASES_FILE: ${{ github.workspace }}/.github/workflows/scripts/main2main_tests.json
+      MAIN2MAIN_CASES_FILE: ${{ github.workspace }}/vllm-ascend/.github/workflows/scripts/main2main_tests.json
       MAIN2MAIN_LOG_HELPERS: |
         print_group() {
           local title="$1"
@@ -92,14 +92,12 @@ jobs:
           print_group "${title}" "${path}"
         }
     steps:
-      - name: Checkout workflow repo
+      - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
           token: ${{ secrets.PAT_TOKEN }}
-
-      - name: Exclude vllm dir from ascend git
-        run: echo "vllm-upstream/" >> .git/info/exclude
+          path: vllm-ascend
 
       - name: Load main2main test cases
         run: |
@@ -122,7 +120,7 @@ jobs:
         with:
           repository: vllm-project/vllm
           ref: ${{ env.TARGET_COMMIT != '' && env.TARGET_COMMIT || 'main' }}
-          path: ${{ env.VLLM_DIR }}
+          path: vllm
           fetch-depth: 0
 
       - name: Validate target commit
@@ -148,7 +146,7 @@ jobs:
           update-alternatives --install /usr/bin/clang clang /usr/bin/clang-15 20
           update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-15 20
           git config --global --add safe.directory "${WORK_REPO_DIR}"
-          git config --global --add safe.directory "$GITHUB_WORKSPACE/${VLLM_DIR}"
+          git config --global --add safe.directory "${VLLM_DIR}"
           pip install uv pytest
 
       - name: Configure git identity
@@ -270,13 +268,13 @@ jobs:
           pip install --no-cache-dir --no-deps \
             "https://vllm-ascend.obs.cn-north-4.myhuaweicloud.com/vllm-ascend/${MOONCAKE_WHEEL}"
 
-      - name: Install vllm-project/vllm from source
+      - name: Install vllm-project/vllm
         working-directory: ${{ env.VLLM_DIR }}
         run: |
           VLLM_TARGET_DEVICE=empty uv pip install .
           pip uninstall -y triton
 
-      - name: Install vllm-ascend
+      - name: Install vllm-project/vllm-ascend
         working-directory: ${{ env.WORK_REPO_DIR }}
         run: |
           export MAX_JOBS=92
@@ -334,7 +332,7 @@ jobs:
 
           set +e
           kickoff \
-            --vllm-path "$GITHUB_WORKSPACE/${VLLM_DIR}" \
+            --vllm-path "${VLLM_DIR}" \
             --vllm-ascend-path "${WORK_REPO_DIR}" \
             --target-commit "${TARGET_COMMIT}" \
             2> /tmp/main2main/kickoff.err \
