@@ -30,6 +30,7 @@ import contextlib
 import datetime as _dt
 import json
 import os
+import re
 import subprocess
 import sys
 import urllib.error
@@ -38,10 +39,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import regex as re
-
 # Ensure sibling scripts are importable when run as a CLI from the
-# workflow scripts directory.
+# skill scripts directory.
 _HERE = Path(__file__).resolve().parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
@@ -86,32 +85,17 @@ class AgentConfig:
 
     @classmethod
     def from_env(cls) -> AgentConfig:
-        try:
-            import vllm_ascend.envs as envs
-
-            return cls(
-                enabled=bool(envs.VLLM_ASCEND_CI_AI_DIAGNOSIS_ENABLED),
-                api_key=str(envs.VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY or "").strip(),
-                base_url=str(envs.VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL or "").strip(),
-                model=str(envs.VLLM_ASCEND_CI_AI_DIAGNOSIS_MODEL or "").strip(),
-                backend=str(envs.VLLM_ASCEND_CI_AI_DIAGNOSIS_BACKEND or "openai_compatible").strip(),
-                max_rounds=int(envs.VLLM_ASCEND_CI_AI_DIAGNOSIS_MAX_ROUNDS),
-                timeout_s=int(envs.VLLM_ASCEND_CI_AI_DIAGNOSIS_TIMEOUT_S),
-                max_input_chars=int(envs.VLLM_ASCEND_CI_AI_DIAGNOSIS_MAX_INPUT_CHARS),
-                tail_chars=int(envs.VLLM_ASCEND_CI_AI_DIAGNOSIS_TAIL_CHARS),
-            )
-        except (ImportError, AttributeError):
-            return cls(
-                enabled=bool(int(os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_ENABLED") or "0")),
-                api_key=os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY", "").strip(),
-                base_url=os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL", "").strip(),
-                model=os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_MODEL", "").strip(),
-                backend=os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_BACKEND", "openai_compatible").strip(),
-                max_rounds=int(os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_MAX_ROUNDS", "3")),
-                timeout_s=int(os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_TIMEOUT_S", "30")),
-                max_input_chars=int(os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_MAX_INPUT_CHARS", "120000")),
-                tail_chars=int(os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_TAIL_CHARS", "200000")),
-            )
+        return cls(
+            enabled=os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_ENABLED", "0").lower() in ("1", "true", "yes", "on"),
+            api_key=os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY", "").strip(),
+            base_url=os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL", "").strip(),
+            model=os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_MODEL", "").strip(),
+            backend=os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_BACKEND", "openai_compatible").strip(),
+            max_rounds=int(os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_MAX_ROUNDS", "3")),
+            timeout_s=int(os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_TIMEOUT_S", "30")),
+            max_input_chars=int(os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_MAX_INPUT_CHARS", "120000")),
+            tail_chars=int(os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_TAIL_CHARS", "200000")),
+        )
 
     def llm_ready(self) -> bool:
         """True when repo configuration is complete enough to call the LLM."""
@@ -158,7 +142,7 @@ AGENT_SYSTEM_PROMPT = (
     "- root_cause must reference specific file names and line numbers from the logs.\n"
     "- If you cannot identify a root cause, set confidence=low and needs_human_review=true.\n"
     "- DO NOT invent root causes when evidence is insufficient.\n"
-    "- Reply in Chinese for human-facing text. JSON keys and tool call arguments must remain English.\n\n"
+    "- Reply in English for all output.\n\n"
     "## Output\n"
     "When calling `diagnose`, provide ALL of these fields:\n"
     "- failure_family: pytest|engine_startup|benchmark|infra|unknown\n"
@@ -167,7 +151,7 @@ AGENT_SYSTEM_PROMPT = (
     "- confidence: high|medium|low\n"
     "- failure_stage: setup|collection|startup|runtime|assertion|teardown|infra|unknown\n"
     "- failure_layer: ci_workflow|pytest|dependency|vllm_engine|vllm_ascend|npu_runtime|\n"
-    '  kubernetes|network|storage|external_service|unknown\n'
+    "  kubernetes|network|storage|external_service|unknown\n"
     "- visible_failure: the outermost error in the main log\n"
     '- evidence: [{"file":"...", "line":N, "snippet":"...", "interpretation":"..."}, ...]\n'
     "- needs_human_review: true|false"
@@ -285,11 +269,7 @@ def _chat_one(
                 content = "".join(content_parts)
                 elapsed = (_dt.datetime.now(_dt.timezone.utc) - started).total_seconds()
                 _log("chat", f"stream done chars={len(content)} elapsed={elapsed:.2f}s")
-                return {
-                    "choices": [
-                        {"message": {"role": "assistant", "content": content}}
-                    ]
-                }
+                return {"choices": [{"message": {"role": "assistant", "content": content}}]}
 
             raw = resp.read().decode("utf-8", errors="replace")
             elapsed = (_dt.datetime.now(_dt.timezone.utc) - started).total_seconds()
@@ -300,7 +280,7 @@ def _chat_one(
     try:
         result = json.loads(raw) or {}
         choices = result.get("choices") or []
-        finish_reason = (choices[0].get("finish_reason", "") if choices else "")
+        finish_reason = choices[0].get("finish_reason", "") if choices else ""
         has_tool_calls = bool((choices[0].get("message") or {}).get("tool_calls") if choices else False)
         _log("chat", f"parsed ok finish_reason={finish_reason} has_tool_calls={has_tool_calls}")
         return result
@@ -418,6 +398,31 @@ def _ensure_str_list(x: Any) -> list[str]:
     return [str(x)]
 
 
+def _ensure_simple_dict_list(
+    x: Any,
+    allowed_keys: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    if not isinstance(x, list):
+        return out
+    for item in x:
+        if not isinstance(item, dict):
+            continue
+        cleaned: dict[str, Any] = {}
+        for key in allowed_keys:
+            value = item.get(key)
+            if value is None:
+                cleaned[key] = ""
+            elif isinstance(value, bool):
+                cleaned[key] = value
+            elif isinstance(value, (int, float)):
+                cleaned[key] = value
+            else:
+                cleaned[key] = str(value)
+        out.append(cleaned)
+    return out
+
+
 def _sanitize_diagnosis(raw: dict[str, Any], routing: dict[str, Any], failed_tests: list[str]) -> dict[str, Any]:
     classification = raw.get("classification") if raw.get("classification") in ALLOWED_CLASS else "unknown"
     confidence = raw.get("confidence") if raw.get("confidence") in ALLOWED_CONF else "low"
@@ -426,15 +431,23 @@ def _sanitize_diagnosis(raw: dict[str, Any], routing: dict[str, Any], failed_tes
     if isinstance(rc, dict):
         rc = str(rc.get("description") or rc.get("hypothesis") or rc.get("detail") or rc.get("summary") or "")
     root_cause = str(rc or "").strip()
+    root_layers = _ensure_simple_dict_list(raw.get("root_layers"), ("layer", "cause"))
+    evidence_sources = _ensure_simple_dict_list(raw.get("evidence_sources"), ("source", "status", "role"))
+    missing_sources = _ensure_simple_dict_list(raw.get("missing_sources"), ("source", "impact"))
+    source_conflicts = _ensure_simple_dict_list(raw.get("source_conflicts"), ("source_a", "source_b", "conflict"))
     return {
         "routing": routing,
         "failure_family": str(raw.get("failure_family") or "unknown"),
         "root_cause": root_cause,
         "classification": classification,
         "confidence": confidence,
+        "root_layers": root_layers,
         "evidence": _ensure_evidence_list(raw.get("evidence")),
         "counter_evidence": _ensure_evidence_list(raw.get("counter_evidence")),
         "wrapper_errors": routing.get("wrapper_errors", []),
+        "evidence_sources": evidence_sources,
+        "missing_sources": missing_sources,
+        "source_conflicts": source_conflicts,
         "failed_tests": failed_tests,
         "matched_playbooks": _ensure_str_list(raw.get("matched_playbooks")),
         "next_actions": _ensure_actions(raw.get("next_actions")),
@@ -503,9 +516,13 @@ def _skip_diagnosis(reason: str, step_name: str) -> dict[str, Any]:
         "root_cause": "diagnosis skipped",
         "classification": "unknown",
         "confidence": "low",
+        "root_layers": [],
         "evidence": [],
         "counter_evidence": [],
         "wrapper_errors": [],
+        "evidence_sources": [],
+        "missing_sources": [],
+        "source_conflicts": [],
         "failed_tests": [],
         "matched_playbooks": [],
         "next_actions": [
@@ -521,16 +538,24 @@ def _make_evidence_only_diagnosis(
     log_file: Path,
     git_context: dict[str, Any] | None,
     missing_config: list[str],
+    index: str,
 ) -> dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
-        "type": "evidence_only",
+        "type": "evidence_bundle",
         "step_name": step_name,
         "log_file": str(log_file),
         "generated_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+        "index": index,
         "git_context": git_context,
         "llm_analysis_performed": False,
         "missing_llm_config": missing_config,
+        "summary": {
+            "total_evidence": 0,
+            "has_traceback": False,
+            "has_failed_tests": False,
+            "has_artifacts": "artifact-logs" in index or "k8s-diagnostics" in index or "benchmark" in index,
+        },
         "routing": {
             "failure_stage": "unknown",
             "failure_layer": "unknown",
@@ -545,9 +570,13 @@ def _make_evidence_only_diagnosis(
         "root_cause": "LLM analysis not performed (CI secrets/variables not configured)",
         "classification": "unknown",
         "confidence": "low",
+        "root_layers": [],
         "evidence": [],
         "counter_evidence": [],
         "wrapper_errors": [],
+        "evidence_sources": [],
+        "missing_sources": [],
+        "source_conflicts": [],
         "failed_tests": [],
         "matched_playbooks": [],
         "next_actions": [
@@ -565,17 +594,17 @@ def render_evidence_summary(diag: dict[str, Any]) -> str:
     """Markdown for evidence-only mode (no LLM root-cause claim)."""
     missing = diag.get("missing_llm_config") or []
     lines: list[str] = []
-    lines.append("## CI AI 失败定位（未调用 LLM）")
+    lines.append("## CI AI Diagnosis (LLM not called)")
     lines.append("")
     lines.append(f"**Step**: {diag.get('step_name') or ''}")
     lines.append(f"**Log**: `{diag.get('log_file') or ''}`")
     lines.append("")
-    lines.append("### 未进行 AI 分析的原因")
+    lines.append("### Reason for Skipping AI Analysis")
     if missing:
         for item in missing:
-            lines.append(f"- 未配置 `{item}`")
+            lines.append(f"- `{item}` not configured")
     else:
-        lines.append("- LLM 配置不完整")
+        lines.append("- LLM configuration incomplete")
     lines.append("")
     return "\n".join(lines) + "\n"
 
@@ -630,8 +659,7 @@ AGENT_TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "search",
             "description": (
-                "Search for a regex pattern in a log file. "
-                "Returns matching lines with line numbers and context."
+                "Search for a regex pattern in a log file. Returns matching lines with line numbers and context."
             ),
             "parameters": {
                 "type": "object",
@@ -680,7 +708,10 @@ AGENT_TOOLS: list[dict[str, Any]] = [
                     },
                     "failure_layer": {
                         "type": "string",
-                        "description": "ci_workflow|pytest|dependency|vllm_engine|vllm_ascend|npu_runtime|kubernetes|network|storage|external_service|unknown",
+                        "description": (
+                            "ci_workflow|pytest|dependency|vllm_engine|vllm_ascend|"
+                            "npu_runtime|kubernetes|network|storage|external_service|unknown"
+                        ),
                     },
                     "visible_failure": {
                         "type": "string",
@@ -752,9 +783,7 @@ def _scan_log_dir(
         elapsed = (_dt.datetime.now(_dt.timezone.utc) - dir_start).total_seconds()
         _log(
             "scan",
-            f"dir={label} files={file_count} "
-            f"total_size={_fmt_size(total_bytes)} "
-            f"elapsed={elapsed:.2f}s",
+            f"dir={label} files={file_count} total_size={_fmt_size(total_bytes)} elapsed={elapsed:.2f}s",
         )
 
     _add_dir("main-log", log_file.parent)
@@ -785,6 +814,7 @@ def _fmt_size(n: int) -> str:
         return f"{n / 1_000:.1f} KB"
     return f"{n} B"
 
+
 # ---------------------------------------------------------------------------
 # Agent: initial prompt builder
 # ---------------------------------------------------------------------------
@@ -813,6 +843,7 @@ def _build_initial_user_prompt(
     parts.append("\n---\n\n")
     parts.append(file_index)
     return "".join(parts)
+
 
 # ---------------------------------------------------------------------------
 # Agent: tool executor + path sandbox
@@ -944,18 +975,14 @@ def _tool_read_file(path: Path, offset: int, limit: int) -> str:
         return f"[INFO] {path}: {total} lines total, offset {offset} is past EOF"
     end = min(start + limit, total)
     selected = all_lines[start:end]
-    selected_chars = sum(len(l) for l in selected) + len(selected)
-    header = (
-        f"## {path}  lines {start + 1}-{end} / {total} "
-        f"({_fmt_size(selected_chars)})\n"
-    )
+    selected_chars = sum(len(line) for line in selected) + len(selected)
+    header = f"## {path}  lines {start + 1}-{end} / {total} ({_fmt_size(selected_chars)})\n"
     body = "".join(f"  L{i + 1}:{line}" for i, line in enumerate(selected, start))
     result = _cap_result(header + body)
     read_elapsed = (_dt.datetime.now(_dt.timezone.utc) - read_start).total_seconds()
     _log(
         "tool",
-        f"read_file path={path} total_lines={total} "
-        f"returned_chars={len(result)} elapsed={read_elapsed:.2f}s",
+        f"read_file path={path} total_lines={total} returned_chars={len(result)} elapsed={read_elapsed:.2f}s",
     )
     return result
 
@@ -989,10 +1016,7 @@ def _tool_search(path: Path, pattern: str, context_lines: int) -> str:
             match_count += 1
             lo = max(0, i - context_lines)
             hi = min(total, i + context_lines + 1)
-            block = "\n".join(
-                f"  {'>>' if j == i else '  '} L{j + 1}:{all_lines[j].rstrip()}"
-                for j in range(lo, hi)
-            )
+            block = "\n".join(f"  {'>>' if j == i else '  '} L{j + 1}:{all_lines[j].rstrip()}" for j in range(lo, hi))
             matches.append(f"--- match at L{i + 1} ---\n{block}")
             if len(matches) >= _SEARCH_MAX_MATCHES:
                 matches.append(f"... [capped at {_SEARCH_MAX_MATCHES} matches]")
@@ -1014,9 +1038,9 @@ def _cap_result(text: str) -> str:
     if len(text) <= _TOOL_RESULT_CHAR_CAP:
         return text
     return text[:_TOOL_RESULT_CHAR_CAP] + (
-        f"\n... [truncated at {_TOOL_RESULT_CHAR_CAP} chars, "
-        f"original {len(text)} chars]"
+        f"\n... [truncated at {_TOOL_RESULT_CHAR_CAP} chars, original {len(text)} chars]"
     )
+
 
 # ---------------------------------------------------------------------------
 # Agent: message budget management
@@ -1092,6 +1116,7 @@ def _trim_history(
     )
     return result
 
+
 # ---------------------------------------------------------------------------
 # Agent: diagnose-call detection
 # ---------------------------------------------------------------------------
@@ -1129,6 +1154,7 @@ def _calls_equal(
             return False
     return True
 
+
 # ---------------------------------------------------------------------------
 # Agent diagnosis (multi-round, replaces single-round)
 # ---------------------------------------------------------------------------
@@ -1153,8 +1179,7 @@ def run_agent_diagnosis(
         missing = cfg.missing_llm_config()
         _log("skip", f"LLM not configured: {', '.join(missing)}")
         return _skip_diagnosis(
-            "LLM analysis not performed (CI secrets/variables not configured: "
-            + ", ".join(missing) + ")",
+            "LLM analysis not performed (CI secrets/variables not configured: " + ", ".join(missing) + ")",
             step_name,
         )
     if cfg.backend != "openai_compatible":
@@ -1187,15 +1212,11 @@ def run_agent_diagnosis(
     _log("filter", f"final filtered chars={len(filtered_log)} elapsed={filter_elapsed:.2f}s")
 
     # ---- file index + allowed roots ----
-    file_index, allowed_roots = _scan_log_dir(
-        log_file, artifact_dir, k8s_dir, benchmark_dir
-    )
+    file_index, allowed_roots = _scan_log_dir(log_file, artifact_dir, k8s_dir, benchmark_dir)
     allowed_roots.add(log_file.parent.resolve())
 
     # ---- system + first user message ----
-    initial_user_content = _build_initial_user_prompt(
-        step_name, filtered_log, file_index, user_hint, git_context
-    )
+    initial_user_content = _build_initial_user_prompt(step_name, filtered_log, file_index, user_hint, git_context)
     _log(
         "init",
         f"initial_prompt system_chars={len(AGENT_SYSTEM_PROMPT)} "
@@ -1234,8 +1255,7 @@ def run_agent_diagnosis(
         except RuntimeError as exc:
             _log("llm", f"failed: {type(exc).__name__}: {exc}")
             return _skip_diagnosis(
-                f"LLM request failed at round {round_idx}: "
-                f"{type(exc).__name__}: {exc}",
+                f"LLM request failed at round {round_idx}: {type(exc).__name__}: {exc}",
                 step_name,
             )
 
@@ -1323,9 +1343,7 @@ def run_agent_diagnosis(
         # -- execute tool calls
         for tc in tool_calls:
             result = _execute_tool_call(tc, allowed_roots)
-            messages.append(
-                {"role": "tool", "tool_call_id": tc.get("id", ""), "content": result}
-            )
+            messages.append({"role": "tool", "tool_call_id": tc.get("id", ""), "content": result})
 
         # -- message budget check + trim
         current_chars = _estimate_chars(messages)
@@ -1334,7 +1352,10 @@ def run_agent_diagnosis(
             pre_trim = len(messages)
             _log("agent", f"round {round_idx} budget exceeded, trimming history")
             messages = _trim_history(messages, keep_recent=2)
-            _log("agent", f"round {round_idx} trimmed messages={pre_trim}->{len(messages)} new_chars={_estimate_chars(messages)}")
+            _log(
+                "agent",
+                f"round {round_idx} trimmed messages={pre_trim}->{len(messages)} new_chars={_estimate_chars(messages)}",
+            )
 
     # max_rounds exhausted (last round was no-tools): produce
     # low-confidence diagnosis from whatever we have
@@ -1373,12 +1394,8 @@ def _agent_result_to_diagnosis(
                 }
             )
     routing = {
-        "failure_stage": raw.get("failure_stage")
-        if raw.get("failure_stage") in ALLOWED_STAGES
-        else "unknown",
-        "failure_layer": raw.get("failure_layer")
-        if raw.get("failure_layer") in ALLOWED_LAYERS
-        else "unknown",
+        "failure_stage": raw.get("failure_stage") if raw.get("failure_stage") in ALLOWED_STAGES else "unknown",
+        "failure_layer": raw.get("failure_layer") if raw.get("failure_layer") in ALLOWED_LAYERS else "unknown",
         "visible_failure": str(raw.get("visible_failure") or ""),
         "first_failure_signal": "",
         "wrapper_errors": wrapper_errors,
@@ -1387,7 +1404,8 @@ def _agent_result_to_diagnosis(
         "matched_playbooks": [],
     }
     diagnosis = _sanitize_diagnosis(
-        raw, routing,
+        raw,
+        routing,
         failed_tests=_ensure_str_list(raw.get("failed_tests")),
     )
     diagnosis.update(
@@ -1408,65 +1426,155 @@ def _agent_result_to_diagnosis(
 
 def render_markdown(diag: dict[str, Any]) -> str:
     routing = diag.get("routing") or {}
+    root_layers = diag.get("root_layers") or []
+    evidence = diag.get("evidence") or []
+    counter_evidence = diag.get("counter_evidence") or []
+    evidence_sources = diag.get("evidence_sources") or []
+    missing_sources = diag.get("missing_sources") or []
+    source_conflicts = diag.get("source_conflicts") or []
+    next_actions = diag.get("next_actions") or []
+    wrapper_errors = routing.get("wrapper_errors") or []
+    matched_playbooks = routing.get("matched_playbooks") or diag.get("matched_playbooks") or []
     lines: list[str] = []
-    lines.append("## CI AI 失败定位")
+    lines.append("## CI AI Diagnosis")
     lines.append("")
-    lines.append(f"**Step**: {diag.get('step_name') or ''}")
-    lines.append(f"**Log**: `{diag.get('log_file') or ''}`")
-    lines.append(f"**Stage / Layer**: `{routing.get('failure_stage')}` / `{routing.get('failure_layer')}`")
-    lines.append(f"**Classification**: `{diag.get('classification')}`")
-    lines.append(f"**Confidence**: `{diag.get('confidence')}`")
-    lines.append(f"**Needs human review**: `{diag.get('needs_human_review')}`")
+    lines.append("### 2.1 Diagnosis Conclusion")
+    lines.append(f"- Classification: `{diag.get('classification')}`")
+    lines.append(f"- Confidence: `{diag.get('confidence')}`")
+    lines.append(f"- Direction: `{routing.get('failure_stage')}` / `{routing.get('failure_layer')}`")
+    lines.append(diag.get("root_cause") or "_No root-cause claim available._")
     lines.append("")
 
-    if routing.get("visible_failure"):
-        lines.append(f"**Visible failure**: {routing['visible_failure']}")
+    lines.append("### 2.2 Environment Summary")
+    lines.append("| Item | Value |")
+    lines.append("|---|---|")
+    lines.append(f"| Generated At | `{diag.get('generated_at') or ''}` |")
+    lines.append(f"| Step | `{diag.get('step_name') or ''}` |")
+    lines.append(f"| Log File | `{diag.get('log_file') or ''}` |")
+    lines.append(f"| Failure Family | `{diag.get('failure_family') or 'unknown'}` |")
+    lines.append(f"| Needs Human Review | `{diag.get('needs_human_review')}` |")
+    lines.append("")
+
+    lines.append("### 2.3 Key Timeline")
+    lines.append("| Time | Component | Event |")
+    lines.append("|---|---|---|")
     if routing.get("first_failure_signal"):
-        lines.append(f"**First signal**: {routing['first_failure_signal']}")
-    if routing.get("matched_playbooks"):
-        lines.append(f"**Matched playbooks**: {', '.join(routing['matched_playbooks'])}")
+        lines.append(f"| n/a | Timeline Anchor | {routing.get('first_failure_signal')} |")
+    if routing.get("visible_failure"):
+        lines.append(f"| n/a | Visible Failure | {routing.get('visible_failure')} |")
+    if wrapper_errors:
+        for w in wrapper_errors[:3]:
+            lines.append(f"| n/a | {w.get('type', 'Wrapper')} | line {w.get('line', '')}: `{w.get('snippet', '')}` |")
+    if not routing.get("first_failure_signal") and not routing.get("visible_failure") and not wrapper_errors:
+        lines.append("| n/a | n/a | _No timeline markers extracted._ |")
     lines.append("")
 
-    lines.append("### Root cause")
-    lines.append(diag.get("root_cause") or "_(no claim)_")
+    lines.append("### 2.4 Evidence Chain")
+    lines.append("| Source | Location | Content | Deduction |")
+    lines.append("|---|---|---|---|")
+    for e in evidence:
+        location = f"{e.get('file', '')}:{e.get('line', '')}" if e.get("file") else ""
+        lines.append(f"| log | {location} | `{e.get('snippet', '')}` | {e.get('interpretation', '')} |")
+    for item in missing_sources:
+        lines.append(f"| missing | {item.get('source', '')} | _missing source_ | {item.get('impact', '')} |")
+    if not evidence and not missing_sources:
+        lines.append("| n/a | n/a | _No supporting evidence extracted._ | _Manual follow-up required._ |")
     lines.append("")
 
-    if diag.get("evidence"):
-        lines.append("### Evidence")
-        lines.append("| file | line | snippet | interpretation |")
-        lines.append("|---|---|---|---|")
-        for e in diag["evidence"]:
+    lines.append("### 2.5 Success vs Failure Comparison")
+    lines.append("| Checkpoint | Success Baseline | Failure Request |")
+    lines.append("|---|---|---|")
+    lines.append("| Diagnosis path | baseline unavailable | current failure captured |")
+    lines.append(
+        "| First non-wrapper signal | baseline unavailable | "
+        + (routing.get("first_failure_signal") or "— N/A —")
+        + " |"
+    )
+    lines.append(
+        "| Final visible failure | baseline unavailable | "
+        + (routing.get("visible_failure") or "— N/A —")
+        + " |"
+    )
+    lines.append("")
+
+    lines.append("### 2.6 Failure Chain Overview")
+    lines.append("```mermaid")
+    lines.append("sequenceDiagram")
+    lines.append("    participant CI")
+    lines.append("    participant Agent")
+    lines.append("    participant Logs")
+    lines.append("    CI->>Logs: Execute failing step")
+    lines.append("    Logs-->>Agent: Expose filtered timeline and artifacts")
+    lines.append("    Agent-->>CI: " + (diag.get("root_cause") or "Escalate for manual review"))
+    lines.append("```")
+    lines.append("")
+
+    lines.append("### 2.7 Root Cause Analysis")
+    lines.append("| Layer | Root Cause |")
+    lines.append("|---|---|")
+    if root_layers:
+        for item in root_layers:
+            lines.append(f"| {item.get('layer', '')} | {item.get('cause', '')} |")
+    else:
+        lines.append(f"| summary | {diag.get('root_cause') or '_No layered analysis available._'} |")
+    lines.append("")
+
+    lines.append("### 2.8 Excluded Items")
+    if counter_evidence or source_conflicts:
+        for e in counter_evidence:
             lines.append(
-                f"| {e.get('file', '')} | {e.get('line', '')} | "
-                f"`{e.get('snippet', '')}` | "
-                f"{e.get('interpretation', '')} |"
+                f"- {e.get('file', '')}:{e.get('line', '')} argues against the primary hypothesis: {e.get('interpretation', '')}"
             )
-        lines.append("")
-
-    if diag.get("counter_evidence"):
-        lines.append("### Counter-evidence")
-        lines.append("| file | line | snippet | interpretation |")
-        lines.append("|---|---|---|---|")
-        for e in diag["counter_evidence"]:
+        for item in source_conflicts:
             lines.append(
-                f"| {e.get('file', '')} | {e.get('line', '')} | "
-                f"`{e.get('snippet', '')}` | "
-                f"{e.get('interpretation', '')} |"
+                f"- Source conflict: {item.get('source_a', '')} vs {item.get('source_b', '')} — {item.get('conflict', '')}"
             )
-        lines.append("")
+    else:
+        lines.append("- _No explicit exclusions recorded._")
+    lines.append("")
 
-    if diag.get("next_actions"):
-        lines.append("### Next actions")
-        lines.append("| priority | action | command |")
-        lines.append("|---|---|---|")
-        for a in diag["next_actions"]:
-            lines.append(f"| {a.get('priority', '')} | {a.get('action', '')} | `{a.get('command', '')}` |")
-        lines.append("")
+    lines.append("### 2.9 Next Actions")
+    lines.append("| Priority | Direction | Action | Confidence |")
+    lines.append("|---|---|---|---|")
+    if next_actions:
+        for a in next_actions:
+            lines.append(f"| {a.get('priority', '')} | follow-up | {a.get('action', '')} | {diag.get('confidence')} |")
+    else:
+        lines.append(f"| P0 | follow-up | Investigate manually | {diag.get('confidence')} |")
+    lines.append("")
 
-    if routing.get("wrapper_errors"):
-        lines.append("### Wrapper errors (symptoms, not root cause)")
-        for w in routing["wrapper_errors"]:
-            lines.append(f"- L{w.get('line', '')} {w.get('type', '')}: `{w.get('snippet', '')}`")
+    lines.append("### 2.10 Fix Recommendations")
+    lines.append("#### Recommendations")
+    if next_actions:
+        for idx, a in enumerate(next_actions, start=1):
+            command = a.get("command") or "_No command provided._"
+            lines.append(f"{idx}. {a.get('action', '')}  Command: `{command}`")
+    else:
+        lines.append("1. Investigate the owning source before changing code or workflow policy.")
+    lines.append("")
+
+    lines.append("### 2.11 Retrieval Commands")
+    lines.append("```bash")
+    log_file = diag.get("log_file") or "/path/to/log"
+    lines.append(f"grep -n \"ERROR\\|Traceback\\|FAILED\" {log_file}")
+    if evidence:
+        first_file = evidence[0].get("file") or log_file
+        first_line = evidence[0].get("line") or 1
+        lines.append(f"sed -n '{max(first_line - 20, 1)},{first_line + 20}p' {first_file}")
+    else:
+        lines.append(f"grep -n \"EngineDeadError\\|RuntimeError\\|AssertionError\" {log_file}")
+    lines.append("```")
+    lines.append("")
+
+    if evidence_sources or matched_playbooks:
+        lines.append("### Notes")
+        if evidence_sources:
+            lines.append(
+                "- Evidence sources: "
+                + ", ".join(item.get("source", "") for item in evidence_sources if item.get("source"))
+            )
+        if matched_playbooks:
+            lines.append(f"- Matched playbooks: {', '.join(matched_playbooks)}")
         lines.append("")
 
     return "\n".join(lines) + "\n"
@@ -1600,6 +1708,12 @@ def _main_impl(argv: list[str] | None = None) -> int:
         return 0
 
     _log("init", f"log={args.log_file} size={args.log_file.stat().st_size}")
+    file_index, _ = _scan_log_dir(
+        args.log_file,
+        args.artifact_dir,
+        args.k8s_dir,
+        args.benchmark_dir,
+    )
 
     ctx = git_context if any(git_context.values()) else None
 
@@ -1624,6 +1738,7 @@ def _main_impl(argv: list[str] | None = None) -> int:
             log_file=args.log_file,
             git_context=ctx,
             missing_config=missing,
+            index=file_index,
         )
         summary_md = render_evidence_summary(diag)
 
@@ -1653,9 +1768,9 @@ def main(argv: list[str] | None = None) -> int:
         _log("fatal", f"{safe_type}: {safe_msg}")
         _log("fatal", tb[-2000:])
         md = (
-            "## CI AI 失败定位\n\n"
-            "**Agent 自身异常**：诊断脚本内部出错，未产出诊断结论。\n\n"
-            f"| 异常类型 | 信息 |\n|---|---|\n"
+            "## CI AI Diagnosis\n\n"
+            "**Agent Exception**: The diagnosis script encountered an internal error and did not produce a result.\n\n"
+            f"| Exception Type | Message |\n|---|---|\n"
             f"| `{safe_type}` | `{safe_msg}` |\n\n"
         )
         with contextlib.suppress(Exception):

@@ -11,8 +11,9 @@ description: >
 
 This skill is the **top-level diagnosis dispatcher** for unknown CI failures
 in vllm-ascend. It is written for an LLM agent with evidence access, not for
-a keyword classifier. Python scripts in `.github/workflows/scripts/ci_diagnosis_*.py`
-are evidence tools; the agent is the diagnosis brain.
+a keyword classifier. The agent uses `.agents/skills/ci-ai-diagnosis-agent/scripts/ci_diagnosis_agent.py`
+as its entry point and explores logs via function-calling tools (list_dir,
+read_file, search, diagnose) built directly into the agent loop.
 
 ---
 
@@ -41,43 +42,85 @@ Failure mode: if the log file is missing, emit a skip note. Never fabricate.
 
 ---
 
+## 2.5 MVP SOP
+
+This skill follows a minimal SOP intended for CI MVP rollout. Keep it
+simple, deterministic, and evidence-first.
+
+### 2.5.1 Trigger Condition
+
+- Trigger when a CI job or step fails and a log file is available.
+- Do not require issue classification up front; routing happens after the
+  first-pass log review.
+- If the log file is missing or empty, emit a skip/evidence-only result and
+  stop. Never fabricate diagnosis from Git context alone.
+
+### 2.5.2 Retrieval Order
+
+- Start from the filtered main CI log to identify the visible failure and
+  the earliest suspicious signal.
+- Use the file index to decide which owning source exists before calling
+  tools. Do not guess hidden paths.
+- Query the owning source before supporting sources:
+  - benchmark failure -> benchmark results first, then main log
+  - pod/scheduling/image-pull failure -> K8s diagnostics first, then main log
+  - wrapper / engine / rank / NPU failure -> main log for symptom, then
+    worker/artifact logs for the first non-wrapper failure
+- Use `search()` to locate candidates first; use `read_file()` only after a
+  targeted hit needs local context.
+
+### 2.5.3 Convergence And Downgrade
+
+- Converge and call `diagnose` when the agent has a plausible first
+  non-wrapper failure, the owning source supports it, and there is no
+  strong counter-evidence.
+- Downgrade instead of guessing when any of these holds:
+  - only wrapper evidence is available
+  - the owning source is missing
+  - different sources conflict on the same fact
+  - repeated searches only find generic keywords without a causal line
+- On downgrade, set `confidence=low` and `needs_human_review=true`.
+
+### 2.5.4 Output Contract
+
+- Always emit structured JSON plus Markdown summary.
+- `high`: direct owning-source evidence plus corroboration.
+- `medium`: direct owning-source evidence but limited corroboration.
+- `low`: evidence bundle / tentative diagnosis only; do not present it as a
+  strong root-cause claim.
+- Every root-cause claim must reference `{file, line}` evidence.
+
+---
+
 ## 3. Execution Protocol
 
-Five bounded steps, each consuming the output of the previous one:
+The agent follows a multi-round function-calling loop driven by `ci_diagnosis_agent.py`:
 
-### 3.1 Build Evidence Map
-Call `ci_diagnosis_index.py` to produce a deterministic index of the log:
-total lines, failed tests, first/last traceback, wrapper hits, domain
-pattern hits, artifact manifest, and optional git context.
-Also build a source inventory: main CI log, benchmark results, K8s
-diagnostics, Ascend/worker logs, and git context. Missing sources are
-evidence, not errors.
+### 3.1 Pre-filter & Index
+The agent script pre-filters the raw CI log using `ci_log_filter_llm.py`
+(two-phase: high-signal lines + context windows around anchors). It then
+builds a file index of the main log directory and optional artifact/K8s/
+benchmark directories.
 
-### 3.2 Route Failure Family
-Apply the **Failure Routing Protocol** (Section 5) using the index and the
-**Evidence Source Orchestration** rules (Section 4).
-Output is a routing JSON with `failure_stage`, `failure_layer`,
-`wrapper_errors`, `evidence_source_plan`, and `evidence_requests`.
-This is NOT a root cause yet.
+### 3.2 Agent Loop
+The LLM receives the filtered log + file index as its first message. It
+explores via function-calling tools (`list_dir`, `read_file`, `search`).
+When ready, it calls `diagnose` to submit a structured diagnosis.
 
-### 3.3 Request Evidence
-For each `evidence_request`, call tools from `ci_diagnosis_evidence.py`
-(get_window, search, get_first_exception_context, get_wrapper_upstream_context,
-get_benchmark_summary, get_k8s_summary, search_artifacts, etc.). Each
-request must state which source it is querying and which question it is
-trying to answer.
+### 3.3 Tool Set
+All evidence tools are built into the agent loop (not separate scripts):
 
-### 3.4 Verify Hypotheses
-Generate 2-3 hypotheses with supporting evidence, counter-evidence,
-and confidence. If a playbook is matched, reference its decision tree
-for guidance but verify every claim against the actual log with line
-numbers.
-Do not verify a CI root cause from the main log alone when the route
-requires benchmark, K8s, or worker-log evidence.
+| Tool | Purpose |
+|---|---|
+| `list_dir(path)` | List files in a directory |
+| `read_file(path, offset, limit)` | Read section of a log file by line range |
+| `search(path, pattern, context_lines)` | Regex search with line numbers and context |
+| `diagnose(...)` | Submit final structured diagnosis JSON |
 
-### 3.5 Render Diagnosis
-Emit a structured diagnosis JSON (machine-readable) and Markdown report
-(human-readable). The JSON is the source of truth.
+### 3.4 Termination
+The loop ends when the LLM calls `diagnose`, returns no tool calls, or
+exhausts `max_rounds` (default 3). On exhaustion, a force-final round
+without tools runs to extract whatever diagnosis the model can produce.
 
 ---
 
@@ -116,23 +159,27 @@ Every `evidence_request` must include:
 {
   "source": "benchmark_results",
   "question": "Which benchmark task failed and by how much?",
-  "tool": "get_benchmark_summary",
+  "tool": "search",
   "expected_fact": "failed task, metric, value, baseline, threshold",
   "fallback": "If benchmark results are missing, record missing_source and inspect main log around aisbench output"
 }
 ```
 
-Use source-specific tools before generic search:
+Use the existing tool surface to query the owning source before expanding
+to other sources:
 
-1. Benchmark outcome: `get_benchmark_summary()` first, then `search()` for
-   the same task or metric in the main log.
-2. K8s state: `get_k8s_summary()` first, then `search_artifacts()` for the
-   pod name or abnormal reason.
-3. Engine/NPU/rank failures: `search_artifacts()` first for HCCL/ACL/Engine
-   patterns, then `get_artifact_window()` or `get_window()` around matched
-   lines.
-4. Wrapper errors: `get_wrapper_upstream_context()` first, then source
-   routing decides whether to inspect benchmark, K8s, or worker logs.
+1. Benchmark outcome: `list_dir()` the benchmark directory, then `search()`
+   the benchmark JSON for task names / `pass_fail` / metric keys, and only
+   then `search()` the main log for the same task or metric.
+2. K8s state: `list_dir()` the K8s diagnostics directory, then `search()`
+   for pod names, phases, restart counts, OOM, scheduling, and image-pull
+   reasons; use `read_file()` only after a targeted match.
+3. Engine/NPU/rank failures: `search()` artifact and worker logs for
+   HCCL/ACL/Engine patterns first, then `read_file()` around matched lines
+   to capture the causal context.
+4. Wrapper errors: start from the wrapper snippet in the main log, then
+   `search()` upstream sources for the first non-wrapper failure that
+   happened earlier on the timeline.
 
 ### 4.4 Cross-Source Rules
 
@@ -180,7 +227,8 @@ Routing uses two orthogonal dimensions:
 **Wrapper error rule**: These are symptoms, never root causes unless proven
 otherwise — `EngineDeadError`, `CalledProcessError`, `TimeoutError`,
 `500 Internal Server Error`, `CrashLoopBackOff`, etc. For each wrapper,
-request `get_wrapper_upstream_context`.
+trace upstream with `search()` and `read_file()` until the first
+non-wrapper failure is found or the evidence boundary is reached.
 
 **Routing JSON schema**:
 
@@ -200,8 +248,8 @@ request `get_wrapper_upstream_context`.
      "confidence": "medium", "supporting_evidence": [...], "missing_evidence": [...]}
   ],
   "evidence_requests": [
-    {"source": "main_ci_log", "question": "Where is the first visible exception?", "tool": "get_first_exception_context"},
-    {"source": "ascend_worker_logs", "question": "What is the first rank-local engine error?", "tool": "search_artifacts", "pattern": "EngineCore|HCCL|ACL|RuntimeError"}
+    {"source": "main_ci_log", "question": "Where is the first visible exception?", "tool": "search", "pattern": "Traceback|ERROR|FAILED|EngineDeadError"},
+    {"source": "ascend_worker_logs", "question": "What is the first rank-local engine error?", "tool": "search", "pattern": "EngineCore|HCCL|ACL|RuntimeError"}
   ],
   "missing_sources": [],
   "source_conflicts": [],
@@ -217,23 +265,16 @@ invent a route you cannot justify.
 
 ## 6. Evidence Tools
 
-These tools are provided by `.github/workflows/scripts/ci_diagnosis_*.py`:
+All tools are built into the agent's function-calling loop within
+`ci_diagnosis_agent.py`. The LLM accesses them as OpenAI-compatible
+function calls:
 
-| Tool | Module | Purpose |
-|---|---|---|
-| `get_window(line, before, after)` | `ci_diagnosis_evidence.py` | Context window around a line |
-| `search(pattern, max_matches)` | `ci_diagnosis_evidence.py` | Regex search with line numbers |
-| `get_failure_block(test, before, after)` | `ci_diagnosis_evidence.py` | Pytest failure block |
-| `get_first_exception_context(before, after)` | `ci_diagnosis_evidence.py` | Window around first traceback |
-| `get_last_exception_context(before, after)` | `ci_diagnosis_evidence.py` | Window around last traceback |
-| `get_wrapper_upstream_context(before, after)` | `ci_diagnosis_evidence.py` | Trace upstream from wrappers |
-| `list_artifacts()` | `ci_diagnosis_evidence.py` | List available artifact files |
-| `get_artifact_manifest()` | `ci_diagnosis_evidence.py` | Typed artifact manifest |
-| `get_benchmark_summary()` | `ci_diagnosis_evidence.py` | Benchmark pass/fail summary |
-| `get_k8s_summary()` | `ci_diagnosis_evidence.py` | K8s pod state summary |
-| `search_artifacts(pattern, max_matches)` | `ci_diagnosis_evidence.py` | Cross-artifact regex search |
-| `build_index(log_path, artifact_dir)` | `ci_diagnosis_index.py` | Deterministic log index |
-| `build_manifest(dir)` | `ci_diagnosis_artifacts.py` | Typed artifact manifest |
+| Tool | Purpose |
+|---|---|
+| `list_dir(path)` | List files in a directory |
+| `read_file(path, offset, limit)` | Read a section of a log file by line range (max 500 lines) |
+| `search(path, pattern, context_lines)` | Regex search with line numbers and context (max 50 matches) |
+| `diagnose(failure_family, root_cause, classification, ...)` | Submit the final structured diagnosis |
 
 The agent must call these tools rather than guess. Every claim must
 reference a `{file, line}` pair.
@@ -287,8 +328,10 @@ Summary:
    `needs_human_review`.
 
 2. **Markdown report** (human-readable, 11 sections):
-   诊断结论, 环境概要, 关键时间线, 证据链, 失败路径对比, 故障链路总览,
-   根因分析, 排除项, 下一步行动, 修复建议, 关键日志检索命令.
+   Diagnosis Conclusion, Environment Summary, Key Timeline, Evidence Chain,
+   Success vs Failure Comparison, Failure Chain Overview, Root Cause
+   Analysis, Excluded Items, Next Actions, Fix Recommendations, Retrieval
+   Commands.
 
 See `references/output-format.md` for the detailed schema and section
 requirements.
@@ -300,8 +343,10 @@ requirements.
 - Never breaks CI. All failure paths exit 0.
 - If LLM call is disabled or misconfigured, emit a skip note with
   `confidence=low`, `classification=unknown`, `needs_human_review=true`.
-- The Python entry point (ci_diagnosis_agent.py) is an evidence bundle
-  builder by default; the LLM-based agent is invoked through the skill.
+- The Python entry point (``ci_diagnosis_agent.py``) builds the log index,
+  collects evidence, and calls the configured LLM when
+  ``VLLM_ASCEND_CI_AI_DIAGNOSIS_ENABLED=1`` and API credentials are set.
+  If the LLM call is disabled or misconfigured, it emits a skip note instead.
 
 ---
 
@@ -321,8 +366,5 @@ requirements.
 |---|---|---|
 | Skill definition | `.agents/skills/ci-ai-diagnosis-agent/SKILL.md` | This file |
 | Output format | `.agents/skills/ci-ai-diagnosis-agent/references/output-format.md` | Detailed output spec |
-| Evidence bundle builder | `.github/workflows/scripts/ci_diagnosis_agent.py` | CLI entry, evidence collection |
-| Evidence API | `.github/workflows/scripts/ci_diagnosis_evidence.py` | Deterministic evidence tools |
-| Log indexer | `.github/workflows/scripts/ci_diagnosis_index.py` | Deterministic log index builder |
-| Artifact parser | `.github/workflows/scripts/ci_diagnosis_artifacts.py` | Artifact manifest & summaries |
-| Reusable CI step | `.github/workflows/_ci_ai_diagnosis.yaml` | Reusable workflow |
+| Agent entry point | `.agents/skills/ci-ai-diagnosis-agent/scripts/ci_diagnosis_agent.py` | CLI entry, agent loop, evidence tools |
+| Log filter | `.agents/skills/ci-ai-diagnosis-agent/scripts/ci_log_filter_llm.py` | Two-phase log pre-filtering for LLM input |

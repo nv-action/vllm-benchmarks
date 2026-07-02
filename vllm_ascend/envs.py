@@ -112,24 +112,6 @@ env_variables: dict[str, Callable[[], Any]] = {
     "VLLM_ASCEND_ENABLE_BATCH_MEMCPY": lambda: os.getenv("VLLM_ASCEND_ENABLE_BATCH_MEMCPY", None),
     # Whether to use MultiBlockPool for KV cache management
     "VLLM_ASCEND_APPLY_DSV4_PATCH": lambda: bool(int(os.getenv("VLLM_ASCEND_APPLY_DSV4_PATCH", "0"))),
-    # CI AI diagnosis agent configuration.
-    # Set VLLM_ASCEND_CI_AI_DIAGNOSIS_ENABLED=1 to activate the evidence
-    # bundle builder after a failed CI step.
-    "VLLM_ASCEND_CI_AI_DIAGNOSIS_ENABLED": lambda: bool(
-        int(os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_ENABLED", "1"))
-    ),
-    "VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY": lambda: os.getenv(
-        "VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY", ""
-    ),
-    "VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL": lambda: os.getenv(
-        "VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL", ""
-    ),
-    "VLLM_ASCEND_CI_AI_DIAGNOSIS_MODEL": lambda: os.getenv(
-        "VLLM_ASCEND_CI_AI_DIAGNOSIS_MODEL", "MiniMax-M3"
-    ),
-    "VLLM_ASCEND_CI_AI_DIAGNOSIS_MAX_INPUT_CHARS": lambda: int(
-        os.getenv("VLLM_ASCEND_CI_AI_DIAGNOSIS_MAX_INPUT_CHARS", "120000")
-    ),
 }
 
 # end-env-vars-definition

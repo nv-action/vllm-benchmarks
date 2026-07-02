@@ -328,12 +328,7 @@ jobs:
           fi
           VLLM_ASCEND_REPO=/vllm-workspace/vllm-ascend
           SHA=$(git -C "$VLLM_ASCEND_REPO" rev-parse HEAD)
-          AGENT_SCRIPT="$VLLM_ASCEND_REPO/.github/workflows/scripts/ci_diagnosis_agent.py"
-          # Hot-patch: vllm_ascend.envs returns bool for DIAGNOSIS_ENABLED,
-          # but the agent does int(str(bool)) -> ValueError.  Widen the
-          # except clause so it falls through to the os.getenv path.
-          sed -i 's/except (ImportError, AttributeError):/except (ImportError, AttributeError, ValueError):/' "$AGENT_SCRIPT"
-          python3 "$AGENT_SCRIPT" \
+          python3 "$GITHUB_WORKSPACE/.agents/skills/ci-ai-diagnosis-agent/scripts/ci_diagnosis_agent.py" \
             --log-file "$LOGFILE" \
             --step-name "${{ inputs.name || inputs.config_file_path || inputs.tests }}" \
             --artifact-dir /tmp/ci-diagnosis-artifacts \
@@ -343,3 +338,15 @@ jobs:
             --repo-dir "$VLLM_ASCEND_REPO" \
             --output-json /tmp/ci-diagnosis-evidence.json \
             --write-summary
+
+      - name: Upload diagnosis evidence bundle
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-single-node-diagnosis-evidence
+          path: /tmp/ci-diagnosis-evidence.json
+          if-no-files-found: warn
+          retention-days: 7
+          compression-level: 0
+          overwrite: true

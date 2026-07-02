@@ -100,7 +100,7 @@ jobs:
           if [ -n "${{ inputs.repo-dir }}" ]; then
             ARGS="$ARGS --repo-dir ${{ inputs.repo-dir }}"
           fi
-          python3 "$GITHUB_WORKSPACE/.github/workflows/scripts/ci_diagnosis_agent.py" $ARGS
+          python3 "$GITHUB_WORKSPACE/.agents/skills/ci-ai-diagnosis-agent/scripts/ci_diagnosis_agent.py" $ARGS
 
       - name: Upload diagnosis JSON
         if: always()
