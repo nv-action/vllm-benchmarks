@@ -83,7 +83,7 @@ jobs:
       should_push: ${{ github.repository_owner == 'vllm-project' && (github.event_name != 'pull_request') }}
       workflow_dispatch_tag: ${{ inputs.tag != 'none' && inputs.tag || '' }}
       branch_ref: ${{ inputs.branch != 'none' && inputs.branch || '' }}
-    secrets:
+    # secrets:
       # QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
 
   schedule_image_build:
