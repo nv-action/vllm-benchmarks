@@ -79,12 +79,12 @@ jobs:
     with:
       dockerfile: ${{ matrix.build_meta.dockerfile }}
       suffix: ${{ matrix.build_meta.suffix }}
-      quay_username: ${{ vars.QUAY_USERNAME }}
+      # quay_username: ${{ vars.QUAY_USERNAME }}
       should_push: ${{ github.repository_owner == 'vllm-project' && (github.event_name != 'pull_request') }}
       workflow_dispatch_tag: ${{ inputs.tag != 'none' && inputs.tag || '' }}
       branch_ref: ${{ inputs.branch != 'none' && inputs.branch || '' }}
     secrets:
-      QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
+      # QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
 
   schedule_image_build:
     name: Image Build and Push
