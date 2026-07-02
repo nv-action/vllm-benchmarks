@@ -170,7 +170,7 @@ jobs:
         DOCKERFILE_NAME=$(basename "$DOCKERFILE")
 
         ARGS=(
-          --addr="${BUILDKITD_ADDR}"
+          --addr="tcp://buildkitd-service.buildkitd:1234"
           --tlscacert=/tmp/bk/tls/ca.pem
           --tlscert=/tmp/bk/tls/cert.pem
           --tlskey=/tmp/bk/tls/key.pem
