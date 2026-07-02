@@ -61,12 +61,20 @@ jobs:
           - arch: linux/amd64
             runner: linux-amd64-cpu-32-hk
             tag: amd64
+            image: ubuntu:22.04
           - arch: linux/amd64
             runner: linux-amd64-cpu-16-hk
             tag: amd64
+            image: ubuntu:22.04
           - arch: linux/amd64
             runner: linux-amd64-cpu-8-hk
             tag: amd64
+            image: ubuntu:22.04
+
+    container:
+      image: ${{ matrix.image }}
+
+    
     steps:
 
     - name: Validate inputs (workflow_dispatch only)
