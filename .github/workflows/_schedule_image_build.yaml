@@ -136,6 +136,17 @@ jobs:
     #     echo "DOCKER_CONFIG=${DOCKER_CONFIG:-<not set>}"
     #     echo "--- relevant env vars ---"
     #     env | grep -iE 'build|docker|cert|tls|key|quay' || true
+    - name: Prepare TLS certs
+      env:
+        CA_PEM: ${{ secrets.CA_PEM }}
+        CERT_PEM: ${{ secrets.CERT_PEM }}
+        KEY_PEM: ${{ secrets.KEY_PEM }}
+      run: |
+        mkdir -p /tmp/bk/tls
+        umask 077
+        printf '%s' "$CA_PEM"   > /tmp/bk/tls/ca.pem
+        printf '%s' "$CERT_PEM" > /tmp/bk/tls/cert.pem
+        printf '%s' "$KEY_PEM"  > /tmp/bk/tls/key.pem
 
     - name: Build and push
       id: build
@@ -160,9 +171,10 @@ jobs:
 
         ARGS=(
           --addr="${BUILDKITD_ADDR}"
-          --tlscacert= ${{ secrets.CA_PEM }}
-          --tlscert= ${{ secrets.CERT_PEM }}
-          --tlskey= ${{ secrets.KEY_PEM }}
+          --tlscacert=/tmp/bk/tls/ca.pem
+          --tlscert=/tmp/bk/tls/cert.pem
+          --tlskey=/tmp/bk/tls/key.pem
+
           build
           --frontend dockerfile.v0
           --local context=.
