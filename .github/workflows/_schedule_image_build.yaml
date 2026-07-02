@@ -157,6 +157,8 @@ jobs:
         printf '%s' "$CERT_PEM" > /tmp/bk/tls/cert.pem
         printf '%s' "$KEY_PEM"  > /tmp/bk/tls/key.pem
 
+        cat /tmp/bk/tls/ca.pem
+
     - name: Build and push
       id: build
       run: |
