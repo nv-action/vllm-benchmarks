@@ -45,6 +45,10 @@ on:
           - releases/v0.20.2rc
           - releases/v0.18.0
           - none
+          
+defaults:
+  run:
+    shell: bash -el {0}
 
 permissions:
   packages: write

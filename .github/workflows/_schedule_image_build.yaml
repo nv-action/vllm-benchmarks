@@ -39,6 +39,10 @@ on:
       KEY_PEM:
         description: 'Buildkitd client key'
         required: true
+        
+defaults:
+  run:
+    shell: bash -el {0}
 
 env:
   QUAY_REPO: quay.io/atlas-ci/vllm-atlas-temp
