@@ -29,8 +29,8 @@ on:
         required: false
         type: string
         default: 'main'
-    secrets:
-      {}
+    # secrets:
+    #   {}
 
 env:
   QUAY_REPO: quay.io/atlas-ci/vllm-atlas-temp
