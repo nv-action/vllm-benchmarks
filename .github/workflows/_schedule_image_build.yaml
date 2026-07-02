@@ -150,14 +150,16 @@ jobs:
         CERT_PEM: ${{ secrets.CERT_PEM }}
         KEY_PEM: ${{ secrets.KEY_PEM }}
       run: |
-        echo "${{ secrets.CA_PEM }}"
         mkdir -p /tmp/bk/tls
         umask 077
-        printf '%s' "$CA_PEM"   > /tmp/bk/tls/ca.pem
-        printf '%s' "$CERT_PEM" > /tmp/bk/tls/cert.pem
-        printf '%s' "$KEY_PEM"  > /tmp/bk/tls/key.pem
+        printf '%s\n' "$CA_PEM"   | tr -d '\r' > /tmp/bk/tls/ca.pem
+        printf '%s\n' "$CERT_PEM" | tr -d '\r' > /tmp/bk/tls/cert.pem
+        printf '%s\n' "$KEY_PEM"  | tr -d '\r' > /tmp/bk/tls/key.pem
 
-        cat /tmp/bk/tls/ca.pem
+        # 诊断（不泄露内容）
+        echo "ca.pem: $(wc -c < /tmp/bk/tls/ca.pem) bytes"
+        head -1 /tmp/bk/tls/ca.pem
+        tail -1 /tmp/bk/tls/ca.pem
 
     - name: Build and push
       id: build
