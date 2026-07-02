@@ -29,20 +29,8 @@ on:
         required: false
         type: string
         default: 'main'
-    # secrets:
-    #   CA_PEM:
-    #     description: 'Buildkitd CA cert'
-    #     required: true
-    #   CERT_PEM:
-    #     description: 'Buildkitd client cert'
-    #     required: true
-    #   KEY_PEM:
-    #     description: 'Buildkitd client key'
-    #     required: true
-        
-defaults:
-  run:
-    shell: bash -el {0}
+    secrets:
+      {}
 
 env:
   QUAY_REPO: quay.io/atlas-ci/vllm-atlas-temp
@@ -61,21 +49,12 @@ jobs:
           - arch: linux/amd64
             runner: linux-amd64-cpu-32-hk
             tag: amd64
-            image: ubuntu:22.04
           - arch: linux/amd64
             runner: linux-amd64-cpu-16-hk
             tag: amd64
-            image: ubuntu:22.04
           - arch: linux/amd64
             runner: linux-amd64-cpu-8-hk
             tag: amd64
-            image: ubuntu:22.04
-
-    container:
-      image: ${{ matrix.image }}
-
-
-    
     steps:
 
     - name: Validate inputs (workflow_dispatch only)
@@ -157,81 +136,45 @@ jobs:
     #     echo "DOCKER_CONFIG=${DOCKER_CONFIG:-<not set>}"
     #     echo "--- relevant env vars ---"
     #     env | grep -iE 'build|docker|cert|tls|key|quay' || true
-    # - name: Prepare TLS certs
-    #   env:
-    #     CA_PEM: ${{ secrets.CA_PEM }}
-    #     CERT_PEM: ${{ secrets.CERT_PEM }}
-    #     KEY_PEM: ${{ secrets.KEY_PEM }}
-    #   run: |
-    #     mkdir -p /tmp/bk/tls
-    #     umask 077
-    #     printf '%s\n' "$CA_PEM"   | tr -d '\r' > /tmp/bk/tls/ca.pem
-    #     printf '%s\n' "$CERT_PEM" | tr -d '\r' > /tmp/bk/tls/cert.pem
-    #     printf '%s\n' "$KEY_PEM"  | tr -d '\r' > /tmp/bk/tls/key.pem
-
-    #     echo "=== File sizes ==="
-    #     echo "ca.pem:   $(wc -c < /tmp/bk/tls/ca.pem) bytes"
-    #     echo "cert.pem: $(wc -c < /tmp/bk/tls/cert.pem) bytes"
-    #     echo "key.pem:  $(wc -c < /tmp/bk/tls/key.pem) bytes"
-
-    #     echo "=== First line of each file ==="
-    #     head -1 /tmp/bk/tls/ca.pem   | cut -c1-20
-    #     head -1 /tmp/bk/tls/cert.pem | cut -c1-20
-    #     head -1 /tmp/bk/tls/key.pem  | cut -c1-20
-
-    #     echo "=== Cert info (subject/issuer/dates) ==="
-    #     openssl x509 -in /tmp/bk/tls/cert.pem -noout -subject -issuer -dates
-
-    #     echo "=== Cert vs Key modulus match ==="
-    #     CERT_MOD=$(openssl x509 -in /tmp/bk/tls/cert.pem -noout -modulus | md5sum)
-    #     KEY_MOD=$(openssl rsa -in /tmp/bk/tls/key.pem -noout -modulus 2>/dev/null | md5sum)
-    #     echo "cert modulus: $CERT_MOD"
-    #     echo "key  modulus: $KEY_MOD"
-    #     if [ "$CERT_MOD" = "$KEY_MOD" ]; then
-    #       echo "RESULT: MATCH"
-    #     else
-    #       echo "RESULT: MISMATCH"
-    #     fi
-
-    #     echo "=== Verify cert against CA ==="
-    #     openssl verify -CAfile /tmp/bk/tls/ca.pem /tmp/bk/tls/cert.pem || true
+    - name: Prepare TLS certs
+      env:
+        CA_PEM: ${{ secrets.CA_PEM }}
+        CERT_PEM: ${{ secrets.CERT_PEM }}
+        KEY_PEM: ${{ secrets.KEY_PEM }}
+      run: |
+        mkdir -p /tmp/bk/tls
+        umask 077
+        printf '%s' "$CA_PEM"   > /tmp/bk/tls/ca.pem
+        printf '%s' "$CERT_PEM" > /tmp/bk/tls/cert.pem
+        printf '%s' "$KEY_PEM"  > /tmp/bk/tls/key.pem
 
     - name: Build and push
       id: build
       run: |
-        echo "Installing buildkit..."
-        mkdir -p /tmp/buildkit
-        BUILDKIT_VERSION="v0.29.0"
-        ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
-        wget -q "https://github.com/moby/buildkit/releases/download/${BUILDKIT_VERSION}/buildkit-${BUILDKIT_VERSION}.linux-${ARCH}.tar.gz" -O /tmp/buildkit.tar.gz
-        tar -xzf /tmp/buildkit.tar.gz -C /tmp/buildkit
-        export PATH=$PATH:/tmp/buildkit/bin/
-        chmod +x /tmp/buildkit/bin/buildctl /tmp/buildkit/bin/buildkitd
+        # echo "Installing buildctl..." 
+        # mkdir -p /tmp/buildkit 
+        # BUILDKIT_VERSION="v0.29.0" 
+        # ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/') 
+        # curl -fsSL "https://github.com/moby/buildkit/releases/download/${BUILDKIT_VERSION}/buildkit-${BUILDKIT_VERSION}.linux-${ARCH}.tar.gz" -o /tmp/buildkit.tar.gz
+        # tar -xzf /tmp/buildkit.tar.gz -C /tmp/buildkit 
+        # export PATH=$PATH:/tmp/buildkit/bin/
+        
+        # chmod +x /tmp/buildkit/bin/buildctl 
 
-        echo "Starting local buildkitd..."
-        /tmp/buildkit/bin/buildkitd \
-          --addr=unix:///tmp/buildkitd.sock \
-          --oci-worker-no-process-sandbox \
-          > /tmp/buildkitd.log 2>&1 &
-        BUILDKITD_PID=$!
-        sleep 3
-
-        if ! kill -0 $BUILDKITD_PID 2>/dev/null; then
-          echo "ERROR: buildkitd failed to start"
-          cat /tmp/buildkitd.log
-          exit 1
-        fi
-        echo "buildkitd started (PID=$BUILDKITD_PID)"
-        buildctl --addr=unix:///tmp/buildkitd.sock debug workers
-        trap "kill $BUILDKITD_PID 2>/dev/null" EXIT
-
+        # echo "buildctl installed successfully" buildctl --version
         set -ex
+        which buildctl
+
         DOCKERFILE="${{ inputs.dockerfile || 'Dockerfile' }}"
         DOCKERFILE_DIR=$(dirname "$DOCKERFILE")
         DOCKERFILE_NAME=$(basename "$DOCKERFILE")
 
         ARGS=(
-          --addr=unix:///tmp/buildkitd.sock
+          --addr="tcp://buildkitd-service.buildkitd:1234"
+          --tlscacert=/tmp/bk/tls/ca.pem
+          --tlscert=/tmp/bk/tls/cert.pem
+          --tlskey=/tmp/bk/tls/key.pem
+
           build
           --frontend dockerfile.v0
           --local context=.
@@ -241,6 +184,7 @@ jobs:
           --opt build-arg:PIP_INDEX_URL=https://pypi.org/simple
           --progress=plain
         )
+
 
         if [ "${{ inputs.should_push }}" = "true" ]; then
           ARGS+=(--secret id=dockerconfig,src=/tmp/bk/config.json)
@@ -255,5 +199,6 @@ jobs:
           OUTPUT="${OUTPUT%,},push=true"
           ARGS+=(--output "$OUTPUT")
         fi
+
 
         buildctl "${ARGS[@]}"
