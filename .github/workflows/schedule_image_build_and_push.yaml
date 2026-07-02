@@ -45,7 +45,7 @@ on:
           - releases/v0.20.2rc
           - releases/v0.18.0
           - none
-          
+
 defaults:
   run:
     shell: bash -el {0}
@@ -88,7 +88,7 @@ jobs:
       should_push: ${{ github.repository_owner == 'vllm-project' && (github.event_name != 'pull_request') }}
       workflow_dispatch_tag: ${{ inputs.tag != 'none' && inputs.tag || '' }}
       branch_ref: ${{ inputs.branch != 'none' && inputs.branch || '' }}
-    secrets: inherit 
+    # secrets: inherit 
    
 
   # schedule_image_build:
