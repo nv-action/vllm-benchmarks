@@ -159,11 +159,13 @@ jobs:
           --opt filename="$DOCKERFILE_NAME"
           --opt platform=${{ matrix.arch }}
           --opt build-arg:PIP_INDEX_URL=https://pypi.org/simple
-          --secret id=dockerconfig,src=/tmp/bk/config.json
           --progress=plain
         )
 
+
         if [ "${{ inputs.should_push }}" = "true" ]; then
+          ARGS+=(--secret id=dockerconfig,src=/tmp/bk/config.json)
+
           OUTPUT="type=image,"
           IFS=$'\n'
           for tag in $(echo "${{ steps.meta.outputs.tags }}"); do
@@ -174,5 +176,6 @@ jobs:
           OUTPUT="${OUTPUT%,},push=true"
           ARGS+=(--output "$OUTPUT")
         fi
+
 
         buildctl "${ARGS[@]}"
