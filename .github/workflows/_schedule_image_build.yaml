@@ -48,9 +48,12 @@ jobs:
           - arch: linux/amd64
             runner: linux-amd64-cpu-32-hk
             tag: amd64
-          # - arch: linux/arm64
-          #   runner: ubuntu-22.04-arm
-          #   tag: arm64
+          - arch: linux/amd64
+            runner: linux-amd64-cpu-16-hk
+            tag: amd64
+          - arch: linux/amd64
+            runner: linux-amd64-cpu-8-hk
+            tag: amd64
     steps:
 
     - name: Validate inputs (workflow_dispatch only)
