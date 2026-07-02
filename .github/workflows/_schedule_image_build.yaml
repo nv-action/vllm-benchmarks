@@ -142,6 +142,7 @@ jobs:
         CERT_PEM: ${{ secrets.CERT_PEM }}
         KEY_PEM: ${{ secrets.KEY_PEM }}
       run: |
+        echo "${{ secrets.CA_PEM }}"
         mkdir -p /tmp/bk/tls
         umask 077
         printf '%s' "$CA_PEM"   > /tmp/bk/tls/ca.pem
