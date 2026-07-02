@@ -86,7 +86,7 @@ jobs:
       branch_ref: ${{ inputs.branch != 'none' && inputs.branch || '' }}
     # secrets:
       # QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
-      secrets: inherit
+   
 
   # schedule_image_build:
   #   name: Image Build and Push
