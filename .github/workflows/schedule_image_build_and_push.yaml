@@ -55,6 +55,7 @@ jobs:
     name: Image Build and Push
     if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'image-build')) && github.event_name != 'schedule' }}
     strategy:
+      fail-fast: false
       matrix:
         build_meta:
           - name: A2 Ubuntu
