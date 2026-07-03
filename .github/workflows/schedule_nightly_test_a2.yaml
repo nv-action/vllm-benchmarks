@@ -595,6 +595,7 @@ jobs:
           VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL: ${{ secrets.VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL }}
           VLLM_ASCEND_CI_AI_DIAGNOSIS_MODEL: 'deepseek-v4-pro'
         run: |
+          pip3 install -q regex
           python3 "$GITHUB_WORKSPACE/.agents/skills/ci-ai-diagnosis-agent/scripts/ci_diagnosis_agent.py" \
             --log-file /tmp/ci-outer-diagnosis/workflow-logs.txt \
             --step-name "outer GitHub Actions run logs" \
