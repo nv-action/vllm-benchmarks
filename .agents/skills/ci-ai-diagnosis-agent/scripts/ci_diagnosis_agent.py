@@ -593,6 +593,7 @@ def _make_evidence_only_diagnosis(
 def render_evidence_summary(diag: dict[str, Any]) -> str:
     """Markdown for evidence-only mode (no LLM root-cause claim)."""
     missing = diag.get("missing_llm_config") or []
+    skip_reason = diag.get("skip_reason")
     lines: list[str] = []
     lines.append("## CI AI Diagnosis (LLM not called)")
     lines.append("")
@@ -600,7 +601,9 @@ def render_evidence_summary(diag: dict[str, Any]) -> str:
     lines.append(f"**Log**: `{diag.get('log_file') or ''}`")
     lines.append("")
     lines.append("### Reason for Skipping AI Analysis")
-    if missing:
+    if skip_reason:
+        lines.append(f"- {skip_reason}")
+    elif missing:
         for item in missing:
             lines.append(f"- `{item}` not configured")
     else:
@@ -1701,7 +1704,7 @@ def _main_impl(argv: list[str] | None = None) -> int:
                         "step_name": args.step_name,
                         "log_file": str(args.log_file),
                         "index": {},
-                        "missing_llm_config": ["log file missing or empty"],
+                        "skip_reason": "log file missing or empty",
                     }
                 )
             )

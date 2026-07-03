@@ -321,10 +321,6 @@ jobs:
           VLLM_ASCEND_CI_AI_DIAGNOSIS_MODEL: 'deepseek-v4-pro'
         run: |
           LOGFILE=/tmp/nightly-models.log
-          if [ ! -f "$LOGFILE" ]; then
-            echo "Log file not found at $LOGFILE, skipping diagnosis"
-            exit 0
-          fi
           SHA=$(git rev-parse HEAD)
           python3 "$GITHUB_WORKSPACE/.agents/skills/ci-ai-diagnosis-agent/scripts/ci_diagnosis_agent.py" \
             --log-file "$LOGFILE" \

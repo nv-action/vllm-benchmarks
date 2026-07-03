@@ -52,6 +52,7 @@ on:
         type: string
 
 permissions:
+  actions: read
   contents: read
   pull-requests: read
   issues: read
@@ -351,6 +352,187 @@ jobs:
     secrets:
       VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY: ${{ secrets.VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY }}
       VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL: ${{ secrets.VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL }}
+
+  outer-ci-diagnosis:
+    name: outer CI diagnosis
+    needs:
+      - parse-trigger
+      - single-node-accuracy-tests
+      - single-node-accuracy-tests-pr-only
+    if: >-
+      always() &&
+      needs.parse-trigger.outputs.run == 'true' &&
+      (
+        needs.single-node-accuracy-tests.result == 'failure' ||
+        needs.single-node-accuracy-tests-pr-only.result == 'failure'
+      )
+    runs-on: linux-amd64-cpu-8-hk
+    continue-on-error: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Download inner diagnosis artifacts
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          pattern: nightly-single-node-models-diagnosis-evidence
+          path: inner-diagnosis
+          merge-multiple: true
+
+      - name: Decide whether outer diagnosis is needed
+        id: decide
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          from pathlib import Path
+
+          files = sorted(Path("inner-diagnosis").rglob("*.json"))
+          if not files:
+              print("run_outer=true")
+              print("reason=inner diagnosis artifact missing")
+              raise SystemExit(0)
+
+          decisive = False
+          skipped = []
+          for file in files:
+              try:
+                  data = json.loads(file.read_text(encoding="utf-8"))
+              except Exception as exc:
+                  skipped.append(f"{file}: unreadable JSON ({exc})")
+                  continue
+
+              root_cause = data.get("root_cause", "")
+              visible = (data.get("routing") or {}).get("visible_failure", "")
+              confidence = data.get("confidence", "")
+              if root_cause != "diagnosis skipped" and visible != "log file missing or empty":
+                  decisive = True
+                  skipped.append(f"{file}: confidence={confidence}, root_cause={root_cause}")
+              else:
+                  skipped.append(f"{file}: skipped ({visible or root_cause})")
+
+          if decisive:
+              print("run_outer=false")
+              print("reason=inner diagnosis artifact already contains a non-skip diagnosis")
+          else:
+              print("run_outer=true")
+              print("reason=inner diagnosis only contains skipped or unreadable results")
+          PY
+
+      - name: Summarize outer diagnosis decision
+        if: always()
+        run: |
+          {
+            echo "## Outer CI Diagnosis"
+            echo ""
+            echo "| Item | Value |"
+            echo "|---|---|"
+            echo "| Decision | \`${{ steps.decide.outputs.run_outer }}\` |"
+            echo "| Reason | ${{ steps.decide.outputs.reason }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Collect full workflow logs
+        if: steps.decide.outputs.run_outer == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          OUTER_DIR=/tmp/ci-outer-diagnosis
+          LOG_ZIP="$OUTER_DIR/workflow-logs.zip"
+          FULL_LOG="$OUTER_DIR/workflow-logs.txt"
+          DOWNLOAD_ERR="$OUTER_DIR/download.err"
+          mkdir -p "$OUTER_DIR"
+
+          set +e
+          curl -fsSL \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -o "$LOG_ZIP" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/logs" \
+            2>"$DOWNLOAD_ERR"
+          status=$?
+          set -e
+
+          if [ "$status" -ne 0 ]; then
+            {
+              echo "### GitHub Actions log download failed"
+              echo "run_id=${GITHUB_RUN_ID}"
+              echo "repository=${GITHUB_REPOSITORY}"
+              echo "curl_exit=${status}"
+              cat "$DOWNLOAD_ERR"
+            } > "$FULL_LOG"
+          else
+            python3 - <<'PY'
+          import re
+          import zipfile
+          from pathlib import Path
+
+          log_zip = Path("/tmp/ci-outer-diagnosis/workflow-logs.zip")
+          out = Path("/tmp/ci-outer-diagnosis/workflow-logs.txt")
+          signal_re = re.compile(
+              r"error|failed|failure|exception|traceback|cancelled|timed out|"
+              r"custom container|container implementation|runner|imagepull|"
+              r"oom|killed|no space|permission denied",
+              re.IGNORECASE,
+          )
+
+          entries = []
+          excerpts = []
+          with zipfile.ZipFile(log_zip) as zf:
+              for name in sorted(n for n in zf.namelist() if not n.endswith("/")):
+                  text = zf.read(name).decode("utf-8", errors="replace")
+                  entries.append((name, text))
+                  for lineno, line in enumerate(text.splitlines(), start=1):
+                      if signal_re.search(line):
+                          excerpts.append((name, lineno, line))
+
+          with out.open("w", encoding="utf-8") as fh:
+              fh.write("### High-signal excerpts from GitHub Actions run logs\n\n")
+              if excerpts:
+                  for name, lineno, line in excerpts[:500]:
+                      fh.write(f"{name}:{lineno}: {line}\n")
+              else:
+                  fh.write("No high-signal lines matched the outer diagnosis filter.\n")
+
+              fh.write("\n\n### Full GitHub Actions run logs\n\n")
+              for name, text in entries:
+                  fh.write(f"\n===== BEGIN {name} =====\n")
+                  fh.write(text)
+                  if not text.endswith("\n"):
+                      fh.write("\n")
+                  fh.write(f"===== END {name} =====\n")
+          PY
+          fi
+
+      - name: Run outer CI diagnosis
+        if: steps.decide.outputs.run_outer == 'true'
+        env:
+          VLLM_ASCEND_CI_AI_DIAGNOSIS_ENABLED: '1'
+          VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY: ${{ secrets.VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY }}
+          VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL: ${{ secrets.VLLM_ASCEND_CI_AI_DIAGNOSIS_BASE_URL }}
+          VLLM_ASCEND_CI_AI_DIAGNOSIS_MODEL: 'deepseek-v4-pro'
+        run: |
+          python3 "$GITHUB_WORKSPACE/.agents/skills/ci-ai-diagnosis-agent/scripts/ci_diagnosis_agent.py" \
+            --log-file /tmp/ci-outer-diagnosis/workflow-logs.txt \
+            --step-name "outer GitHub Actions run logs" \
+            --user-hint "Outer fallback diagnosis from full GitHub Actions run logs. Prioritize runner, container, workflow, and infrastructure failures before pytest or model-level causes." \
+            --ref "${{ inputs.vllm_ascend_ref || github.ref_name }}" \
+            --sha "${{ github.sha }}" \
+            --repo-dir "$GITHUB_WORKSPACE" \
+            --output-json /tmp/ci-outer-diagnosis/evidence.json \
+            --write-summary
+
+      - name: Upload outer diagnosis bundle
+        if: always() && steps.decide.outputs.run_outer == 'true'
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-a2-outer-ci-diagnosis
+          path: /tmp/ci-outer-diagnosis/
+          if-no-files-found: warn
+          retention-days: 7
+          overwrite: true
 
   clear-pre-logs:
     needs: [parse-trigger, multi-node-tests]
