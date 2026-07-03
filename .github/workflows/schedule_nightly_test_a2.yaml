@@ -508,8 +508,87 @@ jobs:
           PY
           fi
 
+      - name: Fetch GHA job annotations
+        if: steps.decide.outputs.run_outer == 'true'
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          OUTER_DIR=/tmp/ci-outer-diagnosis
+          JOBS_JSON="$OUTER_DIR/jobs.json"
+
+          set +e
+          curl -fsSL \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -o "$JOBS_JSON" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs?per_page=100" 2>/dev/null
+          status=$?
+          set -e
+
+          if [ "$status" -ne 0 ]; then
+            echo "Failed to fetch jobs (curl exit ${status}), skipping annotations" >> "$OUTER_DIR/workflow-logs.txt"
+          else
+            python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          out_dir = Path("/tmp/ci-outer-diagnosis")
+          jobs_json = out_dir / "jobs.json"
+          full_log = out_dir / "workflow-logs.txt"
+
+          jobs = json.loads(jobs_json.read_text(encoding="utf-8"))
+          lines = [
+              "### GitHub Actions Annotations (platform-level diagnostics)\n",
+              "These messages are emitted by the GitHub Actions platform, NOT by step stdout/stderr.\n",
+          ]
+
+          has_annotations = False
+          for job in (jobs.get("jobs") or []):
+              job_name = job.get("name", "?")
+              conclusion = job.get("conclusion", "?")
+              if conclusion != "success":
+                  has_annotations = True
+                  lines.append(f"\n#### Job: {job_name} (conclusion={conclusion})")
+
+              for step in (job.get("steps") or []):
+                  step_name = step.get("name", "?")
+                  step_conclusion = step.get("conclusion", "?")
+                  annotations = step.get("annotations") or []
+                  if annotations:
+                      has_annotations = True
+                      if not lines[-1].startswith("\n#### Job:"):
+                          lines.append(f"\n#### Job: {job_name} (conclusion={conclusion})")
+                      lines.append(f"  Step: {step_name} (conclusion={step_conclusion})")
+                      for ann in annotations:
+                          level = ann.get("annotation_level", "")
+                          msg = ann.get("message", "")
+                          path = ann.get("path", "")
+                          title = ann.get("title", "")
+                          row = f"    [{level}] {title}: {msg}"
+                          if path:
+                              row += f"  path={path}"
+                          lines.append(row)
+              if not annotations and conclusion != "success":
+                  lines.append("  (no step-level annotations; check raw logs for detail)")
+
+          if has_annotations:
+              annotation_text = "\n".join(lines) + "\n\n---\n\n"
+              existing = full_log.read_text(encoding="utf-8")
+              full_log.write_text(annotation_text + existing, encoding="utf-8")
+          else:
+              full_log.write_text(
+                  "\n(no job annotations found; all jobs succeeded or no diagnostic data)\n" + full_log.read_text(encoding="utf-8"),
+                  encoding="utf-8",
+              )
+          PY
+          fi
+
       - name: Run outer CI diagnosis
         if: steps.decide.outputs.run_outer == 'true'
+        continue-on-error: true
         env:
           VLLM_ASCEND_CI_AI_DIAGNOSIS_ENABLED: '1'
           VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY: ${{ secrets.VLLM_ASCEND_CI_AI_DIAGNOSIS_API_KEY }}
