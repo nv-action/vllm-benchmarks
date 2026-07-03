@@ -357,12 +357,16 @@ jobs:
     name: outer CI diagnosis
     needs:
       - parse-trigger
+      - single-node-tests
+      - multi-node-tests
       - single-node-accuracy-tests
       - single-node-accuracy-tests-pr-only
     if: >-
       always() &&
       needs.parse-trigger.outputs.run == 'true' &&
       (
+        needs.single-node-tests.result == 'failure' ||
+        needs.multi-node-tests.result == 'failure' ||
         needs.single-node-accuracy-tests.result == 'failure' ||
         needs.single-node-accuracy-tests-pr-only.result == 'failure'
       )
@@ -376,9 +380,8 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@v7
         with:
-          pattern: nightly-single-node-models-diagnosis-evidence
+          pattern: '*diagnosis-evidence'
           path: inner-diagnosis
-          merge-multiple: true
 
       - name: Decide whether outer diagnosis is needed
         id: decide
