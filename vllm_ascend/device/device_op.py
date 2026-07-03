@@ -20,6 +20,7 @@ from typing import Any
 import torch
 import torch.nn.functional as F
 import torch_npu
+from vllm.triton_utils import HAS_TRITON
 
 from vllm_ascend.device.mxfp_compat import (
     FLOAT8_E8M0FNU_DTYPE,
@@ -31,6 +32,14 @@ from vllm_ascend.ops.triton.fla.solve_tril import solve_tril_16x16_kernel
 from vllm_ascend.ops.triton.fused_gdn_gating import fused_gdn_gating_patch
 from vllm_ascend.quantization.quant_type import QuantType
 from vllm_ascend.utils import AscendDeviceType, get_ascend_device_type
+
+DSA_COMPRESSOR_SLOT_MAPPING_FLAT = 1
+DSA_COMPRESSOR_SLOT_MAPPING_BLOCK_OFFSET = 2
+
+if HAS_TRITON:
+    from vllm_ascend.ops.triton.rms_norm import triton_q_rms  # noqa: F811
+else:
+    triton_q_rms = None  # type: ignore
 
 
 class BaseDeviceAdaptor:
@@ -111,7 +120,7 @@ class BaseDeviceAdaptor:
             raise RuntimeError("MXFP MoE quantization is only supported on Ascend A5.")
 
         if dynamic_scale is None:
-            return torch_npu.npu_dynamic_quant(hidden_states)
+            return torch_npu.npu_dynamic_quant(hidden_states, dst_type=act_quant_type)
 
         return hidden_states, dynamic_scale
 
@@ -461,7 +470,22 @@ class BaseDeviceAdaptor:
         )
         return attn_output
 
+    @staticmethod
     def npu_flash_attention(query, key, value, seq_lens_cpu, head_num, scale_value, num_kv_heads):
+        if query.dtype == torch.float32:
+            # _npu_flash_attention_unpad does not support FP32.
+            cumulative_seq_lens = seq_lens_cpu.cumsum(0).tolist()
+            return torch_npu.npu_fusion_attention(
+                query=query,
+                key=key,
+                value=value,
+                actual_seq_qlen=cumulative_seq_lens,
+                actual_seq_kvlen=cumulative_seq_lens,
+                head_num=head_num,
+                scale=scale_value,
+                input_layout="TND",
+            )[0]
+
         context_layer = torch.empty_like(query)
 
         torch_npu._npu_flash_attention_unpad(
@@ -498,6 +522,11 @@ class BaseDeviceAdaptor:
     def get_dsa_sparse_attn_base_kwargs():
         """Returns base kwargs for sparse attention (extended by caller)."""
         return {}
+
+    @staticmethod
+    def get_dsa_compressor_slot_mapping_format():
+        """Slot mapping side output format consumed by the DSA scatter op."""
+        return DSA_COMPRESSOR_SLOT_MAPPING_BLOCK_OFFSET
 
     # ===== SWA / Compressor KV Scatter =====
 
@@ -593,13 +622,14 @@ class BaseDeviceAdaptor:
     def apply_dsa_q_rms(q, eps, q_norm_without_weight=None):
         """Apply Q RMS norm. Non-A5: triton_q_rms.
         A5: uses q_norm_without_weight callable when provided."""
-        from vllm.triton_utils import HAS_TRITON
-
-        if HAS_TRITON:
-            from vllm_ascend.ops.triton.rms_norm import triton_q_rms
-
+        if triton_q_rms is not None:
             return triton_q_rms(q, eps)
-        return q
+        else:
+            dtype = q.dtype
+            q = q.float()
+            variance = q.square().mean(-1, keepdim=True)
+            q = q * torch.rsqrt(variance + eps)
+            return q.to(dtype)
 
     # ===== KV Cache Helpers =====
 
@@ -728,7 +758,7 @@ class BaseDeviceAdaptor:
 
     @staticmethod
     def fused_gdn_gating(A_log: torch.Tensor, a: torch.Tensor, b: torch.Tensor, dt_bias: torch.Tensor):
-        return torch.ops._C_ascend.npu_fused_gdn_gating(A_log, a, b, dt_bias.to(torch.float32))
+        return torch.ops._C_ascend.npu_fused_gdn_gating(A_log, a, b, dt_bias.to(A_log.dtype))
 
     @staticmethod
     def split_qkv_rmsnorm_rope(
@@ -758,6 +788,12 @@ class BaseDeviceAdaptor:
             positions=positions,
         )
         return results
+
+    @staticmethod
+    def npu_moe_token_unpermute(permuted_tokens, sorted_indices, probs):
+        return torch_npu.npu_moe_token_unpermute(
+            permuted_tokens=permuted_tokens, sorted_indices=torch.abs(sorted_indices), probs=probs
+        )
 
 
 class A5DeviceAdaptor(BaseDeviceAdaptor):
@@ -874,16 +910,28 @@ class A5DeviceAdaptor(BaseDeviceAdaptor):
         mxfp_quant_dtype: QuantType | None = None,
     ):
         if not use_mxfp_quant:
-            return torch_npu.npu_grouped_matmul_swiglu_quant_v2(
-                x=x,
-                weight=weight,
-                group_list=group_list,
-                weight_scale=weight_scale,
-                x_scale=x_scale,
-                bias=bias,
-                swiglu_limit=swiglu_limit,
-                use_mxfp_quant=False,
-            )
+            if act_quant_type == torch.float8_e4m3fn:
+                out, out_scale = torch_npu.npu_grouped_matmul_swiglu_quant_v2(
+                    x=x,
+                    weight=[weight],
+                    weight_scale=[weight_scale],
+                    x_scale=x_scale,
+                    group_list=group_list,
+                    quant_dtype=torch.float8_e4m3fn,
+                    dequant_dtype=torch.float32,
+                )
+                return out, out_scale, None
+            else:
+                return torch_npu.npu_grouped_matmul_swiglu_quant_v2(
+                    x=x,
+                    weight=weight,
+                    group_list=group_list,
+                    weight_scale=weight_scale,
+                    x_scale=x_scale,
+                    bias=bias,
+                    swiglu_limit=swiglu_limit,
+                    use_mxfp_quant=False,
+                )
 
         # W4A8 mxfp
         if mxfp_quant_dtype == QuantType.W4A8MXFP:
@@ -987,6 +1035,8 @@ class A5DeviceAdaptor(BaseDeviceAdaptor):
         mxfp_quant_dtype: QuantType | None = None,
     ) -> torch.Tensor:
         if not use_mxfp_quant:
+            if act_quant_type == torch.float8_e4m3fn:
+                fallback_output_dtype = torch.bfloat16
             return BaseDeviceAdaptor.npu_grouped_matmul_gmm2(
                 hidden_states=hidden_states,
                 weight=weight,
@@ -1119,6 +1169,11 @@ class A5DeviceAdaptor(BaseDeviceAdaptor):
     def get_dsa_sparse_attn_base_kwargs():
         return {"kv_quant_mode": 1, "tile_size": 64, "rope_head_dim": 64}
 
+    @staticmethod
+    def get_dsa_compressor_slot_mapping_format():
+        """A5 kv_compress_epilog consumes flat slot ids."""
+        return DSA_COMPRESSOR_SLOT_MAPPING_FLAT
+
     # ===== SWA / Compressor KV Scatter =====
 
     @staticmethod
@@ -1222,13 +1277,15 @@ class A5DeviceAdaptor(BaseDeviceAdaptor):
         """Apply Q RMS norm. A5: uses q_norm_without_weight callable."""
         if q_norm_without_weight is not None:
             return q_norm_without_weight(q)
-        from vllm.triton_utils import HAS_TRITON
 
-        if HAS_TRITON:
-            from vllm_ascend.ops.triton.rms_norm import triton_q_rms
-
+        if triton_q_rms is not None:
             return triton_q_rms(q, eps)
-        return q
+        else:
+            dtype = q.dtype
+            q = q.float()
+            variance = q.square().mean(-1, keepdim=True)
+            q = q * torch.rsqrt(variance + eps)
+            return q.to(dtype)
 
     # ===== KV Cache Helpers =====
 
@@ -1255,8 +1312,8 @@ class A5DeviceAdaptor(BaseDeviceAdaptor):
     @staticmethod
     def pad_dsa_decode_slot_mapping(slot_mapping, num_decode_tokens, compress_ratio, num_decodes):
         """A5: pad slot_mapping to target shape for ACL graph compatibility."""
-        tmp = compress_ratio if compress_ratio != 0 else 1
-        target_shape = min(num_decode_tokens, num_decode_tokens // tmp + num_decodes)
+        effective_compress_ratio = compress_ratio if compress_ratio != 0 else 1
+        target_shape = min(num_decode_tokens, num_decode_tokens // effective_compress_ratio + num_decodes)
         pad_size = target_shape - slot_mapping.shape[0]
         if pad_size > 0:
             if slot_mapping.ndim == 1:
@@ -1523,15 +1580,16 @@ class A5DeviceAdaptor(BaseDeviceAdaptor):
             )
         return attn_output
 
+    @staticmethod
     def npu_flash_attention(query, key, value, seq_lens_cpu, head_num, scale_value, num_kv_heads):
-        seq_lens_cpu = list(seq_lens_cpu.cumsum(0))
+        cumulative_seq_lens = seq_lens_cpu.cumsum(0).tolist()
 
         context_layer = torch_npu.npu_fusion_attention(
             query=query,
             key=key,
             value=value,
-            actual_seq_qlen=seq_lens_cpu,
-            actual_seq_kvlen=seq_lens_cpu,
+            actual_seq_qlen=cumulative_seq_lens,
+            actual_seq_kvlen=cumulative_seq_lens,
             head_num=head_num,
             scale=scale_value,
             input_layout="TND",
@@ -1633,6 +1691,12 @@ class A5DeviceAdaptor(BaseDeviceAdaptor):
             positions=positions,
         )
         return results
+
+    @staticmethod
+    def npu_moe_token_unpermute(permuted_tokens, sorted_indices, probs):
+        return torch_npu.npu_moe_token_unpermute(
+            permuted_tokens=permuted_tokens, sorted_indices=sorted_indices, probs=probs
+        )
 
 
 def get_device_adaptor() -> type["BaseDeviceAdaptor"]:
