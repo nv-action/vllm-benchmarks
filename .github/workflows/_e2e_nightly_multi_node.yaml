@@ -68,6 +68,11 @@ on:
         type: string
         default: ''
         description: non-empty when triggered by PR /nightly command
+      aop_multi_enabled:
+        required: false
+        type: boolean
+        default: false
+        description: 'Enable AOP hooks for multi-node tests'
       testcase_timeout:
         required: false
         default: 120

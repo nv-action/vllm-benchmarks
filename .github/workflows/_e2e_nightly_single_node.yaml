@@ -59,6 +59,11 @@ on:
         type: string
         default: ''
         description: PR commit SHA for PR-triggered checkout
+      aop_single_enabled:
+        required: false
+        type: boolean
+        default: false
+        description: 'Enable AOP hooks for single-node tests'
       testcase_timeout:
         required: false
         default: 120
