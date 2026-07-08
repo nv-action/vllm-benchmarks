@@ -35,6 +35,9 @@ a2:
       - name: multi-node-Kimi-K2.5-W4A8-A2
         config_file_path: Kimi-K2_5-W4A8-A2-dual-nodes.yaml
         size: 2
+      - name: multi-node-DSV4-Flash-recompute
+        config_file_path: DeepSeek-V4-Flash-W8A8-A3-recompute-cpu-offload-pd.yaml
+        size: 2
   accuracy:
     nightly:
       - name: accuracy-group-1
