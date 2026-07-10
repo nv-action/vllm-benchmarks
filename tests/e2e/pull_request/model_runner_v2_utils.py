@@ -17,6 +17,10 @@
 
 from __future__ import annotations
 
+from vllm import SamplingParams
+
+from tests.e2e.conftest import VllmRunner
+
 
 def calculate_acceptance_per_pos(
     metrics: list,
@@ -35,3 +39,45 @@ def calculate_acceptance_per_pos(
             for pos in range(len(metric.values)):  # type: ignore[attr-defined]
                 accepted_per_pos[pos] += metric.values[pos]  # type: ignore[attr-defined]
     return [a / num_drafts for a in accepted_per_pos]
+
+
+def run_dense_graph_mode(
+    model: str,
+    max_tokens: int,
+    enforce_eager: bool,
+    compilation_config: dict,
+) -> None:
+    prompts = [
+        "Hello, my name is",
+        "The president of the United States is",
+        "The capital of France is",
+        "The future of AI is",
+    ]
+
+    sampling_params = SamplingParams(max_tokens=max_tokens, temperature=0.0)
+    with VllmRunner(
+        model,
+        max_model_len=1024,
+        enforce_eager=enforce_eager,
+        compilation_config=compilation_config,
+    ) as runner:
+        outputs = runner.model.generate(prompts, sampling_params)
+
+    if model != "Qwen/Qwen3-0.6B":
+        return
+
+    expected_outputs = [
+        " Lina. I'm a 22-year-old student from China.",
+        " the same as the president of the United Nations. This is because the president",
+        " Paris. The capital of France is also the capital of the Republic of France",
+        " not just about the technology itself but also about the human aspect-how we",
+    ]
+
+    misses = 0
+    for output, expected_output in zip(outputs, expected_outputs):
+        if output.outputs[0].text[:10] != expected_output[:10]:
+            misses += 1
+            print(f"output: {output.outputs[0].text}")
+            print(f"expected_output: {expected_output}")
+
+    assert misses == 0

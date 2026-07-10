@@ -109,11 +109,11 @@ msgid "#### E2E test examples"
 msgstr "#### 端到端测试示例"
 
 msgid ""
-"- Offline test example: [`tests/e2e/pull_request/one_card/test_camem.py`](https://github.com/vllm-project/vllm-ascend/blob/main/tests/e2e/pull_request/one_card/test_camem.py)\n"
+"- Offline test example: [`tests/e2e/pull_request/quarter_card/test_camem.py`](https://github.com/vllm-project/vllm-ascend/blob/main/tests/e2e/pull_request/quarter_card/test_camem.py)\n"
 "- Online test example: [`tests/e2e/pull_request/two_card/aclgraph/test_single_request_aclgraph.py`](https://github.com/vllm-project/vllm-ascend/blob/main/tests/e2e/pull_request/two_card/aclgraph/test_single_request_aclgraph.py)\n"
 "- Correctness test example: [`tests/e2e/pull_request/one_card/aclgraph/test_aclgraph_accuracy.py`](https://github.com/vllm-project/vllm-ascend/blob/main/tests/e2e/pull_request/one_card/aclgraph/test_aclgraph_accuracy.py)"
 msgstr ""
-"- 离线测试示例：[`tests/e2e/pull_request/one_card/test_camem.py`](https://github.com/vllm-project/vllm-ascend/blob/main/tests/e2e/pull_request/one_card/test_camem.py)\n"
+"- 离线测试示例：[`tests/e2e/pull_request/quarter_card/test_camem.py`](https://github.com/vllm-project/vllm-ascend/blob/main/tests/e2e/pull_request/quarter_card/test_camem.py)\n"
 "- 在线测试示例：[`tests/e2e/pull_request/two_card/aclgraph/test_single_request_aclgraph.py`](https://github.com/vllm-project/vllm-ascend/blob/main/tests/e2e/pull_request/two_card/aclgraph/test_single_request_aclgraph.py)\n"
 "- 正确性测试示例：[`tests/e2e/pull_request/one_card/aclgraph/test_aclgraph_accuracy.py`](https://github.com/vllm-project/vllm-ascend/blob/main/tests/e2e/pull_request/one_card/aclgraph/test_aclgraph_accuracy.py)"
 

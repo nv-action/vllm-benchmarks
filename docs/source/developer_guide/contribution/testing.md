@@ -195,10 +195,10 @@ You can run tests with `pytest` as well. Typical examples:
     VLLM_USE_MODELSCOPE=true pytest -sv tests/e2e/pull_request/one_card/
 
     # Run a certain test script
-    VLLM_USE_MODELSCOPE=true pytest -sv tests/e2e/pull_request/one_card/test_camem.py
+    VLLM_USE_MODELSCOPE=true pytest -sv tests/e2e/pull_request/quarter_card/test_camem.py
 
     # Run a certain case in test script
-    VLLM_USE_MODELSCOPE=true pytest -sv tests/e2e/pull_request/one_card/test_camem.py::test_end_to_end
+    VLLM_USE_MODELSCOPE=true pytest -sv tests/e2e/pull_request/quarter_card/test_camem.py::test_end_to_end
     ```
 
 === "Multi-card"
@@ -255,7 +255,7 @@ For running nightly multi-node model test cases locally, refer to the `Running L
 
 #### E2E test examples
 
-- Offline test example: [`tests/e2e/pull_request/one_card/test_camem.py`](https://github.com/vllm-project/vllm-ascend/blob/main/tests/e2e/pull_request/one_card/test_camem.py)
+- Offline test example: [`tests/e2e/pull_request/quarter_card/test_camem.py`](https://github.com/vllm-project/vllm-ascend/blob/main/tests/e2e/pull_request/quarter_card/test_camem.py)
 - Online test example: [`tests/e2e/pull_request/two_card/aclgraph/test_single_request_aclgraph.py`](https://github.com/vllm-project/vllm-ascend/blob/main/tests/e2e/pull_request/two_card/aclgraph/test_single_request_aclgraph.py)
 - Correctness test example: [`tests/e2e/pull_request/one_card/aclgraph/test_aclgraph_accuracy.py`](https://github.com/vllm-project/vllm-ascend/blob/main/tests/e2e/pull_request/one_card/aclgraph/test_aclgraph_accuracy.py)
 

@@ -23,10 +23,11 @@ from vllm import SamplingParams
 from vllm.v1.metrics.reader import Counter, Vector
 
 from tests.e2e.conftest import VllmRunner
-from tests.e2e.pull_request.one_card.model_runner_v2.utils import calculate_acceptance_per_pos
+from tests.e2e.pull_request.model_runner_v2_utils import calculate_acceptance_per_pos, run_dense_graph_mode
 from vllm_ascend.utils import vllm_version_is
 
 MODELS = ["Qwen/Qwen3-0.6B", "vllm-ascend/DeepSeek-V2-Lite-W8A8"]
+GRAPH_MODELS = ["vllm-ascend/DeepSeek-V2-Lite-W8A8"]
 
 MAIN_MODELS = ["LLM-Research/Meta-Llama-3.1-8B-Instruct"]
 EGALE_MODELS = ["vllm-ascend/EAGLE-LLaMA3.1-Instruct-8B"]
@@ -220,7 +221,7 @@ def test_dspark_spec_decoding(
     assert match
 
 
-@pytest.mark.parametrize("model", MODELS)
+@pytest.mark.parametrize("model", GRAPH_MODELS)
 @pytest.mark.parametrize("max_tokens", [32])
 @pytest.mark.parametrize("enforce_eager", [False])
 @pytest.mark.parametrize(
@@ -237,40 +238,4 @@ def test_qwen3_dense_graph_mode(
     enforce_eager: bool,
     compilation_config: dict,
 ) -> None:
-    prompts = [
-        "Hello, my name is",
-        "The president of the United States is",
-        "The capital of France is",
-        "The future of AI is",
-    ]
-
-    sampling_params = SamplingParams(max_tokens=max_tokens, temperature=0.0)
-    with VllmRunner(
-        model,
-        max_model_len=1024,
-        enforce_eager=enforce_eager,
-        compilation_config=compilation_config,
-    ) as runner:
-        outputs = runner.model.generate(prompts, sampling_params)
-
-    if model != "Qwen/Qwen3-0.6B":
-        return
-
-    expected_outputs = [
-        " Lina. I'm a 22-year-old student from China.",
-        " the same as the president of the United Nations. This is because the president",
-        " Paris. The capital of France is also the capital of the Republic of France",
-        " not just about the technology itself but also about the human aspect-how we",
-    ]
-
-    matches = 0
-    misses = 0
-    for output, expected_output in zip(outputs, expected_outputs):
-        if output.outputs[0].text[:10] == expected_output[:10]:
-            matches += 1
-        else:
-            misses += 1
-            print(f"output: {output.outputs[0].text}")
-            print(f"expected_output: {expected_output}")
-
-    assert misses == 0
+    run_dense_graph_mode(model, max_tokens, enforce_eager, compilation_config)

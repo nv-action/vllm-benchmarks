@@ -1946,7 +1946,7 @@ PROMPT_CONFIGS = {
 }
 
 
-@pytest.fixture(params=PROMPT_CONFIGS.keys())
+@pytest.fixture
 def vl_config(request):
     config = PROMPT_CONFIGS[request.param]
     if "skip" in config:

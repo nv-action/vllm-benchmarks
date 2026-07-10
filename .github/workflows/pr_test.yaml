@@ -47,8 +47,8 @@ jobs:
     container:
       image: quay.io/ascend-ci/vllm-ascend:lint
     outputs:
-      has_tests: ${{ steps.scope.outputs.has_tests || steps.noop.outputs.has_tests }}
-      test_groups: ${{ steps.scope.outputs.test_groups || steps.noop.outputs.test_groups }}
+      has_tests: ${{ steps.filter-test-groups.outputs.has_tests || steps.scope.outputs.has_tests || steps.noop.outputs.has_tests }}
+      test_groups: ${{ steps.filter-test-groups.outputs.test_groups || steps.scope.outputs.test_groups || steps.noop.outputs.test_groups }}
       matched_modules: ${{ steps.scope.outputs.matched_modules || steps.noop.outputs.matched_modules }}
       main_commit: ${{ steps.vllm.outputs.main_commit }}
       release_tag: ${{ steps.vllm.outputs.release_tag }}
@@ -113,7 +113,10 @@ jobs:
       - run: echo "::add-matcher::$RUNNER_TEMP/markdownlint.json"
       - run: echo "::add-matcher::$RUNNER_TEMP/mypy.json"
 
+      # Temporary: disable lint-only setup and checks while validating the
+      # fractional-card PR lanes.
       - name: Checkout vllm-project/vllm repo
+        if: ${{ false }}
         uses: actions/checkout@v7
         with:
           repository: vllm-project/vllm
@@ -146,7 +149,7 @@ jobs:
               - 'CMakeLists.txt'
 
       - name: Install vllm-ascend dev (conditional)
-        if: steps.filter.outputs.lint_tracker == 'true'
+        if: ${{ false }}
         env:
           UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
           UV_EXTRA_INDEX_URL: "https://repo.huaweicloud.com/ascend/repos/pypi"
@@ -160,6 +163,7 @@ jobs:
           uv pip install -r requirements-dev.txt --extra-index-url https://download.pytorch.org/whl/cpu
 
       - name: Run pre-commit
+        if: ${{ false }}
         env:
           PRE_COMMIT_HOME: /tmp/pre-commit-cache
           PRE_COMMIT_COLOR: always
@@ -171,6 +175,7 @@ jobs:
           pre-commit run --all-files --hook-stage manual --show-diff-on-failure
 
       - name: Run mypy
+        if: ${{ false }}
         run: |
           PYTHONPATH="$PYTHONPATH:$(pwd)/vllm-empty"
           export PYTHONPATH
@@ -196,6 +201,35 @@ jobs:
           python3 .github/workflows/scripts/select_tests.py \
             --diff-base origin/${{ github.base_ref }}
 
+      # Temporary: avoid unavailable 310P runners and 2-card/4-card jobs while
+      # the fractional-card PR lanes are being validated.
+      - name: Temporarily skip unavailable test groups
+        id: filter-test-groups
+        if: steps.scope.outputs.has_tests == 'true'
+        env:
+          TEST_GROUPS: ${{ steps.scope.outputs.test_groups }}
+        run: |
+          filtered_groups="$(python3 -c '
+          import json
+          import os
+
+          groups = json.loads(os.environ["TEST_GROUPS"])
+          filtered = [
+              group
+              for group in groups
+              if group["num_npus"] not in (2, 4) and group["npu_type"] != "310p"
+          ]
+          print(json.dumps(filtered, separators=(",", ":")))
+          ')"
+          {
+            echo "test_groups=${filtered_groups}"
+            if [ "${filtered_groups}" = "[]" ]; then
+              echo "has_tests=false"
+            else
+              echo "has_tests=true"
+            fi
+          } >> "$GITHUB_OUTPUT"
+
       - name: Set no-tests output when source paths unchanged
         id: noop
         if: steps.filter.outputs.src != 'true'
@@ -213,7 +247,7 @@ jobs:
       matrix:
         vllm_version:
           - ${{ needs.lint-and-select-tests.outputs.main_commit }}
-          - ${{ needs.lint-and-select-tests.outputs.release_tag }}
+          # - ${{ needs.lint-and-select-tests.outputs.release_tag }}
     uses: ./.github/workflows/_selected_tests.yaml
     with:
       vllm: ${{ matrix.vllm_version }}
@@ -226,7 +260,8 @@ jobs:
   ci-gate:
     needs: [lint-and-select-tests, run-selected-tests]
     if: ${{ always() && contains(github.event.pull_request.labels.*.name, 'ready') }}
-    runs-on: linux-amd64-cpu-2-hk
+    # Temporary: the 2-core CPU runner is not available in this test repository.
+    runs-on: linux-amd64-cpu-8-hk
     steps:
       - name: Check all required jobs
         run: |

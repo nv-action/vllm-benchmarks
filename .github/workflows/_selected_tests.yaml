@@ -68,7 +68,6 @@ defaults:
 
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
   selected-tests:
