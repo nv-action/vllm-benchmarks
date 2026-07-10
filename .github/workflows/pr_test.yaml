@@ -201,8 +201,8 @@ jobs:
           python3 .github/workflows/scripts/select_tests.py \
             --diff-base origin/${{ github.base_ref }}
 
-      # Temporary: avoid unavailable 310P runners and 2-card/4-card jobs while
-      # the fractional-card PR lanes are being validated.
+      # Temporary: avoid unavailable 310P, regular A2 x1, and 2-card/4-card
+      # jobs while the fractional-card PR lanes are being validated.
       - name: Temporarily skip unavailable test groups
         id: filter-test-groups
         if: steps.scope.outputs.has_tests == 'true'
@@ -217,7 +217,9 @@ jobs:
           filtered = [
               group
               for group in groups
-              if group["num_npus"] not in (2, 4) and group["npu_type"] != "310p"
+              if group["num_npus"] not in (2, 4)
+              and group["npu_type"] != "310p"
+              and not (group["npu_type"] == "a2" and group["num_npus"] == 1)
           ]
           print(json.dumps(filtered, separators=(",", ":")))
           ')"
