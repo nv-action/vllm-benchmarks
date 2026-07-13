@@ -68,7 +68,7 @@ on:
 env:
   QUAY_REPO: quay.io/ascend/vllm-ascend
   QUAY_TEMP_REPO: quay.io/atlas-ci/vllm-atlas-temp
-  CACHE_REPO: ghcr.io/vllm-project/vllm-ascend
+  CACHE_REPO: ghcr.io/vllm-project/vllm-ascend #缓存地址需要修改 需要用国内地址
 
 jobs:
   build-push-digest:
@@ -82,13 +82,14 @@ jobs:
       matrix:
         include:
           - arch: linux/amd64
-            runner: ubuntu-latest
+            runner: ubuntu-latest # 需使用self-runner，等待基础设施
             tag: amd64
 
           - arch: linux/arm64
-            runner: ubuntu-22.04-arm
+            runner: ubuntu-22.04-arm # 需使用self-runner，等待基础设施
             tag: arm64
-
+    container:
+      image: ${{ inputs.image }}
     steps:
 
     - name: Validate inputs (workflow_dispatch only)
@@ -161,34 +162,6 @@ jobs:
         persist-credentials: false
         ref: ${{ inputs.branch_ref }}
 
-    - name: Free up disk space
-      uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
-      with:
-        tool-cache: true
-        docker-images: false
-
-    - name: Publish - Login to Quay Temp (for pushing temp tag digest)
-      if: ${{ inputs.should_push }}
-      uses: docker/login-action@v4
-      with:
-        registry: quay.io
-        username: ${{ inputs.quay_temp_username }}
-        password: ${{ secrets.QUAY_TEMP_PASSWORD }}
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v4
-      with:
-        install: true
-        driver: docker-container
-        use: true
-
-    - name: Login to GitHub Container Registry (for cache)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Compute cache tag
       id: cache-tag
       run: |
@@ -233,34 +206,30 @@ jobs:
             vllm_ascend/include
         key: vllm-ascend-build-v1-${{ steps.get_arch.outputs.arch }}-${{ steps.get_base_image_tag.outputs.BASE_IMAGE_TAG }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
 
-
-    - name: Build and push
-      uses: docker/build-push-action@v7
-      id: build
-      with:
-        platforms: ${{ matrix.arch }}
-        # use the current repo path as the build context, ensure .git is contained
-        context: .
-        file: ${{ inputs.dockerfile || 'Dockerfile' }}
-        # only trigger when tag, branch/main push
-        push: ${{ inputs.should_push }}
-        outputs: type=image,name=${{ env.QUAY_TEMP_REPO }},push-by-digest=true,name-canonical=true,push=${{ inputs.should_push }}
-        build-args: |
-          PIP_INDEX_URL=https://pypi.org/simple
-          COMPILE_CUSTOM_KERNELS=${{ steps.cache-csrc.outputs.cache-hit == 'true' && '0' || '1' }}
-          VLLM_COMMIT=${{ inputs.vllm_commit }}
-        provenance: false
-        # To speed up the build, we use registry cache. The cache tag is determined by the suffix and architecture, and shared across different workflow runs.
-        # For example, the cache tag for arm64 image with suffix "openeuler" will be "buildcache-openeuler-arm64".
-        # When a new image is built and pushed, the cache will also be updated in the registry, so that next build can benefit from it.
-        cache-from: type=registry,ref=${{ env.CACHE_REPO }}:${{ steps.cache-tag.outputs.value }}
-        cache-to: ${{ inputs.should_push && format('type=registry,ref={0}:{1},mode=max', env.CACHE_REPO, steps.cache-tag.outputs.value) || '' }}
-
     # Quay.io automatically cleans up untagged digests on a regular basis, with a cycle of approximately one hour. 
     # Add temporary tags to digests to prevent them from being removed.
-    - name: Tag digest to prevent GC
-      if: ${{ inputs.should_push }}
+    - name: Install crane
       run: |
+        CRANE_VERSION="v0.20.2"
+        ARCH=$(uname -m | sed 's/aarch64/arm64/')
+        OS="Linux"
+        DOWNLOAD_URL=$(curl -s https://api.github.com/repos/google/go-containerregistry/releases/tags/${CRANE_VERSION} \
+          | grep -oP '"browser_download_url": "\K[^"]+' \
+          | grep "${OS}_${ARCH}")
+        if [ -z "$DOWNLOAD_URL" ]; then
+          echo "No asset found for ${OS}_${ARCH}"
+          exit 1
+        fi
+        wget -S "$DOWNLOAD_URL" -O /tmp/crane.tar.gz
+        tar -xzf /tmp/crane.tar.gz -C /tmp crane
+        chmod +x /tmp/crane
+
+    - name: Build and push
+      shell: bash -e {0}
+      id: build
+      run: |
+        set -e
+
         SUFFIX=""
         if [ -n "${{ inputs.suffix }}" ]; then
           SUFFIX="-${{ inputs.suffix }}"
@@ -268,21 +237,57 @@ jobs:
         if [ "${{ inputs.temp_only }}" = "true" ]; then
           VLLM_SHORT=$(echo "${{ inputs.vllm_commit }}" | cut -c1-7)
           ASCEND_SHORT=$(echo "${{ inputs.vllm_ascend_commit }}" | cut -c1-7)
-          TAG="vllm-ascend-${VLLM_SHORT}-${ASCEND_SHORT}${SUFFIX}-${{ matrix.tag }}-temp"
+          TEMP_TAG="vllm-ascend-${VLLM_SHORT}-${ASCEND_SHORT}${SUFFIX}-${{ matrix.tag }}-temp"
         else
-          TAG="nightly-${{ inputs.schedule_tag_pattern }}${SUFFIX}-${{ matrix.tag }}-temp"
+          TEMP_TAG="nightly-${{ inputs.schedule_tag_pattern }}${SUFFIX}-${{ matrix.tag }}-temp"
         fi
-        echo "Creating temp tag: ${{ env.QUAY_TEMP_REPO }}:$TAG"
-        docker buildx imagetools create \
-          -t "${{ env.QUAY_TEMP_REPO }}:$TAG" \
-          "${{ env.QUAY_TEMP_REPO }}@${{ steps.build.outputs.digest }}"
 
+        DOCKERFILE="${{ inputs.dockerfile || 'Dockerfile' }}"
+        DOCKERFILE_DIR=$(dirname "$DOCKERFILE")
+        DOCKERFILE_NAME=$(basename "$DOCKERFILE")
+        CACHE_REF="${{ env.CACHE_REPO }}:${{ steps.cache-tag.outputs.value }}"
+
+        ARGS=(
+          --addr="${BUILDKITD_ADDR}"
+          --tlscacert="${DOCKER_CONFIG}/ca.pem"
+          --tlscert="${DOCKER_CONFIG}/cert.pem"
+          --tlskey="${DOCKER_CONFIG}/key.pem"
+          build
+          --frontend dockerfile.v0
+          --local context=.
+          --local dockerfile="$DOCKERFILE_DIR"
+          --opt filename="$DOCKERFILE_NAME"
+          --opt platform=${{ matrix.arch }}
+          --opt build-arg:APT_CACHE_HOST=cache-service.nginx-pypi-cache.svc.cluster.local:8081
+          --opt build-arg:UV_INDEX_URL=http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+          --opt "build-arg:UV_EXTRA_INDEX_URL=https://repo.huaweicloud.com/ascend/repos/pypi http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu/"
+          --opt build-arg:COMPILE_CUSTOM_KERNELS=${{ steps.cache-csrc.outputs.cache-hit == 'true' && '0' || '1' }}
+          --opt build-arg:VLLM_COMMIT=${{ inputs.vllm_commit }}
+          --opt build-arg:BUILDKIT_INLINE_CACHE=1
+          --import-cache "type=registry,ref=${CACHE_REF}"
+          --progress=plain
+        )
+
+        if [ "true" = "true" ]; then
+          ARGS+=(--export-cache "type=registry,ref=${CACHE_REF},mode=max")
+          ARGS+=(--output "type=image,name=${{ env.QUAY_TEMP_REPO }}:${TEMP_TAG},push=true")
+        fi
+
+        buildctl "${ARGS[@]}"
+
+        if [ "true" = "true" ]; then
+          /tmp/crane auth login quay.io -u "$QUAY_TEMP_USERNAME" -p "$QUAY_TEMP_PASSWORD"
+          DIGEST=$(/tmp/crane digest "${{ env.QUAY_TEMP_REPO }}:${TEMP_TAG}")
+          echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
+          echo "Image pushed: ${{ env.QUAY_TEMP_REPO }}:${TEMP_TAG} (${DIGEST})"
+        fi
 
     - name: Export digest
+      # if: ${{ inputs.should_push }}
       run: |
-        mkdir -p ${{ runner.temp }}/digests
+        mkdir -p "$RUNNER_TEMP/digests"
         digest="${{ steps.build.outputs.digest }}"
-        touch "${{ runner.temp }}/digests/${digest#sha256:}"
+        touch "$RUNNER_TEMP/digests/${digest#sha256:}  
 
     - name: Upload digest
       uses: actions/upload-artifact@v7
@@ -294,7 +299,7 @@ jobs:
 
 
   merge-image:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest  #换成self-runner
     needs: build-push-digest
     if: ${{ inputs.should_push && !inputs.temp_only }}
     steps:
@@ -370,22 +375,37 @@ jobs:
           flavor:
             latest=false
 
-      - name: Login to Quay
-        uses: docker/login-action@v4
-        with:
-          registry: quay.io
-          username: ${{ inputs.quay_username }}
-          password: ${{ secrets.QUAY_PASSWORD }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+      - name: Install crane and login
+        env:
+          QUAY_USERNAME: "atlas-ci+atlas_test_bot"   #账号需用环境变量
+          QUAY_PASSWORD: "KUMHSMHBH165QQSBBJYRUD6P9M2ESMR7XH01LPKX4OA4NXLLX06JO9XVVKZ766Q2" #账号需用环境变量
+        run: |
+          ARCH=$(uname -m | sed 's/aarch64/arm64/')
+          CRANE_VERSION="v0.20.2"
+          curl -fsSL "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_${ARCH}.tar.gz" -o /tmp/crane.tar.gz
+          tar -xzf /tmp/crane.tar.gz -C /tmp crane
+          chmod +x /tmp/crane
+          /tmp/crane auth login quay.io -u "$QUAY_USERNAME" -p "$QUAY_PASSWORD"
 
       - name: Merge and push multi-arch image
         env:
-          IMAGE: ${{ env.QUAY_TEMP_REPO }}
+          SRC_IMAGE: ${{ env.QUAY_TEMP_REPO }}
+          DST_IMAGE: ${{ env.QUAY_TEMP_REPO }}   #测试用临时仓 还原需用正式仓库
           TAGS: ${{ steps.meta.outputs.tags }}
         run: |
-          DIGESTS=$(printf "$IMAGE@sha256:%s " $(ls ${{ runner.temp }}/digests))
+          set -e
+
+          for f in ${{ runner.temp }}/digests/*; do
+            hash=$(basename "$f")
+            echo "Copying ${SRC_IMAGE}@sha256:${hash} -> ${DST_IMAGE}"
+            /tmp/crane copy "${SRC_IMAGE}@sha256:${hash}" "${DST_IMAGE}:temp-${hash}"
+          done
+
+          DIGESTS=""
+          for f in ${{ runner.temp }}/digests/*; do
+            hash=$(basename "$f")
+            DIGESTS="$DIGESTS ${DST_IMAGE}@sha256:${hash}"
+          done
 
           echo "Digests: $DIGESTS"
           echo "Current tags:"
@@ -393,11 +413,10 @@ jobs:
 
           for tag in $TAGS; do
             echo "Creating tag $tag"
-            docker buildx imagetools create \
-              -t "$tag" \
-              $DIGESTS
+            /tmp/crane index append -t "$tag" $DIGESTS
           done
-
+      
+  #测试暂不改动 提交PR需要调整
   merge-image-temp:
     name: merge-image-temp
     runs-on: ubuntu-latest
