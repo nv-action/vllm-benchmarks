@@ -34,7 +34,7 @@ permissions:
 jobs:
   authorize:
     name: Check user authorization
-    runs-on: linux-amd64-cpu-4-hk
+    runs-on: linux-amd64-cpu-8-hk
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
     outputs:
@@ -196,7 +196,7 @@ jobs:
     name: Trigger Nightly-A2
     needs: [authorize]
     if: needs.authorize.outputs.is_authorized == 'true' && needs.authorize.outputs.command == 'nightly' && needs.authorize.outputs.dispatch_a2 == 'true'
-    runs-on: linux-amd64-cpu-4-hk
+    runs-on: linux-amd64-cpu-8-hk
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
     outputs:
@@ -237,7 +237,7 @@ jobs:
     name: Trigger Nightly-A3
     needs: [authorize]
     if: needs.authorize.outputs.is_authorized == 'true' && needs.authorize.outputs.command == 'nightly' && needs.authorize.outputs.dispatch_a3 == 'true'
-    runs-on: linux-amd64-cpu-4-hk
+    runs-on: linux-amd64-cpu-8-hk
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
     outputs:
@@ -360,7 +360,7 @@ jobs:
     name: Post workflow links
     needs: [authorize, dispatch-a2, dispatch-a3, dispatch-weekly-a2, dispatch-weekly-a3]
     if: always() && needs.authorize.outputs.is_authorized == 'true'
-    runs-on: linux-amd64-cpu-2-hk
+    runs-on: linux-amd64-cpu-8-hk
     steps:
       - name: Build comment body
         id: body
