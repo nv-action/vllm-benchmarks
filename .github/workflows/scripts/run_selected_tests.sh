@@ -48,8 +48,55 @@ test_index=0
 overall_status=0
 pytest_log_dir="${RUNNER_TEMP:-/tmp}/selected-tests-${npu_type}-${num_npus}card"
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+default_test_timeout_seconds="${SELECTED_TEST_TIMEOUT_SECONDS:-1800}"
+npu_ipc_test_timeout_seconds="${NPU_IPC_TEST_TIMEOUT_SECONDS:-900}"
+timeout_kill_after_seconds=30
+timeout_bin="$(command -v timeout || command -v gtimeout || true)"
 
 mkdir -p "${pytest_log_dir}"
+
+validate_timeout() {
+  local name="$1"
+  local value="$2"
+  if ! [[ "${value}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Invalid ${name}: ${value}. Expected a positive integer number of seconds."
+    exit 1
+  fi
+}
+
+validate_timeout "SELECTED_TEST_TIMEOUT_SECONDS" "${default_test_timeout_seconds}"
+validate_timeout "NPU_IPC_TEST_TIMEOUT_SECONDS" "${npu_ipc_test_timeout_seconds}"
+
+if [ -z "${timeout_bin}" ]; then
+  if [ "${CI:-}" = "true" ]; then
+    echo "The timeout command is required in CI."
+    exit 1
+  fi
+  echo "Warning: timeout command not found; per-target timeouts are disabled."
+fi
+
+get_test_timeout_seconds() {
+  local target="$1"
+  if [[ "${target}" == *"test_npu_ipc_weight_transfer.py"* ]]; then
+    echo "${npu_ipc_test_timeout_seconds}"
+  else
+    echo "${default_test_timeout_seconds}"
+  fi
+}
+
+run_with_timeout() {
+  local timeout_seconds="$1"
+  shift
+  if [ -z "${timeout_bin}" ]; then
+    "$@"
+  else
+    "${timeout_bin}" \
+      --signal=TERM \
+      --kill-after="${timeout_kill_after_seconds}s" \
+      "${timeout_seconds}s" \
+      "$@"
+  fi
+}
 
 setup_coverage() {
   local target="$1"
@@ -78,6 +125,8 @@ print_test_info() {
     echo -e "  \033[33mNPU count:\033[0m ${num_npus}"
   fi
   echo -e "  \033[33mCoverage:\033[0m ${enable_coverage}"
+  echo -e "  \033[33mDefault target timeout:\033[0m ${default_test_timeout_seconds}s"
+  echo -e "  \033[33mNPU IPC target timeout:\033[0m ${npu_ipc_test_timeout_seconds}s"
   echo -e "  \033[33mTargets:\033[0m"
   for target in "${targets[@]}"; do
     echo -e "    \033[32m-\033[0m ${target}"
@@ -112,8 +161,11 @@ run_pytest_target() {
   log_name="${log_name%.py}"
   log_name="${log_name//[^a-zA-Z0-9_.-]/_}"
   local log_file="${pytest_log_dir}/${test_index}-${log_name}.log"
+  local test_timeout_seconds
+  test_timeout_seconds="$(get_test_timeout_seconds "${target}")"
   echo "::group::${target}"
   echo -e "\033[1;34m=== Running target: ${target} ===\033[0m"
+  echo "Timeout: ${test_timeout_seconds}s"
   local start_time=0
   if [ "${record_timing}" = true ]; then
     start_time=$(date +%s%N)
@@ -121,17 +173,19 @@ run_pytest_target() {
   if [ "${enable_coverage}" = "true" ]; then
     setup_coverage "${target}"
     set +e
-    python -m coverage run --rcfile="${project_root}/tests/coveragerc" -m pytest -sv --color=yes "${target}" 2>&1 | tee "${log_file}"
+    run_with_timeout "${test_timeout_seconds}" \
+      python -m coverage run --rcfile="${project_root}/tests/coveragerc" -m pytest -sv --color=yes "${target}" \
+      2>&1 | tee "${log_file}"
   else
     set +e
-    pytest -sv --color=yes "${target}" 2>&1 | tee "${log_file}"
+    run_with_timeout "${test_timeout_seconds}" pytest -sv --color=yes "${target}" 2>&1 | tee "${log_file}"
   fi
   local status=${PIPESTATUS[0]}
   set -e
   if [ "${record_timing}" = true ]; then
     local elapsed_ns=$(( $(date +%s%N) - start_time ))
     local elapsed=$(( elapsed_ns / 1000000000 )).$(( (elapsed_ns % 1000000000) / 100000000 ))
-    timing_entries+=("{\"name\":\"${target}\",\"passed\":$([ ${status} -eq 0 ] && echo true || echo false),\"elapsed\":${elapsed}}")
+    timing_entries+=("{\"name\":\"${target}\",\"passed\":$([ "${status}" -eq 0 ] && echo true || echo false),\"elapsed\":${elapsed}}")
   fi
   echo "::endgroup::"
   if [ "${status}" -eq 0 ]; then
@@ -139,6 +193,9 @@ run_pytest_target() {
   else
     test_results+=("${target}|FAILED|${log_file}")
     failed_logs+=("${target}|${log_file}")
+    if [ "${status}" -eq 124 ]; then
+      echo "::error::${target} timed out after ${test_timeout_seconds}s"
+    fi
     if [ "${overall_status}" -eq 0 ]; then
       overall_status="${status}"
     fi
@@ -151,9 +208,11 @@ run_pytest_batch() {
   local batch_targets=("$@")
   test_index=$((test_index + 1))
   local log_file="${pytest_log_dir}/${test_index}-cpu-ut.log"
+  local test_timeout_seconds="${default_test_timeout_seconds}"
 
   echo "::group::${target}"
   echo -e "\033[1;34m=== Running target: ${target} ===\033[0m"
+  echo "Timeout: ${test_timeout_seconds}s"
   local start_time=0
   if [ "${record_timing}" = true ]; then
     start_time=$(date +%s%N)
@@ -162,17 +221,19 @@ run_pytest_batch() {
     echo "DEBUG: Go to the [Coverage Branch] page."
     setup_coverage "cpu-ut"
     set +e
-    python -m coverage run --rcfile="${project_root}/tests/coveragerc" -m pytest -sv --color=yes "${batch_targets[@]}" 2>&1 | tee "${log_file}"
+    run_with_timeout "${test_timeout_seconds}" \
+      python -m coverage run --rcfile="${project_root}/tests/coveragerc" -m pytest -sv --color=yes "${batch_targets[@]}" \
+      2>&1 | tee "${log_file}"
   else
     set +e
-    pytest -sv --color=yes "${batch_targets[@]}" 2>&1 | tee "${log_file}"
+    run_with_timeout "${test_timeout_seconds}" pytest -sv --color=yes "${batch_targets[@]}" 2>&1 | tee "${log_file}"
   fi
   local status=${PIPESTATUS[0]}
   set -e
   if [ "${record_timing}" = true ]; then
     local elapsed_ns=$(( $(date +%s%N) - start_time ))
     local elapsed=$(( elapsed_ns / 1000000000 )).$(( (elapsed_ns % 1000000000) / 100000000 ))
-    timing_entries+=("{\"name\":\"${target}\",\"passed\":$([ ${status} -eq 0 ] && echo true || echo false),\"elapsed\":${elapsed}}")
+    timing_entries+=("{\"name\":\"${target}\",\"passed\":$([ "${status}" -eq 0 ] && echo true || echo false),\"elapsed\":${elapsed}}")
   fi
   echo "::endgroup::"
   if [ "${status}" -eq 0 ]; then
@@ -180,6 +241,9 @@ run_pytest_batch() {
   else
     test_results+=("${target}|FAILED|${log_file}")
     failed_logs+=("${target}|${log_file}")
+    if [ "${status}" -eq 124 ]; then
+      echo "::error::${target} timed out after ${test_timeout_seconds}s"
+    fi
     if [ "${overall_status}" -eq 0 ]; then
       overall_status="${status}"
     fi
