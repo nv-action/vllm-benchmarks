@@ -16,6 +16,9 @@
 #
 
 name: E2E
+permissions:
+  pull-requests: write
+  contents: read
 
 on:
   pull_request:
