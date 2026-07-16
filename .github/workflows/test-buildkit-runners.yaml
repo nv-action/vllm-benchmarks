@@ -1,9 +1,6 @@
 name: test-buildkit-runners
 
 on:
-  push:
-    branches:
-      - feat/add-nv-action-buildkit-runners
   workflow_dispatch:
 
 jobs:
