@@ -376,16 +376,13 @@ jobs:
             latest=false
 
       - name: Install crane and login
-        env:
-          QUAY_USERNAME: "atlas-ci+atlas_test_bot"   #账号需用环境变量
-          QUAY_PASSWORD: "KUMHSMHBH165QQSBBJYRUD6P9M2ESMR7XH01LPKX4OA4NXLLX06JO9XVVKZ766Q2" #账号需用环境变量
         run: |
           ARCH=$(uname -m | sed 's/aarch64/arm64/')
           CRANE_VERSION="v0.20.2"
           curl -fsSL "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_${ARCH}.tar.gz" -o /tmp/crane.tar.gz
           tar -xzf /tmp/crane.tar.gz -C /tmp crane
           chmod +x /tmp/crane
-          /tmp/crane auth login quay.io -u "$QUAY_USERNAME" -p "$QUAY_PASSWORD"
+          /tmp/crane auth login quay.io -u "${{ inputs.quay_username }}" -p "${{secrets.QUAY_PASSWORD}}"  #测试时传入的账号需更改
 
       - name: Merge and push multi-arch image
         env:
