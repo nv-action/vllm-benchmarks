@@ -200,9 +200,134 @@ jobs:
             echo "matched_modules="
           } >> "$GITHUB_OUTPUT"
 
-  run-selected-tests:
+  warmup-csrc-cache:
     needs: lint-and-select-tests
     if: ${{ needs.lint-and-select-tests.outputs.has_tests == 'true' && contains(github.event.pull_request.labels.*.name, 'ready') }}
+    runs-on: linux-amd64-cpu-16-hk
+    outputs:
+      need_build: ${{ steps.decide.outputs.need_build }}
+      chip_types: ${{ steps.decide.outputs.chip_types }}
+    steps:
+      - name: Checkout vllm-ascend (PR head)
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Rebase on ${{ github.base_ref }}
+        run: |
+          git config user.name "vllm-ascend-ci"
+          git config user.email "vllm-ascend-ci@users.noreply.github.com"
+          git fetch origin ${{ github.base_ref }}
+          git rebase origin/${{ github.base_ref }}
+
+      - name: Get csrc hash
+        id: get_csrc_hash
+        run: |
+          CSRC_HASH=$(find ./csrc ./setup.py ./CMakeLists.txt ./cmake \
+            -type f -not -path '*/.*' | sort | xargs sha256sum | sha256sum | awk '{print $1}')
+          echo "CSRC_HASH=$CSRC_HASH" >> "$GITHUB_OUTPUT"
+
+      - name: Lookup a2 cache
+        id: lookup_a2
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: |
+            vllm_ascend/_cann_ops_custom
+            vllm_ascend/*.so
+            vllm_ascend/lib
+            vllm_ascend/include
+          key: vllm-ascend-build-v1-ARM64-9.0.0-910b-ubuntu22.04-py3.12-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
+          lookup-only: true
+
+      - name: Lookup a3 cache
+        id: lookup_a3
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: |
+            vllm_ascend/_cann_ops_custom
+            vllm_ascend/*.so
+            vllm_ascend/lib
+            vllm_ascend/include
+          key: vllm-ascend-build-v1-ARM64-9.0.0-a3-ubuntu22.04-py3.12-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
+          lookup-only: true
+
+      - name: Lookup 310p cache
+        id: lookup_310p
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: |
+            vllm_ascend/_cann_ops_custom
+            vllm_ascend/*.so
+            vllm_ascend/lib
+            vllm_ascend/include
+          key: vllm-ascend-build-v1-ARM64-9.1.0-beta.1-310p-ubuntu22.04-py3.12-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
+          lookup-only: true
+
+      - name: Decide what to (re)build
+        id: decide
+        env:
+          TEST_GROUPS: ${{ needs.lint-and-select-tests.outputs.test_groups }}
+          A2_HIT: ${{ steps.lookup_a2.outputs.cache-hit }}
+          A3_HIT: ${{ steps.lookup_a3.outputs.cache-hit }}
+          P310_HIT: ${{ steps.lookup_310p.outputs.cache-hit }}
+        run: |
+          set -uo pipefail
+
+          # select_tests.py emits compact JSON, so a fixed-string grep reliably
+          # detects which chip types this PR actually exercises.
+          tested_a2=false; tested_a3=false; tested_310p=false
+          grep -qF '"npu_type":"a2"'   <<< "$TEST_GROUPS" && tested_a2=true   || true
+          grep -qF '"npu_type":"a3"'   <<< "$TEST_GROUPS" && tested_a3=true   || true
+          grep -qF '"npu_type":"310p"' <<< "$TEST_GROUPS" && tested_310p=true || true
+
+          missing=()
+          [ "$tested_a2"   = true ] && [ "$A2_HIT"   != true ] && missing+=(a2)   || true
+          [ "$tested_a3"   = true ] && [ "$A3_HIT"   != true ] && missing+=(a3)   || true
+          [ "$tested_310p" = true ] && [ "$P310_HIT" != true ] && missing+=(310p) || true
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            need_build=true
+            chip_types="["
+            i=0
+            for c in "${missing[@]}"; do
+              if [ "$i" -gt 0 ]; then chip_types="${chip_types},"; fi
+              chip_types="${chip_types}\"$c\""
+              i=$((i + 1))
+            done
+            chip_types="${chip_types}]"
+          else
+            need_build=false
+            chip_types="[]"
+          fi
+
+          {
+            echo "need_build=$need_build"
+            echo "chip_types=$chip_types"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "tested: a2=$tested_a2 a3=$tested_a3 310p=$tested_310p"
+          echo "hits:   a2=$A2_HIT a3=$A3_HIT 310p=$P310_HIT"
+          echo "missing=$chip_types need_build=$need_build"
+
+  build-csrc-cache:
+    needs: warmup-csrc-cache
+    if: ${{ needs.warmup-csrc-cache.outputs.need_build == 'true' }}
+    uses: ./.github/workflows/push_build_csrc_cache.yaml
+    with:
+      ref: ${{ github.event.pull_request.head.sha }}
+      base_ref: ${{ github.base_ref }}
+      chip_types: ${{ needs.warmup-csrc-cache.outputs.chip_types }}
+      oses: '["ubuntu"]'
+      runners: '["linux-arm64-cpu-16"]'
+
+  run-selected-tests:
+    needs: [lint-and-select-tests, warmup-csrc-cache, build-csrc-cache]
+    if: ${{ always() && needs.lint-and-select-tests.result == 'success' && needs.lint-and-select-tests.outputs.has_tests == 'true' && contains(github.event.pull_request.labels.*.name, 'ready') && needs.warmup-csrc-cache.result != 'failure' && needs.build-csrc-cache.result != 'failure' && needs.build-csrc-cache.result != 'cancelled' }}
     strategy:
       matrix:
         vllm_version:
