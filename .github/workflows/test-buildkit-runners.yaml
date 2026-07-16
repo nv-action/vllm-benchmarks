@@ -8,7 +8,7 @@ jobs:
     name: "Test buildctl (arm64)"
     runs-on: linux-aarch64-cpu-4-buildkit-gy006
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/modelfoundry/ubuntu:24.04
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
     steps:
       - name: "Debug: run postStart hook script"
         run: |
@@ -96,7 +96,7 @@ jobs:
     name: "Test buildctl (amd64)"
     runs-on: linux-amd64-cpu-4-buildkit-gy006
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/modelfoundry/ubuntu:24.04
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
     steps:
       - name: "Debug: run postStart hook script"
         run: |
