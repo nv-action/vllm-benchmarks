@@ -15,6 +15,11 @@ on:
         description: 'The Dockerfile to use'
         required: false
         type: string
+      image:
+        description: 'Base image for the build container (CANN image)'
+        required: false
+        type: string
+        default: ''
       quay_username:
         description: 'Quay username for pushing images'
         required: false
@@ -82,11 +87,11 @@ jobs:
       matrix:
         include:
           - arch: linux/amd64
-            runner: ubuntu-latest # 需使用self-runner，等待基础设施
+            runner: linux-amd64-cpu-4-buildkit  # 需使用self-runner，等待基础设施
             tag: amd64
 
           - arch: linux/arm64
-            runner: ubuntu-22.04-arm # 需使用self-runner，等待基础设施
+            runner: linux-aarch64-cpu-4-buildkit # 需使用self-runner，等待基础设施
             tag: arm64
     container:
       image: ${{ inputs.image }}
