@@ -1,181 +1,90 @@
 name: test-buildkit-runners
-
-on:
-  workflow_dispatch:
-
+true:
+  workflow_dispatch: null
 jobs:
   test-aarch64-buildkit:
-    name: "Test buildctl (arm64)"
+    name: Test buildctl (arm64)
     runs-on: linux-aarch64-cpu-4-buildkit-gy006
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
     steps:
-      - name: "Debug: run postStart hook script"
-        run: |
-          set -x
+    - name: Verify proxy env
+      run: 'echo "HTTP_PROXY=$HTTP_PROXY"
 
-          SQUID_CA=/etc/squid-ca/squid-ca.pem
-          i=0
-          while [ $i -lt 10 ] && [ ! -f "$SQUID_CA" ]; do
-            echo "Waiting for squid CA mount ($((i+1))/10)..."
-            sleep 1
-            i=$((i+1))
-          done
-          if [ ! -f "$SQUID_CA" ]; then
-            echo "WARNING: $SQUID_CA not found after 10s" >&2
-          fi
+        echo "HTTPS_PROXY=$HTTPS_PROXY"
 
-          if [ -f /etc/ssl/certs/ca-certificates.crt ] && [ -f "$SQUID_CA" ]; then
-            cat "$SQUID_CA" >> /etc/ssl/certs/ca-certificates.crt 2>/dev/null || echo "FAIL: cat >> ca-certificates.crt"
-            command -v update-ca-certificates >/dev/null 2>&1 && update-ca-certificates 2>/dev/null || true
-            echo "Debian/Ubuntu: OK"
-          fi
+        echo "NO_PROXY=$NO_PROXY"
 
-          if [ -f "$SQUID_CA" ]; then
-            mkdir -p /etc/pki/ca-trust/source/anchors 2>/dev/null || echo "FAIL: mkdir anchors"
-            cp "$SQUID_CA" /etc/pki/ca-trust/source/anchors/squid-ca.crt 2>/dev/null || echo "FAIL: cp squid-ca"
-            command -v update-ca-trust >/dev/null 2>&1 && update-ca-trust extract 2>/dev/null || true
-            echo "RHEL: OK"
-          fi
+        '
+    - name: Verify BUILDKITD_ADDR
+      run: 'echo "BUILDKITD_ADDR=$BUILDKITD_ADDR"
 
-          echo "--- Vault certs ---"
-          ls -la /home/user/.docker/
-          for f in ca.pem cert.pem key.pem; do
-            test -f "/home/user/.docker/$f" && echo "$f: OK" || echo "$f: MISSING"
-          done
+        test -n "$BUILDKITD_ADDR" || (echo "BUILDKITD_ADDR not set" && exit 1)
 
-          echo "--- buildctl download ---"
-          BUILDKIT_VERSION="v0.29.0"
-          ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
-          BUILDKIT_CACHE="/root/.cache/buildkit/bin/${ARCH}"
-          BUILDKIT_URL="https://gh-proxy.test.osinfra.cn/https://github.com/moby/buildkit/releases/download/${BUILDKIT_VERSION}/buildkit-${BUILDKIT_VERSION}.linux-${ARCH}.tar.gz"
+        '
+    - name: Verify mTLS certs
+      run: 'ls -la /home/user/.docker/
 
-          mkdir -p /tmp/buildkit "$BUILDKIT_CACHE" 2>/dev/null || echo "FAIL: mkdir cache"
+        test -f /home/user/.docker/ca.pem || (echo "ca.pem not found" && exit 1)
 
-          echo "URL: $BUILDKIT_URL"
-          echo "--- curl test ---"
-          command -v curl >/dev/null 2>&1 && echo "curl found" || echo "curl NOT found"
-          curl -fsSL "$BUILDKIT_URL" -o /tmp/buildkit.tar.gz && echo "curl download OK" || echo "curl download FAILED"
+        test -f /home/user/.docker/cert.pem || (echo "cert.pem not found" && exit
+        1)
 
-          echo "--- wget test ---"
-          command -v wget >/dev/null 2>&1 && echo "wget found" || echo "wget NOT found"
-          wget -q "$BUILDKIT_URL" -O /tmp/buildkit.tar.gz && echo "wget download OK" || echo "wget download FAILED"
+        test -f /home/user/.docker/key.pem || (echo "key.pem not found" && exit 1)
 
-          if [ -f /tmp/buildkit.tar.gz ]; then
-            tar -xzf /tmp/buildkit.tar.gz -C /tmp/buildkit && echo "tar extract OK" || echo "tar extract FAILED"
-          fi
+        '
+    - name: Verify squid CA
+      run: 'test -f /etc/squid-ca/squid-ca.pem || (echo "squid CA not found" && exit
+        1)
 
-      - name: "Verify proxy env"
-        run: |
-          echo "HTTP_PROXY=$HTTP_PROXY"
-          echo "HTTPS_PROXY=$HTTPS_PROXY"
-          echo "NO_PROXY=$NO_PROXY"
+        openssl x509 -in /etc/squid-ca/squid-ca.pem -text -noout | head -5
 
-      - name: "Verify BUILDKITD_ADDR"
-        run: |
-          echo "BUILDKITD_ADDR=$BUILDKITD_ADDR"
-          test -n "$BUILDKITD_ADDR" || (echo "BUILDKITD_ADDR not set" && exit 1)
+        '
+    - name: Test squid proxy
+      run: 'curl -fsSL --max-time 10 https://quay.io/v2/ || echo "quay.io reachable
+        via proxy"
 
-      - name: "Verify mTLS certs"
-        run: |
-          ls -la /home/user/.docker/
-          test -f /home/user/.docker/ca.pem || (echo "ca.pem not found" && exit 1)
-          test -f /home/user/.docker/cert.pem || (echo "cert.pem not found" && exit 1)
-          test -f /home/user/.docker/key.pem || (echo "key.pem not found" && exit 1)
-
-      - name: "Verify squid CA"
-        run: |
-          test -f /etc/squid-ca/squid-ca.pem || (echo "squid CA not found" && exit 1)
-          openssl x509 -in /etc/squid-ca/squid-ca.pem -text -noout | head -5
-
-      - name: "Test squid proxy"
-        run: |
-          curl -fsSL --max-time 10 https://quay.io/v2/ || echo "quay.io reachable via proxy"
-
+        '
   test-amd64-buildkit:
-    name: "Test buildctl (amd64)"
+    name: Test buildctl (amd64)
     runs-on: linux-amd64-cpu-4-buildkit-gy006
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
     steps:
-      - name: "Debug: run postStart hook script"
-        run: |
-          set -x
+    - name: Verify proxy env
+      run: 'echo "HTTP_PROXY=$HTTP_PROXY"
 
-          SQUID_CA=/etc/squid-ca/squid-ca.pem
-          i=0
-          while [ $i -lt 10 ] && [ ! -f "$SQUID_CA" ]; do
-            echo "Waiting for squid CA mount ($((i+1))/10)..."
-            sleep 1
-            i=$((i+1))
-          done
-          if [ ! -f "$SQUID_CA" ]; then
-            echo "WARNING: $SQUID_CA not found after 10s" >&2
-          fi
+        echo "HTTPS_PROXY=$HTTPS_PROXY"
 
-          if [ -f /etc/ssl/certs/ca-certificates.crt ] && [ -f "$SQUID_CA" ]; then
-            cat "$SQUID_CA" >> /etc/ssl/certs/ca-certificates.crt 2>/dev/null || echo "FAIL: cat >> ca-certificates.crt"
-            command -v update-ca-certificates >/dev/null 2>&1 && update-ca-certificates 2>/dev/null || true
-            echo "Debian/Ubuntu: OK"
-          fi
+        echo "NO_PROXY=$NO_PROXY"
 
-          if [ -f "$SQUID_CA" ]; then
-            mkdir -p /etc/pki/ca-trust/source/anchors 2>/dev/null || echo "FAIL: mkdir anchors"
-            cp "$SQUID_CA" /etc/pki/ca-trust/source/anchors/squid-ca.crt 2>/dev/null || echo "FAIL: cp squid-ca"
-            command -v update-ca-trust >/dev/null 2>&1 && update-ca-trust extract 2>/dev/null || true
-            echo "RHEL: OK"
-          fi
+        '
+    - name: Verify BUILDKITD_ADDR
+      run: 'echo "BUILDKITD_ADDR=$BUILDKITD_ADDR"
 
-          echo "--- Vault certs ---"
-          ls -la /home/user/.docker/
-          for f in ca.pem cert.pem key.pem; do
-            test -f "/home/user/.docker/$f" && echo "$f: OK" || echo "$f: MISSING"
-          done
+        test -n "$BUILDKITD_ADDR" || (echo "BUILDKITD_ADDR not set" && exit 1)
 
-          echo "--- buildctl download ---"
-          BUILDKIT_VERSION="v0.29.0"
-          ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
-          BUILDKIT_CACHE="/root/.cache/buildkit/bin/${ARCH}"
-          BUILDKIT_URL="https://gh-proxy.test.osinfra.cn/https://github.com/moby/buildkit/releases/download/${BUILDKIT_VERSION}/buildkit-${BUILDKIT_VERSION}.linux-${ARCH}.tar.gz"
+        '
+    - name: Verify mTLS certs
+      run: 'ls -la /home/user/.docker/
 
-          mkdir -p /tmp/buildkit "$BUILDKIT_CACHE" 2>/dev/null || echo "FAIL: mkdir cache"
+        test -f /home/user/.docker/ca.pem || (echo "ca.pem not found" && exit 1)
 
-          echo "URL: $BUILDKIT_URL"
-          echo "--- curl test ---"
-          command -v curl >/dev/null 2>&1 && echo "curl found" || echo "curl NOT found"
-          curl -fsSL "$BUILDKIT_URL" -o /tmp/buildkit.tar.gz && echo "curl download OK" || echo "curl download FAILED"
+        test -f /home/user/.docker/cert.pem || (echo "cert.pem not found" && exit
+        1)
 
-          echo "--- wget test ---"
-          command -v wget >/dev/null 2>&1 && echo "wget found" || echo "wget NOT found"
-          wget -q "$BUILDKIT_URL" -O /tmp/buildkit.tar.gz && echo "wget download OK" || echo "wget download FAILED"
+        test -f /home/user/.docker/key.pem || (echo "key.pem not found" && exit 1)
 
-          if [ -f /tmp/buildkit.tar.gz ]; then
-            tar -xzf /tmp/buildkit.tar.gz -C /tmp/buildkit && echo "tar extract OK" || echo "tar extract FAILED"
-          fi
+        '
+    - name: Verify squid CA
+      run: 'test -f /etc/squid-ca/squid-ca.pem || (echo "squid CA not found" && exit
+        1)
 
-      - name: "Verify proxy env"
-        run: |
-          echo "HTTP_PROXY=$HTTP_PROXY"
-          echo "HTTPS_PROXY=$HTTPS_PROXY"
-          echo "NO_PROXY=$NO_PROXY"
+        openssl x509 -in /etc/squid-ca/squid-ca.pem -text -noout | head -5
 
-      - name: "Verify BUILDKITD_ADDR"
-        run: |
-          echo "BUILDKITD_ADDR=$BUILDKITD_ADDR"
-          test -n "$BUILDKITD_ADDR" || (echo "BUILDKITD_ADDR not set" && exit 1)
+        '
+    - name: Test squid proxy
+      run: 'curl -fsSL --max-time 10 https://quay.io/v2/ || echo "quay.io reachable
+        via proxy"
 
-      - name: "Verify mTLS certs"
-        run: |
-          ls -la /home/user/.docker/
-          test -f /home/user/.docker/ca.pem || (echo "ca.pem not found" && exit 1)
-          test -f /home/user/.docker/cert.pem || (echo "cert.pem not found" && exit 1)
-          test -f /home/user/.docker/key.pem || (echo "key.pem not found" && exit 1)
-
-      - name: "Verify squid CA"
-        run: |
-          test -f /etc/squid-ca/squid-ca.pem || (echo "squid CA not found" && exit 1)
-          openssl x509 -in /etc/squid-ca/squid-ca.pem -text -noout | head -5
-
-      - name: "Test squid proxy"
-        run: |
-          curl -fsSL --max-time 10 https://quay.io/v2/ || echo "quay.io reachable via proxy"
+        '
