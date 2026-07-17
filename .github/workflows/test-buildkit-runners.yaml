@@ -1,90 +1,89 @@
 name: test-buildkit-runners
-true:
-  workflow_dispatch: null
+
+on:
+  workflow_dispatch:
+
 jobs:
   test-aarch64-buildkit:
-    name: Test buildctl (arm64)
+    name: "Test buildctl (arm64)"
     runs-on: linux-aarch64-cpu-4-buildkit-gy006
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
     steps:
-    - name: Verify proxy env
-      run: 'echo "HTTP_PROXY=$HTTP_PROXY"
+      - name: "Verify proxy env"
+        run: |
+          echo "HTTP_PROXY=$HTTP_PROXY"
+          echo "HTTPS_PROXY=$HTTPS_PROXY"
+          echo "NO_PROXY=$NO_PROXY"
 
-        echo "HTTPS_PROXY=$HTTPS_PROXY"
+      - name: "Verify BUILDKITD_ADDR"
+        run: |
+          echo "BUILDKITD_ADDR=$BUILDKITD_ADDR"
+          test -n "$BUILDKITD_ADDR" || (echo "BUILDKITD_ADDR not set" && exit 1)
 
-        echo "NO_PROXY=$NO_PROXY"
+      - name: "Verify mTLS certs"
+        run: |
+          ls -la /home/user/.docker/
+          test -f /home/user/.docker/ca.pem || (echo "ca.pem not found" && exit 1)
+          test -f /home/user/.docker/cert.pem || (echo "cert.pem not found" && exit 1)
+          test -f /home/user/.docker/key.pem || (echo "key.pem not found" && exit 1)
 
-        '
-    - name: Verify BUILDKITD_ADDR
-      run: 'echo "BUILDKITD_ADDR=$BUILDKITD_ADDR"
+      - name: "Verify squid CA"
+        run: |
+          test -f /etc/squid-ca/squid-ca.pem || (echo "squid CA not found" && exit 1)
+          openssl x509 -in /etc/squid-ca/squid-ca.pem -text -noout | head -5
 
-        test -n "$BUILDKITD_ADDR" || (echo "BUILDKITD_ADDR not set" && exit 1)
+      - name: "Test squid proxy"
+        run: |
+          curl -fsSL --max-time 10 https://quay.io/v2/ || echo "quay.io reachable via proxy"
 
-        '
-    - name: Verify mTLS certs
-      run: 'ls -la /home/user/.docker/
+      - name: "buildctl debug workers"
+        run: |
+          buildctl \
+            --addr="${BUILDKITD_ADDR}" \
+            --tlscacert="${DOCKER_CONFIG}/ca.pem" \
+            --tlscert="${DOCKER_CONFIG}/cert.pem" \
+            --tlskey="${DOCKER_CONFIG}/key.pem" \
+            debug workers
 
-        test -f /home/user/.docker/ca.pem || (echo "ca.pem not found" && exit 1)
-
-        test -f /home/user/.docker/cert.pem || (echo "cert.pem not found" && exit
-        1)
-
-        test -f /home/user/.docker/key.pem || (echo "key.pem not found" && exit 1)
-
-        '
-    - name: Verify squid CA
-      run: 'test -f /etc/squid-ca/squid-ca.pem || (echo "squid CA not found" && exit
-        1)
-
-        openssl x509 -in /etc/squid-ca/squid-ca.pem -text -noout | head -5
-
-        '
-    - name: Test squid proxy
-      run: 'curl -fsSL --max-time 10 https://quay.io/v2/ || echo "quay.io reachable
-        via proxy"
-
-        '
   test-amd64-buildkit:
-    name: Test buildctl (amd64)
+    name: "Test buildctl (amd64)"
     runs-on: linux-amd64-cpu-4-buildkit-gy006
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
     steps:
-    - name: Verify proxy env
-      run: 'echo "HTTP_PROXY=$HTTP_PROXY"
+      - name: "Verify proxy env"
+        run: |
+          echo "HTTP_PROXY=$HTTP_PROXY"
+          echo "HTTPS_PROXY=$HTTPS_PROXY"
+          echo "NO_PROXY=$NO_PROXY"
 
-        echo "HTTPS_PROXY=$HTTPS_PROXY"
+      - name: "Verify BUILDKITD_ADDR"
+        run: |
+          echo "BUILDKITD_ADDR=$BUILDKITD_ADDR"
+          test -n "$BUILDKITD_ADDR" || (echo "BUILDKITD_ADDR not set" && exit 1)
 
-        echo "NO_PROXY=$NO_PROXY"
+      - name: "Verify mTLS certs"
+        run: |
+          ls -la /home/user/.docker/
+          test -f /home/user/.docker/ca.pem || (echo "ca.pem not found" && exit 1)
+          test -f /home/user/.docker/cert.pem || (echo "cert.pem not found" && exit 1)
+          test -f /home/user/.docker/key.pem || (echo "key.pem not found" && exit 1)
 
-        '
-    - name: Verify BUILDKITD_ADDR
-      run: 'echo "BUILDKITD_ADDR=$BUILDKITD_ADDR"
+      - name: "Verify squid CA"
+        run: |
+          test -f /etc/squid-ca/squid-ca.pem || (echo "squid CA not found" && exit 1)
+          openssl x509 -in /etc/squid-ca/squid-ca.pem -text -noout | head -5
 
-        test -n "$BUILDKITD_ADDR" || (echo "BUILDKITD_ADDR not set" && exit 1)
+      - name: "Test squid proxy"
+        run: |
+          curl -fsSL --max-time 10 https://quay.io/v2/ || echo "quay.io reachable via proxy"
 
-        '
-    - name: Verify mTLS certs
-      run: 'ls -la /home/user/.docker/
-
-        test -f /home/user/.docker/ca.pem || (echo "ca.pem not found" && exit 1)
-
-        test -f /home/user/.docker/cert.pem || (echo "cert.pem not found" && exit
-        1)
-
-        test -f /home/user/.docker/key.pem || (echo "key.pem not found" && exit 1)
-
-        '
-    - name: Verify squid CA
-      run: 'test -f /etc/squid-ca/squid-ca.pem || (echo "squid CA not found" && exit
-        1)
-
-        openssl x509 -in /etc/squid-ca/squid-ca.pem -text -noout | head -5
-
-        '
-    - name: Test squid proxy
-      run: 'curl -fsSL --max-time 10 https://quay.io/v2/ || echo "quay.io reachable
-        via proxy"
-
-        '
+      - name: "buildctl debug workers"
+        run: |
+          buildctl \
+            --addr="${BUILDKITD_ADDR}" \
+            --tlscacert="${DOCKER_CONFIG}/ca.pem" \
+            --tlscert="${DOCKER_CONFIG}/cert.pem" \
+            --tlskey="${DOCKER_CONFIG}/key.pem" \
+            debug workers
