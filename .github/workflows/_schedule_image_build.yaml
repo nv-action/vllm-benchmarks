@@ -214,21 +214,21 @@ jobs:
 
     # Quay.io automatically cleans up untagged digests on a regular basis, with a cycle of approximately one hour. 
     # Add temporary tags to digests to prevent them from being removed.
-    - name: Install crane
-      run: |
-        CRANE_VERSION="v0.20.2"
-        ARCH=$(uname -m | sed 's/aarch64/arm64/')
-        OS="Linux"
-        DOWNLOAD_URL=$(curl -s https://gh-proxy.test.osinfra.cn/https://api.github.com/repos/google/go-containerregistry/releases/tags/${CRANE_VERSION} \
-          | grep -oP '"browser_download_url": "\K[^"]+' \
-          | grep "${OS}_${ARCH}")
-        if [ -z "$DOWNLOAD_URL" ]; then
-          echo "No asset found for ${OS}_${ARCH}"
-          exit 1
-        fi
-        wget -S "$DOWNLOAD_URL" -O /tmp/crane.tar.gz
-        tar -xzf /tmp/crane.tar.gz -C /tmp crane
-        chmod +x /tmp/crane
+    # - name: Install crane
+    #   run: |
+    #     CRANE_VERSION="v0.20.2"
+    #     ARCH=$(uname -m | sed 's/aarch64/arm64/')
+    #     OS="Linux"
+    #     DOWNLOAD_URL=$(curl -s https://gh-proxy.test.osinfra.cn/https://api.github.com/repos/google/go-containerregistry/releases/tags/${CRANE_VERSION} \
+    #       | grep -oP '"browser_download_url": "\K[^"]+' \
+    #       | grep "${OS}_${ARCH}")
+    #     if [ -z "$DOWNLOAD_URL" ]; then
+    #       echo "No asset found for ${OS}_${ARCH}"
+    #       exit 1
+    #     fi
+    #     wget -S "$DOWNLOAD_URL" -O /tmp/crane.tar.gz
+    #     tar -xzf /tmp/crane.tar.gz -C /tmp crane
+    #     chmod +x /tmp/crane
 
     - name: Build and push
       shell: bash -e {0}
