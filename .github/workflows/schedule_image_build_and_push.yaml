@@ -112,7 +112,7 @@ jobs:
       workflow_dispatch_tag: ${{ inputs.tag != 'none' && inputs.tag || '' }}
       branch_ref: ${{ inputs.branch != 'none' && inputs.branch || '' }}
     secrets:
-      QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD_CZC }} # 使用czc账号测试，需revert
+      #QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD_CZC }} # 使用czc账号测试，需revert
       QUAY_TEMP_PASSWORD: ${{ secrets.QUAY_TEMP_PASSWORD_CZC }} # 使用czc账号测试，需revert
 # commit版本也需要新增image参数，因为测试不涉及，暂不改动
   image_build_by_commit:

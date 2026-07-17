@@ -66,7 +66,7 @@ on:
             required: false
 
 env:
-  QUAY_REPO: quay.io/ascend/vllm-ascend
+  QUAY_REPO: quay.io/atlas-ci/vllm-atlas-temp
   QUAY_TEMP_REPO: quay.io/atlas-ci/vllm-atlas-temp
   CACHE_REPO: ghcr.io/vllm-project/vllm-ascend #缓存地址需要修改 需要用国内地址
 
@@ -382,12 +382,12 @@ jobs:
           curl -fsSL "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_${ARCH}.tar.gz" -o /tmp/crane.tar.gz
           tar -xzf /tmp/crane.tar.gz -C /tmp crane
           chmod +x /tmp/crane
-          /tmp/crane auth login quay.io -u "${{ inputs.quay_username }}" -p "${{secrets.QUAY_PASSWORD}}"  #测试时传入的账号需更改
+          /tmp/crane auth login quay.io -u "${{ inputs.quay_temp_username }}" -p "${{secrets.QUAY_TEMP_PASSWORD}}"  #测试时传入的账号需更改
 
       - name: Merge and push multi-arch image
         env:
           SRC_IMAGE: ${{ env.QUAY_TEMP_REPO }}
-          DST_IMAGE: ${{ env.QUAY_TEMP_REPO }}   #测试用临时仓 还原需用正式仓库
+          DST_IMAGE: ${{ env.QUAY_REPO }}   
           TAGS: ${{ steps.meta.outputs.tags }}
         run: |
           set -e
