@@ -34,7 +34,7 @@
         "npu_num": 0,
         "image_tag": "9.0.0-910b-ubuntu22.04-py3.12"
     },
-    "linux-aarch64-a2b3-1": {
+    "linux-aarch64-a2-1": {
         "chip": "a2",
         "npu_num": 1,
         "image_tag": "9.0.0-910b-ubuntu22.04-py3.12"
@@ -47,6 +47,16 @@
     "linux-aarch64-a2b3-4": {
         "chip": "a2",
         "npu_num": 4,
+        "image_tag": "9.0.0-910b-ubuntu22.04-py3.12"
+    },
+    "linux-aarch64-a2-10c16g-v-gy006": {
+        "chip": "a2_half",
+        "npu_num": 1,
+        "image_tag": "9.0.0-910b-ubuntu22.04-py3.12"
+    },
+    "linux-aarch64-a2-5c8g-v-gy006": {
+        "chip": "a2_quarter",
+        "npu_num": 1,
         "image_tag": "9.0.0-910b-ubuntu22.04-py3.12"
     }
 }

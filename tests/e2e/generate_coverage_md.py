@@ -76,6 +76,8 @@ COLUMNS = [
 ]
 
 CARD_SECTIONS = [
+    ("1/4-Card vNPU Tests", "quarter_card"),
+    ("1/2-Card vNPU Tests", "half_card"),
     ("1-Card Tests", "one_card"),
     ("2-Card Tests", "two_card"),
     ("4-Card Tests", "four_card"),
@@ -465,7 +467,7 @@ def _process_test_file(filepath, source_code, root_path=None):
     is_310p = _detect_310p(rel_path)
 
     card_prefix = ""
-    for prefix in ("one_card/", "two_card/", "four_card/"):
+    for prefix in ("quarter_card/", "half_card/", "one_card/", "two_card/", "four_card/"):
         if rel_path.startswith(prefix):
             card_prefix = prefix
             break

@@ -26,7 +26,8 @@ test_config.yaml ──► resolve base inheritance ──► match modules ─�
                                                                          │
                                                                 Route by convention:
                                                                  UT:  a2/, a2_2/, a3_2/, a3_4/, 310p/
-                                                                 E2E: one_card, two_card, four_card, *_310p.py
+                                                                 E2E: quarter_card, half_card, one_card,
+                                                                      two_card, four_card, *_310p.py
                                                                          │
                                                                 runner_label.json
                                                                          │
@@ -135,6 +136,8 @@ All E2E tests run on NPU. E2E routing is determined by directory or `_310p` file
 
 | Pattern | Runner |
 |---------|--------|
+| `tests/e2e/pull_request/quarter_card/` | A2 quarter-card vNPU x1 (8 GiB) |
+| `tests/e2e/pull_request/half_card/` | A2 half-card vNPU x1 (16 GiB) |
 | `tests/e2e/pull_request/one_card/` | A2 NPU x1 |
 | `tests/e2e/pull_request/two_card/` | A3 NPU x2 |
 | `tests/e2e/pull_request/four_card/` | A3 NPU x4 |
@@ -169,6 +172,8 @@ If `tests` points to a directory, `select_tests.py` scans `test_*.py` files and 
 
 1. Put the test under the correct card directory:
 
+   - 1/4-card vNPU: `tests/e2e/pull_request/quarter_card/test_new_feature.py`
+   - 1/2-card vNPU: `tests/e2e/pull_request/half_card/test_new_feature.py`
    - 1-card: `tests/e2e/pull_request/one_card/test_new_feature.py`
    - 2-card: `tests/e2e/pull_request/two_card/test_new_feature.py`
    - 4-card: `tests/e2e/pull_request/four_card/test_new_feature.py`

@@ -25,7 +25,13 @@ to share real weights instead. See ``examples/rl/rlhf_http_npu_ipc.py`` for the
 end-user workflow.
 """
 
+import contextlib
+import faulthandler
+import gc
+import multiprocessing
 import os
+import traceback
+from multiprocessing.connection import Connection
 
 import pytest
 import requests
@@ -46,6 +52,10 @@ PROMPTS = [
 
 UPDATE_TIMEOUT = 300
 CONTROL_TIMEOUT = 60
+TRAINER_TRANSFER_TIMEOUT = 600
+TRAINER_EXIT_TIMEOUT = 60
+TRAINER_TERMINATE_TIMEOUT = 30
+TRAINER_STACK_DUMP_INTERVAL = 30
 
 
 def _build_trainer_model(device_index: int):
@@ -89,6 +99,122 @@ def _has_lifecycle_endpoints(server: RemoteOpenAIServer) -> bool:
         return False
     response.raise_for_status()
     return True
+
+
+def _trainer_log(message: str) -> None:
+    print(f"[NPU IPC trainer] {message}", flush=True)
+
+
+def _trainer_send_weights_process(server_url: str, result_pipe: Connection) -> None:
+    """Build and send trainer weights in an isolated NPU process."""
+    train_model = None
+    faulthandler.enable()
+    faulthandler.dump_traceback_later(TRAINER_STACK_DUMP_INTERVAL, repeat=True)
+    try:
+        _trainer_log(f"selecting npu:{INFERENCE_DEVICE_INDEX}")
+        torch.npu.set_device(INFERENCE_DEVICE_INDEX)
+        _trainer_log("building trainer model")
+        train_model = _build_trainer_model(INFERENCE_DEVICE_INDEX)
+        _trainer_log("trainer model ready")
+        os.environ["VLLM_ALLOW_INSECURE_SERIALIZATION"] = "1"
+
+        from vllm_ascend.distributed.weight_transfer.npu_ipc_engine import (
+            NPUIPCTrainerSendWeightsArgs,
+            NPUIPCWeightTransferEngine,
+        )
+
+        trainer_args = NPUIPCTrainerSendWeightsArgs(send_mode="http", url=server_url)
+        _trainer_log("sending IPC handles to /update_weights")
+        NPUIPCWeightTransferEngine.trainer_send_weights(
+            iterator=train_model.named_parameters(),
+            trainer_args=trainer_args,
+        )
+        _trainer_log("/update_weights completed")
+        result_pipe.send(("transfer_complete", ""))
+    except BaseException:  # noqa: BLE001 - propagate the child traceback to pytest
+        error = traceback.format_exc()
+        print(error, flush=True)
+        with contextlib.suppress(BrokenPipeError, EOFError, OSError):
+            result_pipe.send(("transfer_error", error))
+    finally:
+        try:
+            _trainer_log("releasing trainer NPU resources")
+            del train_model
+            gc.collect()
+            torch.npu.synchronize()
+            torch.npu.empty_cache()
+            _trainer_log("trainer NPU resources released")
+        except BaseException:  # noqa: BLE001 - cleanup failures must be visible to the parent
+            error = traceback.format_exc()
+            print(error, flush=True)
+            with contextlib.suppress(BrokenPipeError, EOFError, OSError):
+                result_pipe.send(("cleanup_error", error))
+        finally:
+            faulthandler.cancel_dump_traceback_later()
+            result_pipe.close()
+
+
+def _terminate_trainer_process(process: multiprocessing.Process) -> None:
+    if not process.is_alive():
+        return
+    process.terminate()
+    process.join(TRAINER_TERMINATE_TIMEOUT)
+    if process.is_alive():
+        process.kill()
+        process.join(TRAINER_TERMINATE_TIMEOUT)
+
+
+def _run_trainer_process(server_url: str) -> None:
+    context = multiprocessing.get_context("spawn")
+    result_pipe, child_pipe = context.Pipe(duplex=False)
+    process = context.Process(
+        target=_trainer_send_weights_process,
+        args=(server_url, child_pipe),
+        name="npu-ipc-trainer",
+    )
+    process.start()
+    child_pipe.close()
+
+    messages = []
+    try:
+        if not result_pipe.poll(TRAINER_TRANSFER_TIMEOUT):
+            _terminate_trainer_process(process)
+            pytest.fail(
+                f"trainer did not finish IPC transfer within {TRAINER_TRANSFER_TIMEOUT}s",
+                pytrace=False,
+            )
+
+        with contextlib.suppress(EOFError):
+            messages.append(result_pipe.recv())
+
+        process.join(TRAINER_EXIT_TIMEOUT)
+        if process.is_alive():
+            _terminate_trainer_process(process)
+            first_error = next((payload for status, payload in messages if status.endswith("_error")), "")
+            pytest.fail(
+                f"{first_error}\ntrainer process did not exit within {TRAINER_EXIT_TIMEOUT}s after transfer",
+                pytrace=False,
+            )
+
+        while result_pipe.poll():
+            try:
+                messages.append(result_pipe.recv())
+            except EOFError:
+                break
+    finally:
+        result_pipe.close()
+        _terminate_trainer_process(process)
+
+    errors = [payload for status, payload in messages if status.endswith("_error")]
+    if errors:
+        pytest.fail("\n".join(errors), pytrace=False)
+    if not any(status == "transfer_complete" for status, _ in messages):
+        pytest.fail(
+            f"trainer process exited with code {process.exitcode} before reporting transfer completion",
+            pytrace=False,
+        )
+    if process.exitcode != 0:
+        pytest.fail(f"trainer process exited with code {process.exitcode}", pytrace=False)
 
 
 @pytest.mark.skipif(
@@ -136,18 +262,6 @@ def test_npu_ipc_weight_transfer_updates_server_weights():
 
         outputs_before = _generate(client, MODEL_NAME, PROMPTS)
 
-        # Trainer shares physical NPU 0 with the server. It leaves
-        # ASCEND_RT_VISIBLE_DEVICES unset (identity mapping logical 0 ->
-        # physical 0) so both processes resolve to the same IPC UUID.
-        torch.npu.set_device(INFERENCE_DEVICE_INDEX)
-        train_model = _build_trainer_model(INFERENCE_DEVICE_INDEX)
-        os.environ["VLLM_ALLOW_INSECURE_SERIALIZATION"] = "1"
-
-        from vllm_ascend.distributed.weight_transfer.npu_ipc_engine import (
-            NPUIPCTrainerSendWeightsArgs,
-            NPUIPCWeightTransferEngine,
-        )
-
         _post(server, "init_weight_transfer_engine", json={"init_info": {}})
 
         _post(server, "pause")
@@ -158,15 +272,10 @@ def test_npu_ipc_weight_transfer_updates_server_weights():
             _post(server, "resume")
             pytest.skip("vLLM build lacks the /start_weight_update lifecycle endpoints required by NPU IPC.")
 
-        # trainer_send_weights POSTs to /update_weights itself; the server
-        # rebuilds tensors locally and loads them before the POST returns (no
-        # collective back to the trainer, so no background thread is needed).
-        # train_model stays referenced so the shared NPU storage outlives it.
-        trainer_args = NPUIPCTrainerSendWeightsArgs(send_mode="http", url=server.url_root)
-        NPUIPCWeightTransferEngine.trainer_send_weights(
-            iterator=train_model.named_parameters(),
-            trainer_args=trainer_args,
-        )
+        # Keep trainer NPU state out of the pytest process. The child shares
+        # physical NPU 0 with the server and reports failures before cleanup,
+        # so a stuck torch-npu/resource-tracker shutdown can be force-killed.
+        _run_trainer_process(server.url_root)
 
         _post(server, "finish_weight_update")
         _post(server, "resume")

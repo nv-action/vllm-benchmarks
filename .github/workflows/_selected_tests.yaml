@@ -68,7 +68,6 @@ defaults:
 
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
   selected-tests:
@@ -78,6 +77,7 @@ jobs:
       matrix:
         group: ${{ fromJSON(inputs.test_groups) }}
     runs-on: ${{ matrix.group.runner }}
+    timeout-minutes: 120
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.group.image_tag }}
       env:
@@ -105,7 +105,7 @@ jobs:
           pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
           apt-get update -y
           apt-get install -y python3-pip git vim wget net-tools gcc g++ cmake libnuma-dev curl gnupg2 zstd
-          git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           pip install uv
 
       - name: Checkout vllm-project/vllm repo
@@ -196,7 +196,16 @@ jobs:
       - name: Install vllm-project/vllm-ascend with device
         if: ${{ matrix.group.npu_type != 'cpu' }}
         run: |
-          export MAX_JOBS=$(( ${{ matrix.group.num_npus }} * 23 ))
+          case "${{ matrix.group.npu_type }}" in
+            a2_half|a2_quarter)
+              export SOC_VERSION=ascend910b4
+              export MAX_JOBS=16
+              ;;
+            *)
+              export MAX_JOBS=$(( ${{ matrix.group.num_npus }} * 23 ))
+              ;;
+          esac
+          echo "SOC_VERSION=${SOC_VERSION:-auto-detected}, MAX_JOBS=${MAX_JOBS}"
           pip install uc-manager
           uv pip install -r requirements-dev.txt
           uv pip install --force-reinstall --no-deps triton-ascend==3.2.1

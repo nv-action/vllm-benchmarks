@@ -27,46 +27,15 @@ from unittest.mock import patch
 import pytest
 from vllm import SamplingParams
 from vllm.assets.audio import AudioAsset
-from vllm.assets.image import ImageAsset
 
 from tests.e2e.conftest import VllmRunner
-
-WHISPER_MODELS = [
-    "openai-mirror/whisper-large-v3-turbo",
-]
+from tests.e2e.pull_request.vlm_utils import run_multimodal_vl
 
 
+@pytest.mark.parametrize("vl_config", ["qwen-vl"], indirect=True)
 @patch.dict(os.environ, {"VLLM_WORKER_MULTIPROC_METHOD": "spawn"})
 def test_multimodal_vl(vl_config):
-    image = ImageAsset("cherry_blossom").pil_image.convert("RGB")
-
-    img_questions = [
-        "What is the content of this image?",
-        "Describe the content of this image in detail.",
-        "What's in the image?",
-        "Where is this image taken?",
-    ]
-
-    images = [image] * len(img_questions)
-    prompts = vl_config["prompt_fn"](img_questions)
-
-    with VllmRunner(
-        vl_config["model"],
-        mm_processor_kwargs=vl_config["mm_processor_kwargs"],
-        max_model_len=8192,
-        cudagraph_capture_sizes=[1, 2, 4, 8],
-        limit_mm_per_prompt={"image": 1},
-    ) as vllm_model:
-        outputs = vllm_model.generate_greedy(
-            prompts=prompts,
-            images=images,
-            max_tokens=64,
-        )
-
-        assert len(outputs) == len(prompts)
-
-        for _, output_str in outputs:
-            assert output_str, "Generated output should not be empty."
+    run_multimodal_vl(vl_config)
 
 
 @patch.dict(os.environ, {"VLLM_WORKER_MULTIPROC_METHOD": "spawn"})
@@ -118,20 +87,3 @@ def test_multimodal_audio():
 
         assert outputs is not None, "Generated outputs should not be None."
         assert len(outputs) > 0, "Generated outputs should not be empty."
-
-
-@pytest.mark.parametrize("model", WHISPER_MODELS)
-@patch.dict(os.environ, {"VLLM_WORKER_MULTIPROC_METHOD": "spawn"})
-def test_whisper(model) -> None:
-    prompts = ["<|startoftranscript|><|en|><|transcribe|><|notimestamps|>"]
-    audios = [AudioAsset("mary_had_lamb").audio_and_sample_rate]
-
-    sampling_params = SamplingParams(temperature=0.2, max_tokens=10, stop_token_ids=None)
-
-    with VllmRunner(
-        model, max_model_len=448, max_num_seqs=5, dtype="bfloat16", block_size=128, gpu_memory_utilization=0.9
-    ) as runner:
-        outputs = runner.generate(prompts=prompts, audios=audios, sampling_params=sampling_params)
-
-    assert outputs is not None, "Generated outputs should not be None."
-    assert len(outputs) > 0, "Generated outputs should not be empty."
