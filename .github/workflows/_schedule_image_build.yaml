@@ -84,6 +84,7 @@ jobs:
       contents: read
 
     strategy:
+      fail-fast: false
       matrix:
         include:
           - arch: linux/amd64
@@ -218,7 +219,7 @@ jobs:
         CRANE_VERSION="v0.20.2"
         ARCH=$(uname -m | sed 's/aarch64/arm64/')
         OS="Linux"
-        DOWNLOAD_URL=$(curl -s https://api.github.com/repos/google/go-containerregistry/releases/tags/${CRANE_VERSION} \
+        DOWNLOAD_URL=$(curl -s https://gh-proxy.test.osinfra.cn/api.github.com/repos/google/go-containerregistry/releases/tags/${CRANE_VERSION} \
           | grep -oP '"browser_download_url": "\K[^"]+' \
           | grep "${OS}_${ARCH}")
         if [ -z "$DOWNLOAD_URL" ]; then
