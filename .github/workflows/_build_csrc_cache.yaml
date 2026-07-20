@@ -128,7 +128,8 @@ jobs:
             ./CMakeLists.txt \
             ./.github/workflows/push_build_csrc_cache.yaml \
             ./.github/workflows/_build_csrc_cache.yaml \
-            -type f -not -path '*/.*' | sort | xargs sha256sum | sha256sum | awk '{print $1}')
+            -type f \( -not -path '*/.*' -o -path './.github/workflows/*build_csrc_cache.yaml' \) \
+            | sort | xargs sha256sum | sha256sum | awk '{print $1}')
           echo "CSRC_HASH=$CSRC_HASH" >> "$GITHUB_OUTPUT"
 
       - name: Get architecture
