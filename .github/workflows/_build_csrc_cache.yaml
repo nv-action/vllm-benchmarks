@@ -31,11 +31,14 @@ on:
         type: string
         required: true
         description: 'Build operating system.'
-      csrc_hash:
+      image:
         type: string
-        required: false
-        default: ''
-        description: 'PR csrc hash; empty calculates it for a main build.'
+        required: true
+        description: 'Container image used as the build environment.'
+      soc_version:
+        type: string
+        required: true
+        description: 'SOC_VERSION used to compile csrc artifacts.'
 
 defaults:
   run:
@@ -55,15 +58,7 @@ jobs:
     name: build-${{ inputs.device }}-${{ inputs.runner }}-${{ inputs.os }}-cache
     runs-on: ${{ inputs.runner }}
     container:
-      image: >-
-        ${{
-          (inputs.device == 'a2' && inputs.os == 'ubuntu' && 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.1-910b-ubuntu22.04-py3.12') ||
-          (inputs.device == 'a3' && inputs.os == 'ubuntu' && 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.1-a3-ubuntu22.04-py3.12') ||
-          (inputs.device == '310p' && inputs.os == 'ubuntu' && 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-beta.1-310p-ubuntu22.04-py3.12') ||
-          (inputs.device == 'a2' && inputs.os == 'openeuler' && 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.1-910b-openeuler24.03-py3.12') ||
-          (inputs.device == 'a3' && inputs.os == 'openeuler' && 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.1-a3-openeuler24.03-py3.12') ||
-          (inputs.device == '310p' && inputs.os == 'openeuler' && 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-beta.1-310p-openeuler24.03-py3.12')
-        }}
+      image: ${{ inputs.image }}
     steps:
       - name: Checkout repo
         uses: actions/checkout@v7
@@ -107,34 +102,33 @@ jobs:
       - name: Get image tag
         id: get_image_tag
         run: |
-          case "${{ inputs.device }}-${{ inputs.os }}" in
-            a2-ubuntu) IMAGE_TAG="9.0.1-910b-ubuntu22.04-py3.12" ;;
-            a3-ubuntu) IMAGE_TAG="9.0.1-a3-ubuntu22.04-py3.12" ;;
-            310p-ubuntu) IMAGE_TAG="9.1.0-beta.1-310p-ubuntu22.04-py3.12" ;;
-            a2-openeuler) IMAGE_TAG="9.0.1-910b-openeuler24.03-py3.12" ;;
-            a3-openeuler) IMAGE_TAG="9.0.1-a3-openeuler24.03-py3.12" ;;
-            310p-openeuler) IMAGE_TAG="9.1.0-beta.1-310p-openeuler24.03-py3.12" ;;
-          esac
+          IMAGE="${{ inputs.image }}"
+          IMAGE_TAG="${IMAGE##*:}"
           echo "IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Get csrc hash
         id: get_csrc_hash
-        if: inputs.csrc_hash == ''
         run: |
-          CSRC_HASH=$(find \
-            ./csrc \
-            ./cmake \
-            ./setup.py \
-            ./CMakeLists.txt \
-            ./.github/workflows/push_build_csrc_cache.yaml \
-            ./.github/workflows/_build_csrc_cache.yaml \
-            -type f \( -not -path '*/.*' -o -path './.github/workflows/*build_csrc_cache.yaml' \) \
-            | sort | xargs sha256sum | sha256sum | awk '{print $1}')
+          CSRC_HASH=$(
+            git ls-tree -r --full-tree HEAD -- \
+              csrc \
+              cmake \
+              setup.py \
+              pyproject.toml \
+              CMakeLists.txt \
+              packages.txt \
+              requirements.txt \
+              requirements-dev.txt \
+              vllm_ascend/envs.py \
+              .github/workflows/push_build_csrc_cache.yaml \
+              .github/workflows/_build_csrc_cache.yaml \
+            | sha256sum \
+            | awk '{print $1}'
+          )
           echo "CSRC_HASH=$CSRC_HASH" >> "$GITHUB_OUTPUT"
 
       - name: Get architecture
         id: get_arch
-        if: inputs.csrc_hash == ''
         run: |
           ARCH=$(uname -m)
           case "$ARCH" in
@@ -152,17 +146,12 @@ jobs:
             vllm_ascend/*.so
             vllm_ascend/lib
             vllm_ascend/include
-          key: ${{ format('vllm-ascend-build-v1-{0}-{1}-{2}', inputs.csrc_hash != '' && 'ARM64' || steps.get_arch.outputs.arch, steps.get_image_tag.outputs.IMAGE_TAG, inputs.csrc_hash || steps.get_csrc_hash.outputs.CSRC_HASH) }}
+          key: ${{ format('vllm-ascend-build-v1-{0}-{1}-{2}', steps.get_arch.outputs.arch, steps.get_image_tag.outputs.IMAGE_TAG, steps.get_csrc_hash.outputs.CSRC_HASH) }}
 
       - name: Install vllm-ascend
         if: steps.cache-csrc.outputs.cache-hit != 'true'
         env:
-          SOC_VERSION: >-
-            ${{
-              (inputs.device == 'a2' && 'ascend910b1') ||
-              (inputs.device == 'a3' && 'ascend910_9391') ||
-              (inputs.device == '310p' && 'ascend310p1')
-            }}
+          SOC_VERSION: ${{ inputs.soc_version }}
           MAX_JOBS: "16"
         run: |
           source /usr/local/Ascend/ascend-toolkit/set_env.sh

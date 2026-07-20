@@ -238,11 +238,23 @@ jobs:
       - name: Get csrc hash
         id: get_csrc_hash
         run: |
-          CSRC_HASH=$(find ./csrc ./setup.py ./CMakeLists.txt ./cmake \
-            ./.github/workflows/push_build_csrc_cache.yaml ./.github/workflows/_build_csrc_cache.yaml \
-            -type f \( -not -path '*/.*' -o -path './.github/workflows/*build_csrc_cache.yaml' \) \
-            | sort | xargs sha256sum | sha256sum | awk '{print $1}')
-          echo "CSRC_HASH=$CSRC_HASH" >> $GITHUB_OUTPUT
+          CSRC_HASH=$(
+            git ls-tree -r --full-tree HEAD -- \
+              csrc \
+              cmake \
+              setup.py \
+              pyproject.toml \
+              CMakeLists.txt \
+              packages.txt \
+              requirements.txt \
+              requirements-dev.txt \
+              vllm_ascend/envs.py \
+              .github/workflows/push_build_csrc_cache.yaml \
+              .github/workflows/_build_csrc_cache.yaml \
+            | sha256sum \
+            | awk '{print $1}'
+          )
+          echo "CSRC_HASH=$CSRC_HASH" >> "$GITHUB_OUTPUT"
 
       - name: Get architecture
         id: get_arch

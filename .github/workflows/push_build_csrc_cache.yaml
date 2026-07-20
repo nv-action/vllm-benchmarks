@@ -24,11 +24,15 @@ on:
     paths:
       - 'csrc/**'
       - 'setup.py'
+      - 'pyproject.toml'
       - 'CMakeLists.txt'
       - 'cmake/**'
+      - 'packages.txt'
+      - 'requirements.txt'
+      - 'requirements-dev.txt'
+      - 'vllm_ascend/envs.py'
       - .github/workflows/push_build_csrc_cache.yaml
       - .github/workflows/_build_csrc_cache.yaml
-      - 'pyproject.toml'
   workflow_dispatch:
   workflow_call:
     inputs:
@@ -42,12 +46,6 @@ on:
         required: false
         default: ''
         description: 'Device type to build: a2, a3, or 310p.'
-      csrc_hash:
-        type: string
-        required: false
-        default: ''
-        description: 'PR csrc hash used to generate the cache key.'
-
 concurrency:
   group: ascend-csrc-build-${{ github.workflow }}-${{ github.ref }}-${{ inputs.device || 'scheduled' }}
   cancel-in-progress: true
@@ -68,11 +66,38 @@ jobs:
         os:
           - ubuntu
           - openeuler
+        include:
+          - device: a2
+            os: ubuntu
+            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.1-910b-ubuntu22.04-py3.12
+            soc_version: ascend910b1
+          - device: a3
+            os: ubuntu
+            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.1-a3-ubuntu22.04-py3.12
+            soc_version: ascend910_9391
+          - device: 310p
+            os: ubuntu
+            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-beta.1-310p-ubuntu22.04-py3.12
+            soc_version: ascend310p1
+          - device: a2
+            os: openeuler
+            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.1-910b-openeuler24.03-py3.12
+            soc_version: ascend910b1
+          - device: a3
+            os: openeuler
+            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.1-a3-openeuler24.03-py3.12
+            soc_version: ascend910_9391
+          - device: 310p
+            os: openeuler
+            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-beta.1-310p-openeuler24.03-py3.12
+            soc_version: ascend310p1
     uses: ./.github/workflows/_build_csrc_cache.yaml
     with:
       runner: ${{ matrix.runner }}
       device: ${{ matrix.device }}
       os: ${{ matrix.os }}
+      image: ${{ matrix.image }}
+      soc_version: ${{ matrix.soc_version }}
 
   build-pr-cache:
     if: ${{ inputs.device != '' && inputs.enabled }}
@@ -81,4 +106,15 @@ jobs:
       runner: linux-arm64-cpu-16
       device: ${{ inputs.device }}
       os: ubuntu
-      csrc_hash: ${{ inputs.csrc_hash }}
+      image: >-
+        ${{
+          (inputs.device == 'a2' && 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.1-910b-ubuntu22.04-py3.12') ||
+          (inputs.device == 'a3' && 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.1-a3-ubuntu22.04-py3.12') ||
+          (inputs.device == '310p' && 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-beta.1-310p-ubuntu22.04-py3.12')
+        }}
+      soc_version: >-
+        ${{
+          (inputs.device == 'a2' && 'ascend910b1') ||
+          (inputs.device == 'a3' && 'ascend910_9391') ||
+          (inputs.device == '310p' && 'ascend310p1')
+        }}

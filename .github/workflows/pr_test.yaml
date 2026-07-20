@@ -180,7 +180,6 @@ jobs:
       has_tests: ${{ steps.scope.outputs.has_tests || steps.noop.outputs.has_tests }}
       test_groups: ${{ steps.scope.outputs.test_groups || steps.noop.outputs.test_groups }}
       matched_modules: ${{ steps.scope.outputs.matched_modules || steps.noop.outputs.matched_modules }}
-      csrc_hash: ${{ steps.csrc-hash.outputs.csrc_hash }}
       a2_csrc_need_build: ${{ steps.csrc-cache-targets.outputs.has_a2 == 'true' && steps.lookup-a2-csrc.outputs.cache-hit != 'true' }}
       a3_csrc_need_build: ${{ steps.csrc-cache-targets.outputs.has_a3 == 'true' && steps.lookup-a3-csrc.outputs.cache-hit != 'true' }}
       csrc_310p_need_build: ${{ steps.csrc-cache-targets.outputs.has_310p == 'true' && steps.lookup-310p-csrc.outputs.cache-hit != 'true' }}
@@ -198,7 +197,9 @@ jobs:
               - 'vllm_ascend/**'
               - 'setup.py'
               - 'csrc/**'
+              - 'packages.txt'
               - 'requirements.txt'
+              - 'requirements-dev.txt'
               - 'pyproject.toml'
               - 'cmake/**'
               - '.github/workflows/pr_test.yaml'
@@ -254,15 +255,22 @@ jobs:
         id: csrc-hash
         if: steps.scope.outputs.has_tests == 'true'
         run: |
-          CSRC_HASH=$(find \
-            ./csrc \
-            ./cmake \
-            ./setup.py \
-            ./CMakeLists.txt \
-            ./.github/workflows/push_build_csrc_cache.yaml \
-            ./.github/workflows/_build_csrc_cache.yaml \
-            -type f \( -not -path '*/.*' -o -path './.github/workflows/*build_csrc_cache.yaml' \) \
-            | sort | xargs sha256sum | sha256sum | awk '{print $1}')
+          CSRC_HASH=$(
+            git ls-tree -r --full-tree HEAD -- \
+              csrc \
+              cmake \
+              setup.py \
+              pyproject.toml \
+              CMakeLists.txt \
+              packages.txt \
+              requirements.txt \
+              requirements-dev.txt \
+              vllm_ascend/envs.py \
+              .github/workflows/push_build_csrc_cache.yaml \
+              .github/workflows/_build_csrc_cache.yaml \
+            | sha256sum \
+            | awk '{print $1}'
+          )
           echo "csrc_hash=${CSRC_HASH}" >> "$GITHUB_OUTPUT"
 
       - name: Look up A2 csrc cache
@@ -335,7 +343,6 @@ jobs:
     with:
       enabled: ${{ matrix.enabled }}
       device: ${{ matrix.device }}
-      csrc_hash: ${{ needs.select-tests.outputs.csrc_hash }}
 
   run-selected-tests:
     needs:
