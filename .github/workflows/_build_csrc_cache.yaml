@@ -39,6 +39,16 @@ on:
         type: string
         required: true
         description: 'SOC_VERSION used to compile csrc artifacts.'
+      ref:
+        type: string
+        required: false
+        default: ''
+        description: 'The vllm-ascend ref to build.'
+      base_sha:
+        type: string
+        required: false
+        default: ''
+        description: 'The fixed base commit to rebase onto for a PR build.'
 
 defaults:
   run:
@@ -63,6 +73,8 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0
           submodules: recursive
 
       - name: Config mirrors (ubuntu)
@@ -83,6 +95,20 @@ jobs:
           pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
           yum install -y git zstd
           git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
+
+      - name: Rebase on fixed PR base
+        if: inputs.base_sha != ''
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          BASE_SHA: ${{ inputs.base_sha }}
+        run: |
+          git config user.name "vllm-ascend-ci"
+          git config user.email "vllm-ascend-ci@users.noreply.github.com"
+          git fetch origin "$BASE_REF"
+          git cat-file -e "${BASE_SHA}^{commit}"
+          git rebase "$BASE_SHA"
+          git submodule sync --recursive
+          git submodule update --init --recursive
 
       - name: Install system dependencies (ubuntu)
         if: inputs.os == 'ubuntu'

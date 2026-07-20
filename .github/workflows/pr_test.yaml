@@ -180,6 +180,7 @@ jobs:
       has_tests: ${{ steps.scope.outputs.has_tests || steps.noop.outputs.has_tests }}
       test_groups: ${{ steps.scope.outputs.test_groups || steps.noop.outputs.test_groups }}
       matched_modules: ${{ steps.scope.outputs.matched_modules || steps.noop.outputs.matched_modules }}
+      base_sha: ${{ steps.source-snapshot.outputs.base_sha }}
       a2_csrc_need_build: ${{ steps.csrc-cache-targets.outputs.has_a2 == 'true' && steps.lookup-a2-csrc.outputs.cache-hit != 'true' }}
       a3_csrc_need_build: ${{ steps.csrc-cache-targets.outputs.has_a3 == 'true' && steps.lookup-a3-csrc.outputs.cache-hit != 'true' }}
       csrc_310p_need_build: ${{ steps.csrc-cache-targets.outputs.has_310p == 'true' && steps.lookup-310p-csrc.outputs.cache-hit != 'true' }}
@@ -187,7 +188,30 @@ jobs:
       - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v7
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
+
+      - name: Resolve source snapshot
+        id: source-snapshot
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git config user.name "vllm-ascend-ci"
+          git config user.email "vllm-ascend-ci@users.noreply.github.com"
+          git fetch origin "$BASE_REF"
+          BASE_SHA=$(git rev-parse FETCH_HEAD)
+
+          if ! git diff --quiet "$EVENT_BASE_SHA" "$BASE_SHA" -- \
+            .github/workflows/push_build_csrc_cache.yaml \
+            .github/workflows/_build_csrc_cache.yaml; then
+            echo "::error::CSRC build workflows changed on $BASE_REF after this run was created."
+            echo "::error::Trigger a new PR workflow run."
+            exit 1
+          fi
+
+          git rebase "$BASE_SHA"
+          echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
 
       - uses: dorny/paths-filter@v4
         id: filter
@@ -224,10 +248,9 @@ jobs:
         if: steps.filter.outputs.src == 'true'
         run: |
           git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
-          git fetch origin ${{ github.base_ref }}
           pip install regex
           python3 .github/workflows/scripts/select_tests.py \
-            --diff-base origin/${{ github.base_ref }}
+            --diff-base ${{ steps.source-snapshot.outputs.base_sha }}
 
       - name: Detect csrc cache targets
         id: csrc-cache-targets
@@ -343,6 +366,8 @@ jobs:
     with:
       enabled: ${{ matrix.enabled }}
       device: ${{ matrix.device }}
+      ref: ${{ github.event.pull_request.head.sha }}
+      base_sha: ${{ needs.select-tests.outputs.base_sha }}
 
   run-selected-tests:
     needs:
@@ -368,8 +393,10 @@ jobs:
       vllm: ${{ matrix.vllm_version }}
       ref: ${{ github.event.pull_request.head.sha }}
       base_ref: ${{ github.base_ref }}
+      base_sha: ${{ needs.select-tests.outputs.base_sha }}
+      require_prebuilt_csrc_cache: true
       test_groups: ${{ needs.select-tests.outputs.test_groups }}
-  
+
   run-selected-tests-upstream:
     needs: [pre-commit, select-tests]
     if: ${{ contains(github.event.pull_request.labels.*.name, 'ready') }}

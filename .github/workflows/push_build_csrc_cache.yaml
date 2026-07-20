@@ -46,6 +46,16 @@ on:
         required: false
         default: ''
         description: 'Device type to build: a2, a3, or 310p.'
+      ref:
+        type: string
+        required: false
+        default: ''
+        description: 'The vllm-ascend ref to build.'
+      base_sha:
+        type: string
+        required: false
+        default: ''
+        description: 'The fixed base commit to rebase onto for a PR build.'
 concurrency:
   group: ascend-csrc-build-${{ github.workflow }}-${{ github.ref }}-${{ inputs.device || 'scheduled' }}
   cancel-in-progress: true
@@ -106,6 +116,8 @@ jobs:
       runner: linux-arm64-cpu-16
       device: ${{ inputs.device }}
       os: ubuntu
+      ref: ${{ inputs.ref }}
+      base_sha: ${{ inputs.base_sha }}
       image: >-
         ${{
           (inputs.device == 'a2' && 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.1-910b-ubuntu22.04-py3.12') ||
