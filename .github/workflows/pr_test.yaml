@@ -181,9 +181,6 @@ jobs:
       test_groups: ${{ steps.scope.outputs.test_groups || steps.noop.outputs.test_groups }}
       matched_modules: ${{ steps.scope.outputs.matched_modules || steps.noop.outputs.matched_modules }}
       base_sha: ${{ steps.source-snapshot.outputs.base_sha }}
-      a2_csrc_need_build: ${{ steps.csrc-cache-targets.outputs.has_a2 == 'true' && steps.lookup-a2-csrc.outputs.cache-hit != 'true' }}
-      a3_csrc_need_build: ${{ steps.csrc-cache-targets.outputs.has_a3 == 'true' && steps.lookup-a3-csrc.outputs.cache-hit != 'true' }}
-      csrc_310p_need_build: ${{ steps.csrc-cache-targets.outputs.has_310p == 'true' && steps.lookup-310p-csrc.outputs.cache-hit != 'true' }}
     steps:
       - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v7
@@ -204,7 +201,8 @@ jobs:
 
           if ! git diff --quiet "$EVENT_BASE_SHA" "$BASE_SHA" -- \
             .github/workflows/push_build_csrc_cache.yaml \
-            .github/workflows/_build_csrc_cache.yaml; then
+            .github/workflows/_build_csrc_cache.yaml \
+            .github/workflows/scripts/get_csrc_hash.sh; then
             echo "::error::CSRC build workflows changed on $BASE_REF after this run was created."
             echo "::error::Trigger a new PR workflow run."
             exit 1
@@ -230,6 +228,7 @@ jobs:
               - '.github/workflows/_selected_tests.yaml'
               - '.github/workflows/push_build_csrc_cache.yaml'
               - '.github/workflows/_build_csrc_cache.yaml'
+              - '.github/workflows/scripts/get_csrc_hash.sh'
               - '.github/workflows/scripts/select_tests.py'
               - '.github/workflows/scripts/run_selected_tests.sh'
               - '.github/workflows/scripts/test_config.yaml'
@@ -252,89 +251,6 @@ jobs:
           python3 .github/workflows/scripts/select_tests.py \
             --diff-base ${{ steps.source-snapshot.outputs.base_sha }}
 
-      - name: Detect csrc cache targets
-        id: csrc-cache-targets
-        if: steps.scope.outputs.has_tests == 'true'
-        env:
-          TEST_GROUPS: ${{ steps.scope.outputs.test_groups }}
-        run: |
-          python3 - <<'PY'
-          import json
-          import os
-
-          groups = json.loads(os.environ["TEST_GROUPS"])
-          selected_types = {group["npu_type"] for group in groups}
-          outputs = {
-              "has_a2": "a2" in selected_types,
-              "has_a3": "a3" in selected_types,
-              "has_310p": "310p" in selected_types,
-          }
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              for name, value in outputs.items():
-                  print(f"{name}={str(value).lower()}", file=output)
-          PY
-
-      - name: Calculate csrc hash
-        id: csrc-hash
-        if: steps.scope.outputs.has_tests == 'true'
-        run: |
-          CSRC_HASH=$(
-            git ls-tree -r --full-tree HEAD -- \
-              csrc \
-              cmake \
-              setup.py \
-              pyproject.toml \
-              CMakeLists.txt \
-              packages.txt \
-              requirements.txt \
-              requirements-dev.txt \
-              vllm_ascend/envs.py \
-              .github/workflows/push_build_csrc_cache.yaml \
-              .github/workflows/_build_csrc_cache.yaml \
-            | sha256sum \
-            | awk '{print $1}'
-          )
-          echo "csrc_hash=${CSRC_HASH}" >> "$GITHUB_OUTPUT"
-
-      - name: Look up A2 csrc cache
-        id: lookup-a2-csrc
-        if: steps.csrc-cache-targets.outputs.has_a2 == 'true'
-        uses: runs-on/cache/restore@v5
-        with:
-          path: |
-            vllm_ascend/_cann_ops_custom
-            vllm_ascend/*.so
-            vllm_ascend/lib
-            vllm_ascend/include
-          key: vllm-ascend-build-v1-ARM64-9.0.1-910b-ubuntu22.04-py3.12-${{ steps.csrc-hash.outputs.csrc_hash }}
-          lookup-only: true
-
-      - name: Look up A3 csrc cache
-        id: lookup-a3-csrc
-        if: steps.csrc-cache-targets.outputs.has_a3 == 'true'
-        uses: runs-on/cache/restore@v5
-        with:
-          path: |
-            vllm_ascend/_cann_ops_custom
-            vllm_ascend/*.so
-            vllm_ascend/lib
-            vllm_ascend/include
-          key: vllm-ascend-build-v1-ARM64-9.0.1-a3-ubuntu22.04-py3.12-${{ steps.csrc-hash.outputs.csrc_hash }}
-          lookup-only: true
-
-      - name: Look up 310P csrc cache
-        id: lookup-310p-csrc
-        if: steps.csrc-cache-targets.outputs.has_310p == 'true'
-        uses: runs-on/cache/restore@v5
-        with:
-          path: |
-            vllm_ascend/_cann_ops_custom
-            vllm_ascend/*.so
-            vllm_ascend/lib
-            vllm_ascend/include
-          key: vllm-ascend-build-v1-ARM64-9.1.0-beta.1-310p-ubuntu22.04-py3.12-${{ steps.csrc-hash.outputs.csrc_hash }}
-          lookup-only: true
-
       - name: Set no-tests output when source paths unchanged
         id: noop
         if: steps.filter.outputs.src != 'true'
@@ -345,35 +261,25 @@ jobs:
             echo "matched_modules="
           } >> "$GITHUB_OUTPUT"
 
-  build-csrc-cache:
+  ensure-csrc-cache:
     needs: select-tests
     if: >-
       ${{
         needs.select-tests.outputs.has_tests == 'true' &&
         contains(github.event.pull_request.labels.*.name, 'ready')
       }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - device: a2
-            enabled: ${{ needs.select-tests.outputs.a2_csrc_need_build == 'true' }}
-          - device: a3
-            enabled: ${{ needs.select-tests.outputs.a3_csrc_need_build == 'true' }}
-          - device: 310p
-            enabled: ${{ needs.select-tests.outputs.csrc_310p_need_build == 'true' }}
     uses: ./.github/workflows/push_build_csrc_cache.yaml
     with:
-      enabled: ${{ matrix.enabled }}
-      device: ${{ matrix.device }}
+      test_groups: ${{ needs.select-tests.outputs.test_groups }}
       ref: ${{ github.event.pull_request.head.sha }}
+      base_ref: ${{ github.base_ref }}
       base_sha: ${{ needs.select-tests.outputs.base_sha }}
 
   run-selected-tests:
     needs:
       - pre-commit
       - select-tests
-      - build-csrc-cache
+      - ensure-csrc-cache
     if: >-
       ${{
         always() &&
@@ -381,7 +287,7 @@ jobs:
         needs.select-tests.result == 'success' &&
         needs.select-tests.outputs.has_tests == 'true' &&
         contains(github.event.pull_request.labels.*.name, 'ready') &&
-        contains(fromJSON('["success","skipped"]'), needs.build-csrc-cache.result)
+        needs.ensure-csrc-cache.result == 'success'
       }}
     strategy:
       matrix:
@@ -393,8 +299,7 @@ jobs:
       vllm: ${{ matrix.vllm_version }}
       ref: ${{ github.event.pull_request.head.sha }}
       base_ref: ${{ github.base_ref }}
-      base_sha: ${{ needs.select-tests.outputs.base_sha }}
-      require_prebuilt_csrc_cache: true
+      base_sha: ${{ needs.ensure-csrc-cache.outputs.base_sha }}
       test_groups: ${{ needs.select-tests.outputs.test_groups }}
 
   run-selected-tests-upstream:

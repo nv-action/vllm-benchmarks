@@ -53,9 +53,17 @@ jobs:
             id: vllm
             uses: ./.github/actions/read-vllm-release-tag
 
+    ensure-csrc-cache:
+        needs: resolve-tag
+        uses: ./.github/workflows/push_build_csrc_cache.yaml
+        with:
+          ref: ${{ github.sha }}
+          test_groups: >-
+            [{"npu_type":"a2","image_tag":"9.0.1-910b-ubuntu22.04-py3.12"}]
+
     e2e-upstream_singlecard:
         runs-on: linux-aarch64-a2b3-1
-        needs: resolve-tag
+        needs: [resolve-tag, ensure-csrc-cache]
         strategy:
           fail-fast: false
           matrix:
@@ -112,23 +120,7 @@ jobs:
           - name: Get csrc hash
             id: get_csrc_hash
             run: |
-              CSRC_HASH=$(
-                git ls-tree -r --full-tree HEAD -- \
-                  csrc \
-                  cmake \
-                  setup.py \
-                  pyproject.toml \
-                  CMakeLists.txt \
-                  packages.txt \
-                  requirements.txt \
-                  requirements-dev.txt \
-                  vllm_ascend/envs.py \
-                  .github/workflows/push_build_csrc_cache.yaml \
-                  .github/workflows/_build_csrc_cache.yaml \
-                | sha256sum \
-                | awk '{print $1}'
-              )
-              echo "CSRC_HASH=$CSRC_HASH" >> "$GITHUB_OUTPUT"
+              echo "CSRC_HASH=$(bash .github/workflows/scripts/get_csrc_hash.sh)" >> "$GITHUB_OUTPUT"
 
           - name: Get architecture
             id: get_arch
@@ -142,7 +134,7 @@ jobs:
           
           - name: Restore vllm-ascend csrc cache
             id: cache-csrc
-            uses: runs-on/cache@v5
+            uses: runs-on/cache/restore@v5
             with:
               path: |
                 vllm_ascend/_cann_ops_custom
@@ -150,22 +142,27 @@ jobs:
                 vllm_ascend/lib
                 vllm_ascend/include
               key: vllm-ascend-build-v1-${{ steps.get_arch.outputs.arch }}-${{ matrix.image_tag }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
-              restore-keys: |
-                vllm-ascend-build-v1-${{ steps.get_arch.outputs.arch }}-${{ matrix.image_tag }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
-           
+
+          - name: Verify prebuilt csrc cache
+            env:
+              CACHE_HIT: ${{ steps.cache-csrc.outputs.cache-hit }}
+            run: |
+              if [ "$CACHE_HIT" != "true" ]; then
+                echo "::error::The CPU-built csrc cache is missing."
+                exit 1
+              fi
+              if ! find vllm_ascend -maxdepth 1 -name '*.so' -type f 2>/dev/null | grep -q .; then
+                echo "::error::The restored csrc cache does not contain a top-level shared library."
+                exit 1
+              fi
+
           - name: Install vllm-project/vllm-ascend with device
             run: |
               export MAX_JOBS=$(( ${{ matrix.num_npus }} * 23 ))
               pip install uc-manager
               uv pip install -r requirements-dev.txt
               uv pip install --force-reinstall --no-deps triton-ascend==3.2.1
-              if find vllm_ascend -maxdepth 1 -name '*.so' -type f 2>/dev/null | grep -q .; then
-                echo "CSRC cache hit: .so files found, skip kernel compilation"
-                COMPILE_CUSTOM_KERNELS=0 uv pip install -e .
-              else
-                echo "CSRC cache miss: no .so files found, compile kernels"
-                uv pip install -e . --no-build-isolation
-              fi
+              COMPILE_CUSTOM_KERNELS=0 uv pip install -e .
               uv pip install tblib 
               uv pip install pqdm timm schemathesis==3.39.15 "vllm[helion]" "runai-model-streamer[s3,gcs]"
               uv pip install "mteb[bm25s]" open_clip_torch terratorch==1.2.2 imagehash
@@ -189,7 +186,7 @@ jobs:
 
     e2e-upstream_multicard:
         runs-on: linux-aarch64-a2b3-${{ matrix.num_npus }}
-        needs: resolve-tag
+        needs: [resolve-tag, ensure-csrc-cache]
         strategy:
           fail-fast: false
           matrix:
@@ -244,23 +241,7 @@ jobs:
           - name: Get csrc hash
             id: get_csrc_hash
             run: |
-              CSRC_HASH=$(
-                git ls-tree -r --full-tree HEAD -- \
-                  csrc \
-                  cmake \
-                  setup.py \
-                  pyproject.toml \
-                  CMakeLists.txt \
-                  packages.txt \
-                  requirements.txt \
-                  requirements-dev.txt \
-                  vllm_ascend/envs.py \
-                  .github/workflows/push_build_csrc_cache.yaml \
-                  .github/workflows/_build_csrc_cache.yaml \
-                | sha256sum \
-                | awk '{print $1}'
-              )
-              echo "CSRC_HASH=$CSRC_HASH" >> "$GITHUB_OUTPUT"
+              echo "CSRC_HASH=$(bash .github/workflows/scripts/get_csrc_hash.sh)" >> "$GITHUB_OUTPUT"
 
           - name: Get architecture
             id: get_arch
@@ -274,7 +255,7 @@ jobs:
           
           - name: Restore vllm-ascend csrc cache
             id: cache-csrc
-            uses: runs-on/cache@v5
+            uses: runs-on/cache/restore@v5
             with:
               path: |
                 vllm_ascend/_cann_ops_custom
@@ -282,22 +263,27 @@ jobs:
                 vllm_ascend/lib
                 vllm_ascend/include
               key: vllm-ascend-build-v1-${{ steps.get_arch.outputs.arch }}-${{ matrix.image_tag }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
-              restore-keys: |
-                vllm-ascend-build-v1-${{ steps.get_arch.outputs.arch }}-${{ matrix.image_tag }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
-           
+
+          - name: Verify prebuilt csrc cache
+            env:
+              CACHE_HIT: ${{ steps.cache-csrc.outputs.cache-hit }}
+            run: |
+              if [ "$CACHE_HIT" != "true" ]; then
+                echo "::error::The CPU-built csrc cache is missing."
+                exit 1
+              fi
+              if ! find vllm_ascend -maxdepth 1 -name '*.so' -type f 2>/dev/null | grep -q .; then
+                echo "::error::The restored csrc cache does not contain a top-level shared library."
+                exit 1
+              fi
+
           - name: Install vllm-project/vllm-ascend with device
             run: |
               export MAX_JOBS=$(( ${{ matrix.num_npus }} * 23 ))
               pip install uc-manager
               uv pip install -r requirements-dev.txt
               uv pip install --force-reinstall --no-deps triton-ascend==3.2.1
-              if find vllm_ascend -maxdepth 1 -name '*.so' -type f 2>/dev/null | grep -q .; then
-                echo "CSRC cache hit: .so files found, skip kernel compilation"
-                COMPILE_CUSTOM_KERNELS=0 uv pip install -e .
-              else
-                echo "CSRC cache miss: no .so files found, compile kernels"
-                uv pip install -e . --no-build-isolation
-              fi
+              COMPILE_CUSTOM_KERNELS=0 uv pip install -e .
               uv pip install tblib 
 
           - name: Run vllm-project/vllm test
@@ -314,7 +300,7 @@ jobs:
               
     e2e-upstream_online:
         runs-on: linux-aarch64-a2b3-${{ matrix.num_npus }}
-        needs: resolve-tag
+        needs: [resolve-tag, ensure-csrc-cache]
         strategy:
           fail-fast: false
           matrix:
@@ -369,23 +355,7 @@ jobs:
           - name: Get csrc hash
             id: get_csrc_hash
             run: |
-              CSRC_HASH=$(
-                git ls-tree -r --full-tree HEAD -- \
-                  csrc \
-                  cmake \
-                  setup.py \
-                  pyproject.toml \
-                  CMakeLists.txt \
-                  packages.txt \
-                  requirements.txt \
-                  requirements-dev.txt \
-                  vllm_ascend/envs.py \
-                  .github/workflows/push_build_csrc_cache.yaml \
-                  .github/workflows/_build_csrc_cache.yaml \
-                | sha256sum \
-                | awk '{print $1}'
-              )
-              echo "CSRC_HASH=$CSRC_HASH" >> "$GITHUB_OUTPUT"
+              echo "CSRC_HASH=$(bash .github/workflows/scripts/get_csrc_hash.sh)" >> "$GITHUB_OUTPUT"
 
           - name: Get architecture
             id: get_arch
@@ -399,7 +369,7 @@ jobs:
           
           - name: Restore vllm-ascend csrc cache
             id: cache-csrc
-            uses: runs-on/cache@v5
+            uses: runs-on/cache/restore@v5
             with:
               path: |
                 vllm_ascend/_cann_ops_custom
@@ -407,22 +377,27 @@ jobs:
                 vllm_ascend/lib
                 vllm_ascend/include
               key: vllm-ascend-build-v1-${{ steps.get_arch.outputs.arch }}-${{ matrix.image_tag }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
-              restore-keys: |
-                vllm-ascend-build-v1-${{ steps.get_arch.outputs.arch }}-${{ matrix.image_tag }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
-           
+
+          - name: Verify prebuilt csrc cache
+            env:
+              CACHE_HIT: ${{ steps.cache-csrc.outputs.cache-hit }}
+            run: |
+              if [ "$CACHE_HIT" != "true" ]; then
+                echo "::error::The CPU-built csrc cache is missing."
+                exit 1
+              fi
+              if ! find vllm_ascend -maxdepth 1 -name '*.so' -type f 2>/dev/null | grep -q .; then
+                echo "::error::The restored csrc cache does not contain a top-level shared library."
+                exit 1
+              fi
+
           - name: Install vllm-project/vllm-ascend with device
             run: |
               export MAX_JOBS=$(( ${{ matrix.num_npus }} * 23 ))
               pip install uc-manager
               uv pip install -r requirements-dev.txt
               uv pip install --force-reinstall --no-deps triton-ascend==3.2.1
-              if find vllm_ascend -maxdepth 1 -name '*.so' -type f 2>/dev/null | grep -q .; then
-                echo "CSRC cache hit: .so files found, skip kernel compilation"
-                COMPILE_CUSTOM_KERNELS=0 uv pip install -e .
-              else
-                echo "CSRC cache miss: no .so files found, compile kernels"
-                uv pip install -e . --no-build-isolation
-              fi
+              COMPILE_CUSTOM_KERNELS=0 uv pip install -e .
               uv pip install tblib 
               uv pip install pqdm timm schemathesis==3.39.15 "vllm[helion]" "runai-model-streamer[s3,gcs]"
               uv pip install "mteb[bm25s]" open_clip_torch terratorch==1.2.2 imagehash

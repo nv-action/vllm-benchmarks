@@ -54,6 +54,7 @@ jobs:
       has_tests: ${{ steps.scope.outputs.has_tests }}
       main_commit: ${{ steps.vllm.outputs.main_commit }}
       release_tag: ${{ steps.vllm.outputs.release_tag }}
+      vllm_ascend_ref: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -99,22 +100,38 @@ jobs:
           sed -i "s|^test_groups=.*|test_groups=${filtered}|" "$GITHUB_OUTPUT"
           sed -i "s|^has_tests=.*|has_tests=${has_tests}|" "$GITHUB_OUTPUT"
 
-  run-tests-main:
+  ensure-csrc-cache:
     needs: select-tests
+    if: ${{ needs.select-tests.outputs.has_tests == 'true' }}
+    uses: ./.github/workflows/push_build_csrc_cache.yaml
+    with:
+      test_groups: ${{ needs.select-tests.outputs.test_groups }}
+      ref: ${{ needs.select-tests.outputs.vllm_ascend_ref }}
+      base_ref: main
+      base_sha: ${{ needs.select-tests.outputs.vllm_ascend_ref }}
+
+  run-tests-main:
+    needs: [select-tests, ensure-csrc-cache]
     if: ${{ needs.select-tests.outputs.has_tests == 'true' }}
     uses: ./.github/workflows/_selected_tests.yaml
     with:
       vllm: ${{ needs.select-tests.outputs.main_commit }}
+      ref: ${{ needs.select-tests.outputs.vllm_ascend_ref }}
+      base_ref: main
+      base_sha: ${{ needs.ensure-csrc-cache.outputs.base_sha }}
       test_groups: ${{ needs.select-tests.outputs.test_groups }}
       upload_timing: true
       continue_on_error: true
 
   run-tests-release:
-    needs: select-tests
+    needs: [select-tests, ensure-csrc-cache]
     if: ${{ needs.select-tests.outputs.has_tests == 'true' }}
     uses: ./.github/workflows/_selected_tests.yaml
     with:
       vllm: ${{ needs.select-tests.outputs.release_tag }}
+      ref: ${{ needs.select-tests.outputs.vllm_ascend_ref }}
+      base_ref: main
+      base_sha: ${{ needs.ensure-csrc-cache.outputs.base_sha }}
       test_groups: ${{ needs.select-tests.outputs.test_groups }}
       upload_timing: true
       continue_on_error: true

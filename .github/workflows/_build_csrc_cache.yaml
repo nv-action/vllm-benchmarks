@@ -19,6 +19,11 @@ name: 'Build csrc Cache'
 on:
   workflow_call:
     inputs:
+      enabled:
+        type: boolean
+        required: false
+        default: true
+        description: 'Whether this cache target needs a build.'
       runner:
         type: string
         required: true
@@ -44,11 +49,26 @@ on:
         required: false
         default: ''
         description: 'The vllm-ascend ref to build.'
+      repository:
+        type: string
+        required: false
+        default: ''
+        description: 'The source repository. Defaults to the current repository.'
+      base_ref:
+        type: string
+        required: false
+        default: ''
+        description: 'The base branch to rebase onto.'
+      base_repository:
+        type: string
+        required: false
+        default: ''
+        description: 'The base repository. Defaults to the source repository.'
       base_sha:
         type: string
         required: false
         default: ''
-        description: 'The fixed base commit to rebase onto for a PR build.'
+        description: 'The fixed base commit to rebase onto before building.'
 
 defaults:
   run:
@@ -65,6 +85,7 @@ env:
 
 jobs:
   build:
+    if: inputs.enabled
     name: build-${{ inputs.device }}-${{ inputs.runner }}-${{ inputs.os }}-cache
     runs-on: ${{ inputs.runner }}
     container:
@@ -73,6 +94,7 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v7
         with:
+          repository: ${{ inputs.repository || github.repository }}
           ref: ${{ inputs.ref || github.sha }}
           fetch-depth: 0
           submodules: recursive
@@ -99,12 +121,23 @@ jobs:
       - name: Rebase on fixed PR base
         if: inputs.base_sha != ''
         env:
-          BASE_REF: ${{ github.base_ref }}
+          SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
+          BASE_REPOSITORY: ${{ inputs.base_repository || inputs.repository || github.repository }}
+          BASE_REF: ${{ inputs.base_ref }}
           BASE_SHA: ${{ inputs.base_sha }}
         run: |
           git config user.name "vllm-ascend-ci"
           git config user.email "vllm-ascend-ci@users.noreply.github.com"
-          git fetch origin "$BASE_REF"
+          if [ -z "$BASE_REF" ]; then
+            echo "::error::base_ref is required when base_sha is set."
+            exit 1
+          fi
+          BASE_REMOTE=origin
+          if [ "$BASE_REPOSITORY" != "$SOURCE_REPOSITORY" ]; then
+            BASE_REMOTE=csrc-base
+            git remote add "$BASE_REMOTE" "https://github.com/${BASE_REPOSITORY}.git"
+          fi
+          git fetch "$BASE_REMOTE" "$BASE_REF"
           git cat-file -e "${BASE_SHA}^{commit}"
           git rebase "$BASE_SHA"
           git submodule sync --recursive
@@ -135,23 +168,7 @@ jobs:
       - name: Get csrc hash
         id: get_csrc_hash
         run: |
-          CSRC_HASH=$(
-            git ls-tree -r --full-tree HEAD -- \
-              csrc \
-              cmake \
-              setup.py \
-              pyproject.toml \
-              CMakeLists.txt \
-              packages.txt \
-              requirements.txt \
-              requirements-dev.txt \
-              vllm_ascend/envs.py \
-              .github/workflows/push_build_csrc_cache.yaml \
-              .github/workflows/_build_csrc_cache.yaml \
-            | sha256sum \
-            | awk '{print $1}'
-          )
-          echo "CSRC_HASH=$CSRC_HASH" >> "$GITHUB_OUTPUT"
+          echo "CSRC_HASH=$(bash .github/workflows/scripts/get_csrc_hash.sh)" >> "$GITHUB_OUTPUT"
 
       - name: Get architecture
         id: get_arch
@@ -196,3 +213,10 @@ jobs:
           uv pip install -r requirements-dev.txt
           uv pip install --force-reinstall --no-deps triton-ascend==3.2.1
           uv pip install -e .
+
+      - name: Verify csrc artifacts
+        run: |
+          if ! find vllm_ascend -maxdepth 1 -name '*.so' -type f 2>/dev/null | grep -q .; then
+            echo "::error::The csrc cache does not contain a top-level shared library."
+            exit 1
+          fi

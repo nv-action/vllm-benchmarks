@@ -201,23 +201,7 @@ jobs:
     - name: Get csrc hash
       id: get_csrc_hash
       run: |
-        CSRC_HASH=$(
-          git ls-tree -r --full-tree HEAD -- \
-            csrc \
-            cmake \
-            setup.py \
-            pyproject.toml \
-            CMakeLists.txt \
-            packages.txt \
-            requirements.txt \
-            requirements-dev.txt \
-            vllm_ascend/envs.py \
-            .github/workflows/push_build_csrc_cache.yaml \
-            .github/workflows/_build_csrc_cache.yaml \
-          | sha256sum \
-          | awk '{print $1}'
-        )
-        echo "CSRC_HASH=$CSRC_HASH" >> "$GITHUB_OUTPUT"
+        echo "CSRC_HASH=$(bash .github/workflows/scripts/get_csrc_hash.sh)" >> "$GITHUB_OUTPUT"
 
     - name: Get Dockerfile base image tag
       id: get_base_image_tag

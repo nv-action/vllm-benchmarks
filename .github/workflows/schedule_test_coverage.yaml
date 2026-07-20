@@ -91,8 +91,18 @@ jobs:
             --changed-files vllm_ascend/dummy.py \
             --run-all-modules
 
-  run-full-tests:
+  ensure-csrc-cache:
     needs: select-full-tests
+    if: ${{ needs.select-full-tests.outputs.has_tests == 'true' }}
+    uses: ./.github/workflows/push_build_csrc_cache.yaml
+    with:
+      test_groups: ${{ needs.select-full-tests.outputs.test_groups }}
+      ref: ${{ needs.select-full-tests.outputs.vllm_ascend_ref }}
+      base_ref: main
+      base_sha: ${{ needs.select-full-tests.outputs.vllm_ascend_ref }}
+
+  run-full-tests:
+    needs: [select-full-tests, ensure-csrc-cache]
     if: ${{ needs.select-full-tests.outputs.has_tests == 'true' }}
     strategy:
       fail-fast: false
@@ -103,6 +113,8 @@ jobs:
     with:
       vllm: ${{ matrix.vllm_version }}
       ref: ${{ needs.select-full-tests.outputs.vllm_ascend_ref }}
+      base_ref: main
+      base_sha: ${{ needs.ensure-csrc-cache.outputs.base_sha }}
       test_groups: ${{ needs.select-full-tests.outputs.test_groups }}
       enable-coverage: true
     secrets:
