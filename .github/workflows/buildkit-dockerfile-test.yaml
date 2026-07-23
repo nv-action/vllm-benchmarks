@@ -1,0 +1,78 @@
+name: buildkit-dockerfile-test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-test:
+    name: "${{ matrix.dockerfile }} (${{ matrix.runner_info.arch }})"
+    runs-on: ${{ matrix.runner_info.runner }}
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        dockerfile:
+          - Dockerfile
+          - Dockerfile.310p
+          - Dockerfile.310p.openEuler
+          - Dockerfile.a3
+          - Dockerfile.a3.openEuler
+          - Dockerfile.a5
+          - Dockerfile.a5.openEuler
+          - Dockerfile.openEuler
+        runner_info:
+          - {runner: linux-aarch64-cpu-4-buildkit-gy006, arch: arm64}
+          - {runner: linux-amd64-cpu-4-buildkit-gy006, arch: amd64}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Determine SOC_VERSION
+        id: vars
+        run: |
+          case "${{ matrix.dockerfile }}" in
+            Dockerfile|Dockerfile.openEuler)
+              echo "soc_version=ascend910b1" >> $GITHUB_OUTPUT
+              ;;
+            Dockerfile.a3|Dockerfile.a3.openEuler)
+              echo "soc_version=ascend910_9391" >> $GITHUB_OUTPUT
+              ;;
+            Dockerfile.a5|Dockerfile.a5.openEuler)
+              echo "soc_version=ascend950dt_9582" >> $GITHUB_OUTPUT
+              ;;
+            Dockerfile.310p|Dockerfile.310p.openEuler)
+              echo "soc_version=ascend310p1" >> $GITHUB_OUTPUT
+              ;;
+          esac
+
+      - name: Verify buildctl environment
+        run: |
+          echo "BUILDKITD_ADDR=$BUILDKITD_ADDR"
+          test -n "$BUILDKITD_ADDR" || (echo "ERROR: BUILDKITD_ADDR not set" && exit 1)
+          test -f "${DOCKER_CONFIG}/ca.pem" || (echo "ERROR: ca.pem not found" && exit 1)
+          test -f "${DOCKER_CONFIG}/cert.pem" || (echo "ERROR: cert.pem not found" && exit 1)
+          test -f "${DOCKER_CONFIG}/key.pem" || (echo "ERROR: key.pem not found" && exit 1)
+          buildctl --version
+
+      - name: Build image with buildctl
+        run: |
+          buildctl build \
+            --progress=plain \
+            --addr="${BUILDKITD_ADDR}" \
+            --tlscacert="${DOCKER_CONFIG}/ca.pem" \
+            --tlscert="${DOCKER_CONFIG}/cert.pem" \
+            --tlskey="${DOCKER_CONFIG}/key.pem" \
+            --frontend=dockerfile.v0 \
+            --local context=. \
+            --local dockerfile=. \
+            --opt filename=${{ matrix.dockerfile }} \
+            --opt build-arg:PIP_INDEX_URL=https://pypi.org/simple \
+            --opt build-arg:SOC_VERSION=${{ steps.vars.outputs.soc_version }} \
+            --opt build-arg:COMPILE_CUSTOM_KERNELS=0 \
+            --output type=image,name=test-buildkit:latest,push=false
