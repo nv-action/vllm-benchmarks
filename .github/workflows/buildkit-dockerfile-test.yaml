@@ -81,4 +81,4 @@ jobs:
             --secret id=dockerconfig,src=/home/user/.docker/config.json \
             --import-cache type=registry,ref=swr.cn-southwest-2.myhuaweicloud.com/vllm-ci/buildkit-cache:${{ matrix.dockerfile }}-${{ matrix.runner_info.arch }} \
             --export-cache type=registry,ref=swr.cn-southwest-2.myhuaweicloud.com/vllm-ci/buildkit-cache:${{ matrix.dockerfile }}-${{ matrix.runner_info.arch }},mode=max \
-            --output type=image,name=test-buildkit:latest,push=false
+            --output type=image,name=swr.cn-southwest-2.myhuaweicloud.com/vllm-ci/test-buildkit:${{ matrix.dockerfile }}-${{ matrix.runner_info.arch }}-${{ github.sha }},push=true
