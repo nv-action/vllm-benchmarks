@@ -79,6 +79,6 @@ jobs:
             --opt build-arg:SOC_VERSION=${{ steps.vars.outputs.soc_version }} \
             --opt build-arg:COMPILE_CUSTOM_KERNELS=0 \
             --secret id=dockerconfig,src=/home/user/.docker/config.json \
-            --import-cache type=registry,ref=swr.cn-southwest-2.myhuaweicloud.com/vllm-ci/buildkit-cache:${{ matrix.dockerfile }}-${{ matrix.runner_info.arch }} \
-            --export-cache type=registry,ref=swr.cn-southwest-2.myhuaweicloud.com/vllm-ci/buildkit-cache:${{ matrix.dockerfile }}-${{ matrix.runner_info.arch }},mode=max \
-            --output type=image,name=swr.cn-southwest-2.myhuaweicloud.com/vllm-ci/test-buildkit:${{ matrix.dockerfile }}-${{ matrix.runner_info.arch }}-${{ github.sha }},push=true
+            --import-cache type=registry,ref=swr.cn-southwest-2.myhuaweicloud.com/modelfoundry/buildkit-cache:${{ matrix.dockerfile }}-${{ matrix.runner_info.arch }} \
+            --export-cache type=registry,ref=swr.cn-southwest-2.myhuaweicloud.com/modelfoundry/buildkit-cache:${{ matrix.dockerfile }}-${{ matrix.runner_info.arch }},mode=max \
+            --output type=image,name=swr.cn-southwest-2.myhuaweicloud.com/modelfoundry/test-buildkit:${{ matrix.dockerfile }}-${{ matrix.runner_info.arch }}-${{ github.sha }},push=true
