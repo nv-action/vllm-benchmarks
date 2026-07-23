@@ -76,6 +76,7 @@ jobs:
             --opt filename=${{ matrix.dockerfile }} \
             --opt build-arg:APTMIRROR=http://cache-service.nginx-pypi-cache.svc.cluster.local:8081 \
             --opt build-arg:PIP_INDEX_URL=http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple \
+            --opt build-arg:MOONCAKE_INDEX_URL=http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple \
             --opt build-arg:VLLM_ASCEND_IMAGE=swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/vllm-ascend-ci \
             --opt build-arg:SOC_VERSION=${{ steps.vars.outputs.soc_version }} \
             --opt build-arg:COMPILE_CUSTOM_KERNELS=0 \
