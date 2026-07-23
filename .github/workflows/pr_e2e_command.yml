@@ -43,6 +43,7 @@ jobs:
       pr_base_sha: ${{ steps.resolve.outputs.pr_base_sha }}
       test_groups: ${{ steps.groups.outputs.test_groups }}
       has_tests: ${{ steps.groups.outputs.has_tests }}
+      csrc_cache_target_ids: ${{ steps.groups.outputs.csrc_cache_target_ids }}
       notify_comment_id: ${{ steps.notify.outputs.comment-id }}
       main_commit: ${{ steps.vllm.outputs.main_commit }}
       release_tag: ${{ steps.vllm.outputs.release_tag }}
@@ -185,10 +186,10 @@ jobs:
   ensure-csrc-cache:
     needs: e2e-test
     if: ${{ needs.e2e-test.outputs.has_tests == 'true' }}
-    uses: ./.github/workflows/push_build_csrc_cache.yaml
+    uses: ./.github/workflows/_ensure_csrc_cache.yaml
     with:
-      test_groups: ${{ needs.e2e-test.outputs.test_groups }}
-      ref: ${{ needs.e2e-test.outputs.pr_sha }}
+      target_ids: ${{ needs.e2e-test.outputs.csrc_cache_target_ids }}
+      source_ref: ${{ needs.e2e-test.outputs.pr_sha }}
       base_ref: ${{ needs.e2e-test.outputs.pr_base_ref }}
       base_sha: ${{ needs.e2e-test.outputs.pr_base_sha }}
 
@@ -207,7 +208,7 @@ jobs:
       vllm: ${{ matrix.vllm_version }}
       ref: ${{ needs.e2e-test.outputs.pr_sha }}
       base_ref: ${{ needs.e2e-test.outputs.pr_base_ref }}
-      base_sha: ${{ needs.ensure-csrc-cache.outputs.base_sha }}
+      base_sha: ${{ needs.e2e-test.outputs.pr_base_sha }}
       test_groups: ${{ needs.e2e-test.outputs.test_groups }}
 
   report:

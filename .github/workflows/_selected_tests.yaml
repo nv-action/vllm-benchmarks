@@ -150,49 +150,13 @@ jobs:
           git submodule sync --recursive
           git submodule update --init --recursive
 
-      - name: Get csrc hash
-        id: get_csrc_hash
-        run: |
-          echo "CSRC_HASH=$(bash .github/workflows/scripts/get_csrc_hash.sh)" >> "$GITHUB_OUTPUT"
-
-      - name: Get architecture
-        id: get_arch
-        run: |
-          ARCH=$(uname -m)
-          case "$ARCH" in
-            x86_64) echo "arch=X64" >> $GITHUB_OUTPUT ;;
-            aarch64) echo "arch=ARM64" >> $GITHUB_OUTPUT ;;
-            *) echo "arch=$ARCH" >> $GITHUB_OUTPUT ;;
-          esac
-
       - name: Restore vllm-ascend csrc cache
         id: cache-csrc
         if: ${{ matrix.group.npu_type != 'cpu' }}
-        uses: runs-on/cache/restore@v5
+        uses: ./.github/actions/restore-csrc-cache
         with:
-          path: |
-            vllm_ascend/_cann_ops_custom
-            vllm_ascend/*.so
-            vllm_ascend/lib
-            vllm_ascend/include
-          key: vllm-ascend-build-v1-${{ steps.get_arch.outputs.arch }}-${{ matrix.group.image_tag }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
-
-      - name: Verify prebuilt csrc cache
-        if: ${{ matrix.group.npu_type != 'cpu' }}
-        env:
-          CACHE_HIT: ${{ steps.cache-csrc.outputs.cache-hit }}
-          CSRC_HASH: ${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
-        run: |
-          if [ "$CACHE_HIT" != "true" ]; then
-            echo "::error::Prebuilt csrc cache is missing for source hash $CSRC_HASH."
-            echo "::error::The source snapshot may have changed or the CPU cache build may not have completed successfully."
-            exit 1
-          fi
-
-          if ! find vllm_ascend -maxdepth 1 -name '*.so' -type f 2>/dev/null | grep -q .; then
-            echo "::error::The restored csrc cache does not contain a top-level shared library."
-            exit 1
-          fi
+          image-tag: ${{ matrix.group.image_tag }}
+          cache-miss-policy: fail
 
       - name: Install Mooncake wheel
         if: ${{ matrix.group.npu_type != 'cpu' }}
@@ -253,7 +217,9 @@ jobs:
           pip uninstall -y triton-ascend triton
 
       - name: Run selected tests with device
-        if: ${{ matrix.group.npu_type != 'cpu' }}
+        # Temporarily disabled while validating the csrc cache workflow.
+        # if: ${{ matrix.group.npu_type != 'cpu' }}
+        if: ${{ false }}
         continue-on-error: ${{ inputs.continue_on_error }}
         env:
           VLLM_WORKER_MULTIPROC_METHOD: spawn

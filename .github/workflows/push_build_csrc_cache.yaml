@@ -15,12 +15,11 @@
 # This file is a part of the vllm-ascend project.
 #
 
-# Main builds the full runner / chip / OS matrix. Reusable workflow calls look
-# up the requested ARM64/Ubuntu targets and build only cache misses.
-name: 'Cache csrc Build Artifacts'
+name: Cache csrc Build Artifacts
+
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
     paths:
       - 'csrc/**'
       - 'setup.py'
@@ -31,256 +30,48 @@ on:
       - 'requirements.txt'
       - 'requirements-dev.txt'
       - 'vllm_ascend/envs.py'
-      - .github/workflows/push_build_csrc_cache.yaml
-      - .github/workflows/_build_csrc_cache.yaml
-      - .github/workflows/scripts/get_csrc_hash.sh
+      - '.github/workflows/_build_csrc_cache.yaml'
+      - '.github/workflows/configs/csrc_cache_targets.json'
+      - '.github/actions/prepare-source-snapshot/**'
+      - '.github/actions/calculate-csrc-hash/**'
+      - '.github/workflows/scripts/get_csrc_hash.sh'
   workflow_dispatch:
-  workflow_call:
-    inputs:
-      test_groups:
-        type: string
-        required: true
-        description: 'JSON groups containing npu_type and image_tag.'
-      ref:
-        type: string
-        required: false
-        default: ''
-        description: 'The vllm-ascend ref to build.'
-      repository:
-        type: string
-        required: false
-        default: ''
-        description: 'The source repository. Defaults to the current repository.'
-      base_ref:
-        type: string
-        required: false
-        default: ''
-        description: 'The base branch to rebase onto.'
-      base_repository:
-        type: string
-        required: false
-        default: ''
-        description: 'The base repository. Defaults to the source repository.'
-      base_sha:
-        type: string
-        required: false
-        default: ''
-        description: 'The fixed base commit to rebase onto before building.'
-    outputs:
-      base_sha:
-        description: 'The fixed base commit used by the cache build.'
-        value: ${{ jobs.lookup-cache.outputs.base_sha }}
+
 concurrency:
-  group: ascend-csrc-build-${{ github.workflow }}-${{ inputs.ref || github.ref }}
+  group: ascend-csrc-build-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build-cache:
-    if: github.event_name != 'workflow_call'
-    strategy:
-      fail-fast: false
-      matrix:
-        runner:
-          - linux-arm64-cpu-16
-          - linux-amd64-cpu-16-hk
-        device:
-          - a2
-          - a3
-          - 310p
-        os:
-          - ubuntu
-          - openeuler
-        include:
-          - device: a2
-            os: ubuntu
-            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.1-910b-ubuntu22.04-py3.12
-            soc_version: ascend910b1
-          - device: a3
-            os: ubuntu
-            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.1-a3-ubuntu22.04-py3.12
-            soc_version: ascend910_9391
-          - device: 310p
-            os: ubuntu
-            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-beta.1-310p-ubuntu22.04-py3.12
-            soc_version: ascend310p1
-          - device: a2
-            os: openeuler
-            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.1-910b-openeuler24.03-py3.12
-            soc_version: ascend910b1
-          - device: a3
-            os: openeuler
-            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.1-a3-openeuler24.03-py3.12
-            soc_version: ascend910_9391
-          - device: 310p
-            os: openeuler
-            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-beta.1-310p-openeuler24.03-py3.12
-            soc_version: ascend310p1
-    uses: ./.github/workflows/_build_csrc_cache.yaml
-    with:
-      runner: ${{ matrix.runner }}
-      device: ${{ matrix.device }}
-      os: ${{ matrix.os }}
-      image: ${{ matrix.image }}
-      soc_version: ${{ matrix.soc_version }}
-
-  lookup-cache:
-    if: github.event_name == 'workflow_call'
+  prepare-targets:
     runs-on: linux-amd64-cpu-2-hk
     container:
       image: quay.io/ascend-ci/vllm-ascend:lint
     outputs:
-      base_sha: ${{ steps.source.outputs.base_sha }}
-      a2_image_tag: ${{ steps.targets.outputs.image_tag_a2 }}
-      a3_image_tag: ${{ steps.targets.outputs.image_tag_a3 }}
-      image_310p_tag: ${{ steps.targets.outputs.image_tag_310p }}
-      a2_need_build: ${{ steps.targets.outputs.has_a2 == 'true' && steps.lookup-a2.outputs.cache-hit != 'true' }}
-      a3_need_build: ${{ steps.targets.outputs.has_a3 == 'true' && steps.lookup-a3.outputs.cache-hit != 'true' }}
-      need_310p_build: ${{ steps.targets.outputs.has_310p == 'true' && steps.lookup-310p.outputs.cache-hit != 'true' }}
+      targets: ${{ steps.targets.outputs.targets }}
+      csrc_hash: ${{ steps.hash.outputs.csrc_hash }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v7
         with:
-          repository: ${{ inputs.repository || github.repository }}
-          ref: ${{ inputs.ref || github.sha }}
-          fetch-depth: 0
+          ref: ${{ github.sha }}
 
-      - name: Resolve source snapshot
-        id: source
-        env:
-          SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
-          BASE_REPOSITORY: ${{ inputs.base_repository || inputs.repository || github.repository }}
-          BASE_REF: ${{ inputs.base_ref }}
-          FIXED_BASE_SHA: ${{ inputs.base_sha }}
-        run: |
-          git config user.name "vllm-ascend-ci"
-          git config user.email "vllm-ascend-ci@users.noreply.github.com"
-
-          if [ -z "$BASE_REF" ]; then
-            if [ -n "$FIXED_BASE_SHA" ]; then
-              echo "::error::base_ref is required when base_sha is set."
-              exit 1
-            fi
-            echo "base_sha=" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          BASE_REMOTE=origin
-          if [ "$BASE_REPOSITORY" != "$SOURCE_REPOSITORY" ]; then
-            BASE_REMOTE=csrc-base
-            git remote add "$BASE_REMOTE" "https://github.com/${BASE_REPOSITORY}.git"
-          fi
-          git fetch "$BASE_REMOTE" "$BASE_REF"
-
-          BASE_SHA="$FIXED_BASE_SHA"
-          if [ -z "$BASE_SHA" ]; then
-            BASE_SHA=$(git rev-parse FETCH_HEAD)
-          fi
-          git cat-file -e "${BASE_SHA}^{commit}"
-          git rebase "$BASE_SHA"
-          echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
-
-      - name: Resolve cache targets
+      - name: Resolve all cache targets
         id: targets
-        env:
-          TEST_GROUPS: ${{ inputs.test_groups }}
         run: |
-          python3 - <<'PY'
-          import json
-          import os
-
-          groups = json.loads(os.environ["TEST_GROUPS"])
-
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              for device in ("a2", "a3", "310p"):
-                  tags = {
-                      group["image_tag"]
-                      for group in groups
-                      if group["npu_type"] == device
-                  }
-                  if len(tags) > 1:
-                      raise SystemExit(
-                          f"Conflicting image tags for {device}: {sorted(tags)}"
-                      )
-
-                  image_tag = next(iter(tags), "")
-                  print(f"has_{device}={str(bool(tags)).lower()}", file=output)
-                  print(f"image_tag_{device}={image_tag}", file=output)
-          PY
+          python3 .github/workflows/scripts/resolve_csrc_cache_targets.py --all
 
       - name: Calculate csrc hash
-        id: csrc-hash
-        run: |
-          echo "csrc_hash=$(bash .github/workflows/scripts/get_csrc_hash.sh)" >> "$GITHUB_OUTPUT"
+        id: hash
+        uses: ./.github/actions/calculate-csrc-hash
 
-      - name: Look up A2 csrc cache
-        id: lookup-a2
-        if: steps.targets.outputs.has_a2 == 'true'
-        uses: runs-on/cache/restore@v5
-        with:
-          path: |
-            vllm_ascend/_cann_ops_custom
-            vllm_ascend/*.so
-            vllm_ascend/lib
-            vllm_ascend/include
-          key: vllm-ascend-build-v1-ARM64-${{ steps.targets.outputs.image_tag_a2 }}-${{ steps.csrc-hash.outputs.csrc_hash }}
-          lookup-only: true
-
-      - name: Look up A3 csrc cache
-        id: lookup-a3
-        if: steps.targets.outputs.has_a3 == 'true'
-        uses: runs-on/cache/restore@v5
-        with:
-          path: |
-            vllm_ascend/_cann_ops_custom
-            vllm_ascend/*.so
-            vllm_ascend/lib
-            vllm_ascend/include
-          key: vllm-ascend-build-v1-ARM64-${{ steps.targets.outputs.image_tag_a3 }}-${{ steps.csrc-hash.outputs.csrc_hash }}
-          lookup-only: true
-
-      - name: Look up 310P csrc cache
-        id: lookup-310p
-        if: steps.targets.outputs.has_310p == 'true'
-        uses: runs-on/cache/restore@v5
-        with:
-          path: |
-            vllm_ascend/_cann_ops_custom
-            vllm_ascend/*.so
-            vllm_ascend/lib
-            vllm_ascend/include
-          key: vllm-ascend-build-v1-ARM64-${{ steps.targets.outputs.image_tag_310p }}-${{ steps.csrc-hash.outputs.csrc_hash }}
-          lookup-only: true
-
-  build-requested-cache:
-    needs: lookup-cache
+  build-cache:
+    needs: prepare-targets
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - device: a2
-            enabled: ${{ needs.lookup-cache.outputs.a2_need_build == 'true' }}
-            image_tag: ${{ needs.lookup-cache.outputs.a2_image_tag }}
-          - device: a3
-            enabled: ${{ needs.lookup-cache.outputs.a3_need_build == 'true' }}
-            image_tag: ${{ needs.lookup-cache.outputs.a3_image_tag }}
-          - device: 310p
-            enabled: ${{ needs.lookup-cache.outputs.need_310p_build == 'true' }}
-            image_tag: ${{ needs.lookup-cache.outputs.image_310p_tag }}
+        target: ${{ fromJSON(needs.prepare-targets.outputs.targets) }}
     uses: ./.github/workflows/_build_csrc_cache.yaml
     with:
-      enabled: ${{ matrix.enabled }}
-      runner: linux-arm64-cpu-16
-      device: ${{ matrix.device }}
-      os: ubuntu
-      ref: ${{ inputs.ref }}
-      repository: ${{ inputs.repository }}
-      base_ref: ${{ inputs.base_ref }}
-      base_repository: ${{ inputs.base_repository }}
-      base_sha: ${{ needs.lookup-cache.outputs.base_sha }}
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.image_tag }}
-      soc_version: >-
-        ${{
-          (matrix.device == 'a2' && 'ascend910b1') ||
-          (matrix.device == 'a3' && 'ascend910_9391') ||
-          (matrix.device == '310p' && 'ascend310p1')
-        }}
+      target: ${{ toJSON(matrix.target) }}
+      csrc_hash: ${{ needs.prepare-targets.outputs.csrc_hash }}
+      source_ref: ${{ github.sha }}

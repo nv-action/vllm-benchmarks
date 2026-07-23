@@ -1,0 +1,16 @@
+name: Calculate csrc hash
+description: Calculate the source hash used by csrc build caches.
+outputs:
+  csrc_hash:
+    description: Hash of all csrc build inputs.
+    value: ${{ steps.hash.outputs.csrc_hash }}
+runs:
+  using: composite
+  steps:
+    - name: Calculate csrc hash
+      id: hash
+      shell: bash
+      run: |
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        cd "$GITHUB_WORKSPACE"
+        echo "csrc_hash=$(bash "$GITHUB_ACTION_PATH/../../workflows/scripts/get_csrc_hash.sh")" >> "$GITHUB_OUTPUT"

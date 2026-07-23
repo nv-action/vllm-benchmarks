@@ -27,8 +27,10 @@ git ls-tree -r --full-tree HEAD -- \
   requirements.txt \
   requirements-dev.txt \
   vllm_ascend/envs.py \
-  .github/workflows/push_build_csrc_cache.yaml \
   .github/workflows/_build_csrc_cache.yaml \
+  .github/workflows/configs/csrc_cache_targets.json \
+  .github/actions/prepare-source-snapshot \
+  .github/actions/calculate-csrc-hash \
   .github/workflows/scripts/get_csrc_hash.sh \
 | sha256sum \
 | awk '{print $1}'

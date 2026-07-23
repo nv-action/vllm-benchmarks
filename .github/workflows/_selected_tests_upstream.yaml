@@ -141,35 +141,12 @@ jobs:
               pip install -e tests/plugins/prithvi_io_processor_plugin
               sed -i '5i\import vllm_ascend.patch.platform\nimport vllm_ascend.patch.worker' tests/conftest.py
 
-          - name: Get csrc hash
-            id: get_csrc_hash
-            run: |
-              CSRC_HASH=$(find ./csrc ./setup.py ./CMakeLists.txt ./cmake \
-                -type f -not -path '*/.*' | sort | xargs sha256sum | sha256sum | awk '{print $1}')
-              echo "CSRC_HASH=$CSRC_HASH" >> $GITHUB_OUTPUT
-
-          - name: Get architecture
-            id: get_arch
-            run: |
-              ARCH=$(uname -m)
-              case "$ARCH" in
-                x86_64) echo "arch=X64" >> $GITHUB_OUTPUT ;;
-                aarch64) echo "arch=ARM64" >> $GITHUB_OUTPUT ;;
-                *) echo "arch=$ARCH" >> $GITHUB_OUTPUT ;;
-              esac
-          
           - name: Restore vllm-ascend csrc cache
             id: cache-csrc
-            uses: runs-on/cache@v5
+            uses: ./.github/actions/restore-csrc-cache
             with:
-              path: |
-                vllm_ascend/_cann_ops_custom
-                vllm_ascend/*.so
-                vllm_ascend/lib
-                vllm_ascend/include
-              key: vllm-ascend-build-v1-${{ steps.get_arch.outputs.arch }}-${{ matrix.image_tag }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
-              restore-keys: |
-                vllm-ascend-build-v1-${{ steps.get_arch.outputs.arch }}-${{ matrix.image_tag }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
+              image-tag: ${{ matrix.image_tag }}
+              cache-miss-policy: continue
            
           - name: Install vllm-project/vllm-ascend with device
             run: |

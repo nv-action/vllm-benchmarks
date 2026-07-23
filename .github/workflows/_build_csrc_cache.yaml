@@ -15,60 +15,43 @@
 # This file is a part of the vllm-ascend project.
 #
 
-name: 'Build csrc Cache'
+name: Build csrc Cache
+
 on:
   workflow_call:
     inputs:
-      enabled:
-        type: boolean
-        required: false
-        default: true
-        description: 'Whether this cache target needs a build.'
-      runner:
+      target:
         type: string
         required: true
-        description: 'CPU runner used to build the cache.'
-      device:
+        description: 'One resolved target object from csrc_cache_targets.json.'
+      csrc_hash:
         type: string
         required: true
-        description: 'Device type to build: a2, a3, or 310p.'
-      os:
+        description: 'The csrc source hash used in the cache key.'
+      source_ref:
         type: string
         required: true
-        description: 'Build operating system.'
-      image:
-        type: string
-        required: true
-        description: 'Container image used as the build environment.'
-      soc_version:
-        type: string
-        required: true
-        description: 'SOC_VERSION used to compile csrc artifacts.'
-      ref:
-        type: string
-        required: false
-        default: ''
-        description: 'The vllm-ascend ref to build.'
+        description: 'Immutable vllm-ascend source commit to build.'
       repository:
         type: string
         required: false
         default: ''
-        description: 'The source repository. Defaults to the current repository.'
+        description: 'Source repository. Defaults to the current repository.'
       base_ref:
         type: string
         required: false
         default: ''
-        description: 'The base branch to rebase onto.'
+        description: 'Base ref containing the fixed base commit.'
       base_repository:
         type: string
         required: false
         default: ''
-        description: 'The base repository. Defaults to the source repository.'
+        description: 'Base repository. Defaults to the source repository.'
       base_sha:
         type: string
         required: false
         default: ''
-        description: 'The fixed base commit to rebase onto before building.'
+        description: 'Fixed base commit to rebase onto before building.'
 
 defaults:
   run:
@@ -85,22 +68,27 @@ env:
 
 jobs:
   build:
-    if: inputs.enabled
-    name: build-${{ inputs.device }}-${{ inputs.runner }}-${{ inputs.os }}-cache
-    runs-on: ${{ inputs.runner }}
+    name: build-${{ fromJSON(inputs.target).id }}-cache
+    runs-on: ${{ fromJSON(inputs.target).runner }}
     container:
-      image: ${{ inputs.image }}
+      image: ${{ fromJSON(inputs.target).image }}
     steps:
-      - name: Checkout repo
+      - name: Checkout source
         uses: actions/checkout@v7
         with:
           repository: ${{ inputs.repository || github.repository }}
-          ref: ${{ inputs.ref || github.sha }}
+          ref: ${{ inputs.source_ref }}
           fetch-depth: 0
           submodules: recursive
 
+      - name: Checkout cache workflow helpers
+        uses: actions/checkout@v7
+        with:
+          path: .csrc-cache-workflow
+          sparse-checkout: .github/actions/prepare-source-snapshot
+
       - name: Config mirrors (ubuntu)
-        if: inputs.os == 'ubuntu'
+        if: fromJSON(inputs.target).os == 'ubuntu'
         run: |
           sed -Ei 's@(ports|archive).ubuntu.com@cache-service.nginx-pypi-cache.svc.cluster.local:8081@g' /etc/apt/sources.list
           pip config set global.index-url http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
@@ -110,7 +98,7 @@ jobs:
           git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
 
       - name: Config mirrors (openeuler)
-        if: inputs.os == 'openeuler'
+        if: fromJSON(inputs.target).os == 'openeuler'
         run: |
           sed -Ei 's@https?://[^/]+/(openeuler|centos|fedora)@http://cache-service.nginx-pypi-cache.svc.cluster.local:8081/\1@g' /etc/yum.repos.d/*.repo
           pip config set global.index-url http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
@@ -118,84 +106,34 @@ jobs:
           yum install -y git zstd
           git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
 
-      - name: Rebase on fixed PR base
-        if: inputs.base_sha != ''
-        env:
-          SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
-          BASE_REPOSITORY: ${{ inputs.base_repository || inputs.repository || github.repository }}
-          BASE_REF: ${{ inputs.base_ref }}
-          BASE_SHA: ${{ inputs.base_sha }}
-        run: |
-          git config user.name "vllm-ascend-ci"
-          git config user.email "vllm-ascend-ci@users.noreply.github.com"
-          if [ -z "$BASE_REF" ]; then
-            echo "::error::base_ref is required when base_sha is set."
-            exit 1
-          fi
-          BASE_REMOTE=origin
-          if [ "$BASE_REPOSITORY" != "$SOURCE_REPOSITORY" ]; then
-            BASE_REMOTE=csrc-base
-            git remote add "$BASE_REMOTE" "https://github.com/${BASE_REPOSITORY}.git"
-          fi
-          git fetch "$BASE_REMOTE" "$BASE_REF"
-          git cat-file -e "${BASE_SHA}^{commit}"
-          git rebase "$BASE_SHA"
-          git submodule sync --recursive
-          git submodule update --init --recursive
+      - name: Prepare source snapshot
+        uses: ./.csrc-cache-workflow/.github/actions/prepare-source-snapshot
+        with:
+          source-repository: ${{ inputs.repository }}
+          base-repository: ${{ inputs.base_repository }}
+          base-ref: ${{ inputs.base_ref }}
+          base-sha: ${{ inputs.base_sha }}
+          update-submodules: 'true'
 
       - name: Install system dependencies (ubuntu)
-        if: inputs.os == 'ubuntu'
+        if: fromJSON(inputs.target).os == 'ubuntu'
         run: |
-          apt-get -y install `cat packages.txt`
+          xargs apt-get -y install < packages.txt
           apt-get -y install gcc g++ cmake libnuma-dev zstd clang-15
           update-alternatives --install /usr/bin/clang clang /usr/bin/clang-15 20
           update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-15 20
           pip install uv
 
       - name: Install system dependencies (openeuler)
-        if: inputs.os == 'openeuler'
+        if: fromJSON(inputs.target).os == 'openeuler'
         run: |
           yum install -y python3-pip net-tools jemalloc numactl patch clang
           pip install uv
 
-      - name: Get image tag
-        id: get_image_tag
-        run: |
-          IMAGE="${{ inputs.image }}"
-          IMAGE_TAG="${IMAGE##*:}"
-          echo "IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
-
-      - name: Get csrc hash
-        id: get_csrc_hash
-        run: |
-          echo "CSRC_HASH=$(bash .github/workflows/scripts/get_csrc_hash.sh)" >> "$GITHUB_OUTPUT"
-
-      - name: Get architecture
-        id: get_arch
-        run: |
-          ARCH=$(uname -m)
-          case "$ARCH" in
-            x86_64) echo "arch=X64" >> "$GITHUB_OUTPUT" ;;
-            aarch64) echo "arch=ARM64" >> "$GITHUB_OUTPUT" ;;
-            *) echo "arch=$ARCH" >> "$GITHUB_OUTPUT" ;;
-          esac
-
-      - name: Cache vllm-ascend csrc
-        id: cache-csrc
-        uses: runs-on/cache@v5
-        with:
-          path: |
-            vllm_ascend/_cann_ops_custom
-            vllm_ascend/*.so
-            vllm_ascend/lib
-            vllm_ascend/include
-          key: ${{ format('vllm-ascend-build-v1-{0}-{1}-{2}', steps.get_arch.outputs.arch, steps.get_image_tag.outputs.IMAGE_TAG, steps.get_csrc_hash.outputs.CSRC_HASH) }}
-
       - name: Install vllm-ascend
-        if: steps.cache-csrc.outputs.cache-hit != 'true'
         env:
-          SOC_VERSION: ${{ inputs.soc_version }}
-          MAX_JOBS: "16"
+          SOC_VERSION: ${{ fromJSON(inputs.target).soc_version }}
+          MAX_JOBS: '16'
         run: |
           source /usr/local/Ascend/ascend-toolkit/set_env.sh
           source /usr/local/Ascend/nnal/atb/set_env.sh
@@ -207,9 +145,8 @@ jobs:
           fi
 
           pip install uc-manager
-          # NOTE: indexes (ascend repo for triton-ascend + pytorch cpu whl) come from
-          # UV_EXTRA_INDEX_URL. Do not pass --extra-index-url on the CLI here: it overrides
-          # (does not append to) the env var and would drop the ascend repo.
+          # Indexes for triton-ascend and the CPU PyTorch wheel come from
+          # UV_EXTRA_INDEX_URL. Passing --extra-index-url here would replace it.
           uv pip install -r requirements-dev.txt
           uv pip install --force-reinstall --no-deps triton-ascend==3.2.1
           uv pip install -e .
@@ -217,6 +154,16 @@ jobs:
       - name: Verify csrc artifacts
         run: |
           if ! find vllm_ascend -maxdepth 1 -name '*.so' -type f 2>/dev/null | grep -q .; then
-            echo "::error::The csrc cache does not contain a top-level shared library."
+            echo "::error::The csrc build does not contain a top-level shared library."
             exit 1
           fi
+
+      - name: Save csrc cache
+        uses: runs-on/cache/save@v5
+        with:
+          path: |
+            vllm_ascend/_cann_ops_custom
+            vllm_ascend/*.so
+            vllm_ascend/lib
+            vllm_ascend/include
+          key: vllm-ascend-build-v1-${{ fromJSON(inputs.target).cache_arch }}-${{ fromJSON(inputs.target).image_tag }}-${{ inputs.csrc_hash }}

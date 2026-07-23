@@ -23,7 +23,7 @@ on:
       - opened
       - synchronize
       - reopened
-      - labeled
+      # - labeled  # Temporarily disabled with the ready label gate.
     branches:
       - 'main'
       - '*-dev'
@@ -42,7 +42,7 @@ concurrency:
 
 jobs:
   pre-commit:
-    if: ${{ github.event.action != 'labeled' || github.event.label.name == 'ready' }}
+    # if: ${{ github.event.action != 'labeled' || github.event.label.name == 'ready' }}
     runs-on: linux-amd64-cpu-8-hk
     container:
       image: quay.io/ascend-ci/vllm-ascend:lint
@@ -180,6 +180,7 @@ jobs:
       has_tests: ${{ steps.scope.outputs.has_tests || steps.noop.outputs.has_tests }}
       test_groups: ${{ steps.scope.outputs.test_groups || steps.noop.outputs.test_groups }}
       matched_modules: ${{ steps.scope.outputs.matched_modules || steps.noop.outputs.matched_modules }}
+      csrc_cache_target_ids: ${{ steps.scope.outputs.csrc_cache_target_ids || steps.noop.outputs.csrc_cache_target_ids }}
       base_sha: ${{ steps.source-snapshot.outputs.base_sha }}
     steps:
       - name: Checkout vllm-project/vllm-ascend repo
@@ -194,14 +195,21 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          cd "$GITHUB_WORKSPACE"
           git config user.name "vllm-ascend-ci"
           git config user.email "vllm-ascend-ci@users.noreply.github.com"
           git fetch origin "$BASE_REF"
           BASE_SHA=$(git rev-parse FETCH_HEAD)
 
           if ! git diff --quiet "$EVENT_BASE_SHA" "$BASE_SHA" -- \
-            .github/workflows/push_build_csrc_cache.yaml \
+            .github/workflows/_ensure_csrc_cache.yaml \
             .github/workflows/_build_csrc_cache.yaml \
+            .github/workflows/configs/csrc_cache_targets.json \
+            .github/actions/prepare-source-snapshot \
+            .github/actions/calculate-csrc-hash \
+            .github/actions/restore-csrc-cache \
+            .github/workflows/scripts/resolve_csrc_cache_targets.py \
             .github/workflows/scripts/get_csrc_hash.sh; then
             echo "::error::CSRC build workflows changed on $BASE_REF after this run was created."
             echo "::error::Trigger a new PR workflow run."
@@ -226,9 +234,14 @@ jobs:
               - 'cmake/**'
               - '.github/workflows/pr_test.yaml'
               - '.github/workflows/_selected_tests.yaml'
-              - '.github/workflows/push_build_csrc_cache.yaml'
+              - '.github/workflows/_ensure_csrc_cache.yaml'
               - '.github/workflows/_build_csrc_cache.yaml'
+              - '.github/workflows/configs/csrc_cache_targets.json'
+              - '.github/actions/prepare-source-snapshot/**'
+              - '.github/actions/calculate-csrc-hash/**'
+              - '.github/actions/restore-csrc-cache/**'
               - '.github/workflows/scripts/get_csrc_hash.sh'
+              - '.github/workflows/scripts/resolve_csrc_cache_targets.py'
               - '.github/workflows/scripts/select_tests.py'
               - '.github/workflows/scripts/run_selected_tests.sh'
               - '.github/workflows/scripts/test_config.yaml'
@@ -259,19 +272,22 @@ jobs:
             echo "has_tests=false"
             echo "test_groups=[]"
             echo "matched_modules="
+            echo "csrc_cache_target_ids=[]"
           } >> "$GITHUB_OUTPUT"
 
   ensure-csrc-cache:
     needs: select-tests
-    if: >-
-      ${{
-        needs.select-tests.outputs.has_tests == 'true' &&
-        contains(github.event.pull_request.labels.*.name, 'ready')
-      }}
-    uses: ./.github/workflows/push_build_csrc_cache.yaml
+    # Ready label gate temporarily disabled:
+    # if: >-
+    #   ${{
+    #     needs.select-tests.outputs.has_tests == 'true' &&
+    #     contains(github.event.pull_request.labels.*.name, 'ready')
+    #   }}
+    if: ${{ needs.select-tests.outputs.has_tests == 'true' }}
+    uses: ./.github/workflows/_ensure_csrc_cache.yaml
     with:
-      test_groups: ${{ needs.select-tests.outputs.test_groups }}
-      ref: ${{ github.event.pull_request.head.sha }}
+      target_ids: ${{ needs.select-tests.outputs.csrc_cache_target_ids }}
+      source_ref: ${{ github.event.pull_request.head.sha }}
       base_ref: ${{ github.base_ref }}
       base_sha: ${{ needs.select-tests.outputs.base_sha }}
 
@@ -280,13 +296,22 @@ jobs:
       - pre-commit
       - select-tests
       - ensure-csrc-cache
+    # Ready label gate temporarily disabled:
+    # if: >-
+    #   ${{
+    #     always() &&
+    #     needs.pre-commit.result == 'success' &&
+    #     needs.select-tests.result == 'success' &&
+    #     needs.select-tests.outputs.has_tests == 'true' &&
+    #     contains(github.event.pull_request.labels.*.name, 'ready') &&
+    #     needs.ensure-csrc-cache.result == 'success'
+    #   }}
     if: >-
       ${{
         always() &&
         needs.pre-commit.result == 'success' &&
         needs.select-tests.result == 'success' &&
         needs.select-tests.outputs.has_tests == 'true' &&
-        contains(github.event.pull_request.labels.*.name, 'ready') &&
         needs.ensure-csrc-cache.result == 'success'
       }}
     strategy:
@@ -299,12 +324,12 @@ jobs:
       vllm: ${{ matrix.vllm_version }}
       ref: ${{ github.event.pull_request.head.sha }}
       base_ref: ${{ github.base_ref }}
-      base_sha: ${{ needs.ensure-csrc-cache.outputs.base_sha }}
+      base_sha: ${{ needs.select-tests.outputs.base_sha }}
       test_groups: ${{ needs.select-tests.outputs.test_groups }}
 
   run-selected-tests-upstream:
     needs: [pre-commit, select-tests]
-    if: ${{ contains(github.event.pull_request.labels.*.name, 'ready') }}
+    # if: ${{ contains(github.event.pull_request.labels.*.name, 'ready') }}
     strategy:
       matrix:
         vllm_version:
@@ -406,7 +431,8 @@ jobs:
   # in GitHub branch protection rules instead of tracking individual matrix job names.
   ci-gate:
     needs: [pre-commit, select-tests, run-selected-tests]
-    if: ${{ always() && contains(github.event.pull_request.labels.*.name, 'ready') }}
+    # if: ${{ always() && contains(github.event.pull_request.labels.*.name, 'ready') }}
+    if: ${{ always() }}
     runs-on: linux-amd64-cpu-2-hk
     steps:
       - name: Check all required jobs

@@ -198,11 +198,6 @@ jobs:
           echo "value=buildcache-${{ matrix.tag }}" >> $GITHUB_OUTPUT
         fi
 
-    - name: Get csrc hash
-      id: get_csrc_hash
-      run: |
-        echo "CSRC_HASH=$(bash .github/workflows/scripts/get_csrc_hash.sh)" >> "$GITHUB_OUTPUT"
-
     - name: Get Dockerfile base image tag
       id: get_base_image_tag
       run: |
@@ -210,27 +205,12 @@ jobs:
         BASE_IMAGE_TAG=$(grep -m1 '^FROM' "$DOCKERFILE" | awk -F: '{print $NF}')
         echo "BASE_IMAGE_TAG=$BASE_IMAGE_TAG" >> $GITHUB_OUTPUT
         
-    - name: Get architecture
-      id: get_arch
-      run: |
-        ARCH=$(uname -m)
-        case "$ARCH" in
-          x86_64) echo "arch=X64" >> $GITHUB_OUTPUT ;;
-          aarch64) echo "arch=ARM64" >> $GITHUB_OUTPUT ;;
-          *) echo "arch=$ARCH" >> $GITHUB_OUTPUT ;;
-        esac
-
-    - name: Cache vllm-ascend csrc
+    - name: Restore vllm-ascend csrc cache
       id: cache-csrc
-      uses: runs-on/cache/restore@v5
+      uses: ./.github/actions/restore-csrc-cache
       with:
-        path: |
-            vllm_ascend/_cann_ops_custom
-            vllm_ascend/*.so
-            vllm_ascend/lib
-            vllm_ascend/include
-        key: vllm-ascend-build-v1-${{ steps.get_arch.outputs.arch }}-${{ steps.get_base_image_tag.outputs.BASE_IMAGE_TAG }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
-
+        image-tag: ${{ steps.get_base_image_tag.outputs.BASE_IMAGE_TAG }}
+        cache-miss-policy: continue
 
     - name: Build and push
       uses: docker/build-push-action@v7
