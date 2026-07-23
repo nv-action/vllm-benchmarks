@@ -8,7 +8,7 @@ jobs:
     name: "${{ matrix.dockerfile }} (${{ matrix.runner_info.arch }})"
     runs-on: ${{ matrix.runner_info.runner }}
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-a3-ubuntu22.04-py3.12
 
     strategy:
       fail-fast: false
