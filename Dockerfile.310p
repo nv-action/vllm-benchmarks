@@ -20,10 +20,14 @@ FROM quay.io/ascend/cann:9.1.0-beta.1-310p-ubuntu22.04-py3.12
 ARG PIP_INDEX_URL="http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
 ARG ASCEND_INDEX_URL="https://mirrors.huaweicloud.com/ascend/repos/pypi"
 ARG PYTORCH_INDEX_URL="http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+ARG APTMIRROR
 
 WORKDIR /workspace
 
-RUN apt-get update -y && \
+RUN if [ -n "$APTMIRROR" ]; then \
+        sed -Ei "s@(ports|archive).ubuntu.com@${APTMIRROR#http://}@g" /etc/apt/sources.list; \
+    fi && \
+    apt-get update -y && \
     apt-get install -y python3-pip git vim wget net-tools gcc g++ cmake numactl libnuma-dev libjemalloc2 pciutils && \
     rm -rf /var/cache/apt/* && \
     rm -rf /var/lib/apt/lists/*
