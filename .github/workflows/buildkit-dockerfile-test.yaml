@@ -63,13 +63,14 @@ jobs:
 
       - name: Build image with buildctl
         run: |
-          buildctl build \
-            --progress=plain \
+          buildctl \
             --addr="${BUILDKITD_ADDR}" \
             --tlscacert="${DOCKER_CONFIG}/ca.pem" \
             --tlscert="${DOCKER_CONFIG}/cert.pem" \
             --tlskey="${DOCKER_CONFIG}/key.pem" \
-            --frontend=dockerfile.v0 \
+            build \
+            --progress=plain \
+            --frontend dockerfile.v0 \
             --local context=. \
             --local dockerfile=. \
             --opt filename=${{ matrix.dockerfile }} \
