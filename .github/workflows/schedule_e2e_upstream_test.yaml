@@ -88,7 +88,7 @@ jobs:
               pip config set global.index-url http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
               pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
               apt-get update -y
-              apt install git -y
+              apt install git zstd -y
               git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
 
           - name: Install system dependencies
@@ -116,12 +116,34 @@ jobs:
               pip install -e tests/plugins/prithvi_io_processor_plugin
               sed -i '5i\import vllm_ascend.patch.platform\nimport vllm_ascend.patch.worker' tests/conftest.py
 
+          - name: Get csrc hash
+            id: get_csrc_hash
+            run: |
+              CSRC_HASH=$(git ls-files -s -- csrc setup.py CMakeLists.txt cmake \
+                | sha256sum | awk '{print $1}')
+              echo "CSRC_HASH=$CSRC_HASH" >> "$GITHUB_OUTPUT"
+
+          - name: Get architecture
+            id: get_arch
+            run: |
+              ARCH=$(uname -m)
+              case "$ARCH" in
+                x86_64) echo "arch=X64" >> "$GITHUB_OUTPUT" ;;
+                aarch64) echo "arch=ARM64" >> "$GITHUB_OUTPUT" ;;
+                *) echo "arch=$ARCH" >> "$GITHUB_OUTPUT" ;;
+              esac
+
           - name: Restore vllm-ascend csrc cache
             id: cache-csrc
-            uses: ./.github/actions/restore-csrc-cache
+            uses: runs-on/cache/restore@v5
             with:
-              image-tag: ${{ matrix.image_tag }}
-              cache-miss-policy: fail
+              path: |
+                vllm_ascend/_cann_ops_custom
+                vllm_ascend/*.so
+                vllm_ascend/lib
+                vllm_ascend/include
+              key: vllm-ascend-build-v1-${{ steps.get_arch.outputs.arch }}-${{ matrix.image_tag }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
+              fail-on-cache-miss: true
 
           - name: Install vllm-project/vllm-ascend with device
             run: |
@@ -179,7 +201,7 @@ jobs:
               pip config set global.index-url http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
               pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
               apt-get update -y
-              apt install git -y
+              apt install git zstd -y
               git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
 
           - name: Install system dependencies
@@ -205,12 +227,34 @@ jobs:
               pip uninstall -y triton
               sed -i '5i\import vllm_ascend.patch.platform\nimport vllm_ascend.patch.worker' tests/conftest.py
 
+          - name: Get csrc hash
+            id: get_csrc_hash
+            run: |
+              CSRC_HASH=$(git ls-files -s -- csrc setup.py CMakeLists.txt cmake \
+                | sha256sum | awk '{print $1}')
+              echo "CSRC_HASH=$CSRC_HASH" >> "$GITHUB_OUTPUT"
+
+          - name: Get architecture
+            id: get_arch
+            run: |
+              ARCH=$(uname -m)
+              case "$ARCH" in
+                x86_64) echo "arch=X64" >> "$GITHUB_OUTPUT" ;;
+                aarch64) echo "arch=ARM64" >> "$GITHUB_OUTPUT" ;;
+                *) echo "arch=$ARCH" >> "$GITHUB_OUTPUT" ;;
+              esac
+
           - name: Restore vllm-ascend csrc cache
             id: cache-csrc
-            uses: ./.github/actions/restore-csrc-cache
+            uses: runs-on/cache/restore@v5
             with:
-              image-tag: ${{ matrix.image_tag }}
-              cache-miss-policy: fail
+              path: |
+                vllm_ascend/_cann_ops_custom
+                vllm_ascend/*.so
+                vllm_ascend/lib
+                vllm_ascend/include
+              key: vllm-ascend-build-v1-${{ steps.get_arch.outputs.arch }}-${{ matrix.image_tag }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
+              fail-on-cache-miss: true
 
           - name: Install vllm-project/vllm-ascend with device
             run: |
@@ -261,7 +305,7 @@ jobs:
               pip config set global.index-url http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
               pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
               apt-get update -y
-              apt install git -y
+              apt install git zstd -y
               git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
 
           - name: Install system dependencies
@@ -287,12 +331,34 @@ jobs:
               pip uninstall -y triton
               sed -i '5i\import vllm_ascend.patch.platform\nimport vllm_ascend.patch.worker' tests/conftest.py
 
+          - name: Get csrc hash
+            id: get_csrc_hash
+            run: |
+              CSRC_HASH=$(git ls-files -s -- csrc setup.py CMakeLists.txt cmake \
+                | sha256sum | awk '{print $1}')
+              echo "CSRC_HASH=$CSRC_HASH" >> "$GITHUB_OUTPUT"
+
+          - name: Get architecture
+            id: get_arch
+            run: |
+              ARCH=$(uname -m)
+              case "$ARCH" in
+                x86_64) echo "arch=X64" >> "$GITHUB_OUTPUT" ;;
+                aarch64) echo "arch=ARM64" >> "$GITHUB_OUTPUT" ;;
+                *) echo "arch=$ARCH" >> "$GITHUB_OUTPUT" ;;
+              esac
+
           - name: Restore vllm-ascend csrc cache
             id: cache-csrc
-            uses: ./.github/actions/restore-csrc-cache
+            uses: runs-on/cache/restore@v5
             with:
-              image-tag: ${{ matrix.image_tag }}
-              cache-miss-policy: fail
+              path: |
+                vllm_ascend/_cann_ops_custom
+                vllm_ascend/*.so
+                vllm_ascend/lib
+                vllm_ascend/include
+              key: vllm-ascend-build-v1-${{ steps.get_arch.outputs.arch }}-${{ matrix.image_tag }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
+              fail-on-cache-miss: true
 
           - name: Install vllm-project/vllm-ascend with device
             run: |

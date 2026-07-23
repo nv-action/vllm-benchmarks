@@ -81,12 +81,6 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Checkout cache workflow helpers
-        uses: actions/checkout@v7
-        with:
-          path: .csrc-cache-workflow
-          sparse-checkout: .github/actions/prepare-source-snapshot
-
       - name: Config mirrors (ubuntu)
         if: fromJSON(inputs.target).os == 'ubuntu'
         run: |
@@ -107,19 +101,41 @@ jobs:
           git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
 
       - name: Prepare source snapshot
-        uses: ./.csrc-cache-workflow/.github/actions/prepare-source-snapshot
-        with:
-          source-repository: ${{ inputs.repository }}
-          base-repository: ${{ inputs.base_repository }}
-          base-ref: ${{ inputs.base_ref }}
-          base-sha: ${{ inputs.base_sha }}
-          update-submodules: 'true'
+        env:
+          SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
+          BASE_REPOSITORY: ${{ inputs.base_repository || inputs.repository || github.repository }}
+          BASE_REF: ${{ inputs.base_ref }}
+          BASE_SHA: ${{ inputs.base_sha }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          cd "$GITHUB_WORKSPACE"
+
+          if [ -n "$BASE_SHA" ]; then
+            if [ -z "$BASE_REF" ]; then
+              echo "::error::base_ref is required when base_sha is set."
+              exit 1
+            fi
+
+            git config user.name "vllm-ascend-ci"
+            git config user.email "vllm-ascend-ci@users.noreply.github.com"
+            BASE_REMOTE=origin
+            if [ "$BASE_REPOSITORY" != "$SOURCE_REPOSITORY" ]; then
+              BASE_REMOTE=csrc-base
+              git remote add "$BASE_REMOTE" "https://github.com/${BASE_REPOSITORY}.git"
+            fi
+            git fetch "$BASE_REMOTE" "$BASE_REF"
+            git cat-file -e "${BASE_SHA}^{commit}"
+            git rebase "$BASE_SHA"
+          fi
+
+          git submodule sync --recursive
+          git submodule update --init --recursive
 
       - name: Install system dependencies (ubuntu)
         if: fromJSON(inputs.target).os == 'ubuntu'
         run: |
           xargs apt-get -y install < packages.txt
-          apt-get -y install gcc g++ cmake libnuma-dev zstd clang-15
+          apt-get -y install gcc g++ cmake libnuma-dev clang-15
           update-alternatives --install /usr/bin/clang clang /usr/bin/clang-15 20
           update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-15 20
           pip install uv

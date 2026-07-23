@@ -237,7 +237,7 @@ jobs:
           if [ -s "$GITHUB_WORKSPACE/packages.txt" ]; then
             xargs -r apt-get -y install < "$GITHUB_WORKSPACE/packages.txt"
           fi
-          apt-get -y install git curl ca-certificates gcc g++ cmake libnuma-dev clang-15 jq gh shellcheck
+          apt-get -y install git curl ca-certificates gcc g++ cmake libnuma-dev zstd clang-15 jq gh shellcheck
           update-alternatives --install /usr/bin/clang clang /usr/bin/clang-15 20
           update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-15 20
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -346,12 +346,34 @@ jobs:
           echo "name=${BRANCH}" >> "$GITHUB_OUTPUT"
           echo "base_sha=${BASE_SHA}" >> "$GITHUB_OUTPUT"
 
+      - name: Get csrc hash
+        id: get_csrc_hash
+        run: |
+          CSRC_HASH=$(git ls-files -s -- csrc setup.py CMakeLists.txt cmake \
+            | sha256sum | awk '{print $1}')
+          echo "CSRC_HASH=$CSRC_HASH" >> "$GITHUB_OUTPUT"
+
+      - name: Get architecture
+        id: get_arch
+        run: |
+          ARCH=$(uname -m)
+          case "$ARCH" in
+            x86_64) echo "arch=X64" >> "$GITHUB_OUTPUT" ;;
+            aarch64) echo "arch=ARM64" >> "$GITHUB_OUTPUT" ;;
+            *) echo "arch=$ARCH" >> "$GITHUB_OUTPUT" ;;
+          esac
+
       - name: Restore vllm-ascend csrc cache
         id: cache-csrc
-        uses: ./.github/actions/restore-csrc-cache
+        uses: runs-on/cache/restore@v5
         with:
-          image-tag: ${{ env.MAIN2MAIN_IMAGE_TAG }}
-          cache-miss-policy: fail
+          path: |
+            vllm_ascend/_cann_ops_custom
+            vllm_ascend/*.so
+            vllm_ascend/lib
+            vllm_ascend/include
+          key: vllm-ascend-build-v1-${{ steps.get_arch.outputs.arch }}-${{ env.MAIN2MAIN_IMAGE_TAG }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
+          fail-on-cache-miss: true
 
       - name: Install Mooncake wheel
         run: |

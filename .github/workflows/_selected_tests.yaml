@@ -150,13 +150,37 @@ jobs:
           git submodule sync --recursive
           git submodule update --init --recursive
 
+      - name: Get csrc hash
+        id: get_csrc_hash
+        if: ${{ matrix.group.npu_type != 'cpu' }}
+        run: |
+          CSRC_HASH=$(git ls-files -s -- csrc setup.py CMakeLists.txt cmake \
+            | sha256sum | awk '{print $1}')
+          echo "CSRC_HASH=$CSRC_HASH" >> "$GITHUB_OUTPUT"
+
+      - name: Get architecture
+        id: get_arch
+        if: ${{ matrix.group.npu_type != 'cpu' }}
+        run: |
+          ARCH=$(uname -m)
+          case "$ARCH" in
+            x86_64) echo "arch=X64" >> "$GITHUB_OUTPUT" ;;
+            aarch64) echo "arch=ARM64" >> "$GITHUB_OUTPUT" ;;
+            *) echo "arch=$ARCH" >> "$GITHUB_OUTPUT" ;;
+          esac
+
       - name: Restore vllm-ascend csrc cache
         id: cache-csrc
         if: ${{ matrix.group.npu_type != 'cpu' }}
-        uses: ./.github/actions/restore-csrc-cache
+        uses: runs-on/cache/restore@v5
         with:
-          image-tag: ${{ matrix.group.image_tag }}
-          cache-miss-policy: fail
+          path: |
+            vllm_ascend/_cann_ops_custom
+            vllm_ascend/*.so
+            vllm_ascend/lib
+            vllm_ascend/include
+          key: vllm-ascend-build-v1-${{ steps.get_arch.outputs.arch }}-${{ matrix.group.image_tag }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
+          fail-on-cache-miss: true
 
       - name: Install Mooncake wheel
         if: ${{ matrix.group.npu_type != 'cpu' }}
