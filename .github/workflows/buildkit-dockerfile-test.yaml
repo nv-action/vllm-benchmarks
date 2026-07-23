@@ -1,6 +1,10 @@
 name: buildkit-dockerfile-test
 
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/buildkit-dockerfile-test.yaml'
+      - 'Dockerfile*'
   workflow_dispatch:
 
 jobs:
@@ -69,7 +73,12 @@ jobs:
             --local context=. \
             --local dockerfile=. \
             --opt filename=${{ matrix.dockerfile }} \
-            --opt build-arg:PIP_INDEX_URL=https://pypi.org/simple \
+            --opt build-arg:APTMIRROR=http://cache-service.nginx-pypi-cache.svc.cluster.local:8081 \
+            --opt build-arg:PIP_INDEX_URL=http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple \
+            --opt build-arg:VLLM_ASCEND_IMAGE=swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/vllm-ascend-ci \
             --opt build-arg:SOC_VERSION=${{ steps.vars.outputs.soc_version }} \
             --opt build-arg:COMPILE_CUSTOM_KERNELS=0 \
+            --secret id=dockerconfig,src=/home/user/.docker/config.json \
+            --import-cache type=registry,ref=swr.cn-southwest-2.myhuaweicloud.com/vllm-ci/buildkit-cache:${{ matrix.dockerfile }}-${{ matrix.runner_info.arch }} \
+            --export-cache type=registry,ref=swr.cn-southwest-2.myhuaweicloud.com/vllm-ci/buildkit-cache:${{ matrix.dockerfile }}-${{ matrix.runner_info.arch }},mode=max \
             --output type=image,name=test-buildkit:latest,push=false
