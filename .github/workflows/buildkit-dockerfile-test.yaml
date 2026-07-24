@@ -66,7 +66,6 @@ jobs:
             --tlskey="${DOCKER_CONFIG}/key.pem" \
             build \
             --progress=plain \
-            --allow security.insecure \
             --frontend dockerfile.v0 \
             --local context=. \
             --local dockerfile=. \
