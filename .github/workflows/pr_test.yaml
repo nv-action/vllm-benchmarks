@@ -459,7 +459,7 @@ jobs:
     needs: [pre-commit, select-tests, run-selected-tests]
     # if: ${{ always() && contains(github.event.pull_request.labels.*.name, 'ready') }}
     if: ${{ always() }}
-    runs-on: linux-amd64-cpu-2-hk
+    runs-on: linux-amd64-cpu-8-hk
     steps:
       - name: Check all required jobs
         run: |

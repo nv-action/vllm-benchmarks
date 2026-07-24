@@ -6,7 +6,7 @@ on:
 jobs:
   remove-wait-feedback-on-comment:
     if: ${{ github.event_name == 'issue_comment' && contains(github.event.issue.labels.*.name, 'wait-feedback') }}
-    runs-on: linux-amd64-cpu-2-hk
+    runs-on: linux-amd64-cpu-8-hk
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
     permissions:
@@ -26,7 +26,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   stale:
     if: ${{ github.event_name == 'schedule' }}
-    runs-on: linux-amd64-cpu-2-hk
+    runs-on: linux-amd64-cpu-8-hk
     permissions:
       actions: write
       issues: write

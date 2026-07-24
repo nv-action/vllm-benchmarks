@@ -91,7 +91,7 @@ jobs:
     name: build and release wheel
     strategy:
       matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm]
+        os: [linux-amd64-cpu-8-hk, linux-arm64-cpu-8]
         python-version: ["3.10", "3.11", "3.12"]
 
     runs-on: ${{ matrix.os }}
@@ -178,7 +178,7 @@ jobs:
     name: build and release wheel (A3)
     strategy:
       matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm]
+        os: [linux-amd64-cpu-8-hk, linux-arm64-cpu-8]
         python-version: ["3.10", "3.11", "3.12"]
 
     runs-on: ${{ matrix.os }}
@@ -259,7 +259,7 @@ jobs:
     name: build and release wheel (310P)
     strategy:
       matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm]
+        os: [linux-amd64-cpu-8-hk, linux-arm64-cpu-8]
         python-version: ["3.10", "3.11", "3.12"]
 
     runs-on: ${{ matrix.os }}
@@ -340,7 +340,7 @@ jobs:
     name: generate and upload variant index
     needs: [build_and_release_wheel, build_and_release_wheel_a3, build_and_release_wheel_310p]
     if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
-    runs-on: ubuntu-24.04
+    runs-on: linux-amd64-cpu-8-hk
     steps:
       - name: Download all variant wheels
         uses: actions/download-artifact@v8

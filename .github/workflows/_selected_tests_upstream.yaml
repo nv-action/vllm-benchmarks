@@ -88,7 +88,7 @@ env:
 
 jobs:
     e2e-upstream_pr:
-        runs-on: linux-aarch64-a2b3-1
+        runs-on: linux-aarch64-a2-1
         strategy:
           fail-fast: false
           matrix:

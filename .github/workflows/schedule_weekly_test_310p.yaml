@@ -81,9 +81,9 @@ env:
 jobs:
   parse-trigger:
     name: Parse trigger and determine test scope
-    if: >-
-      github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    # Temporarily disabled because the test environment has no 310P runner.
+    if: ${{ false }}
+    runs-on: linux-amd64-cpu-8-hk
     outputs:
       run: ${{ steps.parse.outputs.run }}
       filter: ${{ steps.parse.outputs.filter }}
@@ -115,7 +115,7 @@ jobs:
   setup-vars:
     name: Export global env vars as job outputs
     needs: parse-trigger
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu-8-hk
     outputs:
       ascend_log_prefix: ${{ steps.export.outputs.ascend_log_prefix }}
       vllm_ascend_branches: ${{ steps.export.outputs.vllm_ascend_branches }}
@@ -157,8 +157,8 @@ jobs:
 
   build-image:
     name: Build weekly-310p image
-    if: >-
-      (github.event_name == 'workflow_dispatch' && inputs.skip_build_image != 'true')
+    # Temporarily disabled because the test environment has no 310P runner.
+    if: ${{ false }}
     strategy:
       matrix:
         vllm_ascend_branch: >-
@@ -213,7 +213,7 @@ jobs:
       always() &&
       github.event_name == 'workflow_dispatch' &&
       needs.parse-trigger.result == 'success'
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu-8-hk
     steps:
       - name: Merge all benchmark result artifacts
         continue-on-error: true

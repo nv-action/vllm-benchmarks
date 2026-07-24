@@ -52,7 +52,7 @@ on:
 jobs:
   prepare-cache-checks:
     name: Prepare csrc cache checks
-    runs-on: linux-amd64-cpu-2-hk
+    runs-on: linux-amd64-cpu-8-hk
     container:
       image: quay.io/ascend-ci/vllm-ascend:lint
     outputs:
@@ -126,7 +126,7 @@ jobs:
       fail-fast: false
       matrix:
         target: ${{ fromJSON(needs.prepare-cache-checks.outputs.targets) }}
-    runs-on: linux-amd64-cpu-2-hk
+    runs-on: linux-amd64-cpu-8-hk
     container:
       image: quay.io/ascend-ci/vllm-ascend:lint
     steps:
@@ -182,7 +182,7 @@ jobs:
         needs.prepare-cache-checks.result == 'success' &&
         (needs.lookup-caches.result == 'success' || needs.lookup-caches.result == 'skipped')
       }}
-    runs-on: linux-amd64-cpu-2-hk
+    runs-on: linux-amd64-cpu-8-hk
     outputs:
       missing_targets: ${{ steps.misses.outputs.missing_targets }}
       has_missing: ${{ steps.misses.outputs.has_missing }}

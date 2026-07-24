@@ -46,7 +46,7 @@ concurrency:
 
 jobs:
   select-tests:
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu-8-hk
     outputs:
       test_groups: ${{ steps.scope.outputs.test_groups }}
       has_tests: ${{ steps.scope.outputs.has_tests }}
@@ -148,7 +148,7 @@ jobs:
   update-estimated-times:
     needs: [run-tests-main, run-tests-release]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu-8-hk
     steps:
       - uses: actions/checkout@v7
         with:

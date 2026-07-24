@@ -43,7 +43,7 @@ env:
 
 jobs:
     resolve-tag:
-        runs-on: linux-amd64-cpu-4-hk
+        runs-on: linux-amd64-cpu-8-hk
         outputs:
             release_tag: ${{ steps.vllm.outputs.release_tag }}
         steps:
@@ -60,7 +60,7 @@ jobs:
           target_ids: '["a2-arm64-ubuntu"]'
 
     e2e-upstream_singlecard:
-        runs-on: linux-aarch64-a2b3-1
+        runs-on: linux-aarch64-a2-1
         needs: [resolve-tag, ensure-csrc-cache]
         strategy:
           fail-fast: false
@@ -173,7 +173,7 @@ jobs:
                 --continue-on-error
 
     e2e-upstream_multicard:
-        runs-on: linux-aarch64-a2b3-${{ matrix.num_npus }}
+        runs-on: linux-aarch64-a2-${{ matrix.num_npus }}
         needs: [resolve-tag, ensure-csrc-cache]
         strategy:
           fail-fast: false
@@ -277,7 +277,7 @@ jobs:
                 --continue-on-error
               
     e2e-upstream_online:
-        runs-on: linux-aarch64-a2b3-${{ matrix.num_npus }}
+        runs-on: linux-aarch64-a2-${{ matrix.num_npus }}
         needs: [resolve-tag, ensure-csrc-cache]
         strategy:
           fail-fast: false

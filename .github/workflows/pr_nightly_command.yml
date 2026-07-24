@@ -34,7 +34,7 @@ permissions:
 jobs:
   authorize:
     name: Check user authorization
-    runs-on: linux-amd64-cpu-4-hk
+    runs-on: linux-amd64-cpu-8-hk
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
     outputs:
@@ -178,7 +178,8 @@ jobs:
               {
                 echo "dispatch_a2=true"
                 echo "dispatch_a3=true"
-                echo "dispatch_310p=true"
+                # 310P is disabled because the test environment has no runner.
+                echo "dispatch_310p=false"
               } >> "$GITHUB_OUTPUT"
             fi
             exit 0
@@ -208,7 +209,7 @@ jobs:
     name: Trigger Nightly-A2
     needs: [authorize]
     if: needs.authorize.outputs.is_authorized == 'true' && needs.authorize.outputs.command == 'nightly' && needs.authorize.outputs.dispatch_a2 == 'true'
-    runs-on: linux-amd64-cpu-4-hk
+    runs-on: linux-amd64-cpu-8-hk
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
     outputs:
@@ -249,7 +250,7 @@ jobs:
     name: Trigger Nightly-A3
     needs: [authorize]
     if: needs.authorize.outputs.is_authorized == 'true' && needs.authorize.outputs.command == 'nightly' && needs.authorize.outputs.dispatch_a3 == 'true'
-    runs-on: linux-amd64-cpu-4-hk
+    runs-on: linux-amd64-cpu-8-hk
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
     outputs:
@@ -290,7 +291,7 @@ jobs:
     name: Trigger Nightly-A3-560T
     needs: [authorize]
     if: needs.authorize.outputs.is_authorized == 'true' && needs.authorize.outputs.command == 'nightly' && needs.authorize.outputs.dispatch_a3_560t == 'true'
-    runs-on: linux-amd64-cpu-4-hk
+    runs-on: linux-amd64-cpu-8-hk
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
     outputs:
@@ -331,7 +332,7 @@ jobs:
     name: Trigger Weekly-A2
     needs: [authorize]
     if: needs.authorize.outputs.is_authorized == 'true' && needs.authorize.outputs.command == 'weekly' && needs.authorize.outputs.dispatch_a2 == 'true'
-    runs-on: linux-amd64-cpu-4-hk
+    runs-on: linux-amd64-cpu-8-hk
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
     outputs:
@@ -372,7 +373,7 @@ jobs:
     name: Trigger Weekly-A3
     needs: [authorize]
     if: needs.authorize.outputs.is_authorized == 'true' && needs.authorize.outputs.command == 'weekly' && needs.authorize.outputs.dispatch_a3 == 'true'
-    runs-on: linux-amd64-cpu-4-hk
+    runs-on: linux-amd64-cpu-8-hk
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
     outputs:
@@ -412,8 +413,9 @@ jobs:
   dispatch-weekly-310p:
     name: Trigger Weekly-310P
     needs: [authorize]
-    if: needs.authorize.outputs.is_authorized == 'true' && needs.authorize.outputs.command == 'weekly' && needs.authorize.outputs.dispatch_310p == 'true'
-    runs-on: linux-amd64-cpu-4-hk
+    # Temporarily disabled because the test environment has no 310P runner.
+    if: ${{ false }}
+    runs-on: linux-amd64-cpu-8-hk
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
     outputs:
@@ -453,7 +455,7 @@ jobs:
     name: Post workflow links
     needs: [authorize, dispatch-a2, dispatch-a3, dispatch-a3-560t, dispatch-weekly-a2, dispatch-weekly-a3, dispatch-weekly-310p]
     if: always() && needs.authorize.outputs.is_authorized == 'true'
-    runs-on: linux-amd64-cpu-2-hk
+    runs-on: linux-amd64-cpu-8-hk
     steps:
       - name: Build comment body
         id: body

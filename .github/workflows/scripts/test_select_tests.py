@@ -280,7 +280,11 @@ def test_dedup_runner_resolution_and_output(tmp_path, monkeypatch, capsys):
     assert select_tests._find_runner(1, select_tests.NpuType.A2, runners).label == "a2-runner"
     assert select_tests._find_runner(2, select_tests.NpuType.A2, runners) is None
     assert select_tests._resolve_to_runners(
-        {select_tests._DEFAULT_KEY: ["tests/ut/b.py", "tests/ut/a.py"], (1, select_tests.NpuType.A2): ["e2e.py"]},
+        {
+            select_tests._DEFAULT_KEY: ["tests/ut/b.py", "tests/ut/a.py"],
+            (1, select_tests.NpuType.A2): ["e2e.py"],
+            (1, select_tests.NpuType._310P): ["disabled_310p.py"],
+        },
         runners,
     ) == [
         {
@@ -301,6 +305,7 @@ def test_dedup_runner_resolution_and_output(tmp_path, monkeypatch, capsys):
             "partition": "1-1",
         },
     ]
+    assert "Skipping disabled 310p test group" in capsys.readouterr().err
     with pytest.raises(SystemExit):
         select_tests._resolve_to_runners({(2, select_tests.NpuType.A2): ["x"]}, runners)
     assert "no runner available" in capsys.readouterr().err
@@ -763,17 +768,18 @@ def test_explicit_e2e_tests_runs_only_specified_paths(tmp_path, monkeypatch, cap
     selected = {t for g in test_groups for t in g["tests"].split()}
     assert selected == {rel_one_a, rel_two_a, rel_four_a}
 
-    # 3. _310p suffix overrides the default runner.
-    test_groups, _, _ = run_explicit(rel_one_310p)
-    assert test_groups[0]["npu_type"] == "310p"
-    assert test_groups[0]["num_npus"] == 1
+    # 3. 310P tests are skipped while the test environment has no runner.
+    test_groups, _, err = run_explicit(rel_one_310p)
+    assert test_groups == []
+    assert "Skipping disabled 310p test group" in err
 
     # 4. Directory input rglobs all test_*.py under it.
-    test_groups, _, _ = run_explicit(rel_e2e_one)
+    test_groups, _, err = run_explicit(rel_e2e_one)
     selected = {t for g in test_groups for t in g["tests"].split()}
-    assert selected == {rel_one_a, rel_one_b, rel_one_310p}
+    assert selected == {rel_one_a, rel_one_b}
     npu_types = {g["npu_type"] for g in test_groups}
-    assert npu_types == {"a2", "310p"}
+    assert npu_types == {"a2"}
+    assert "Skipping disabled 310p test group" in err
 
     # 5. ::nodeid suffix is preserved and routed by file path.
     nodeid = f"{rel_one_a}::TestClass::test_method"

@@ -81,6 +81,10 @@ class NpuType(str, Enum):
     CPU = "cpu"
 
 
+# Temporarily disabled because the test environment has no 310P runner.
+DISABLED_NPU_TYPES = {NpuType._310P}
+
+
 @dataclass(frozen=True)
 class RunnerInfo:
     num_npus: int
@@ -612,6 +616,12 @@ def _resolve_to_runners(
 
     for (num_npus, npu_type), tests in sorted(all_groups.items()):
         if not tests:
+            continue
+        if npu_type in DISABLED_NPU_TYPES:
+            print(
+                f"Skipping disabled {npu_type.value} test group ({num_npus} NPU).",
+                file=sys.stderr,
+            )
             continue
         runner = _find_runner(num_npus, npu_type, runners)
         if runner is None:

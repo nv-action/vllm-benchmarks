@@ -9,7 +9,7 @@ a2:
     # Content migrated from
     nightly:
       - name: accuracy-group-2
-        os: linux-aarch64-a2b3-1
+        os: linux-aarch64-a2-1
         model_list:
           - ERNIE-4.5-21B-A3B-PT
           - Molmo-7B-D-0924
@@ -120,15 +120,17 @@ a3:
         os: linux-aarch64-a3-16
         config_file_path: MiniMax-M2.5-W8A8-A3.yaml
 
-310p:
-  single_node:
-    test_config:
-      - name: Qwen3-8B-w8a8sc-310p
-        os: linux-aarch64-310p-4
-        config_file_path: Qwen3-8B-w8a8sc-310p.yaml
-      - name: Qwen3-14B-w8a8sc-310p
-        os: linux-aarch64-310p-4
-        config_file_path: Qwen3-14B-w8a8sc-310p.yaml
-      - name: Qwen3-32B-w8a8sc-310p
-        os: linux-aarch64-310p-4
-        config_file_path: Qwen3-32B-w8a8sc-310p.yaml
+# 310P tests are temporarily disabled because the test environment has no
+# matching runner.
+# 310p:
+#   single_node:
+#     test_config:
+#       - name: Qwen3-8B-w8a8sc-310p
+#         os: linux-aarch64-310p-4
+#         config_file_path: Qwen3-8B-w8a8sc-310p.yaml
+#       - name: Qwen3-14B-w8a8sc-310p
+#         os: linux-aarch64-310p-4
+#         config_file_path: Qwen3-14B-w8a8sc-310p.yaml
+#       - name: Qwen3-32B-w8a8sc-310p
+#         os: linux-aarch64-310p-4
+#         config_file_path: Qwen3-32B-w8a8sc-310p.yaml

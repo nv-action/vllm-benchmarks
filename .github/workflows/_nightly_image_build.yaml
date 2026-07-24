@@ -40,7 +40,7 @@ on:
 jobs:
   build:
     name: Build nightly-${{ inputs.target }} image
-    runs-on: ubuntu-22.04-arm
+    runs-on: linux-arm64-cpu-8
     steps:
       - uses: actions/checkout@v7
         with:

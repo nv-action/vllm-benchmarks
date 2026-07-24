@@ -82,11 +82,11 @@ jobs:
       matrix:
         include:
           - arch: linux/amd64
-            runner: ubuntu-latest
+            runner: linux-amd64-cpu-8-hk
             tag: amd64
 
           - arch: linux/arm64
-            runner: ubuntu-22.04-arm
+            runner: linux-arm64-cpu-8
             tag: arm64
 
     steps:
@@ -298,7 +298,7 @@ jobs:
 
 
   merge-image:
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu-8-hk
     needs: build-push-digest
     if: ${{ inputs.should_push && !inputs.temp_only }}
     steps:
@@ -404,7 +404,7 @@ jobs:
 
   merge-image-temp:
     name: merge-image-temp
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu-8-hk
     needs: build-push-digest
     if: ${{ inputs.should_push && inputs.temp_only }}
     steps:
