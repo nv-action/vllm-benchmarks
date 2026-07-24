@@ -88,7 +88,7 @@ jobs:
               pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
               apt-get update -y
               apt install git zstd -y
-              git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
+              git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
           - name: Install system dependencies
             run: |
@@ -201,7 +201,7 @@ jobs:
               pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
               apt-get update -y
               apt install git zstd -y
-              git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
+              git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
           - name: Install system dependencies
             run: |
@@ -305,7 +305,7 @@ jobs:
               pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
               apt-get update -y
               apt install git zstd -y
-              git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
+              git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
           - name: Install system dependencies
             run: |
