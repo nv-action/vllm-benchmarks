@@ -73,7 +73,6 @@ defaults:
 
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
   selected-tests:
@@ -110,7 +109,7 @@ jobs:
           pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
           apt-get update -y
           apt-get install -y python3-pip git vim wget net-tools gcc g++ cmake libnuma-dev curl gnupg2 zstd
-          git config --global --add safe.directory /__w/vllm-ascend/vllm-ascend
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           pip install uv
 
       - name: Checkout vllm-project/vllm repo
@@ -153,10 +152,21 @@ jobs:
       - name: Get csrc hash
         id: get_csrc_hash
         if: ${{ matrix.group.npu_type != 'cpu' }}
+        shell: bash
         run: |
-          CSRC_HASH=$(git ls-files -s -- csrc setup.py CMakeLists.txt cmake \
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          cd "$GITHUB_WORKSPACE"
+
+          CSRC_MANIFEST=$(git ls-files -s -- csrc setup.py CMakeLists.txt cmake)
+          if [ -z "$CSRC_MANIFEST" ]; then
+            echo "::error::No tracked csrc inputs found."
+            exit 1
+          fi
+
+          CSRC_HASH=$(printf '%s\n' "$CSRC_MANIFEST" \
             | sha256sum | awk '{print $1}')
-          echo "CSRC_HASH=$CSRC_HASH" >> "$GITHUB_OUTPUT"
+          echo "csrc_hash=$CSRC_HASH" >> "$GITHUB_OUTPUT"
 
       - name: Get architecture
         id: get_arch
