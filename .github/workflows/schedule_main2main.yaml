@@ -17,8 +17,6 @@
 name: Main2Main
 
 on:
-  schedule:
-    - cron: '0 14 * * *'
   workflow_dispatch:
     inputs:
       target_commit:
