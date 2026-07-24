@@ -1,0 +1,15 @@
+FROM quay.io/ascend/cann:9.0.0-910b-ubuntu22.04-py3.12
+
+ARG APTMIRROR
+
+WORKDIR /workspace
+
+RUN if [ -n "$APTMIRROR" ]; then \
+        sed -Ei "s@(ports|archive).ubuntu.com@${APTMIRROR#http://}@g" /etc/apt/sources.list; \
+    fi && \
+    apt-get update -y && \
+    apt-get install -y git vim wget net-tools gcc g++ cmake numactl libnuma-dev libibverbs-dev libjemalloc2 libhiredis-dev clang-15 && \
+    update-alternatives --install /usr/bin/clang clang /usr/bin/clang-15 20 && \
+    update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-15 20 && \
+    rm -rf /var/cache/apt/* && \
+    rm -rf /var/lib/apt/lists/*
