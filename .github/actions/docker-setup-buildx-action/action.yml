@@ -1,0 +1,25 @@
+name: 'Docker Setup Buildx (buildctl)'
+description: 'No-op replacement for docker/setup-buildx-action. buildctl connects to remote buildkitd, no local daemon needed.'
+author: 'ascend-ci'
+
+inputs:
+  driver:
+    description: 'Ignored (buildctl uses remote buildkitd)'
+    required: false
+    default: ''
+  install:
+    description: 'Ignored'
+    required: false
+    default: 'false'
+  use:
+    description: 'Ignored'
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: No-op — buildkitd already running
+      shell: bash
+      run: |
+        echo "::notice::docker-setup-buildx: buildctl connects to buildkitd at ${BUILDKITD_ADDR}, no setup needed"

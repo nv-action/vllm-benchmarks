@@ -1,0 +1,132 @@
+name: 'Docker Build and Push (buildctl)'
+description: |
+  替换 docker/build-push-action@v7，底层使用 buildctl 连接远程 buildkitd。
+  with 参数完全兼容，用户只需改 uses 一行。
+author: 'ascend-ci'
+
+inputs:
+  context:
+    description: 'Build context path'
+    required: false
+    default: '.'
+  file:
+    description: 'Path to Dockerfile'
+    required: false
+    default: 'Dockerfile'
+  push:
+    description: 'Push to registry'
+    required: false
+    default: 'false'
+  tags:
+    description: 'Image tags (multi-line or comma-separated)'
+    required: false
+    default: ''
+  labels:
+    description: 'Image labels (multi-line key=value)'
+    required: false
+    default: ''
+  build-args:
+    description: 'Build arguments (multi-line KEY=VALUE)'
+    required: false
+    default: ''
+  cache-from:
+    description: 'Cache import (e.g. type=registry,ref=...,mode=max)'
+    required: false
+    default: ''
+  cache-to:
+    description: 'Cache export (buildctl uses inline, mode=max will be noted)'
+    required: false
+    default: ''
+  secrets:
+    description: 'Secrets (multi-line KEY=VALUE or KEY=file:...)'
+    required: false
+    default: ''
+  outputs:
+    description: 'Custom output (e.g. type=oci,dest=...), overrides tags'
+    required: false
+    default: ''
+  no-cache:
+    description: 'Do not use cache'
+    required: false
+    default: 'false'
+  pull:
+    description: 'Always pull base image'
+    required: false
+    default: 'false'
+  target:
+    description: 'Build target stage'
+    required: false
+    default: ''
+  network:
+    description: 'Set network mode (e.g. host)'
+    required: false
+    default: ''
+  ssh:
+    description: 'SSH agent socket'
+    required: false
+    default: ''
+  provenance:
+    description: 'Generate provenance attestation'
+    required: false
+    default: 'false'
+  sbom:
+    description: 'Generate SBOM attestation'
+    required: false
+    default: 'false'
+
+# 以下 input 保留以兼容 docker/build-push-action@v7，
+# 但不生效——buildctl 通过矩阵分架构、Runner 注凭证
+  platforms:
+    description: 'Ignored (per-arch runners)'
+    required: false
+    default: ''
+  github-token:
+    description: 'Ignored (credentials from env vars)'
+    required: false
+    default: ''
+  allow:
+    description: 'Ignored'
+    required: false
+    default: ''
+  annotations:
+    description: 'Ignored'
+    required: false
+    default: ''
+  load:
+    description: 'Ignored (buildctl pushes to registry)'
+    required: false
+    default: 'false'
+  build-contexts:
+    description: 'Ignored'
+    required: false
+    default: ''
+  ulimit:
+    description: 'Ignored'
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Build and push with buildctl
+      shell: bash
+      env:
+        INPUT_CONTEXT: ${{ inputs.context }}
+        INPUT_FILE: ${{ inputs.file }}
+        INPUT_PUSH: ${{ inputs.push }}
+        INPUT_TAGS: ${{ inputs.tags }}
+        INPUT_LABELS: ${{ inputs.labels }}
+        INPUT_BUILD_ARGS: ${{ inputs.build-args }}
+        INPUT_CACHE_FROM: ${{ inputs.cache-from }}
+        INPUT_CACHE_TO: ${{ inputs.cache-to }}
+        INPUT_SECRETS: ${{ inputs.secrets }}
+        INPUT_OUTPUTS: ${{ inputs.outputs }}
+        INPUT_NO_CACHE: ${{ inputs.no-cache }}
+        INPUT_PULL: ${{ inputs.pull }}
+        INPUT_TARGET: ${{ inputs.target }}
+        INPUT_NETWORK: ${{ inputs.network }}
+        INPUT_SSH: ${{ inputs.ssh }}
+        INPUT_PROVENANCE: ${{ inputs.provenance }}
+        INPUT_SBOM: ${{ inputs.sbom }}
+      run: |
+        ${GITHUB_ACTION_PATH}/buildctl-build.sh

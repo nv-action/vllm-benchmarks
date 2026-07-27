@@ -1,0 +1,39 @@
+name: 'Docker Login (buildctl)'
+description: 'Registry login — sets BUILDKIT_REGISTRY_CREDS_* env for buildctl'
+author: 'ascend-ci'
+
+inputs:
+  registry:
+    description: 'Registry hostname (e.g. quay.io, ghcr.io)'
+    required: false
+    default: ''
+  username:
+    description: 'Registry username'
+    required: false
+    default: ''
+  password:
+    description: 'Registry password'
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Set registry credentials for buildctl
+      shell: bash
+      run: |
+        if [ -z "${{ inputs.registry }}" ]; then
+          echo "::notice::docker-login: registry not set, skipping (buildctl uses Runner-injected credentials by default)"
+          exit 0
+        fi
+
+        REGISTRY_ENV="BUILDKIT_REGISTRY_CREDS_$(echo '${{ inputs.registry }}' | tr '[:lower:].' '[:upper:]_')"
+        CREDENTIALS="${{ inputs.username }}:${{ inputs.password }}"
+
+        if [ "${CREDENTIALS}" = ":" ]; then
+          echo "::warning::docker-login: username/password empty for ${{ inputs.registry }}"
+          exit 0
+        fi
+
+        echo "${REGISTRY_ENV}=${CREDENTIALS}" >> "$GITHUB_ENV"
+        echo "::notice::docker-login: ${REGISTRY_ENV} set for ${{ inputs.registry }}"
