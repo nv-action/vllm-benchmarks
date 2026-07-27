@@ -1,0 +1,67 @@
+name: buildctl-demo
+
+# 演示: 用 composite action 替换 docker/* action
+# 只需改 uses 路径，with 参数完全不变
+
+on:
+  push:
+    paths:
+      - '.github/actions/**'
+      - '.github/workflows/buildctl-demo.yaml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: "docker → buildctl: ${{ matrix.dockerfile }} (${{ matrix.arch }})"
+    runs-on: ${{ matrix.runner }}
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-a3-ubuntu22.04-py3.12
+
+    strategy:
+      fail-fast: false
+      matrix:
+        dockerfile:
+          - Dockerfile
+          - Dockerfile.310p
+        include:
+          - dockerfile: Dockerfile
+            runner: linux-aarch64-cpu-4-buildkit-gy006
+            arch: arm64
+            soc: ascend910b1
+          - dockerfile: Dockerfile.310p
+            runner: linux-aarch64-cpu-4-buildkit-gy006
+            arch: arm64
+            soc: ascend310p1
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # ─── 只改了 uses 路径 ───
+      # 原来: docker/login-action@v4
+      - uses: ./.github/actions/docker-login-action
+        with:
+          registry: swr.cn-southwest-2.myhuaweicloud.com
+          username: ${{ secrets.SWR_USERNAME }}
+          password: ${{ secrets.SWR_PASSWORD }}
+
+      # 原来: docker/setup-buildx-action@v4
+      - uses: ./.github/actions/docker-setup-buildx-action
+
+      # 原来: docker/build-push-action@v7
+      # ─── with 参数完全不变 ───
+      - uses: ./.github/actions/build-push-action
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: false
+          tags: |
+            ${{ secrets.SWR_REGISTRY }}/test-buildkit:${{ matrix.dockerfile }}-${{ matrix.arch }}-${{ github.sha }}
+          build-args: |
+            PIP_INDEX_URL=http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+            APTMIRROR=http://cache-service.nginx-pypi-cache.svc.cluster.local:8081
+            SOC_VERSION=${{ matrix.soc }}
+            COMPILE_CUSTOM_KERNELS=0
+          cache-from: |
+            type=registry,ref=${{ secrets.SWR_REGISTRY }}/buildkit-cache:${{ matrix.dockerfile }}-${{ matrix.arch }}
+          cache-to: |
+            type=registry,ref=${{ secrets.SWR_REGISTRY }}/buildkit-cache:${{ matrix.dockerfile }}-${{ matrix.arch }},mode=max
