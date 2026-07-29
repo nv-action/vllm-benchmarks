@@ -1,6 +1,8 @@
 # Feature Tutorials
 
-This section provides tutorials for different features of vLLM Ascend.
+This section provides practical tutorials for different features of vLLM Ascend.
+
+Follow the linked guides to configure and validate each feature.
 
 :::{toctree}
 :caption: Feature Tutorials

@@ -1,6 +1,8 @@
 # Using OpenCompass
 
-This document guides you to conduct accuracy testing using [OpenCompass](https://github.com/open-compass/opencompass).
+This document guides you through accuracy testing with [OpenCompass](https://github.com/open-compass/opencompass).
+
+The workflow starts a vLLM server and evaluates it with C-Eval.
 
 ## 1. Online Server
 
