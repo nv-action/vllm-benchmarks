@@ -113,7 +113,7 @@ jobs:
           python .github/workflows/scripts/po_translate.py \
             --files "${{ steps.detect.outputs.files }}" \
             --validate-only
-          make -C docs intl
+          make -C docs intl SPHINXOPTS="-W --keep-going"
 
       - name: Upload translated PO files
         if: always()
