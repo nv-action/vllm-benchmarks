@@ -18,6 +18,9 @@
 name: Test v0.23 Incremental Doc Translation
 
 on:
+  push:
+    branches:
+      - test/v023-tab-table-i18n-incremental
   workflow_dispatch:
 
 concurrency:
