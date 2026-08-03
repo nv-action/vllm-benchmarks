@@ -52,25 +52,29 @@ jobs:
           make clean && make html
           sphinx-build -b gettext source _build/gettext
 
-          # Exercise one catalog only. This keeps the test incremental even
-          # when the release branch contains other untranslated doc updates.
+          # Verify representative tab-contained tables from every known
+          # affected document before incrementally merging all catalogs.
           test -f _build/gettext/quick_start.pot
+          test -f _build/gettext/installation.pot
           grep -F 'msgid "Supported version"' _build/gettext/quick_start.pot
           grep -F 'msgid "Required for CANN"' _build/gettext/quick_start.pot
           grep -F "msgid \"Uninstalled in \`Dockerfile.310p\`\"" \
             _build/gettext/quick_start.pot
+          grep -F 'msgid "Supported version"' _build/gettext/installation.pot
+          grep -F 'msgid "Required for CANN"' _build/gettext/installation.pot
+          grep -F "msgid \"Uninstalled in \`Dockerfile.310p\`\"" \
+            _build/gettext/installation.pot
 
-          mkdir -p _build/gettext-incremental
-          cp _build/gettext/quick_start.pot _build/gettext-incremental/
+          # Merge newly extracted messages into the existing catalogs. Do not
+          # delete PO files or request a full retranslation.
           sphinx-intl update \
-            -p _build/gettext-incremental \
+            -p _build/gettext \
             -d source/locale \
             -l zh_CN
 
       - name: Detect PO files to translate
         id: detect
         run: |
-          expected=docs/source/locale/zh_CN/LC_MESSAGES/quick_start.po
           mapfile -t po_files < <(
             {
               git diff --name-only --diff-filter=ACMUX
@@ -78,15 +82,15 @@ jobs:
             } | grep '\.po$' | sort -u
           )
 
-          if [ "${#po_files[@]}" -ne 1 ] || [ "${po_files[0]}" != "$expected" ]; then
-            echo "Expected only $expected to change; found:"
-            printf '%s\n' "${po_files[@]}"
+          if [ "${#po_files[@]}" -eq 0 ]; then
+            echo "No PO files received newly extracted table messages"
             exit 1
           fi
 
-          echo "Incremental PO file: $expected"
+          printf 'Incrementally updated PO: %s\n' "${po_files[@]}"
+          po_files_csv=$(IFS=,; echo "${po_files[*]}")
           echo "has_changes=true" >> "$GITHUB_OUTPUT"
-          echo "files=$expected" >> "$GITHUB_OUTPUT"
+          echo "files=$po_files_csv" >> "$GITHUB_OUTPUT"
 
       - name: Translate pending entries with DeepSeek
         if: steps.detect.outputs.has_changes == 'true'
@@ -106,13 +110,24 @@ jobs:
             --validate-only
           make -C docs intl SPHINXOPTS="-W --keep-going"
 
+      - name: Collect incrementally updated PO files
+        if: steps.translate.outcome == 'success'
+        run: |
+          po_files_csv="${{ steps.detect.outputs.files }}"
+          IFS=',' read -ra po_files <<< "$po_files_csv"
+          for po_file in "${po_files[@]}"; do
+            destination="/tmp/v023-incremental-po/$po_file"
+            mkdir -p "$(dirname "$destination")"
+            cp "$po_file" "$destination"
+          done
+
       - name: Upload incremental translation artifacts
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: v023-incremental-quick-start-${{ github.run_id }}
+          name: v023-incremental-tab-tables-${{ github.run_id }}
           path: |
             /tmp/translation_results.json
-            docs/source/locale/zh_CN/LC_MESSAGES/quick_start.po
+            /tmp/v023-incremental-po
           if-no-files-found: warn
           retention-days: 7
