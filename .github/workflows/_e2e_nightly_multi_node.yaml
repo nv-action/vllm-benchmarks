@@ -113,7 +113,8 @@ jobs:
         NAMESPACE: vllm-project
     steps:
       - name: Decode kubeconfig
-        run: echo "${{ secrets.KUBECONFIG_B64 }}" | base64 -d > "$KUBECONFIG"
+        # run: echo "${{ secrets.KUBECONFIG_B64 }}" | base64 -d > "$KUBECONFIG"
+        run: cp /root/.cache/kubeconfig_a5.yaml "$KUBECONFIG" 
 
       - name: Checkout code
         uses: actions/checkout@v7
