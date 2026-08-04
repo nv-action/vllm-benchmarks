@@ -108,7 +108,7 @@ jobs:
     steps:
       - name: Check npu and CANN info
         run: |
-          npu-smi info
+          # npu-smi info
           cat /usr/local/Ascend/ascend-toolkit/latest/"$(uname -i)"-linux/ascend_toolkit_install.info
           sed -Ei 's@(ports|archive).ubuntu.com@cache-service.nginx-pypi-cache.svc.cluster.local:8081@g' /etc/apt/sources.list
           pip config set global.index-url http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
@@ -223,6 +223,7 @@ jobs:
             echo "Error: Either 'tests' or 'config_file_path' must be provided."
             exit 1
           fi
+          sleep 99999
 
       - name: Run Pytest (py-driven)
         id: pytest-driven
