@@ -1,5 +1,7 @@
 # test-case-007: apt/yum + pip 安装耗时对比（squid 代理 vs cache-service）
 
+> 最新结果见 [REPORT.md](REPORT.md)
+
 ## 背景
 
 对比在 buildkit runner 上，用两种网络环境跑**同一份** apt/yum + pip 安装脚本的时间：

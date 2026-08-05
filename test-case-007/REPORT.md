@@ -1,8 +1,10 @@
 # test-case-007 测试报告：squid-proxy vs cache-service 安装耗时对比
 
 日期：2026-08-05
-最终运行：https://github.com/nv-action/vllm-benchmarks/actions/runs/31003932022
-（compare job：4 个 install job + compare 全部 success）
+
+[![workflow status](https://github.com/nv-action/vllm-benchmarks/actions/workflows/test-case-007-install-env.yaml/badge.svg)](https://github.com/nv-action/vllm-benchmarks/actions/workflows/test-case-007-install-env.yaml)
+
+最终运行：[31003932022](https://github.com/nv-action/vllm-benchmarks/actions/runs/31003932022)（compare job：4 个 install job + compare 全部 success）
 
 ## 目的
 
