@@ -6,6 +6,7 @@ on:
 env:
   CACHE_SERVICE: http://cache-service.nginx-pypi-cache.svc.cluster.local:8081
   SQUID_PROXY: http://squid-cache.squid.svc.cluster.local:3128
+  NODE_EXTRA_CA_CERTS: /etc/squid-ca/squid-ca.pem
 
 jobs:
   install:
