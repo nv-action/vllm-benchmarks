@@ -65,6 +65,7 @@ jobs:
           merge-multiple: true
 
       - name: Compare timings
+        shell: bash
         run: |
           cd /tmp/results
           echo "=== per-phase timings ==="
