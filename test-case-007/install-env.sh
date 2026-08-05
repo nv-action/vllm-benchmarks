@@ -127,7 +127,8 @@ setup_network() {
     export no_proxy="$NO_PROXY"
 }
 
-# apt sources -> cache-service (assumes mirror layout ${CACHE_SERVICE}/ubuntu; override APT_MIRROR_URL).
+# apt sources -> mirror (default ${CACHE_SERVICE}/ubuntu for cache-service;
+# override APT_MIRROR_URL, e.g. a Chinese mirror for the squid-proxy scenario).
 rewrite_apt_sources() {
     local mirror="${APT_MIRROR_URL:-${CACHE_SERVICE}/ubuntu}"
     local codename keyring signed_by
@@ -151,6 +152,14 @@ Suites: ${codename} ${codename}-updates ${codename}-security
 Components: main universe multiverse
 ${signed_by}
 EOF
+    # HTTPS mirrors through squid are MITM'd: present the squid CA to apt so
+    # transport TLS succeeds (harmless when the mirror is plain http).
+    if [[ "${mirror}" == https://* ]] && [[ -f /etc/squid-ca/squid-ca.pem ]]; then
+        mkdir -p /etc/apt/apt.conf.d
+        printf 'Acquire::https::CaInfo "/etc/squid-ca/squid-ca.pem";\n' \
+            > /etc/apt/apt.conf.d/99-squid-ca
+        log "[apt] https mirror -> using squid CA for transport"
+    fi
 }
 
 # yum repos -> cache-service. Keep the image's default repo set (OS,
@@ -213,12 +222,11 @@ else
 fi
 
 setup_network
-if [[ "$SCENARIO" == "cache-service" ]]; then
-    if [[ "$OS" == "apt" ]]; then
-        rewrite_apt_sources
-    else
-        rewrite_yum_sources
-    fi
+if [[ "$OS" == "apt" ]]; then
+    # cache-service: in-cluster mirror (default); squid-proxy: APT_MIRROR_URL.
+    rewrite_apt_sources
+elif [[ "$SCENARIO" == "cache-service" ]]; then
+    rewrite_yum_sources
 fi
 
 if [[ "$OS" == "apt" ]]; then

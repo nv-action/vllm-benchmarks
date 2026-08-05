@@ -25,6 +25,9 @@ jobs:
           - os: openeuler-24.03
             image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.1-a3-openeuler24.03-py3.12
             pkgmgr: yum
+          - os: ubuntu-22.04
+            scenario: squid-proxy
+            apt_mirror: https://mirrors.huaweicloud.com/ubuntu
     container:
       image: ${{ matrix.image }}
     steps:
@@ -38,6 +41,7 @@ jobs:
         env:
           SQUID_PROXY: ${{ env.SQUID_PROXY }}
           CACHE_SERVICE: ${{ env.CACHE_SERVICE }}
+          APT_MIRROR_URL: ${{ matrix.apt_mirror }}
           RESULTS_DIR: /tmp/test-case-007-results
 
       - name: Show timings

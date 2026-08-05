@@ -56,8 +56,13 @@ runner `linux-amd64-cpu-4-buildkit-gy006`（amd64 buildkit runner，镜像为 CA
 
 ## 假设 / 需按实际集群调整
 
-- `cache-service` 场景下 apt 源改为 `${CACHE_SERVICE}/ubuntu`（Ubuntu Debian822，codename 取镜像实际值，
-  如 jammy）。部分基础镜像无 `/etc/apt/sources.list.d/`，脚本会先 `mkdir -p`。
+- apt 源重写为 `APT_MIRROR_URL`（缺省 `${CACHE_SERVICE}/ubuntu`）：
+  - `cache-service` 场景用集群内镜像（默认）；
+  - `squid-proxy` 场景由 workflow 注入 `APT_MIRROR_URL=https://mirrors.huaweicloud.com/ubuntu`
+    （中国镜像，经 squid MITM 出网）。https 镜像时脚本会写 `/etc/apt/apt.conf.d/99-squid-ca`
+    指向 `/etc/squid-ca/squid-ca.pem`，否则 apt 过 squid 的 TLS 校验失败。
+  - Ubuntu Debian822 格式，codename 取镜像实际值（如 jammy）。
+    部分基础镜像无 `/etc/apt/sources.list.d/`，脚本会先 `mkdir -p`。
 - yum 源默认改为复刻镜像自带仓库集（OS/everything/EPOL/update/...），
   把 `https://repo.openeuler.org` 前缀换成 `${CACHE_SERVICE}/openeuler`
   （cache-service 的 openEuler 目录结构是 `openEuler-<ver>-LTS-SPx/<repo>/<arch>/`）。
