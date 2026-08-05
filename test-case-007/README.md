@@ -44,15 +44,22 @@ python3 -m pip install modelscope 'ray>=2.47.1,<=2.48.0' 'protobuf>3.20.0'
 gh workflow run test-case-007-install-env.yaml --repo ascend-gha-runners/vllm-ascend --ref main
 ```
 
-矩阵：`os(ubuntu-24.04, openeuler-24.03) × scenario(squid-proxy, cache-service)`，
-runner `linux-aarch64-cpu-4-buildkit-gy006`。每个组合生成 `timings-<os>-<scenario>.tsv`
-（phase / seconds / scenario / os），`compare` job 汇总并输出两种场景的总耗时。
+矩阵：`os(ubuntu-22.04, openeuler-24.03) × scenario(squid-proxy, cache-service)`，
+runner `linux-amd64-cpu-4-buildkit-gy006`（amd64 buildkit runner，镜像为 CANN 基础镜像）。
+每个组合生成 `timings-<os>-<scenario>.tsv`（phase / seconds / scenario / os），
+`compare` job 汇总并输出两种场景的总耗时。
+
+> 注意：CANN 基础镜像 `python3` 可能不在 PATH / 无 pip，脚本会往安装列表追加 `python3-pip`。
+> Node.js action（upload/download artifact）不认 `SSL_CERT_FILE`，需设 `NODE_EXTRA_CA_CERTS=/etc/squid-ca/squid-ca.pem`。
 
 ## 假设 / 需按实际集群调整
 
-- `cache-service` 场景下 apt 源改为 `${CACHE_SERVICE}/ubuntu`（Ubuntu Debian822），
-  yum 源改为 `${CACHE_SERVICE}/openeuler/$releasever/os/$basearch/`。
+- `cache-service` 场景下 apt 源改为 `${CACHE_SERVICE}/ubuntu`（Ubuntu Debian822，codename 取镜像实际值，
+  如 jammy）。部分基础镜像无 `/etc/apt/sources.list.d/`，脚本会先 `mkdir -p`。
+- yum 源默认改为 `${CACHE_SERVICE}/openeuler/openEuler-24.03-LTS/OS/$basearch/`
+  （cache-service 的 openEuler 目录结构是 `openEuler-<ver>-LTS/OS/<arch>/`，不是 `$releasever/os`）。
   若镜像目录结构不同，用环境变量覆盖：`APT_MIRROR_URL` / `YUM_MIRROR_URL`。
+- cache-service 的 pip 索引 `${CACHE_SERVICE}/pypi/simple` 会 301 到 `https://mirrors.huaweicloud.com/pypi/simple/`。
 - squid 场景下需要信任 squid MITM CA（job pod template 会挂到 `/etc/squid-ca/squid-ca.pem`，
   脚本会追加到 certifi）。
 - 如果测试基础镜像没有 pip，脚本会在 apt/yum 安装列表里追加 `python3-pip`（同样计入耗时）。

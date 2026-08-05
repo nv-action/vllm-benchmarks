@@ -16,10 +16,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, openeuler-24.03]
+        os: [ubuntu-22.04, openeuler-24.03]
         scenario: [squid-proxy, cache-service]
         include:
-          - os: ubuntu-24.04
+          - os: ubuntu-22.04
             image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.1-a3-ubuntu22.04-py3.12
             pkgmgr: apt
           - os: openeuler-24.03

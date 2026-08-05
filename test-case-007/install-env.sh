@@ -121,29 +121,41 @@ setup_network() {
 # apt sources -> cache-service (assumes mirror layout ${CACHE_SERVICE}/ubuntu; override APT_MIRROR_URL).
 rewrite_apt_sources() {
     local mirror="${APT_MIRROR_URL:-${CACHE_SERVICE}/ubuntu}"
-    local codename
+    local codename keyring signed_by
     codename="$(. /etc/os-release && echo "${VERSION_CODENAME:-noble}")"
     log "[apt] rewriting sources -> ${mirror} (codename=${codename})"
     find /etc/apt -maxdepth 1 -name 'sources.list*' -exec mv {} {}.bak.$$ \; 2>/dev/null || true
+    # Some base images (e.g. CANN) have no /etc/apt/sources.list.d/ at all;
+    # create it before writing the deb822 source file.
+    mkdir -p /etc/apt/sources.list.d
     find /etc/apt/sources.list.d -maxdepth 1 -type f -exec mv {} {}.bak.$$ \; 2>/dev/null || true
+    keyring=/usr/share/keyrings/ubuntu-archive-keyring.gpg
+    if [[ -f "$keyring" ]]; then
+        signed_by="Signed-By: $keyring"
+    else
+        signed_by="Trusted: yes"
+    fi
     cat > /etc/apt/sources.list.d/cache-service.sources <<EOF
 Types: deb
 URIs: ${mirror}
 Suites: ${codename} ${codename}-updates ${codename}-security
 Components: main universe multiverse
-Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+${signed_by}
 EOF
 }
 
-# yum repos -> cache-service (assumes mirror layout ${CACHE_SERVICE}/openeuler; override YUM_MIRROR_URL).
+# yum repos -> cache-service. cache-service mirrors openEuler under
+# /openeuler/openEuler-<ver>-LTS/OS/<basearch>/ (not $releasever/os).
+# Override the base path with YUM_MIRROR_URL (without $basearch).
 rewrite_yum_sources() {
-    local mirror="${YUM_MIRROR_URL:-${CACHE_SERVICE}/openeuler}"
-    log "[yum] rewriting repos -> ${mirror}"
+    local mirror="${YUM_MIRROR_URL:-${CACHE_SERVICE}/openeuler/openEuler-24.03-LTS/OS}"
+    log "[yum] rewriting repos -> ${mirror}/\$basearch/"
+    mkdir -p /etc/yum.repos.d
     find /etc/yum.repos.d -maxdepth 1 -name '*.repo' -exec mv {} {}.bak.$$ \; 2>/dev/null || true
     cat > /etc/yum.repos.d/cache-service.repo <<EOF
 [cache-service]
 name=cache-service
-baseurl=${mirror}/\$releasever/os/\$basearch/
+baseurl=${mirror}/\$basearch/
 enabled=1
 gpgcheck=0
 repo_gpgcheck=0
