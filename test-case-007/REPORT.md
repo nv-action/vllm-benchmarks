@@ -47,6 +47,31 @@
 - **yum update/install 两场景接近（138/142、82/72）**：openEuler 元数据经 cache-service 无明显加速。
 - **pip 阶段整体接近**：squid 与直连差异不大（apt 的 pip_mooncake squid 反而更快 8s vs 23s，可能与 tuna/huaweicloud 缓存命中有关）。
 
+## 补充：squid-proxy 场景改用中国 apt 镜像（APT_MIRROR_URL）
+
+第二次运行：[31006465703](https://github.com/nv-action/vllm-benchmarks/actions/runs/31006465703)（4 install + compare 全部 success）
+
+给 squid-proxy 的 apt 注入 `APT_MIRROR_URL=https://mirrors.huaweicloud.com/ubuntu`（经 squid MITM 出网，
+脚本自动写 `Acquire::https::CaInfo=/etc/squid-ca/squid-ca.pem`），对比 cache-service 保持默认集群内镜像。
+
+### apt 阶段对比（单位：秒）
+
+| phase | apt/squid（默认源 ports.ubuntu.com） | apt/squid（huaweicloud 中国镜像） | apt/cache |
+|---|---|---|---|
+| apt_update | 37 | **3** | 3 |
+| apt_install | 19 | 27 | 19 |
+
+- **apt_update：37s → 3s** —— 中国镜像经 squid 出网后，元数据下载与集群内 cache-service 镜像基本持平
+  （日志实证 `Get:` 全部来自 `https://mirrors.huaweicloud.com/ubuntu`）。
+- **apt_install：19s → 27s** —— 包下载量更大，经 squid MITM 的 TLS 开销略增，但仍属同一量级。
+- 结论：默认源的 `ports.ubuntu.com`（海外）是 apt_update 37s 的主因；换中国镜像后网络路径差异几乎消失。
+
+### 机制说明
+
+- workflow 矩阵为 `ubuntu-22.04 × squid-proxy` 注入 `apt_mirror`，脚本 `rewrite_apt_sources()`
+  对 apt 场景无条件重写源为 `${APT_MIRROR_URL:-${CACHE_SERVICE}/ubuntu}`。
+- https 镜像时写 `/etc/apt/apt.conf.d/99-squid-ca` 指向 squid CA，否则 apt 过 squid 的 TLS 校验失败。
+
 ## 过程中发现并修复的问题
 
 | # | 问题 | 根因 | 修复 |
