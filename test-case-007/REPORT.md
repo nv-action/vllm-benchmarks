@@ -59,6 +59,45 @@
 | 6 | cache-service pip 失败 | `${CACHE_SERVICE}/pypi/simple` 301→`mirrors.huaweicloud.com`，对 pip 的 PEP 691 Accept 头返回门户页（0 包链接）；且 runner PATH 排除镜像 python → 用了系统 pip 22.0.2 | cache-service pip 回退 tuna；`find_python()` 优先用镜像自带 pip 26 |
 | 7 | 矩阵名称不符 | 写 `ubuntu-24.04` 实为 22.04 | 改 `ubuntu-22.04` |
 
+## CA 信任环境变量矩阵（各工具对各 env 的响应）
+
+来源：https://github.com/ascend-gha-runners/vllm-ascend/actions/runs/29382951475
+
+在 git / curl / python 的对比中，各工具对 CA 环境变量的识别范围差异巨大。本测试矩阵是排查问题 #2（upload/download-artifact 报 `self-signed certificate`）的直接依据：**Node.js 只认 `NODE_EXTRA_CA_CERTS`，不认 `SSL_CERT_FILE`/`SSL_CERT_DIR`/`CURL_CA_BUNDLE`**，这正是 workflow env 必须单独设置 `NODE_EXTRA_CA_CERTS` 的原因。
+
+### 测试矩阵（环境变量 × 工具）
+
+| Case | Env var set | curl | git | python urllib | pip | requests (bare) | node |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **00** (negative control) | *(none)* | FAIL | FAIL | FAIL | FAIL | FAIL | FAIL |
+| **01** | `SSL_CERT_FILE` | OK | FAIL | OK | FAIL¹ | FAIL | FAIL |
+| **01b** | `SSL_CERT_FILE` + pip upgraded... | — | — | — | exploratory² | — | — |
+| **02** | `SSL_CERT_DIR` (hashed capath) | OK | FAIL | OK | FAIL¹ | FAIL | FAIL |
+| **03** | `CURL_CA_BUNDLE` | OK | FAIL | FAIL | OK³ | OK³ | FAIL |
+| **04** | `GIT_SSL_CAINFO` | FAIL | OK | FAIL | FAIL | FAIL | FAIL |
+| **05** | `REQUESTS_CA_BUNDLE` | FAIL | FAIL | FAIL | OK | OK | FAIL |
+| **06** | `PIP_CERT` | FAIL | FAIL | FAIL | OK⁴ | FAIL | FAIL |
+| **07** | `NODE_EXTRA_CA_CERTS` | FAIL | FAIL | FAIL | FAIL | FAIL | OK |
+| **08** (positive control) | *(none — system-wide CA store rebuilt)* | OK | OK | OK | OK | FAIL⁵ | OK |
+
+### 关键观察与解读
+
+1. **环境变量生效范围差异巨大：**
+   - `curl`：对 `SSL_CERT_FILE`、`SSL_CERT_DIR`、`CURL_CA_BUNDLE` 生效。
+   - `git`：非常独特，似乎**仅**对 `GIT_SSL_CAINFO`（04）和系统级 CA（08）生效，不支持通用的 `SSL_CERT_FILE` 等。
+   - `python urllib`：只接受 `SSL_CERT_FILE`、`SSL_CERT_DIR` 和系统级 CA，对 `CURL_CA_BUNDLE` 等无效。
+   - `pip` 与 `requests (bare)`：这两个工具能识别 `CURL_CA_BUNDLE` 和 `REQUESTS_CA_BUNDLE`，说明它们底层的证书验证逻辑是互相关联的（可能都调用了底层的 `curl` 或 `requests` 库环境变量，或者内部有逻辑互补）。
+   - `node`（新增）：**仅**认 `NODE_EXTRA_CA_CERTS`（07）与系统级 CA（08），其余变量一概不读。GitHub Actions 的 upload/download-artifact 正是 node 实现，所以 runner 里必须显式设置 `NODE_EXTRA_CA_CERTS=/etc/squid-ca/squid-ca.pem`。
+
+2. **关于脚注**：
+   - `¹` 和 `²` 表示存在特定前提或环境条件（例如在 `01b` 的特定 venv 环境中，pip 的行为属于"探索性测试"，无法给出固定的 PASS/FAIL 预期）。
+   - `³` 和 `⁴` 表示通过了测试，但可能有限制条件。
+   - `⁵` 最值得注意（见下）。
+
+3. **⚠️ 异常点（阳性对照 08）：**
+   - 在 `Case 08` 系统级 CA 商店重建的"阳性对照"中，`curl`、`git`、`urllib`、`pip` 和 `node` 全都成功（OK），唯独 **`requests (bare)` 失败了**（FAIL⁵）。
+   - **为什么会这样？** 这通常是 Python `requests` 库的"踩坑"点。`requests` 默认使用它内置的 `certifi` 包提供的 CA 证书包，而**不**总是使用操作系统的系统级 CA 存储。即使你正确配置了系统的 CA，如果没有做额外的配置（如设置 `REQUESTS_CA_BUNDLE`），`requests` 依然可能因为找不到它信任的 CA 证书而报错。
+
 ## 结论
 
 - 修复后两种场景在**同一份镜像、同一批包、同一 pip** 下真实安装，数据具备可比性。
