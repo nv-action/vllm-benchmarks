@@ -60,7 +60,10 @@ runner `linux-amd64-cpu-4-buildkit-gy006`（amd64 buildkit runner，镜像为 CA
   把 `https://repo.openeuler.org` 前缀换成 `${CACHE_SERVICE}/openeuler`
   （cache-service 的 openEuler 目录结构是 `openEuler-<ver>-LTS-SPx/<repo>/<arch>/`）。
   若镜像目录结构不同，用 `YUM_MIRROR_URL` 覆盖镜像基址（替换 `https://repo.openeuler.org`）。
-- cache-service 的 pip 索引 `${CACHE_SERVICE}/pypi/simple` 会 301 到 `https://mirrors.huaweicloud.com/pypi/simple/`。
+- cache-service 的 pip 索引默认回退到 tuna：`${CACHE_SERVICE}/pypi/simple` 会 301 到
+  `https://mirrors.huaweicloud.com/pypi/simple/`，但对 pip 的 PEP 691 Accept 头返回门户页
+  （0 个包链接），pip 永远解析不到包。若 cache-service 的 pypi 修好了，可用
+  `PIP_INDEX_URL` 覆盖回 `${CACHE_SERVICE}/pypi/simple`。
   该场景会 unset pod 注入的 squid CA 变量（PIP_CERT/SSL_CERT_FILE 等），否则直连时 TLS 校验失败。
 - squid 场景下需要信任 squid MITM CA（job pod template 会挂到 `/etc/squid-ca/squid-ca.pem`，
   脚本会追加到 certifi）。

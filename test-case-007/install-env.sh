@@ -78,13 +78,14 @@ run_timed() {
 # If squid MITM CA is mounted, append it to certifi so pip trusts the proxy.
 trust_squid_ca_for_pip() {
     local ca_file="/etc/squid-ca/squid-ca.pem"
+    local py="${PYTHON_CMD:-python3}"
     [[ -f "$ca_file" ]] || { log "[setup] WARNING: squid CA not found at $ca_file"; return 0; }
-    if ! python3 -c 'import certifi' >/dev/null 2>&1; then
+    if ! "$py" -c 'import certifi' >/dev/null 2>&1; then
         log "[setup] certifi not present yet; will re-trust after pip install"
         return 0
     fi
     local certifi
-    certifi="$(python3 -c 'import certifi; print(certifi.where())' 2>/dev/null)" || return 0
+    certifi="$("$py" -c 'import certifi; print(certifi.where())' 2>/dev/null)" || return 0
     if [[ -n "$certifi" && -f "$certifi" ]]; then
         cp "$certifi" "${certifi}.orig.$$"
         cat "$ca_file" >> "$certifi"
@@ -110,7 +111,11 @@ setup_network() {
             # mirrors.huaweicloud.com), so drop them and use the default trust store.
             unset PIP_CERT SSL_CERT_FILE REQUESTS_CA_BUNDLE CURL_CA_BUNDLE GIT_SSL_CAINFO
             export APTMIRROR="${APTMIRROR:-$CACHE_SERVICE}"
-            export PIP_INDEX_URL="${PIP_INDEX_URL:-${CACHE_SERVICE}/pypi/simple}"
+            # The cache-service pypi endpoint (/pypi/simple) 301-redirects to
+            # mirrors.huaweicloud.com, which answers pip's PEP 691 Accept header
+            # with a generic portal page (0 package links), so pip can never
+            # resolve anything. Fall back to the tuna mirror for the pip steps.
+            export PIP_INDEX_URL="${PIP_INDEX_URL:-$TUNA_INDEX}"
             export PIP_TRUSTED_HOST="${PIP_TRUSTED_HOST:-cache-service.nginx-pypi-cache.svc.cluster.local}"
             export PYTORCH_INDEX_URL="${PYTORCH_INDEX_URL:-${CACHE_SERVICE}/whl/cpu}"
             export ASCEND_INDEX_URL="${ASCEND_INDEX_URL:-${CACHE_SERVICE}/ascend/repos/pypi}"
@@ -170,6 +175,22 @@ rewrite_yum_sources() {
         /etc/yum.repos.d/*.repo
 }
 
+# The runner pod template overrides PATH and drops the CANN image's python
+# dir (e.g. /usr/local/python3.12.13/bin), so `python3` may be missing or
+# resolve to the system python (3.10, pip 22.0.2) which mishandles modern
+# PEP 691 JSON simple indexes. Prefer the image's own python/pip (modern),
+# fall back to whatever `python3` resolves to.
+find_python() {
+    local py
+    for py in python3.12 /usr/local/python3.12.13/bin/python3 /usr/local/bin/python3 python3 /usr/bin/python3; do
+        if command -v "$py" >/dev/null 2>&1 && "$py" -m pip --version >/dev/null 2>&1; then
+            echo "$py"
+            return 0
+        fi
+    done
+    return 1
+}
+
 # ---- extracted install steps -------------------------------------------------
 # Dockerfile.a3 (apt)
 APT_PKGS="git vim wget net-tools gcc g++ cmake numactl libnuma-dev libibverbs-dev libjemalloc2 libhiredis-dev clang-15"
@@ -178,6 +199,19 @@ YUM_PKGS="git vim wget net-tools gcc gcc-c++ make cmake numactl numactl-devel li
 MOONCAKE_TAG="0.3.11.post1"
 
 log "=== start OS=${OS} SCENARIO=${SCENARIO} ==="
+
+# Prefer the image's own python/pip (e.g. CANN's python3.12+pip 26) so the
+# installs behave like the real Dockerfile build; only fall back to
+# installing python3-pip if none is found.
+EXTRA=""
+PYTHON_CMD="$(find_python || true)"
+if [[ -z "$PYTHON_CMD" ]]; then
+    EXTRA="python3-pip"
+    log "[setup] pip missing, will add '${EXTRA}' to the package install"
+else
+    log "[setup] using python: $PYTHON_CMD ($($PYTHON_CMD -m pip --version))"
+fi
+
 setup_network
 if [[ "$SCENARIO" == "cache-service" ]]; then
     if [[ "$OS" == "apt" ]]; then
@@ -185,14 +219,6 @@ if [[ "$SCENARIO" == "cache-service" ]]; then
     else
         rewrite_yum_sources
     fi
-fi
-
-# The two Dockerfiles assume pip is preinstalled (cann base image). The test base
-# images may not have it, so add python3-pip into the (timed) package install if missing.
-EXTRA=""
-if ! python3 -m pip --version >/dev/null 2>&1; then
-    EXTRA="python3-pip"
-    log "[setup] pip missing, will add '${EXTRA}' to the package install"
 fi
 
 if [[ "$OS" == "apt" ]]; then
@@ -207,17 +233,23 @@ else
     run_timed yum_install yum install -y $PKGS
 fi
 
+# python3-pip may have been installed just now; re-resolve if we had none.
+if [[ -z "$PYTHON_CMD" ]]; then
+    PYTHON_CMD="$(find_python || true)"
+    log "[setup] after pkg install, using python: ${PYTHON_CMD:-<none>}"
+fi
+
 # Re-trust squid CA now that certifi exists (scenario squid-proxy only).
 if [[ "$SCENARIO" == "squid-proxy" ]]; then
     trust_squid_ca_for_pip
 fi
 
 # pip index = scenario value (matches `pip config set global.index-url ${PIP_INDEX_URL}`)
-run_timed pip_config bash -c "python3 -m pip config set global.index-url '${PIP_INDEX_URL}'"
+run_timed pip_config bash -c "$PYTHON_CMD -m pip config set global.index-url '${PIP_INDEX_URL}'"
 
 # pip installs extracted from the Dockerfiles (mooncake + modelscope/ray/protobuf)
-run_timed pip_mooncake bash -c "python3 -m pip install mooncake-transfer-engine-npu==${MOONCAKE_TAG} --extra-index-url https://mirrors.aliyun.com/pypi/web/simple"
-run_timed pip_misc     bash -c "python3 -m pip install modelscope 'ray>=2.47.1,<=2.48.0' 'protobuf>3.20.0'"
+run_timed pip_mooncake bash -c "$PYTHON_CMD -m pip install mooncake-transfer-engine-npu==${MOONCAKE_TAG} --extra-index-url https://mirrors.aliyun.com/pypi/web/simple"
+run_timed pip_misc     bash -c "$PYTHON_CMD -m pip install modelscope 'ray>=2.47.1,<=2.48.0' 'protobuf>3.20.0'"
 
 echo ""
 echo "################ SUMMARY (${OS} / ${SCENARIO}) ################"
