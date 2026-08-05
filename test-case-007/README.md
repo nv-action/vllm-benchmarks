@@ -56,10 +56,12 @@ runner `linux-amd64-cpu-4-buildkit-gy006`（amd64 buildkit runner，镜像为 CA
 
 - `cache-service` 场景下 apt 源改为 `${CACHE_SERVICE}/ubuntu`（Ubuntu Debian822，codename 取镜像实际值，
   如 jammy）。部分基础镜像无 `/etc/apt/sources.list.d/`，脚本会先 `mkdir -p`。
-- yum 源默认改为 `${CACHE_SERVICE}/openeuler/openEuler-24.03-LTS/OS/$basearch/`
-  （cache-service 的 openEuler 目录结构是 `openEuler-<ver>-LTS/OS/<arch>/`，不是 `$releasever/os`）。
-  若镜像目录结构不同，用环境变量覆盖：`APT_MIRROR_URL` / `YUM_MIRROR_URL`。
+- yum 源默认改为复刻镜像自带仓库集（OS/everything/EPOL/update/...），
+  把 `https://repo.openeuler.org` 前缀换成 `${CACHE_SERVICE}/openeuler`
+  （cache-service 的 openEuler 目录结构是 `openEuler-<ver>-LTS-SPx/<repo>/<arch>/`）。
+  若镜像目录结构不同，用 `YUM_MIRROR_URL` 覆盖镜像基址（替换 `https://repo.openeuler.org`）。
 - cache-service 的 pip 索引 `${CACHE_SERVICE}/pypi/simple` 会 301 到 `https://mirrors.huaweicloud.com/pypi/simple/`。
+  该场景会 unset pod 注入的 squid CA 变量（PIP_CERT/SSL_CERT_FILE 等），否则直连时 TLS 校验失败。
 - squid 场景下需要信任 squid MITM CA（job pod template 会挂到 `/etc/squid-ca/squid-ca.pem`，
   脚本会追加到 certifi）。
 - 如果测试基础镜像没有 pip，脚本会在 apt/yum 安装列表里追加 `python3-pip`（同样计入耗时）。

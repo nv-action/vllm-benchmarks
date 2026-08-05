@@ -105,6 +105,10 @@ setup_network() {
             ;;
         cache-service)
             unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy all_proxy ALL_PROXY
+            # The runner pod sets these to the squid MITM CA; they would break
+            # direct TLS (e.g. pip following the /pypi/simple 301 to
+            # mirrors.huaweicloud.com), so drop them and use the default trust store.
+            unset PIP_CERT SSL_CERT_FILE REQUESTS_CA_BUNDLE CURL_CA_BUNDLE GIT_SSL_CAINFO
             export APTMIRROR="${APTMIRROR:-$CACHE_SERVICE}"
             export PIP_INDEX_URL="${PIP_INDEX_URL:-${CACHE_SERVICE}/pypi/simple}"
             export PIP_TRUSTED_HOST="${PIP_TRUSTED_HOST:-cache-service.nginx-pypi-cache.svc.cluster.local}"
@@ -144,22 +148,26 @@ ${signed_by}
 EOF
 }
 
-# yum repos -> cache-service. cache-service mirrors openEuler under
-# /openeuler/openEuler-<ver>-LTS/OS/<basearch>/ (not $releasever/os).
-# Override the base path with YUM_MIRROR_URL (without $basearch).
+# yum repos -> cache-service. Keep the image's default repo set (OS,
+# everything, EPOL, update, ...) but point baseurl at the cache-service
+# mirror, which mirrors openEuler under /openeuler/<repo-dir>/ (e.g.
+# openEuler-24.03-LTS-SP3/OS/$basearch/). Override the mirror base with
+# YUM_MIRROR_URL (replaces https://repo.openeuler.org).
 rewrite_yum_sources() {
-    local mirror="${YUM_MIRROR_URL:-${CACHE_SERVICE}/openeuler/openEuler-24.03-LTS/OS}"
-    log "[yum] rewriting repos -> ${mirror}/\$basearch/"
+    local mirror="${YUM_MIRROR_URL:-${CACHE_SERVICE}/openeuler}"
+    log "[yum] rewriting repos -> ${mirror}/<repo-dir>/"
     mkdir -p /etc/yum.repos.d
-    find /etc/yum.repos.d -maxdepth 1 -name '*.repo' -exec mv {} {}.bak.$$ \; 2>/dev/null || true
-    cat > /etc/yum.repos.d/cache-service.repo <<EOF
-[cache-service]
-name=cache-service
-baseurl=${mirror}/\$basearch/
-enabled=1
-gpgcheck=0
-repo_gpgcheck=0
-EOF
+    local f
+    for f in /etc/yum.repos.d/*.repo; do
+        [[ -f "$f" ]] || continue
+        cp "$f" "$f.bak.$$"
+    done
+    sed -i "s|https://repo.openeuler.org|${mirror}|g" /etc/yum.repos.d/*.repo
+    # plain-http mirror: drop gpg checks and skip any subrepo missing on it
+    sed -i -e 's/^gpgcheck=.*/gpgcheck=0/' \
+        -e 's/^repo_gpgcheck=.*/repo_gpgcheck=0/' \
+        -e '/^\[/a skip_if_unavailable=True' \
+        /etc/yum.repos.d/*.repo
 }
 
 # ---- extracted install steps -------------------------------------------------
