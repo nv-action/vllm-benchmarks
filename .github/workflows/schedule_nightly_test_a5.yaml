@@ -97,34 +97,57 @@ on:
         required: false
         default: '2026.08.03'
         type: string
+  repository_dispatch:
+    types: [run‑a5‑nightly]
 
 permissions:
   contents: read
   pull-requests: read
   issues: read
 
-# Bash shells do not use ~/.profile or ~/.bashrc so these shells need to be explicitly
-# declared as "shell: bash -el {0}" on steps that need to be properly activated.
-# It's used to activate ascend-toolkit environment variables.
 defaults:
   run:
     shell: bash -el {0}
 
 concurrency:
-  group: ascend-nightly-${{ github.ref }}-a5${{ inputs.request_id && format('-{0}', inputs.request_id) || '' }}
+  group: >-
+    ascend-nightly-${{
+      github.event_name == 'repository_dispatch'
+        && fromJson(github.event.client_payload).vllm_ascend_branch
+        || inputs.vllm_ascend_branch
+    }}-a5${{
+      ((github.event_name == 'repository_dispatch' && fromJson(github.event.client_payload).request_id) || inputs.request_id)
+      && format('-{0}', (github.event_name == 'repository_dispatch' && fromJson(github.event.client_payload).request_id) || inputs.request_id)
+      || ''
+    }}
   cancel-in-progress: true
 
 env:
-  # Single source of truth for all shared variables across jobs.
-  # NOTE: GitHub Actions does not support env context in reusable workflow `with:` inputs,
-  # so these values are exported as job outputs via the `setup-vars` job below.
   ASCEND_LOG_PREFIX: '/root/.cache/ascend-logs'
 
 jobs:
+  read-dispatch-payload:
+    name: Read repository_dispatch payload
+    if: github.event_name == 'repository_dispatch'
+    runs-on: linux-amd64-cpu-8-hk
+    outputs:
+      vllm_ascend_branch: ${{ fromJson(github.event.client_payload).vllm_ascend_branch }}
+      test_cases: ${{ fromJson(github.event.client_payload).test_cases }}
+      request_id: ${{ fromJson(github.event.client_payload).request_id || '' }}
+      skip_build_image: ${{ fromJson(github.event.client_payload).skip_build_image }}
+      vllm_ascend_ref: ${{ fromJson(github.event.client_payload).vllm_ascend_ref || '' }}
+      aop_enabled: ${{ fromJson(github.event.client_payload).aop_enabled }}
+      build_type: ${{ fromJson(github.event.client_payload).build_type }}
+      cann_version: ${{ fromJson(github.event.client_payload).cann_version }}
+    steps:
+      - run: echo "Successfully read repository_dispatch client_payload"
+
   parse-trigger:
     name: Parse trigger and determine test scope
     if: >-
       github.event_name == 'workflow_dispatch'
+      || github.event_name == 'repository_dispatch'
+    needs: [read-dispatch-payload]
     runs-on: linux-aarch64-a5-0
     outputs:
       run: ${{ steps.parse.outputs.run }}
@@ -137,9 +160,18 @@ jobs:
         with:
           script: |
             const eventName = context.eventName;
-            const testCases = '${{ inputs.test_cases }}'.trim();
+            let testCases;
+            let refVal;
+            if (eventName === 'repository_dispatch') {
+              const payload = context.payload.client_payload;
+              testCases = (payload.test_cases || '').trim();
+              refVal = payload.vllm_ascend_ref || context.sha || 'unknown';
+            } else {
+              testCases = '${{ inputs.test_cases }}'.trim();
+              refVal = context.sha || 'unknown';
+            }
 
-            core.setOutput('ref', context.sha || 'unknown');
+            core.setOutput('ref', refVal);
 
             if (testCases) {
               core.setOutput('run', 'true');
@@ -150,13 +182,12 @@ jobs:
               }
               return;
             }
-
             core.setOutput('run', 'false');
             core.setOutput('filter', '');
 
   setup-vars:
     name: Export global env vars as job outputs
-    needs: parse-trigger
+    needs: [parse-trigger, read-dispatch-payload]
     runs-on: linux-amd64-cpu-8-hk
     outputs:
       ascend_log_prefix: ${{ steps.export.outputs.ascend_log_prefix }}
@@ -168,7 +199,13 @@ jobs:
         run: |
           {
             echo "ascend_log_prefix=${{ env.ASCEND_LOG_PREFIX }}"
-            input_branch="${{ inputs.vllm_ascend_branch }}"
+          } >> $GITHUB_OUTPUT
+          {
+            if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
+              input_branch="${{ needs.read-dispatch-payload.outputs.vllm_ascend_branch }}"
+            else
+              input_branch="${{ inputs.vllm_ascend_branch }}"
+            fi
             normalized=$(echo "$input_branch" | tr '/' '-')
             echo "vllm_ascend_branches=[\"${normalized}\"]"
           } >> $GITHUB_OUTPUT
@@ -176,13 +213,25 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.vllm_ascend_branch }}
+          ref: >-
+            ${{
+              github.event_name == 'repository_dispatch'
+              && needs.read-dispatch-payload.outputs.vllm_ascend_branch
+              || inputs.vllm_ascend_branch
+            }}
 
       - name: Checkout PR code
-        if: github.event_name == 'workflow_dispatch' && inputs.vllm_ascend_ref != ''
+        if: >-
+          (github.event_name == 'workflow_dispatch' && inputs.vllm_ascend_ref != '')
+          || (github.event_name == 'repository_dispatch' && needs.read-dispatch-payload.outputs.vllm_ascend_ref != '')
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.vllm_ascend_ref }}
+          ref: >-
+            ${{
+              github.event_name == 'repository_dispatch'
+              && needs.read-dispatch-payload.outputs.vllm_ascend_ref
+              || inputs.vllm_ascend_ref
+            }}
           sparse-checkout: .github/workflows/configs/
           path: ./pr
 
@@ -194,37 +243,21 @@ jobs:
       - name: Read A5 test matrix config
         id: set-matrix
         env:
-          MATRIX_FILE: ${{ github.event_name == 'workflow_dispatch' && inputs.vllm_ascend_ref != '' && './pr/.github/workflows/configs/nightly_config.yaml' || '.github/workflows/configs/nightly_config.yaml' }}
+          MATRIX_FILE: >-
+            ${{
+              ((github.event_name == 'workflow_dispatch' && inputs.vllm_ascend_ref != '')
+              || (github.event_name == 'repository_dispatch' && needs.read-dispatch-payload.outputs.vllm_ascend_ref != ''))
+              && './pr/.github/workflows/configs/nightly_config.yaml'
+              || '.github/workflows/configs/nightly_config.yaml'
+            }}
           MATRIX_OUTPUTS: '{"multi_node":"a5.multi_node.test_config","single_node":"a5.single_node.test_config"}'
         run: |
           python3 -m pip install pyyaml -q
           python3 .github/workflows/scripts/resolve_nightly_tests.py --mode=matrix
 
-  # build-image:
-  #   name: Build nightly-a5 image
-  #   if: >-
-  #     (github.event_name == 'workflow_dispatch' && inputs.skip_build_image != 'true')
-  #   strategy:
-  #     matrix:
-  #       vllm_ascend_branch: >-
-  #         ${{ fromJSON(format('["{0}"]', inputs.vllm_ascend_branch)) }}
-  #   uses: ./.github/workflows/_nightly_image_build.yaml
-  #   with:
-  #     target: a5
-  #     vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
-  #   secrets:
-  #     HW_USERNAME: ${{ secrets.HW_USERNAME }}
-  #     HW_TOKEN: ${{ secrets.HW_TOKEN }}
-  #     GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-
   multi-node-tests:
     name: multi-node
-    # needs: [setup-vars, parse-trigger, build-image]
-    # if: >-
-    #   always() &&
-    #   needs.parse-trigger.outputs.run == 'true' &&
-    #   (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
-    needs: [setup-vars, parse-trigger]
+    needs: [setup-vars, parse-trigger, read-dispatch-payload]
     if: >-
       always() &&
       needs.parse-trigger.outputs.run == 'true'
@@ -238,17 +271,33 @@ jobs:
     with:
       soc_version: a5
       runner: linux-aarch64-a5-0
-      # image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a5'
-      image: swr.cn-north-4.myhuaweicloud.com/inference/vllm-ascend-temp:daily-main-a5-cann2026.08.03-20260805-arm64 
+      image: swr.cn-north-4.myhuaweicloud.com/inference/vllm-ascend-temp:daily-main-a5-cann2026.08.03-20260805-arm64
       ascend_log_prefix: ${{ needs.setup-vars.outputs.ascend_log_prefix }}/${{ matrix.vllm_ascend_branch }}
       vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
       replicas: 1
       size: ${{ matrix.test_config.size }}
       config_file_path: ${{ matrix.test_config.config_file_path }}
       name: ${{ matrix.test_config.name }}
-      vllm_ascend_ref: ${{ inputs.vllm_ascend_ref || needs.parse-trigger.outputs.ref }}
-      aop_multi_enabled: ${{ inputs.aop_enabled }}
-      request_id: ${{ inputs.request_id || '' }}
+      vllm_ascend_ref: >-
+        ${{
+          github.event_name == 'repository_dispatch'
+          && needs.read-dispatch-payload.outputs.vllm_ascend_ref
+          || inputs.vllm_ascend_ref
+          || needs.parse-trigger.outputs.ref
+        }}
+      aop_multi_enabled: >-
+        ${{
+          github.event_name == 'repository_dispatch'
+          && needs.read-dispatch-payload.outputs.aop_enabled
+          || inputs.aop_enabled
+        }}
+      request_id: >-
+        ${{
+          github.event_name == 'repository_dispatch'
+          && needs.read-dispatch-payload.outputs.request_id
+          || inputs.request_id
+          || ''
+        }}
       should_run: >-
         ${{
           needs.parse-trigger.outputs.run == 'true' && (
@@ -263,12 +312,7 @@ jobs:
 
   single-node-tests:
     name: single-node
-    # needs: [setup-vars, parse-trigger, build-image]
-    # if: >-
-    #   always() &&
-    #   needs.parse-trigger.outputs.run == 'true' &&
-    #   (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
-    needs: [setup-vars, parse-trigger]
+    needs: [setup-vars, parse-trigger, read-dispatch-payload]
     if: >-
       always() &&
       needs.parse-trigger.outputs.run == 'true'
@@ -281,8 +325,7 @@ jobs:
     uses: ./.github/workflows/_e2e_nightly_single_node.yaml
     with:
       runner: ${{ matrix.test_config.os }}
-      # image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a5'
-      image: swr.cn-north-4.myhuaweicloud.com/inference/vllm-ascend-temp:daily-main-a5-cann2026.08.03-20260805-arm64 
+      image: swr.cn-north-4.myhuaweicloud.com/inference/vllm-ascend-temp:daily-main-a5-cann2026.08.03-20260805-arm64
       config_file_path: ${{ matrix.test_config.config_file_path }}
       name: ${{ matrix.test_config.name }}
       should_run: >-
@@ -292,26 +335,45 @@ jobs:
             contains(needs.parse-trigger.outputs.filter, format(',{0},', matrix.test_config.name))
           )
         }}
-      request_id: ${{ inputs.request_id || '' }}
-      vllm_ascend_ref: ${{ inputs.vllm_ascend_ref || '' }}
-      aop_single_enabled: ${{ inputs.aop_enabled }}
+      request_id: >-
+        ${{
+          github.event_name == 'repository_dispatch'
+          && needs.read-dispatch-payload.outputs.request_id
+          || inputs.request_id
+          || ''
+        }}
+      vllm_ascend_ref: >-
+        ${{
+          github.event_name == 'repository_dispatch'
+          && needs.read-dispatch-payload.outputs.vllm_ascend_ref
+          || inputs.vllm_ascend_ref
+          || ''
+        }}
+      aop_single_enabled: >-
+        ${{
+          github.event_name == 'repository_dispatch'
+          && needs.read-dispatch-payload.outputs.aop_enabled
+          || inputs.aop_enabled
+        }}
+    secrets:
+      KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
+      OBS_ACCESS_KEY_ID: ${{ secrets.OBS_ACCESS_KEY_ID }}
+      OBS_SECRET_ACCESS_KEY: ${{ secrets.OBS_SECRET_ACCESS_KEY }}
 
   clear-pre-logs:
     runs-on: linux-aarch64-a5-0
-    needs: [multi-node-tests]
+    needs: [multi-node-tests, read-dispatch-payload]
     if: needs.multi-node-tests.result != 'skipped'
     steps:
       - name: Clear pre-logs on pvc
         run: |
-          # Clear logs generated before the test to avoid confusion
           rm -rf "${ASCEND_LOG_PREFIX:?}"/* || true
 
   merge-benchmark-artifacts:
     name: Merge benchmark artifacts into nightly-a5.zip
-    needs: [parse-trigger, single-node-tests, multi-node-tests]
+    needs: [parse-trigger, single-node-tests, multi-node-tests, read-dispatch-payload]
     if: >-
       always() &&
-      github.event_name == 'workflow_dispatch' &&
       needs.parse-trigger.result == 'success'
     runs-on: linux-amd64-cpu-8-hk
     steps:
