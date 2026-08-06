@@ -25,7 +25,7 @@ jobs:
           - Dockerfile.310p.openEuler
         runner_info:
           - {runner: linux-aarch64-a2-5c8g-v-gy006, arch: arm64}
-          - {runner: linux-aarch64-a2-5c8g-v-gy006, arch: amd64}
+          - {runner: linux-aarch64-a2-10c16g-v-gy006, arch: arm64}
 
     steps:
       - name: Checkout
