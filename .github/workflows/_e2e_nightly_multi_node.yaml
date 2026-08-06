@@ -6,7 +6,7 @@ on:
       soc_version:
         required: true
         type: string
-        description: use a2 or a3
+        description: use a2 or a3 or a5
       runner:
         required: false
         type: string
@@ -110,10 +110,10 @@ jobs:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-cpu
       env:
         KUBECONFIG: /tmp/kubeconfig
-        NAMESPACE: vllm-project
+        NAMESPACE: nv_action
     steps:
       - name: Decode kubeconfig
-        run: echo "${{ secrets.KUBECONFIG_A5_B64 }}" | base64 -d > "$KUBECONFIG"
+        run: echo "${{ secrets.KUBECONFIG_B64 }}" | base64 -d > "$KUBECONFIG"
 
       - name: Checkout code
         uses: actions/checkout@v7

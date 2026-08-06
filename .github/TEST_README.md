@@ -12,6 +12,7 @@ This document describes the CI workflows for `vllm-ascend`, how to add tests, an
 | `_pre_commit.yml` | Called by `pr_test.yaml` | Lint and format checks |
 | `schedule_nightly_test_a2.yaml` | Cron | Nightly E2E on A2 runners |
 | `schedule_nightly_test_a3.yaml` | Cron | Nightly E2E on A3 runners |
+| `schedule_nightly_test_a5.yaml` | Cron | Nightly E2E on A5 runners |
 | `schedule_weekly_test_a3.yaml` | Cron | Weekly E2E on A3 runners |
 
 ## Selective Testing System
