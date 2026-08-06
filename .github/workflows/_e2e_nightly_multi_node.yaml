@@ -110,7 +110,7 @@ jobs:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-cpu
       env:
         KUBECONFIG: /tmp/kubeconfig
-        NAMESPACE: nv_action
+        NAMESPACE: vllm-project
     steps:
       - name: Decode kubeconfig
         run: echo "${{ secrets.KUBECONFIG_B64 }}" | base64 -d > "$KUBECONFIG"
