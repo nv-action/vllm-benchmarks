@@ -1,0 +1,84 @@
+name: test-case-007-install-env
+
+on:
+  workflow_dispatch:
+
+env:
+  CACHE_SERVICE: http://cache-service.nginx-pypi-cache.svc.cluster.local:8081
+  SQUID_PROXY: http://squid-cache.squid.svc.cluster.local:3128
+  NODE_EXTRA_CA_CERTS: /etc/squid-ca/squid-ca.pem
+
+jobs:
+  install:
+    name: ${{ matrix.os }} / ${{ matrix.scenario }}
+    runs-on: linux-amd64-cpu-4-buildkit-gy006
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, openeuler-24.03]
+        scenario: [squid-proxy, cache-service]
+        include:
+          - os: ubuntu-22.04
+            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.1-a3-ubuntu22.04-py3.12
+            pkgmgr: apt
+          - os: openeuler-24.03
+            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.1-a3-openeuler24.03-py3.12
+            pkgmgr: yum
+    container:
+      image: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run install & timing
+        run: |
+          bash test-case-007/install-env.sh \
+            --os "${{ matrix.pkgmgr }}" \
+            --scenario "${{ matrix.scenario }}"
+        env:
+          SQUID_PROXY: ${{ env.SQUID_PROXY }}
+          CACHE_SERVICE: ${{ env.CACHE_SERVICE }}
+          RESULTS_DIR: /tmp/test-case-007-results
+
+      - name: Show timings
+        run: |
+          cat /tmp/test-case-007-results/timings-*.tsv
+
+      - name: Upload timings
+        uses: actions/upload-artifact@v4
+        with:
+          name: timings-${{ matrix.os }}-${{ matrix.scenario }}
+          path: /tmp/test-case-007-results/
+          if-no-files-found: error
+
+  compare:
+    needs: install
+    if: always()
+    runs-on: linux-amd64-cpu-4-buildkit-gy006
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.1-a3-ubuntu22.04-py3.12
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/results
+          pattern: timings-*
+          merge-multiple: true
+
+      - name: Compare timings
+        shell: bash
+        run: |
+          cd /tmp/results
+          echo "=== per-phase timings ==="
+          if command -v column >/dev/null 2>&1; then
+            { printf 'phase\tseconds\tscenario\tos\n'; tail -n +2 timings-*.tsv; } | \
+              sort -t $'\t' -k4,4 -k3,3 -k2,2n | column -t -s $'\t'
+          else
+            { printf 'phase\tseconds\tscenario\tos\n'; tail -n +2 timings-*.tsv; } | \
+              sort -t $'\t' -k4,4 -k3,3 -k2,2n
+          fi
+          echo ""
+          echo "=== total seconds per scenario ==="
+          awk -F '\t' 'NR>1 {t[$3]+=$2; n[$3]++} END {for (k in t) printf "%-16s total=%ss avg=%ss runs=%d\n", k, t[k], t[k]/n[k], n[k]}' timings-*.tsv | sort
+          echo ""
+          echo "=== total seconds per os ==="
+          awk -F '\t' 'NR>1 {t[$4]+=$2} END {for (k in t) printf "%-16s total=%ss\n", k, t[k]}' timings-*.tsv | sort

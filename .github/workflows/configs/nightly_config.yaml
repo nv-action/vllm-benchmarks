@@ -290,23 +290,15 @@ a3-560t:
       - name: Qwen3-30B-QuaRot
         os: linux-aarch64-a3-2-cn12-001
         config_file_path: Qwen3-30B-QuaRot-eagle3.yaml
+
 a5:
   multi_node:
     test_config:
       - name: Qwen3-235B-W8A8-EPLB
-        os: linux-aarch64-a5-8
         size: 2
         config_file_path: Qwen3-235B-W8A8-EPLB.yaml
-  double_node:
-    test_config: []
   single_node:
     test_config:
-      - name: Qwen3.5-397B-A17B-w4a8-mt
+      - name: Qwen3.5-397B-A17B-w4a8-mtp
         os: linux-aarch64-a5-8
-        config_file_path: Qwen3.5-397B-A17B-w4a8-mt-A5.yaml
-  multi_card:
-    test_config: []
-  accuracy:
-    nightly: []
-    pr_only: []
-    
+        config_file_path: Qwen3.5-397B-A17B-w4a8-mtp.yaml

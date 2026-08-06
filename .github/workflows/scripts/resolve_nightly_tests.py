@@ -66,13 +66,14 @@ def cmd_dispatch(_args):
     a3_names = parse_nightly_matrix(matrix_b64, "a3")
     a3_560t_names = parse_nightly_matrix(matrix_b64, "a3-560t")
     _310p_names = parse_nightly_matrix(matrix_b64, "310p")
+    a5_names = parse_nightly_matrix(matrix_b64, "a5")
 
     is_a3_560t = os.environ.get("IS_A3_560T", "") == "true"
 
     raw = os.environ.get("TEST_CASES", "")
     test_cases = [tc.strip() for tc in raw.split(",") if tc.strip()]
 
-    da2, da3, da3_560t, d310p = False, False, False, False
+    da2, da3, da3_560t, d310p, da5 = False, False, False, False, False
     transformed = None
     for tc in test_cases:
         if "/" in tc:
@@ -94,6 +95,8 @@ def cmd_dispatch(_args):
                     da3 = True
                 if tc in _310p_names:
                     d310p = True
+                if tc in a5_names:
+                    da5 = True
 
     with open(os.environ["GITHUB_OUTPUT"], "a") as f:
         if transformed:
@@ -102,6 +105,7 @@ def cmd_dispatch(_args):
         f.write(f"dispatch_a3={str(da3).lower()}\n")
         f.write(f"dispatch_a3_560t={str(da3_560t).lower()}\n")
         f.write(f"dispatch_310p={str(d310p).lower()}\n")
+        f.write(f"dispatch_a5={str(da5).lower()}\n")
 
 
 def cmd_matrix(_args):
