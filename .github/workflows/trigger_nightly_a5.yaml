@@ -31,10 +31,10 @@ jobs:
           PR_HEAD=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" "$PR_URL")
           PR_BRANCH=$(echo "$PR_HEAD" | jq -r '.head.ref')
           PR_SHA=$(echo "$PR_HEAD" | jq -r '.head.sha')
-          PR_NUM=${{ github.event.issue.number }}
-          echo "pr_branch=${PR_BRANCH}" >> $GITHUB_OUTPUT
-          echo "pr_sha=${PR_SHA}" >> $GITHUB_OUTPUT
-          echo "request_id=pr-${PR_NUM}" >> $GITHUB_OUTPUT
+          {
+            echo "pr_branch=${PR_BRANCH}"
+            echo "pr_sha=${PR_SHA}"
+          } >> $GITHUB_OUTPUT
 
       - name: Parse test‑cases from comment body
         id: parse_comment
