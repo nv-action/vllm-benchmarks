@@ -173,11 +173,15 @@ jobs:
 
   multi-node-tests:
     name: multi-node
-    needs: [setup-vars, parse-trigger, build-image]
+    # needs: [setup-vars, parse-trigger, build-image]
+    # if: >-
+    #   always() &&
+    #   needs.parse-trigger.outputs.run == 'true' &&
+    #   (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
+    needs: [setup-vars, parse-trigger]
     if: >-
       always() &&
-      needs.parse-trigger.outputs.run == 'true' &&
-      (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
+      needs.parse-trigger.outputs.run == 'true'
     strategy:
       fail-fast: false
       max-parallel: 3
@@ -213,11 +217,15 @@ jobs:
 
   single-node-tests:
     name: single-node
-    needs: [setup-vars, parse-trigger, build-image]
+    # needs: [setup-vars, parse-trigger, build-image]
+    # if: >-
+    #   always() &&
+    #   needs.parse-trigger.outputs.run == 'true' &&
+    #   (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
+    needs: [setup-vars, parse-trigger]
     if: >-
       always() &&
-      needs.parse-trigger.outputs.run == 'true' &&
-      (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
+      needs.parse-trigger.outputs.run == 'true'
     strategy:
       fail-fast: false
       max-parallel: 9
