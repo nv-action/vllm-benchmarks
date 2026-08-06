@@ -47,7 +47,7 @@ jobs:
       vllm_ascend_branch: ${{ needs.trigger.outputs.pr_branch }}
       vllm_ascend_ref: ${{ needs.trigger.outputs.pr_sha }}
       test_cases: ${{ needs.trigger.outputs.test_cases }}
-      skip_build_image: false
+      skip_build_image: "false"
       aop_enabled: false
       build_type: release
       cann_version: "2026.08.03"
