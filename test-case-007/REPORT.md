@@ -103,7 +103,7 @@
 | **05** | `REQUESTS_CA_BUNDLE` | FAIL | FAIL | FAIL | OK | OK | FAIL |
 | **06** | `PIP_CERT` | FAIL | FAIL | FAIL | OK⁴ | FAIL | FAIL |
 | **07** | `NODE_EXTRA_CA_CERTS` | FAIL | FAIL | FAIL | FAIL | FAIL | OK |
-| **08** (positive control) | *(none — system-wide CA store rebuilt)* | OK | OK | OK | OK | FAIL⁵ | OK |
+| **08** (positive control) | *(none — system-wide CA store rebuilt)* | OK | OK | OK | OK | FAIL⁵ | FAIL |
 
 ### 关键观察与解读
 
