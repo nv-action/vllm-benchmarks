@@ -1,5 +1,4 @@
 name: 'e2e nightly test multi_node'
-
 on:
   workflow_call:
     inputs:
