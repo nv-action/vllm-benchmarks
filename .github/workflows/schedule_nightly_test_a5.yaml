@@ -27,7 +27,7 @@ on:
         default: 'main'
         type: string
       test_cases:
-        description: 'Test cases to run (comma‑separated, e.g., "qwen3‑32b,accuracy‑group" or "all" for all tests)'
+        description: 'Test cases to run (comma-separated, e.g., "test_custom_op,qwen3-32b,accuracy-group" or "all" for all tests)'
         required: false
         default: 'all'
         type: string
@@ -37,17 +37,17 @@ on:
         default: ''
         type: string
       skip_build_image:
-        description: 'Skip build‑image job (used when triggered by /nightly command)'
+        description: 'Skip build-image job (used when triggered by /nightly command)'
         required: false
         default: 'false'
         type: string
       vllm_ascend_ref:
-        description: 'PR commit SHA for PR‑triggered tests'
+        description: 'PR commit SHA for PR-triggered tests'
         required: false
         default: ''
         type: string
       aop_enabled:
-        description: 'Enable AOP hooks (capture / classify / skip‑or‑process)'
+        description: 'Enable AOP hooks (capture / classify / skip-or-process)'
         required: false
         default: false
         type: boolean
@@ -260,10 +260,11 @@ jobs:
     needs: [setup-vars, parse-trigger, read-dispatch-payload]
     if: >-
       always() &&
-      needs.parse-trigger.outputs.run == 'true'
+      needs.parse-trigger.outputs.run == 'true' &&
+      (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
     strategy:
       fail-fast: false
-      max-parallel: 3
+      max-parallel: 2
       matrix:
         vllm_ascend_branch: ${{ fromJSON(needs.setup-vars.outputs.vllm_ascend_branches) }}
         test_config: ${{ fromJson(needs.setup-vars.outputs.multi_node) }}
@@ -306,7 +307,6 @@ jobs:
           )
         }}
     secrets:
-      KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
       OBS_ACCESS_KEY_ID: ${{ secrets.OBS_ACCESS_KEY_ID }}
       OBS_SECRET_ACCESS_KEY: ${{ secrets.OBS_SECRET_ACCESS_KEY }}
 
@@ -315,7 +315,8 @@ jobs:
     needs: [setup-vars, parse-trigger, read-dispatch-payload]
     if: >-
       always() &&
-      needs.parse-trigger.outputs.run == 'true'
+      needs.parse-trigger.outputs.run == 'true' &&
+      (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
     strategy:
       fail-fast: false
       max-parallel: 9
@@ -375,7 +376,7 @@ jobs:
     if: >-
       always() &&
       needs.parse-trigger.result == 'success'
-    runs-on: linux-amd64-cpu-8-hk
+    runs-on: linux-aarch64-a5-0
     steps:
       - name: Merge all benchmark result artifacts
         continue-on-error: true
