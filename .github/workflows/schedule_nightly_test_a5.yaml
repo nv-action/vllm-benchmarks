@@ -27,7 +27,7 @@ on:
         default: 'main'
         type: string
       test_cases:
-        description: 'Test cases to run (comma‑separated, e.g., "qwen3‑32b,accuracy‑group" or "all" for all tests)'
+        description: 'Test cases to run (comma-separated, e.g., "test_custom_op,qwen3-32b,accuracy-group" or "all" for all tests)'
         required: false
         default: 'all'
         type: string
@@ -37,17 +37,17 @@ on:
         default: ''
         type: string
       skip_build_image:
-        description: 'Skip build‑image job (used when triggered by /nightly command)'
+        description: 'Skip build-image job (used when triggered by /nightly command)'
         required: false
         default: 'false'
         type: string
       vllm_ascend_ref:
-        description: 'PR commit SHA for PR‑triggered tests'
+        description: 'PR commit SHA for PR-triggered tests'
         required: false
         default: ''
         type: string
       aop_enabled:
-        description: 'Enable AOP hooks (capture / classify / skip‑or‑process)'
+        description: 'Enable AOP hooks (capture / classify / skip-or-process)'
         required: false
         default: false
         type: boolean
@@ -61,39 +61,6 @@ on:
           - daily
       cann_version:
         description: 'CANN version for base image tag'
-        required: false
-        default: '2026.08.03'
-        type: string
-  workflow_call:
-    inputs:
-      vllm_ascend_branch:
-        required: true
-        type: string
-      test_cases:
-        required: false
-        default: 'all'
-        type: string
-      request_id:
-        required: false
-        default: ''
-        type: string
-      skip_build_image:
-        required: false
-        default: 'false'
-        type: string
-      vllm_ascend_ref:
-        required: false
-        default: ''
-        type: string
-      aop_enabled:
-        required: false
-        default: false
-        type: boolean
-      build_type:
-        required: false
-        default: 'release'
-        type: string
-      cann_version:
         required: false
         default: '2026.08.03'
         type: string
@@ -212,25 +179,27 @@ jobs:
   #   with:
   #     target: a5
   #     vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
+  #     build_type: ${{ inputs.build_type }}
+  #     quay_daily_username: ${{ vars.QUAY_DAILY_USERNAME }}
+  #     cann_version: ${{ inputs.cann_version }}
   #   secrets:
   #     HW_USERNAME: ${{ secrets.HW_USERNAME }}
   #     HW_TOKEN: ${{ secrets.HW_TOKEN }}
+  #     HW_USERNAME_DAILY: ${{ secrets.HW_USERNAME_DAILY }}
+  #     HW_TOKEN_DAILY: ${{ secrets.HW_TOKEN_DAILY }}
   #     GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+  #     QUAY_DAILY_PASSWORD: ${{ secrets.QUAY_DAILY_PASSWORD }}
 
   multi-node-tests:
     name: multi-node
-    # needs: [setup-vars, parse-trigger, build-image]
-    # if: >-
-    #   always() &&
-    #   needs.parse-trigger.outputs.run == 'true' &&
-    #   (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
-    needs: [setup-vars, parse-trigger]
+    needs: [setup-vars, parse-trigger, build-image]
     if: >-
       always() &&
-      needs.parse-trigger.outputs.run == 'true'
+      needs.parse-trigger.outputs.run == 'true' &&
+      (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
     strategy:
       fail-fast: false
-      max-parallel: 3
+      max-parallel: 2
       matrix:
         vllm_ascend_branch: ${{ fromJSON(needs.setup-vars.outputs.vllm_ascend_branches) }}
         test_config: ${{ fromJson(needs.setup-vars.outputs.multi_node) }}
@@ -238,8 +207,7 @@ jobs:
     with:
       soc_version: a5
       runner: linux-aarch64-a5-0
-      # image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a5'
-      image: swr.cn-north-4.myhuaweicloud.com/inference/vllm-ascend-temp:daily-main-a5-cann2026.08.03-20260805-arm64 
+      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a5'
       ascend_log_prefix: ${{ needs.setup-vars.outputs.ascend_log_prefix }}/${{ matrix.vllm_ascend_branch }}
       vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
       replicas: 1
@@ -257,21 +225,17 @@ jobs:
           )
         }}
     secrets:
-      KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
+      KUBECONFIG_B64: ${{ secrets.KUBECONFIG_A5_B64 }}
       OBS_ACCESS_KEY_ID: ${{ secrets.OBS_ACCESS_KEY_ID }}
       OBS_SECRET_ACCESS_KEY: ${{ secrets.OBS_SECRET_ACCESS_KEY }}
 
   single-node-tests:
     name: single-node
-    # needs: [setup-vars, parse-trigger, build-image]
-    # if: >-
-    #   always() &&
-    #   needs.parse-trigger.outputs.run == 'true' &&
-    #   (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
-    needs: [setup-vars, parse-trigger]
+    needs: [setup-vars, parse-trigger, build-image, multi-node-tests]
     if: >-
       always() &&
-      needs.parse-trigger.outputs.run == 'true'
+      needs.parse-trigger.outputs.run == 'true' &&
+      (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
     strategy:
       fail-fast: false
       max-parallel: 9
@@ -281,8 +245,7 @@ jobs:
     uses: ./.github/workflows/_e2e_nightly_single_node.yaml
     with:
       runner: ${{ matrix.test_config.os }}
-      # image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a5'
-      image: swr.cn-north-4.myhuaweicloud.com/inference/vllm-ascend-temp:daily-main-a5-cann2026.08.03-20260805-arm64 
+      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a5'
       config_file_path: ${{ matrix.test_config.config_file_path }}
       name: ${{ matrix.test_config.name }}
       should_run: >-
@@ -313,7 +276,7 @@ jobs:
       always() &&
       github.event_name == 'workflow_dispatch' &&
       needs.parse-trigger.result == 'success'
-    runs-on: linux-amd64-cpu-8-hk
+    runs-on: linux-aarch64-a5-0
     steps:
       - name: Merge all benchmark result artifacts
         continue-on-error: true
