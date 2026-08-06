@@ -64,41 +64,6 @@ on:
         required: false
         default: '2026.08.03'
         type: string
-  workflow_call:
-    inputs:
-      vllm_ascend_branch:
-        required: true
-        type: string
-      test_cases:
-        required: false
-        default: 'all'
-        type: string
-      request_id:
-        required: false
-        default: ''
-        type: string
-      skip_build_image:
-        required: false
-        default: 'false'
-        type: string
-      vllm_ascend_ref:
-        required: false
-        default: ''
-        type: string
-      aop_enabled:
-        required: false
-        default: false
-        type: boolean
-      build_type:
-        required: false
-        default: 'release'
-        type: string
-      cann_version:
-        required: false
-        default: '2026.08.03'
-        type: string
-  repository_dispatch:
-    types: [run‑a5‑nightly]
 
 permissions:
   contents: read
@@ -255,6 +220,29 @@ jobs:
           python3 -m pip install pyyaml -q
           python3 .github/workflows/scripts/resolve_nightly_tests.py --mode=matrix
 
+  # build-image:
+  #   name: Build nightly-a5 image
+  #   if: >-
+  #     (github.event_name == 'workflow_dispatch' && inputs.skip_build_image != 'true')
+  #   strategy:
+  #     matrix:
+  #       vllm_ascend_branch: >-
+  #         ${{ fromJSON(format('["{0}"]', inputs.vllm_ascend_branch)) }}
+  #   uses: ./.github/workflows/_nightly_image_build.yaml
+  #   with:
+  #     target: a5
+  #     vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
+  #     build_type: ${{ inputs.build_type }}
+  #     quay_daily_username: ${{ vars.QUAY_DAILY_USERNAME }}
+  #     cann_version: ${{ inputs.cann_version }}
+  #   secrets:
+  #     HW_USERNAME: ${{ secrets.HW_USERNAME }}
+  #     HW_TOKEN: ${{ secrets.HW_TOKEN }}
+  #     HW_USERNAME_DAILY: ${{ secrets.HW_USERNAME_DAILY }}
+  #     HW_TOKEN_DAILY: ${{ secrets.HW_TOKEN_DAILY }}
+  #     GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+  #     QUAY_DAILY_PASSWORD: ${{ secrets.QUAY_DAILY_PASSWORD }}
+
   multi-node-tests:
     name: multi-node
     needs: [setup-vars, parse-trigger, read-dispatch-payload]
@@ -272,7 +260,7 @@ jobs:
     with:
       soc_version: a5
       runner: linux-aarch64-a5-0
-      image: swr.cn-north-4.myhuaweicloud.com/inference/vllm-ascend-temp:daily-main-a5-cann2026.08.03-20260805-arm64
+      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a5'
       ascend_log_prefix: ${{ needs.setup-vars.outputs.ascend_log_prefix }}/${{ matrix.vllm_ascend_branch }}
       vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
       replicas: 1
@@ -307,12 +295,18 @@ jobs:
           )
         }}
     secrets:
+      KUBECONFIG_B64: ${{ secrets.KUBECONFIG_A5_B64 }}
       OBS_ACCESS_KEY_ID: ${{ secrets.OBS_ACCESS_KEY_ID }}
       OBS_SECRET_ACCESS_KEY: ${{ secrets.OBS_SECRET_ACCESS_KEY }}
 
   single-node-tests:
     name: single-node
-    needs: [setup-vars, parse-trigger, read-dispatch-payload]
+    # needs: [setup-vars, parse-trigger, build-image, multi-node-tests]
+    # if: >-
+    #   always() &&
+    #   needs.parse-trigger.outputs.run == 'true' &&
+    #   (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
+    needs: [setup-vars, parse-trigger]
     if: >-
       always() &&
       needs.parse-trigger.outputs.run == 'true' &&
@@ -326,7 +320,7 @@ jobs:
     uses: ./.github/workflows/_e2e_nightly_single_node.yaml
     with:
       runner: ${{ matrix.test_config.os }}
-      image: swr.cn-north-4.myhuaweicloud.com/inference/vllm-ascend-temp:daily-main-a5-cann2026.08.03-20260805-arm64
+      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a5'
       config_file_path: ${{ matrix.test_config.config_file_path }}
       name: ${{ matrix.test_config.name }}
       should_run: >-
