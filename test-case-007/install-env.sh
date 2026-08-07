@@ -162,6 +162,19 @@ EOF
     fi
 }
 
+# Keep the image's default apt sources but route apt through the squid proxy
+# explicitly via Acquire:: proxies (APT_USE_PROXY=1). Unlike relying on the
+# ambient http_proxy env var, this pins the proxy at the apt layer.
+write_apt_proxy_config() {
+    local proxy="${SQUID_PROXY:-http://squid-cache.squid.svc.cluster.local:3128}"
+    log "[apt] routing default sources through squid proxy ${proxy}"
+    mkdir -p /etc/apt/apt.conf.d
+    cat > /etc/apt/apt.conf.d/99squid-proxy <<EOF
+Acquire::http::Proxy "${proxy}";
+Acquire::https::Proxy "${proxy}";
+EOF
+}
+
 # yum repos -> cache-service. Keep the image's default repo set (OS,
 # everything, EPOL, update, ...) but point baseurl at the cache-service
 # mirror, which mirrors openEuler under /openeuler/<repo-dir>/ (e.g.
@@ -223,8 +236,16 @@ fi
 
 setup_network
 if [[ "$OS" == "apt" ]]; then
-    # cache-service: in-cluster mirror (default); squid-proxy: APT_MIRROR_URL.
-    rewrite_apt_sources
+    if [[ "$SCENARIO" == "cache-service" ]]; then
+        # cache-service: in-cluster mirror (default).
+        rewrite_apt_sources
+    elif [[ -n "${APT_USE_PROXY:-}" ]]; then
+        # squid-proxy: keep default sources, pin apt to the squid proxy.
+        write_apt_proxy_config
+    elif [[ -n "${APT_MIRROR_URL:-}" ]]; then
+        # squid-proxy: Chinese mirror through the squid proxy.
+        rewrite_apt_sources
+    fi
 elif [[ "$SCENARIO" == "cache-service" ]]; then
     rewrite_yum_sources
 fi

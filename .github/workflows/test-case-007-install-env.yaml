@@ -27,7 +27,7 @@ jobs:
             pkgmgr: yum
           - os: ubuntu-22.04
             scenario: squid-proxy
-            apt_mirror: https://mirrors.huaweicloud.com/ubuntu
+            apt_use_proxy: "1"
     container:
       image: ${{ matrix.image }}
     steps:
@@ -42,6 +42,7 @@ jobs:
           SQUID_PROXY: ${{ env.SQUID_PROXY }}
           CACHE_SERVICE: ${{ env.CACHE_SERVICE }}
           APT_MIRROR_URL: ${{ matrix.apt_mirror }}
+          APT_USE_PROXY: ${{ matrix.apt_use_proxy }}
           RESULTS_DIR: /tmp/test-case-007-results
 
       - name: Show timings
