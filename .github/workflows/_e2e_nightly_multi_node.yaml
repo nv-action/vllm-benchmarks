@@ -237,7 +237,6 @@ jobs:
             -D aop_multi_enabled="${{ inputs.aop_multi_enabled }}" \
             -D good_table="/root/.cache/vllm-ascend/${{ inputs.vllm_ascend_branch }}/nightly/good_table.csv" \
             -D shared_volume_path="${shared_volume_path:-}" \
-            -D shared_volume_path="${shared_volume_path:-}" \
             --outfile lws.yaml
 
           kubectl apply -f ./lws.yaml
