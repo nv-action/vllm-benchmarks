@@ -56,11 +56,14 @@ runner `linux-amd64-cpu-4-buildkit-gy006`（amd64 buildkit runner，镜像为 CA
 
 ## 假设 / 需按实际集群调整
 
-- apt 源重写为 `APT_MIRROR_URL`（缺省 `${CACHE_SERVICE}/ubuntu`）：
-  - `cache-service` 场景用集群内镜像（默认）；
-  - `squid-proxy` 场景由 workflow 注入 `APT_MIRROR_URL=https://mirrors.huaweicloud.com/ubuntu`
-    （中国镜像，经 squid MITM 出网）。https 镜像时脚本会写 `/etc/apt/apt.conf.d/99-squid-ca`
-    指向 `/etc/squid-ca/squid-ca.pem`，否则 apt 过 squid 的 TLS 校验失败。
+- apt 源/代理配置：
+  - `cache-service` 场景用集群内镜像（默认，`APT_MIRROR_URL` 缺省 `${CACHE_SERVICE}/ubuntu`）；
+  - `squid-proxy` 场景两种方式（workflow 矩阵切换）：
+    - `APT_USE_PROXY=1`（默认）：保留镜像/runner pod 的默认源，写
+      `/etc/apt/apt.conf.d/99squid-proxy`（`Acquire::http::Proxy` / `Acquire::https::Proxy`）指向 squid；
+    - `APT_MIRROR_URL=https://mirrors.huaweicloud.com/ubuntu`：改用中国镜像，经 squid MITM 出网。
+      https 镜像时脚本写 `/etc/apt/apt.conf.d/99-squid-ca` 指向 `/etc/squid-ca/squid-ca.pem`，
+      否则 apt 过 squid 的 TLS 校验失败。
   - Ubuntu Debian822 格式，codename 取镜像实际值（如 jammy）。
     部分基础镜像无 `/etc/apt/sources.list.d/`，脚本会先 `mkdir -p`。
 - yum 源默认改为复刻镜像自带仓库集（OS/everything/EPOL/update/...），

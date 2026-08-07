@@ -68,9 +68,37 @@
 
 ### 机制说明
 
-- workflow 矩阵为 `ubuntu-22.04 × squid-proxy` 注入 `apt_mirror`，脚本 `rewrite_apt_sources()`
-  对 apt 场景无条件重写源为 `${APT_MIRROR_URL:-${CACHE_SERVICE}/ubuntu}`。
+- workflow 矩阵为 `ubuntu-22.04 × squid-proxy` 注入 `apt_use_proxy`，脚本 `write_apt_proxy_config()`
+  写 `/etc/apt/apt.conf.d/99squid-proxy`（`Acquire::http::Proxy` / `Acquire::https::Proxy`），**不改默认源**。
+- 换中国镜像则设 `APT_MIRROR_URL`，脚本 `rewrite_apt_sources()` 对 apt 场景无条件重写源。
 - https 镜像时写 `/etc/apt/apt.conf.d/99-squid-ca` 指向 squid CA，否则 apt 过 squid 的 TLS 校验失败。
+
+## 补充：squid-proxy 默认源 + apt 显式代理配置（APT_USE_PROXY）
+
+第三次运行：[31136670693](https://github.com/nv-action/vllm-benchmarks/actions/runs/31136670693)（4 install + compare 全部 success）
+
+按建议改为**不用中国镜像**：保留默认 apt 源，仅写 `Acquire::http::Proxy` / `Acquire::https::Proxy`
+指向 squid，验证 apt 层的显式代理是否与 env 代理等效。
+
+### apt 阶段对比（单位：秒）
+
+| phase | apt/squid（默认源，冷缓存，基线） | apt/squid（默认源 + Acquire 代理） | apt/squid（huaweicloud 中国镜像） | apt/cache |
+|---|---|---|---|---|
+| apt_update | 37 | **9** | 3 | 3 |
+| apt_install | 19 | 19 | 27 | 19 |
+
+- **默认源 + Acquire 代理：apt_update 9s、apt_install 19s** —— 与 cache-service 几乎持平。
+- **重要发现**：runner pod 会把容器默认 apt 源覆盖为 `archive.ubuntu.com`/`security.ubuntu.com`
+  （镜像本身是 `ports.ubuntu.com`），且 workflow 容器里**没有**注入 `http_proxy` 环境变量——
+  squid-proxy 场景的 `http_proxy` 是脚本 `setup_network()` 自己 export 的。
+  因此基线的 37s 是 squid **冷缓存**抓 archive.ubuntu.com 的真实外网耗时；9s 是 squid 缓存转热后的结果。
+- 三种 squid-proxy 配置（默认源/默认源+显式代理/中国镜像）最终都验证可行；中国镜像在**元数据下载**上
+  最快（3s），但 apt_install（19s vs 27s）反而略快于镜像，均在同一量级，远优于冷缓存的 37s。
+
+### 机制说明
+
+- `APT_USE_PROXY=1` 时脚本写 `/etc/apt/apt.conf.d/99squid-proxy`，不改源；
+- 三个配置均可在 workflow 矩阵通过 `apt_mirror` / `apt_use_proxy` 切换。
 
 ## 过程中发现并修复的问题
 
