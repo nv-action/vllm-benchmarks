@@ -16,7 +16,8 @@
 #
 
 ARG VLLM_ASCEND_BRANCH=""
-FROM quay.io/ascend/vllm-ascend:nightly-${VLLM_ASCEND_BRANCH}-a5
+#FROM quay.io/ascend/vllm-ascend:nightly-${VLLM_ASCEND_BRANCH}-a5
+FROM quay.io/ascend/vllm-ascend:nightly-releases-v0.23.0-a5
 
 ARG PIP_INDEX_URL="https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
 ARG AIS_BENCH_TAG="v3.1-20260609-master"
