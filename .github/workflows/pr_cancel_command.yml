@@ -31,6 +31,7 @@ permissions:
   pull-requests: write
   issues: write
 
+
 jobs:
   cancel:
     name: Force-cancel CI runs
@@ -169,3 +170,5 @@ jobs:
           comment-id: ${{ github.event.client_payload.github.payload.comment.id }}
           body: ${{ steps.cancel.outputs.comment_body }}
           reactions: hooray
+
+
