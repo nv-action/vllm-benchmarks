@@ -123,6 +123,8 @@ jobs:
           GITEE_USERNAME: ${{ vars.GITEE_USERNAME }}
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
+          echo "VLLM_ASCEND_BRANCH=${{ inputs.vllm_ascend_branch }}"
+          echo "Expected base image: quay.io/ascend/vllm-ascend:nightly-${{ inputs.vllm_ascend_branch }}-a5"
           BRANCH_TAG="${{ inputs.vllm_ascend_branch }}"
           BRANCH_TAG="${BRANCH_TAG//\//-}"
 
