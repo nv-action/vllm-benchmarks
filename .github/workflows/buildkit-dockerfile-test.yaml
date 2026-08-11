@@ -1,0 +1,81 @@
+name: buildkit-dockerfile-test
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/buildkit-dockerfile-test.yaml'
+      - 'Dockerfile*'
+  workflow_dispatch:
+
+jobs:
+  build-test:
+    name: "${{ matrix.dockerfile }} (${{ matrix.runner_info.arch }})"
+    runs-on: ${{ matrix.runner_info.runner }}
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-a3-ubuntu22.04-py3.12
+
+    strategy:
+      fail-fast: false
+      matrix:
+        dockerfile:
+          - Dockerfile.test
+        runner_info:
+          - {runner: linux-aarch64-cpu-4-buildkit-gy006, arch: arm64}
+          - {runner: linux-amd64-cpu-4-buildkit-gy006, arch: amd64}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Determine SOC_VERSION
+        id: vars
+        run: |
+          case "${{ matrix.dockerfile }}" in
+            Dockerfile|Dockerfile.openEuler)
+              echo "soc_version=ascend910b1" >> $GITHUB_OUTPUT
+              ;;
+            Dockerfile.a3|Dockerfile.a3.openEuler)
+              echo "soc_version=ascend910_9391" >> $GITHUB_OUTPUT
+              ;;
+            Dockerfile.a5|Dockerfile.a5.openEuler)
+              echo "soc_version=ascend950dt_9582" >> $GITHUB_OUTPUT
+              ;;
+            Dockerfile.310p|Dockerfile.310p.openEuler)
+              echo "soc_version=ascend310p1" >> $GITHUB_OUTPUT
+              ;;
+          esac
+
+      - name: Verify buildctl environment
+        run: |
+          echo "BUILDKITD_ADDR=$BUILDKITD_ADDR"
+          test -n "$BUILDKITD_ADDR" || (echo "ERROR: BUILDKITD_ADDR not set" && exit 1)
+          test -f "${DOCKER_CONFIG}/ca.pem" || (echo "ERROR: ca.pem not found" && exit 1)
+          test -f "${DOCKER_CONFIG}/cert.pem" || (echo "ERROR: cert.pem not found" && exit 1)
+          test -f "${DOCKER_CONFIG}/key.pem" || (echo "ERROR: key.pem not found" && exit 1)
+          buildctl --version
+
+      - name: Build image with buildctl
+        run: |
+          buildctl \
+            --addr="${BUILDKITD_ADDR}" \
+            --tlscacert="${DOCKER_CONFIG}/ca.pem" \
+            --tlscert="${DOCKER_CONFIG}/cert.pem" \
+            --tlskey="${DOCKER_CONFIG}/key.pem" \
+            build \
+            --progress=plain \
+            --frontend dockerfile.v0 \
+            --local context=. \
+            --local dockerfile=. \
+            --opt filename=${{ matrix.dockerfile }} \
+            --opt build-arg:APTMIRROR=http://cache-service.nginx-pypi-cache.svc.cluster.local:8081 \
+            --opt build-arg:PIP_INDEX_URL=http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple \
+            --opt build-arg:VLLM_ASCEND_IMAGE=swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/vllm-ascend-ci \
+            --opt build-arg:SOC_VERSION=${{ steps.vars.outputs.soc_version }} \
+            --opt build-arg:COMPILE_CUSTOM_KERNELS=0 \
+            --secret id=dockerconfig,src=/home/user/.docker/config.json \
+            --import-cache type=registry,ref=swr.cn-southwest-2.myhuaweicloud.com/modelfoundry/buildkit-cache:${{ matrix.dockerfile }}-${{ matrix.runner_info.arch }} \
+            --export-cache type=registry,ref=swr.cn-southwest-2.myhuaweicloud.com/modelfoundry/buildkit-cache:${{ matrix.dockerfile }}-${{ matrix.runner_info.arch }},mode=max \
+            --output type=image,name=swr.cn-southwest-2.myhuaweicloud.com/modelfoundry/test-buildkit:${{ matrix.dockerfile }}-${{ matrix.runner_info.arch }}-${{ github.sha }},push=true
