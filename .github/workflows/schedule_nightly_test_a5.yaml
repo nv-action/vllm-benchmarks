@@ -167,28 +167,28 @@ jobs:
           python3 -m pip install pyyaml -q
           python3 .github/workflows/scripts/resolve_nightly_tests.py --mode=matrix
 
-  # build-image:
-  #   name: Build nightly-a5 image
-  #   if: >-
-  #     (github.event_name == 'workflow_dispatch' && inputs.skip_build_image != 'true')
-  #   strategy:
-  #     matrix:
-  #       vllm_ascend_branch: >-
-  #         ${{ fromJSON(format('["{0}"]', inputs.vllm_ascend_branch)) }}
-  #   uses: ./.github/workflows/_nightly_image_build.yaml
-  #   with:
-  #     target: a5
-  #     vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
-  #     build_type: ${{ inputs.build_type }}
-  #     quay_daily_username: ${{ vars.QUAY_DAILY_USERNAME }}
-  #     cann_version: ${{ inputs.cann_version }}
-  #   secrets:
-  #     HW_USERNAME: ${{ secrets.HW_USERNAME }}
-  #     HW_TOKEN: ${{ secrets.HW_TOKEN }}
-  #     HW_USERNAME_DAILY: ${{ secrets.HW_USERNAME_DAILY }}
-  #     HW_TOKEN_DAILY: ${{ secrets.HW_TOKEN_DAILY }}
-  #     GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-  #     QUAY_DAILY_PASSWORD: ${{ secrets.QUAY_DAILY_PASSWORD }}
+  build-image:
+    name: Build nightly-a5 image
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.skip_build_image != 'true')
+    strategy:
+      matrix:
+        vllm_ascend_branch: >-
+          ${{ fromJSON(format('["{0}"]', inputs.vllm_ascend_branch)) }}
+    uses: ./.github/workflows/_nightly_image_build.yaml
+    with:
+      target: a5
+      vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
+      build_type: ${{ inputs.build_type }}
+      quay_daily_username: ${{ vars.QUAY_DAILY_USERNAME }}
+      cann_version: ${{ inputs.cann_version }}
+    secrets:
+      HW_USERNAME: ${{ secrets.HW_USERNAME }}
+      HW_TOKEN: ${{ secrets.HW_TOKEN }}
+      HW_USERNAME_DAILY: ${{ secrets.HW_USERNAME_DAILY }}
+      HW_TOKEN_DAILY: ${{ secrets.HW_TOKEN_DAILY }}
+      GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+      QUAY_DAILY_PASSWORD: ${{ secrets.QUAY_DAILY_PASSWORD }}
 
   multi-node-tests:
     name: multi-node
