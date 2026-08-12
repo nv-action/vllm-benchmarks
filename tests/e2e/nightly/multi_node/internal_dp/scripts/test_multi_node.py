@@ -154,6 +154,7 @@ def _save_benchmark_results_json(config: MultiNodeConfig, results: list[Any]) ->
 @pytest.mark.asyncio
 async def test_multi_node() -> None:
     config = MultiNodeConfigLoader.from_yaml()
+    config.envs["VLLM_USE_MODELSCOPE"] = "False"
     if config.special_dependencies:
         for k, v in config.special_dependencies.items():
             command = [
