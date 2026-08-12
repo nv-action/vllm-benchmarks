@@ -1,6 +1,6 @@
 _DEBUG_MARKER: "THIS_IS_NEW_VERSION_20260811_FIX_MODEL_PATH"
 test_name: "test Qwen3-235B-A22B-W8A8 EPLB"
-model: "/root/.cache/modelscope/hub/models/vllm-ascend/Qwen3-235B-A22B-W8A8-mxfp0"
+model: "/root/.cache/modelscope/hub/models/vllm-ascend/Qwen3-235B-A22B-w8a8-mxfp0"
 num_nodes: 2
 npu_per_node: 16
 env_common: &env_common
@@ -22,7 +22,7 @@ deployment:
     envs:
       <<: *env_common
     server_cmd: >
-        vllm serve "/root/.cache/modelscope/hub/models/vllm-ascend/Qwen3-235B-A22B-W8A8-mxfp0"
+        vllm serve "/root/.cache/modelscope/hub/models/vllm-ascend/Qwen3-235B-A22B-w8a8-mxfp0"
         --host 0.0.0.0
         --port $SERVER_PORT
         --data-parallel-size 2
@@ -59,7 +59,7 @@ deployment:
     envs:
       <<: *env_common
     server_cmd: >
-        vllm serve "/root/.cache/modelscope/hub/models/vllm-ascend/Qwen3-235B-A22B-W8A8-mxfp0"
+        vllm serve "/root/.cache/modelscope/hub/models/vllm-ascend/Qwen3-235B-A22B-w8a8-mxfp0"
         --host 0.0.0.0
         --port $SERVER_PORT
         --data-parallel-size 2
