@@ -83,13 +83,6 @@ on:
         type: boolean
         default: false
         description: enable Pod AOP pipeline on failure
-    # secrets:
-    #   KUBECONFIG_B64:
-    #     required: true
-    #   OBS_ACCESS_KEY_ID:
-    #     required: true
-    #   OBS_SECRET_ACCESS_KEY:
-    #     required: true
     secrets:
       KUBECONFIG_B64:
         required: true
@@ -250,7 +243,8 @@ jobs:
             -D benchmark_job_name="$benchmark_job_name" \
             -D runner="$runner" \
             -D aop_multi_enabled="${{ inputs.aop_multi_enabled }}" \
-            -D good_table="/root/.cache/vllm-ascend/${{ inputs.vllm_ascend_branch }}/nightly/good_table.csv" \
+            -D good_table="/root/.cache/vllm-ascend/${{ inputs.vllm_ascend_branch || 'main' }}/${{ inputs.test_frequency }}/good_table.csv" \
+            # -D good_table="/root/.cache/vllm-ascend/${{ inputs.vllm_ascend_branch }}/nightly/good_table.csv" \
             -D npu_resource_name="${npu_resource_name:-}" \
             -D shared_volume_path="${shared_volume_path:-}" \
             --outfile lws.yaml
@@ -358,7 +352,6 @@ jobs:
           RUN_LINK: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           python3 tests/e2e/nightly/scripts/update_good_table.py \
-            # --cache-csv "/root/.cache/vllm-ascend/${{ inputs.vllm_ascend_branch || 'main' }}/nightly/good_table.csv" \
             --cache-csv "/root/.cache/vllm-ascend/${{ inputs.vllm_ascend_branch || 'main' }}/${{ inputs.test_frequency }}/good_table.csv" \
             --test-name "$TEST_NAME" \
             --test-path "$TEST_PATH" \
