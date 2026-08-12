@@ -246,7 +246,6 @@ jobs:
             -D good_table="/root/.cache/vllm-ascend/${{ inputs.vllm_ascend_branch }}/nightly/good_table.csv" \
             -D npu_resource_name="${npu_resource_name:-}" \
             -D shared_volume_path="${shared_volume_path:-}" \
-            # -D openlibing_secret="$OPENLIBING_SECRET" \
             -D soc_version="${{ inputs.soc_version }}" \
             -D max_good_age_days="${{ inputs.test_frequency == 'weekly' && 8 || 3 }}" \
             --outfile lws.yaml
