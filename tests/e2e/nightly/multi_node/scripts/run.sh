@@ -42,11 +42,6 @@ export HF_HUB_OFFLINE="1"
 # Default is 600s
 export VLLM_ENGINE_READY_TIMEOUT_S=1800
 
-# ===== Fix: 强制覆盖，屏蔽上层注入的VLLM_USE_MODELSCOPE =====
-echo "VLLM_USE_MODELSCOPE before override: ${VLLM_USE_MODELSCOPE:-<unset>}"
-export VLLM_USE_MODELSCOPE=false
-echo "VLLM_USE_MODELSCOPE after override: ${VLLM_USE_MODELSCOPE}"
-
 # Function to print section headers
 print_section() {
     echo -e "\n${BLUE}=== $1 ===${NC}"
@@ -214,17 +209,6 @@ run_tests_with_log() {
     set +e
     kill_npu_processes
     mkdir -p "${LOG_PREFIX}"
-
-    # ===== Debug: 打印Pod实际加载的测试yaml配置 =====
-    echo -e "\n${YELLOW}===== ACTUAL TEST CONFIG YAML (CONFIG_YAML_PATH=${CONFIG_YAML_PATH}) =====${NC}"
-    if [ -f "${CONFIG_YAML_PATH}" ]; then
-        cat "${CONFIG_YAML_PATH}"
-    else
-        echo "!!! FILE NOT FOUND: ${CONFIG_YAML_PATH}"
-        echo "Searching config file ..."
-        find "${WORKSPACE}/vllm-ascend" -name "*.yaml" | grep -i qwen3 || true
-    fi
-    echo -e "${YELLOW}=====================================================================${NC}\n"
 
     echo "====> Run pytest entry: $MULTI_NODE_TEST_PATH"
     local log_file="${LOG_PREFIX}/node_${LWS_WORKER_INDEX:-?}_pytest.log"
