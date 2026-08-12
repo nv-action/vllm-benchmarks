@@ -4,7 +4,7 @@
 
 ## 文件结构
 
-```
+```text
 .github/actions/
 ├── build-push-action/         # 替换 docker/build-push-action@v7
 │   ├── action.yml

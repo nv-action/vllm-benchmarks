@@ -18,18 +18,23 @@ jobs:
       pr_branch: ${{ steps.pr_meta.outputs.pr_branch }}
       pr_sha: ${{ steps.pr_meta.outputs.pr_sha }}
       test_cases: ${{ steps.parse_comment.outputs.test_cases }}
+      request_id: ${{ steps.pr_meta.outputs.request_id }}
     env:
       COMMENT_BODY: ${{ github.event.comment.body }}
     steps:
       - name: Get PR head branch & commit sha
         id: pr_meta
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PR_URL="${{ github.event.issue.pull_request.url }}"
-          PR_HEAD=$(curl -s "$PR_URL")
+          PR_HEAD=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" "$PR_URL")
           PR_BRANCH=$(echo "$PR_HEAD" | jq -r '.head.ref')
           PR_SHA=$(echo "$PR_HEAD" | jq -r '.head.sha')
-          echo "pr_branch=${PR_BRANCH}" >> $GITHUB_OUTPUT
-          echo "pr_sha=${PR_SHA}" >> $GITHUB_OUTPUT
+          {
+            echo "pr_branch=${PR_BRANCH}"
+            echo "pr_sha=${PR_SHA}"
+          } >> $GITHUB_OUTPUT
 
       - name: Parse test‑cases from comment body
         id: parse_comment
@@ -47,7 +52,8 @@ jobs:
       vllm_ascend_branch: ${{ needs.trigger.outputs.pr_branch }}
       vllm_ascend_ref: ${{ needs.trigger.outputs.pr_sha }}
       test_cases: ${{ needs.trigger.outputs.test_cases }}
-      skip_build_image: false
+      request_id: ${{ needs.trigger.outputs.request_id }}
+      skip_build_image: "false"
       aop_enabled: false
       build_type: release
       cann_version: "2026.08.03"
