@@ -246,8 +246,7 @@ jobs:
             -D is_pr_test="$is_pr_test" \
             -D vllm_ascend_ref="$vllm_ascend_ref" \
             -D vllm_ascend_remote_url="$vllm_ascend_remote_url" \
-            # -D pvc_name="${pvc_name:-}" \
-            -D pvc_name="$pvc_name" \
+            -D pvc_name="${pvc_name:-}" \
             -D benchmark_job_name="$benchmark_job_name" \
             -D runner="$runner" \
             -D aop_multi_enabled="${{ inputs.aop_multi_enabled }}" \
