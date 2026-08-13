@@ -90,8 +90,8 @@ on:
         required: false
       OBS_SECRET_ACCESS_KEY:
         required: false
-      OPENLIBING_SECRET:
-        required: false
+      # OPENLIBING_SECRET:
+      #   required: false
 
 # Bash shells do not use ~/.profile or ~/.bashrc so these shells need to be explicitly
 # declared as "shell: bash -el {0}" on steps that need to be properly activated.
@@ -118,7 +118,7 @@ jobs:
       env:
         KUBECONFIG: /tmp/kubeconfig
         NAMESPACE: vllm-project
-        OPENLIBING_SECRET: ${{ secrets.OPENLIBING_SECRET }}
+        # OPENLIBING_SECRET: ${{ secrets.OPENLIBING_SECRET }}
     steps:
       - name: Decode kubeconfig
         run: echo "${{ secrets.KUBECONFIG_B64 }}" | base64 -d > "$KUBECONFIG"
@@ -244,7 +244,7 @@ jobs:
             -D runner="$runner" \
             -D aop_multi_enabled="${{ inputs.aop_multi_enabled }}" \
             -D good_table="/root/.cache/vllm-ascend/${{ inputs.vllm_ascend_branch }}/nightly/good_table.csv" \
-            -D openlibing_secret="$OPENLIBING_SECRET" \
+            # -D openlibing_secret="$OPENLIBING_SECRET" \
             -D npu_resource_name="${npu_resource_name:-}" \
             -D shared_volume_path="${shared_volume_path:-}" \
             -D soc_version="${{ inputs.soc_version }}" \
