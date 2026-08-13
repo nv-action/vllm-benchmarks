@@ -1,0 +1,97 @@
+#
+# Copyright (c) 2026 Huawei Technologies Co., Ltd. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# This file is a part of the vllm-ascend project.
+#
+
+name: Nightly CPU Image Build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write # required to save/restore the type=gha build cache
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_REPOSITORY: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend
+
+jobs:
+  build:
+    name: Build and push nightly-cpu-py3.12
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Generate image metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE_REPOSITORY }}
+          tags: |
+            type=raw,value=nightly-cpu-py3.12
+          flavor: |
+            latest=false
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Huawei Cloud SWR
+        uses: docker/login-action@v4
+        with:
+          registry: swr.cn-southwest-2.myhuaweicloud.com
+          username: ${{ secrets.HW_USERNAME }}
+          password: ${{ secrets.HW_TOKEN }}
+
+      - name: Build and push image
+        id: build-image
+        # SWR rejects the OCI image index that newer buildx pushes by default
+        # ("Invalid image, fail to parse 'manifest.json'"). Force Docker media
+        # types (schema 2 manifest list) so the push matches the previously
+        # working nightly-cpu image format.
+        run: |
+          set -euo pipefail
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            -f .github/workflows/dockerfiles/Dockerfile.nightly.cpu \
+            -t "${{ steps.meta.outputs.tags }}" \
+            --cache-from type=gha,scope=nightly-cpu-py3.12 \
+            --cache-to type=gha,mode=max,scope=nightly-cpu-py3.12 \
+            --provenance=false \
+            --output type=image,push=true,oci-mediatypes=false \
+            .
+          digest="$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "${{ steps.meta.outputs.tags }}")"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Write build summary
+        env:
+          IMAGE_DIGEST: ${{ steps.build-image.outputs.digest }}
+        run: |
+          {
+            echo "### Nightly CPU image (Python 3.12)"
+            echo
+            echo "- Image: \`${IMAGE_REPOSITORY}:nightly-cpu-py3.12\`"
+            echo "- Digest: \`${IMAGE_DIGEST}\`"
+            echo "- Platforms: \`linux/amd64\`, \`linux/arm64\`"
+          } >> "$GITHUB_STEP_SUMMARY"

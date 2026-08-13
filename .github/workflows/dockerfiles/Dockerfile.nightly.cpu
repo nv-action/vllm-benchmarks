@@ -1,0 +1,55 @@
+#
+# Copyright (c) 2026 Huawei Technologies Co., Ltd. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# This file is a part of the vllm-ascend project.
+#
+
+# CPU-only utility image used by the nightly / multi-node test workflows:
+#  - k8s controller jobs: kubectl + jinja2 (renders leaderworkerset manifests)
+#  - model download jobs: modelscope + git + jq
+# Python 3.12 base image is the same one used by Dockerfile.lint.
+ARG BASE_IMAGE="ascendai/python:3.12-ubuntu22.04"
+FROM ${BASE_IMAGE}
+
+ARG TARGETARCH
+ARG KUBECTL_VERSION="v1.36.3"
+ARG PIP_INDEX_URL="https://pypi.org/simple"
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update -y && \
+    apt-get install --no-install-recommends -y \
+        ca-certificates \
+        cmake \
+        curl \
+        g++ \
+        gcc \
+        git \
+        jq \
+        libnuma-dev && \
+    curl -fsSLo /tmp/kubectl \
+        "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" && \
+    install -o root -g root -m 0755 /tmp/kubectl /usr/local/bin/kubectl && \
+    rm -f /tmp/kubectl && \
+    rm -rf /var/cache/apt/* /var/lib/apt/lists/*
+
+# jinja2-cli provides the `jinja2` command used by _e2e_nightly_multi_node.yaml;
+# modelscope is used by labled_download_model_dataset.yaml (version matches
+# requirements-dev.txt, which is verified on this py3.12 base by Dockerfile.lint).
+RUN python3 -m pip install --no-cache-dir \
+        --index-url "${PIP_INDEX_URL}" \
+        jinja2-cli==1.0.1 \
+        modelscope==1.35.3
+
+CMD ["/bin/bash"]
