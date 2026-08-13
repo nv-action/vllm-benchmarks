@@ -1,0 +1,50 @@
+Dockerfile.310p.openEuler
+  s_00fb6a035a7fd4::t_5d661810ce49aa 24-29,39,52,56,68,71
+.github/workflows/buildkit-dockerfile-test.yaml
+  s_00fb6a035a7fd4::t_5d661810ce49aa 1-89
+Dockerfile.openEuler
+  s_00fb6a035a7fd4::t_5d661810ce49aa 24-29,40,45,58,62,74,78,80
+Dockerfile
+  s_00fb6a035a7fd4::t_5d661810ce49aa 23-28,34-37,42,48,61,65,78,82,84
+Dockerfile.310p
+  s_00fb6a035a7fd4::t_5d661810ce49aa 24-29,33-36,43,56,60,73,76
+Dockerfile.a3
+  s_00fb6a035a7fd4::t_5d661810ce49aa 24-29,37-40,45,51,64,68,81,85,87
+Dockerfile.a3.openEuler
+  s_00fb6a035a7fd4::t_5d661810ce49aa 24-29,40,45,58,62,74,78,80
+Dockerfile.a5.openEuler
+  s_00fb6a035a7fd4::t_5d661810ce49aa 24-29,40,45,52-53,55,67,70,72
+Dockerfile.a5
+  s_00fb6a035a7fd4::t_5d661810ce49aa 24-29,37-40,45,51,58-59,61,74,77,79
+docs/source/buildkit-guide.md
+  s_00fb6a035a7fd4::t_5d661810ce49aa 1-166
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.2",
+  "base_commit_sha": "40ab9282e143e02e986414074308aadc3b16e2f9",
+  "prompts": {},
+  "humans": {
+    "h_7fe88e4d865b0a": {
+      "author": "qq_56278931 <wenshun3@h-partners.com>"
+    }
+  },
+  "sessions": {
+    "s_00fb6a035a7fd4": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a7d7668f134e78eb5250297",
+        "model": "glm-5.2__dev"
+      },
+      "human_author": "qq_56278931 <wenshun3@h-partners.com>",
+      "custom_attributes": {
+        "external_session_id": "6a7d7668f134e78eb5250297",
+        "edit_kind": "bash",
+        "operation_id": "6a7d834bf134e78eb525040c",
+        "session_id": "6a7d7668f134e78eb5250297",
+        "tool_name": "RunCommand",
+        "tool_use_id": "6a7d834bf134e78eb525040c"
+      }
+    }
+  }
+}
