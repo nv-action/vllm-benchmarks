@@ -11,7 +11,6 @@ import vllm
 
 from tests.e2e.conftest import RemoteOpenAIServer
 
-from tests.e2e.nightly.scripts.result_postprocess import postprocess_benchmark_results
 from tests.e2e.nightly.multi_node.internal_dp.scripts.multi_node_config import (
     MultiNodeConfig,
     MultiNodeConfigLoader,
@@ -151,12 +150,6 @@ def _save_benchmark_results_json(config: MultiNodeConfig, results: list[Any]) ->
 
     job_name = os.environ.get("BENCHMARK_JOB_NAME", "")
     write_results_json(output, job_name=job_name)
-
-
-    postprocess_benchmark_results(
-        [(key, case_cfg, result) for (key, case_cfg), result in zip(valid_items, results)],
-        job_name=job_name or config.test_name,
-    )
 
 
 @pytest.mark.asyncio
