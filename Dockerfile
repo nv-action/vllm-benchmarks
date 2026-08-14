@@ -15,20 +15,29 @@
 # This file is a part of the vllm-ascend project.
 #
 
-FROM quay.io/ascend/cann:9.0.1-910b-ubuntu22.04-py3.12
+FROM swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.1-910b-ubuntu22.04-py3.12
 
-ARG PIP_INDEX_URL="https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
+ARG PIP_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple"
+ARG MOONCAKE_INDEX_URL="https://mirrors.aliyun.com/pypi/web/simple"
+ARG ASCEND_INDEX_URL="https://mirrors.huaweicloud.com/ascend/repos/pypi"
+ARG PYTORCH_INDEX_URL="https://download.pytorch.org/whl/cpu"
+ARG PIP_TRUSTED_HOST=""
+ARG GIT_PROXY=""
+ARG APTMIRROR
 
 WORKDIR /workspace
 
 # Install clang-15 (for triton-ascend) and Mooncake
 ARG MOONCAKE_TAG=0.3.11.post1
-RUN apt-get update -y && \
+RUN if [ -n "$APTMIRROR" ]; then \
+        sed -Ei "s@(ports|archive).ubuntu.com@${APTMIRROR#http://}@g" /etc/apt/sources.list; \
+    fi && \
+    apt-get update -y && \
     apt-get install -y git vim wget net-tools gcc g++ cmake numactl libnuma-dev libibverbs-dev libjemalloc2 libhiredis-dev clang-15 && \
     update-alternatives --install /usr/bin/clang clang /usr/bin/clang-15 20 && \
     update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-15 20 && \
     source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
-    python3 -m pip install mooncake-transfer-engine-npu==${MOONCAKE_TAG} --extra-index-url https://mirrors.aliyun.com/pypi/web/simple && \
+    python3 -m pip install mooncake-transfer-engine-npu==${MOONCAKE_TAG} --extra-index-url ${MOONCAKE_INDEX_URL} && \
     rm -rf /var/cache/apt/* && \
     rm -rf /var/lib/apt/lists/*
 
@@ -46,10 +55,11 @@ RUN if [ -n "$VLLM_COMMIT" ]; then \
       git -C /vllm-workspace/vllm fetch --depth 1 $VLLM_REPO "$VLLM_COMMIT" && \
       git -C /vllm-workspace/vllm checkout FETCH_HEAD; \
     else \
+      if [ -n "$GIT_PROXY" ]; then git config --global url."${GIT_PROXY}https://github.com/".insteadOf https://github.com/; fi && \
       git clone --depth 1 -b $VLLM_TAG $VLLM_REPO /vllm-workspace/vllm; \
     fi
 # In x86, triton will be installed by vllm. But in Ascend, triton doesn't work correctly. we need to uninstall it.
-RUN VLLM_TARGET_DEVICE="empty" python3 -m pip install -e /vllm-workspace/vllm/[audio] --extra-index https://download.pytorch.org/whl/cpu/ && \
+RUN VLLM_TARGET_DEVICE="empty" python3 -m pip install -e /vllm-workspace/vllm/[audio] && \
     python3 -m pip uninstall -y triton && \
     python3 -m pip cache purge
 
@@ -62,13 +72,13 @@ ENV SOC_VERSION=$SOC_VERSION \
     OMP_NUM_THREADS=1
 COPY . /vllm-workspace/vllm-ascend/
 
-RUN export PIP_EXTRA_INDEX_URL="https://mirrors.huaweicloud.com/ascend/repos/pypi" && \
+RUN export PIP_EXTRA_INDEX_URL="${ASCEND_INDEX_URL}" && \
     export VLLM_BATCH_INVARIANT=1 && \
     source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
     source /usr/local/Ascend/nnal/atb/set_env.sh && \
-    python3 -m pip install -e /vllm-workspace/vllm-ascend/ --extra-index https://download.pytorch.org/whl/cpu/ && \
+    python3 -m pip install -e /vllm-workspace/vllm-ascend/ --find-links ${PYTORCH_INDEX_URL}/torch/ --find-links ${PYTORCH_INDEX_URL}/torchvision/ && \
     python3 -m pip uninstall -y triton triton-ascend && \
-    python3 -m pip install triton-ascend==3.2.1 --extra-index-url https://mirrors.huaweicloud.com/ascend/repos/pypi && \
+    python3 -m pip install triton-ascend==3.2.1 --extra-index-url ${ASCEND_INDEX_URL} && \
     python3 -m pip cache purge
 
 # Append `libascend_hal.so` path (devlib) to LD_LIBRARY_PATH
