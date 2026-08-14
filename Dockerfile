@@ -14,16 +14,18 @@
 # limitations under the License.
 # This file is a part of the vllm-ascend project.
 #
+ARG CANN_QUAY_URL="quay.io/ascend/cann"
+ARG CANN_VERSION="9.1.0"
+ARG BASE_OS="ubuntu22.04"
+FROM ${CANN_QUAY_URL}:${CANN_VERSION}-910b-${BASE_OS}-py3.12
 
-FROM swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.1-910b-ubuntu22.04-py3.12
-
-ARG PIP_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple"
+ARG PIP_INDEX_URL="https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
 ARG MOONCAKE_INDEX_URL="https://mirrors.aliyun.com/pypi/web/simple"
+ARG PYTORCH_INDEX_URL="https://download.pytorch.org/whl/cpu/"
 ARG ASCEND_INDEX_URL="https://mirrors.huaweicloud.com/ascend/repos/pypi"
-ARG PYTORCH_INDEX_URL="https://download.pytorch.org/whl/cpu"
-ARG PIP_TRUSTED_HOST=""
+ARG APTMIRROR=""
 ARG GIT_PROXY=""
-ARG APTMIRROR
+ARG PIP_TRUSTED_HOST=""
 
 WORKDIR /workspace
 
@@ -43,12 +45,13 @@ RUN if [ -n "$APTMIRROR" ]; then \
 
 # Install modelscope (for fast download) and ray (for multinode)
 RUN pip config set global.index-url ${PIP_INDEX_URL} && \
+    if [ -n "$PIP_TRUSTED_HOST" ]; then pip config set global.trusted-host "$PIP_TRUSTED_HOST"; fi && \
     python3 -m pip install modelscope 'ray>=2.47.1,<=2.48.0' 'protobuf>3.20.0' && \
     python3 -m pip cache purge
 
 # Install vLLM
 ARG VLLM_REPO=https://github.com/vllm-project/vllm.git
-ARG VLLM_TAG=v0.25.1
+ARG VLLM_TAG=v0.26.0
 ARG VLLM_COMMIT=""
 RUN if [ -n "$VLLM_COMMIT" ]; then \
       git init /vllm-workspace/vllm && \
@@ -59,7 +62,7 @@ RUN if [ -n "$VLLM_COMMIT" ]; then \
       git clone --depth 1 -b $VLLM_TAG $VLLM_REPO /vllm-workspace/vllm; \
     fi
 # In x86, triton will be installed by vllm. But in Ascend, triton doesn't work correctly. we need to uninstall it.
-RUN VLLM_TARGET_DEVICE="empty" python3 -m pip install -e /vllm-workspace/vllm/[audio] && \
+RUN VLLM_TARGET_DEVICE="empty" python3 -m pip install -e /vllm-workspace/vllm/[audio] --extra-index-url ${PYTORCH_INDEX_URL} && \
     python3 -m pip uninstall -y triton && \
     python3 -m pip cache purge
 
@@ -78,11 +81,32 @@ RUN export PIP_EXTRA_INDEX_URL="${ASCEND_INDEX_URL}" && \
     source /usr/local/Ascend/nnal/atb/set_env.sh && \
     python3 -m pip install -e /vllm-workspace/vllm-ascend/ --extra-index-url ${PYTORCH_INDEX_URL} && \
     python3 -m pip uninstall -y triton triton-ascend && \
-    python3 -m pip install triton-ascend==3.2.1 --extra-index-url ${ASCEND_INDEX_URL} && \
+    python3 -m pip install triton-ascend==3.2.2 --extra-index-url ${ASCEND_INDEX_URL} && \
     python3 -m pip cache purge
 
 # Append `libascend_hal.so` path (devlib) to LD_LIBRARY_PATH
 RUN echo "export LD_PRELOAD=/usr/lib/$(uname -m)-linux-gnu/libjemalloc.so.2:$LD_PRELOAD" >> ~/.bashrc
 RUN echo "export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib" >> ~/.bashrc
+
+# ===== Conditional installation based on BUILD_TYPE =====
+# All ARG definitions are in the same stage for better maintainability
+ARG BUILD_TYPE="release"
+ARG MEMCACHE_VERSION
+ARG MEMCACHE_DATE
+ARG MEMFABRIC_VERSION
+ARG MEMFABRIC_DATE
+ARG TORCH_NPU_VERSION
+ARG TORCH_NPU_DATE
+ARG TRITON_ASCEND_VERSION
+ARG TRITON_ASCEND_PACKAGE_VERSION
+ARG DAILY_DEPS_MODE="full"
+
+# Install daily packages via shared script
+COPY .github/workflows/scripts/install_daily_deps.sh /tmp/
+RUN if [ "$BUILD_TYPE" = "daily" ]; then \
+        bash /tmp/install_daily_deps.sh; \
+    else \
+        echo "Building release version without daily packages"; \
+    fi && rm -f /tmp/install_daily_deps.sh
 
 CMD ["/bin/bash"]
