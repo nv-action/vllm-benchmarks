@@ -1,6 +1,14 @@
 name: buildkit-dockerfile-test-group1
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/buildkit-dockerfile-test-group1.yaml'
+      - 'Dockerfile'
+      - 'Dockerfile.310p'
+      - 'Dockerfile.310p.openEuler'
   pull_request:
     paths:
       - '.github/workflows/buildkit-dockerfile-test-group1.yaml'
