@@ -20,6 +20,8 @@ FROM swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-beta.1
 ARG PIP_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple"
 ARG ASCEND_INDEX_URL="https://mirrors.huaweicloud.com/ascend/repos/pypi"
 ARG PYTORCH_INDEX_URL="https://download.pytorch.org/whl/cpu"
+ARG MOONCAKE_INDEX_URL="https://mirrors.aliyun.com/pypi/web/simple"
+ARG APTMIRROR=""
 ARG PIP_TRUSTED_HOST=""
 ARG GIT_PROXY=""
 
@@ -31,6 +33,7 @@ RUN yum update -y && \
 
 # Install modelscope (for fast download) and ray (for multinode)
 RUN pip config set global.index-url ${PIP_INDEX_URL} && \
+    if [ -n "$PIP_TRUSTED_HOST" ]; then pip config set global.trusted-host "$PIP_TRUSTED_HOST"; fi && \
     python3 -m pip install modelscope 'ray>=2.47.1,<=2.48.0' 'protobuf>3.20.0' && \
     python3 -m pip cache purge
 
@@ -62,7 +65,7 @@ COPY . /vllm-workspace/vllm-ascend/
 RUN export PIP_EXTRA_INDEX_URL="${ASCEND_INDEX_URL}" && \
     source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
     source /usr/local/Ascend/nnal/atb/set_env.sh && \
-    python3 -m pip install -e /vllm-workspace/vllm-ascend/ --find-links ${PYTORCH_INDEX_URL}/torch/ --find-links ${PYTORCH_INDEX_URL}/torchvision/ && \
+    python3 -m pip install -e /vllm-workspace/vllm-ascend/ --extra-index-url ${PYTORCH_INDEX_URL} && \
     python3 -m pip uninstall -y triton-ascend triton && \
     python3 -m pip cache purge
 
