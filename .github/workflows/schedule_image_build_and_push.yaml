@@ -50,6 +50,7 @@ on:
           - releases/v0.20.2rc
           - releases/v0.18.0
           - none
+          - ws_test2
       vllm_commit:
         description: 'vLLM commit hash (must be paired with vllm_ascend_commit; mutually exclusive with tag/branch). Image will be pushed only to QUAY_TEMP_USERNAME.'
         required: false
@@ -116,9 +117,9 @@ jobs:
           - name: A3 Ubuntu
             dockerfile: Dockerfile.a3
             suffix: 'a3'
-          # - name: A3 openEuler
-          #   dockerfile: Dockerfile.a3.openEuler
-          #   suffix: 'a3-openeuler'
+          - name: A3 openEuler
+            dockerfile: Dockerfile.a3.openEuler
+            suffix: 'a3-openeuler'
           # - name: 310P Ubuntu
           #   dockerfile: Dockerfile.310p
           #   suffix: '310p'
