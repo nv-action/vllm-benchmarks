@@ -1,0 +1,368 @@
+name: Image_oncall
+on:
+  workflow_call:
+    inputs:
+      quay_repo:
+        description: 'Quay repository for final images'
+        required: false
+        type: string
+        default: 'quay.io/ascend/vllm-ascend'
+      quay_temp_repo:
+        description: 'Quay repository for temp images'
+        required: false
+        type: string
+        default: 'quay.io/atlas-ci/vllm-atlas-temp'    
+      suffix:
+        description: 'The tag subfix to use'
+        required: true
+        type: string
+      should_push:
+        description: 'Whether to push the image'
+        required: false
+        type: boolean
+        default: False
+      dockerfile:
+        description: 'The Dockerfile to use'
+        required: false
+        type: string
+      quay_username:
+        description: 'Quay username for pushing images'
+        required: false
+        type: string
+      QUAY_TEMP_USERNAME:
+        description: 'Quay username for pushing temp tag digests'
+        required: false
+        type: string
+      workflow_dispatch_tag:
+        description: 'The tag to use for workflow dispatch'
+        required: false
+        type: string
+      branch_ref:
+        description: 'Branch/ref to check out for non-workflow_dispatch events'
+        required: false
+        type: string
+        default: 'main'
+      schedule_tag_pattern:
+        description: 'Pattern used for the schedule Docker tag'
+        required: false
+        type: string
+        default: 'main'
+      artifact_prefix:
+        description: 'Prefix for digest artifact names'
+        required: false
+        type: string
+        default: 'digests'
+      vllm_commit:
+        description: 'vLLM commit hash to checkout (used when set; mutually exclusive with tag/branch).'
+        required: false
+        type: string
+        default: ''
+      vllm_ascend_commit:
+        description: 'vllm-ascend commit hash to checkout (used when set; mutually exclusive with tag/branch).'
+        required: false
+        type: string
+        default: ''
+      temp_only:
+        description: 'If true, push only to QUAY_TEMP_REPO and skip the merge-image job (no push to QUAY_REPO).'
+        required: false
+        type: boolean
+        default: false
+      build_type:
+        description: 'Build type (release/daily)'
+        required: false
+        type: string
+        default: 'release'
+      memcache_version:
+        description: 'Memcache version'
+        required: false
+        type: string
+        default: '1.2.0'
+      memcache_date:
+        description: 'Memcache date'
+        required: false
+        type: string
+        default: '20260725.3'
+      memfabric_version:
+        description: 'Memfabric version'
+        required: false
+        type: string
+        default: '1.2.0'
+      memfabric_date:
+        description: 'Memfabric date'
+        required: false
+        type: string
+        default: '20260725.3'
+      torch_npu_version:
+        description: 'Torch NPU version'
+        required: false
+        type: string
+        default: '26.1.0'
+      torch_npu_date:
+        description: 'Torch NPU date'
+        required: false
+        type: string
+        default: '20260715.4'
+      cann_quay_url:
+        description: 'CANN Quay URL'
+        required: false
+        type: string
+        default: 'quay.io/atlas_inference/cann'
+      cann_version:
+        description: 'CANN version'
+        required: false
+        type: string
+        default: '2026.08.03'
+      triton_ascend_version:
+        description: 'Triton Ascend version'
+        required: false
+        type: string
+        default: ''
+      triton_ascend_package_version:
+        description: 'Triton Ascend package version'
+        required: false
+        type: string
+        default: '3.2.2'
+      build_args:
+        description: 'Additional build arguments for Docker build'
+        required: false
+        type: string
+        default: ''
+    secrets:
+        QUAY_PASSWORD:
+            description: 'Quay password for pushing images'
+            required: false
+        QUAY_TEMP_PASSWORD:
+            description: 'Quay password for pushing temp tag digests'
+            required: false
+        swr_username:
+            description: 'SWR username for pulling CANN base images'
+            required: false
+        swr_password:
+            description: 'SWR password for pulling CANN base images'
+            required: false
+
+defaults:
+  run:
+    shell: bash -el {0}
+
+env:
+  QUAY_REPO: ${{ inputs.quay_repo }}
+  QUAY_TEMP_REPO: ${{ inputs.quay_temp_repo }}
+  # Use this repo's own GHCR namespace so forks (e.g. du-ping1-merge) can write build cache.
+  CACHE_REPO: ghcr.io/${{ github.repository }}
+
+jobs:
+  build-push-digest:
+    name: build
+    runs-on: ${{ matrix.runner_info.runner }}
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-a3-ubuntu22.04-py3.12
+    permissions:
+      packages: write
+      contents: read
+
+    strategy:
+      matrix:
+        runner_info:
+          - {runner: linux-aarch64-cpu-4-buildkit-gy006, tag: arm64}
+          - {runner: linux-amd64-cpu-4-buildkit-gy006, tag: amd64}
+
+    steps:
+
+    - name: Validate inputs (workflow_dispatch only)
+      if: ${{ github.event_name == 'workflow_dispatch' }}
+      run: |
+        tag="${{ inputs.workflow_dispatch_tag }}"
+        branch="${{ inputs.branch_ref }}"
+        vllm_commit="${{ inputs.vllm_commit }}"
+        vllm_ascend_commit="${{ inputs.vllm_ascend_commit }}"
+
+        commit_mode="false"
+        if [[ -n "$vllm_commit" || -n "$vllm_ascend_commit" ]]; then
+          if [[ -z "$vllm_commit" || -z "$vllm_ascend_commit" ]]; then
+            echo "Error: 'vllm_commit' and 'vllm_ascend_commit' must be specified together."
+            exit 1
+          fi
+          for c in "$vllm_commit" "$vllm_ascend_commit"; do
+            if ! echo "$c" | grep -Eq '^[0-9a-f]{7,40}$'; then
+              echo "Error: invalid commit format: $c (expected 7-40 hex chars)."
+              exit 1
+            fi
+          done
+          commit_mode="true"
+        fi
+
+        if [[ "$commit_mode" == "true" ]]; then
+          if [[ -n "$tag" || -n "$branch" ]]; then
+            echo "Error: commit mode is mutually exclusive with 'tag'/'branch'."
+            exit 1
+          fi
+        else
+          if [[ -n "$tag" && -n "$branch" ]]; then
+            echo "Error: 'tag' and 'branch' are mutually exclusive. Please specify only one."
+            exit 1
+          fi
+          if [[ -z "$tag" && -z "$branch" ]]; then
+            echo "Error: Either 'tag', 'branch', or (vllm_commit + vllm_ascend_commit) must be specified."
+            exit 1
+          fi
+        fi
+
+    - uses: actions/checkout@v7
+      if: ${{ github.event_name == 'workflow_dispatch' && inputs.vllm_ascend_commit != '' }}
+      with:
+        submodules: recursive
+        fetch-depth: 0
+        persist-credentials: false
+        ref: ${{ inputs.vllm_ascend_commit }}
+
+    - uses: actions/checkout@v7
+      if: ${{ github.event_name != 'workflow_dispatch' }}
+      with:
+        submodules: recursive
+        fetch-depth: 0
+        persist-credentials: false
+        ref: ${{ inputs.branch_ref }}
+
+    - uses: actions/checkout@v7
+      if: ${{ github.event_name == 'workflow_dispatch' && inputs.workflow_dispatch_tag != '' }}
+      with:
+        submodules: recursive
+        fetch-depth: 0
+        persist-credentials: false
+        ref: ${{ inputs.workflow_dispatch_tag }}
+
+    - uses: actions/checkout@v7
+      if: ${{ github.event_name == 'workflow_dispatch' && inputs.workflow_dispatch_tag == '' && inputs.vllm_ascend_commit == '' }}
+      with:
+        submodules: recursive
+        fetch-depth: 0
+        persist-credentials: false
+        ref: ${{ inputs.branch_ref }}
+
+    - name: Compute cache tag
+      id: cache-tag
+      run: |
+        if [ -n "${{ inputs.suffix }}" ]; then
+          echo "value=buildcache-${{ inputs.suffix }}-${{ matrix.runner_info.tag }}" >> $GITHUB_OUTPUT
+        else
+          echo "value=buildcache-${{ matrix.runner_info.tag }}" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Get Dockerfile base image tag
+      id: get_base_image_tag
+      run: |
+        DOCKERFILE="${{ inputs.dockerfile || 'Dockerfile' }}"
+        BASE_IMAGE_TAG=$(grep -m1 '^FROM' "$DOCKERFILE" | awk -F: '{print $NF}')
+        echo "BASE_IMAGE_TAG=$BASE_IMAGE_TAG" >> $GITHUB_OUTPUT
+
+    - name: Get csrc hash
+      id: get_csrc_hash
+      run: |
+        # Fail closed so a git error cannot silently produce sha256(empty).
+        set -euo pipefail
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        cd "$GITHUB_WORKSPACE"
+
+        # Match the standalone cache producer's tracked csrc build inputs.
+        CSRC_MANIFEST=$(git ls-files -s -- csrc setup.py CMakeLists.txt cmake)
+        if [ -z "$CSRC_MANIFEST" ]; then
+          echo "::error::No tracked csrc inputs found."
+          exit 1
+        fi
+
+        CSRC_HASH=$(printf '%s\n' "$CSRC_MANIFEST" | sha256sum | awk '{print $1}')
+        echo "CSRC_HASH=$CSRC_HASH" >> "$GITHUB_OUTPUT"
+
+    - name: Get architecture
+      id: get_arch
+      run: |
+        ARCH=$(uname -m)
+        case "$ARCH" in
+          x86_64) echo "arch=X64" >> "$GITHUB_OUTPUT" ;;
+          aarch64) echo "arch=ARM64" >> "$GITHUB_OUTPUT" ;;
+          *) echo "arch=$ARCH" >> "$GITHUB_OUTPUT" ;;
+        esac
+
+    - name: Install csrc cache dependencies
+      run: |
+        apt-get update -y
+        apt-get install -y zstd
+
+    - name: Restore vllm-ascend csrc cache
+      id: cache-csrc
+      uses: runs-on/cache/restore@v5
+      with:
+        path: |
+          vllm_ascend/_cann_ops_custom
+          vllm_ascend/*.so
+          vllm_ascend/lib
+          vllm_ascend/include
+        key: vllm-ascend-build-v2-${{ steps.get_arch.outputs.arch }}-${{ steps.get_base_image_tag.outputs.BASE_IMAGE_TAG }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
+      
+    - name: Determine SOC_VERSION
+      id: vars
+      run: |
+        case "${{ inputs.dockerfile }}" in
+          Dockerfile|Dockerfile.openEuler)
+            echo "soc_version=ascend910b1" >> $GITHUB_OUTPUT
+            ;;
+          Dockerfile.310p|Dockerfile.310p.openEuler)
+            echo "soc_version=ascend310p1" >> $GITHUB_OUTPUT
+            ;;
+          Dockerfile.a3|Dockerfile.a3.openEuler)
+            echo "soc_version=ascend910_9391" >> $GITHUB_OUTPUT
+            ;;
+          Dockerfile.a5|Dockerfile.a5.openEuler)
+            echo "soc_version=ascend950dt_9582" >> $GITHUB_OUTPUT
+            ;;
+        esac
+
+    - name: Login to SWR
+      uses: docker/login-action@v4
+      with:
+        registry: swr.cn-southwest-2.myhuaweicloud.com
+        username: ${{ secrets.swr_username }}
+        password: ${{ secrets.swr_password }}
+
+    - name: Build and push
+      uses: docker/build-push-action@v7
+      id: build
+      with:
+        # use the current repo path as the build context, ensure .git is contained
+        context: .
+        file: ${{ inputs.dockerfile || 'Dockerfile' }}
+        # only trigger when tag, branch/main push
+        push: ${{ inputs.should_push }}
+        # tags: swr.cn-southwest-2.myhuaweicloud.com/modelfoundry/buildkit-test:${{ inputs.dockerfile }}-${{ matrix.runner_info.tag }}-${{ github.sha }}
+        # TODO: outputs: type=image,name=${QUAY_TEMP_REPO},push-by-digest=true,name-canonical=true,push=... ：以 digest 形式推送到 temp 仓库（不直接打 tag）
+        outputs: type=image,name=${{ env.QUAY_TEMP_REPO }},push-by-digest=true,name-canonical=true,push=${{ inputs.should_push }}
+        # Image builds can compile inside Docker and therefore keep a fallback;
+        # NPU test jobs use fail-on-cache-miss instead.
+        build-args: |
+          CANN_QUAY_URL=swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann
+          APTMIRROR=http://cache-service.nginx-pypi-cache.svc.cluster.local:8081
+          PIP_INDEX_URL=http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+          PIP_TRUSTED_HOST=cache-service.nginx-pypi-cache.svc.cluster.local
+          PYTORCH_INDEX_URL=http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu
+          ASCEND_INDEX_URL=http://cache-service.nginx-pypi-cache.svc.cluster.local/ascend/repos/pypi
+          GIT_PROXY=https://gh-proxy.test.osinfra.cn/
+          SOC_VERSION=${{ steps.vars.outputs.soc_version }}
+          COMPILE_CUSTOM_KERNELS=0
+          VLLM_COMMIT=${{ inputs.vllm_commit }}
+          BUILD_TYPE=${{ inputs.build_type || 'release' }}
+          MEMCACHE_VERSION=${{ inputs.memcache_version || '1.2.0' }}
+          MEMCACHE_DATE=${{ inputs.memcache_date || '20260725.3' }}
+          MEMFABRIC_VERSION=${{ inputs.memfabric_version || '1.2.0' }}
+          MEMFABRIC_DATE=${{ inputs.memfabric_date || '20260725.3' }}
+          TORCH_NPU_VERSION=${{ inputs.torch_npu_version || '26.1.0' }}
+          TORCH_NPU_DATE=${{ inputs.torch_npu_date || '20260715.4' }}
+          TRITON_ASCEND_VERSION=${{ inputs.triton_ascend_version || '' }}
+          TRITON_ASCEND_PACKAGE_VERSION=${{ inputs.triton_ascend_package_version || '3.2.2' }}
+          ${{ inputs.build_args }}
+        provenance: false
+        # To speed up the build, we use registry cache. The cache tag is determined by the suffix and architecture, and shared across different workflow runs.
+        # For example, the cache tag for arm64 image with suffix "openeuler" will be "buildcache-openeuler-arm64".
+        # When a new image is built and pushed, the cache will also be updated in the registry, so that next build can benefit from it.
+        cache-from: type=registry,ref=swr.cn-southwest-2.myhuaweicloud.com/modelfoundry/buildkit-test:${{ steps.cache-tag.outputs.value }}
+        cache-to: ${{ inputs.should_push && format('type=registry,ref=swr.cn-southwest-2.myhuaweicloud.com/modelfoundry/buildkit-test:{0},mode=max', steps.cache-tag.outputs.value) || '' }}
