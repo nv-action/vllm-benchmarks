@@ -1,0 +1,16 @@
+.github/workflows/schedule_image_build_and_push.yaml
+  h_7fe88e4d865b0a 170-171,239-240
+.github/workflows/_schedule_image_build.yaml
+  h_7fe88e4d865b0a 15-19,142-143,145-146,331-332,343,355,371-372,449,487-488,500,502,504-505,508
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.2",
+  "base_commit_sha": "1bbac5bdccdde1e05d66e61591c4769bdf653c87",
+  "prompts": {},
+  "humans": {
+    "h_7fe88e4d865b0a": {
+      "author": "qq_56278931 <wenshun3@h-partners.com>"
+    }
+  }
+}
