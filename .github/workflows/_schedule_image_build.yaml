@@ -396,11 +396,14 @@ jobs:
             TAG="nightly-${{ inputs.schedule_tag_pattern }}${SUFFIX}-${{ matrix.runner_info.tag }}-${DATE}-temp"
           fi
         fi
-        DIGESTS=$(printf "$SOURCE_IMAGE@sha256:%s " $(ls ${{ runner.temp }}/digests))
+        SOURCE_IMAGE="${{ inputs.swr_temp_repo }}"
+        DIGESTS=$(printf "${SOURCE_IMAGE}@sha256:%s " $(ls ${{ env.digest_dir }}))
         echo "Creating temp tag: ${{ inputs.swr_temp_repo }}:$TAG"
+        echo "Digests: ${DIGESTS}"
+        # shellcheck disable=SC2086
         docker buildx imagetools create \
           -t "${{ inputs.swr_temp_repo }}:$TAG" \
-          "${{ inputs.swr_temp_repo }}@${DIGESTS}"
+          ${DIGESTS}
 
 
     - name: Export digest
