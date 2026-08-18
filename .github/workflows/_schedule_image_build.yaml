@@ -437,8 +437,11 @@ jobs:
         # Copy the manifest as-is from <repo>@<digest> to <repo>:<tag>.
         # skopeo copy preserves the manifest format (single manifest stays
         # single manifest, no index wrapping) and works without docker daemon.
+        # Note: `skopeo copy` has no `--creds` flag (unlike `skopeo inspect`),
+        # we must use `--source-creds` and `--dest-creds` separately.
         skopeo copy \
-          --creds "$CREDS" \
+          --source-creds "$CREDS" \
+          --dest-creds "$CREDS" \
           "docker://${REPO}@${{ env.PUSHED_DIGEST }}" \
           "docker://${REPO}:${TAG}"
 
