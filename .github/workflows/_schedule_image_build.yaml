@@ -376,8 +376,8 @@ jobs:
           apt-get update -qq && apt-get install -y -qq skopeo
         fi
 
-        # inspect the digest BuildKit reported; --no-tags-require-digest is not
-        # needed because we pass repo@sha256:... directly.
+        # inspect the digest BuildKit reported; skopeo talks directly to the
+        # registry v2 API over HTTPS, no docker daemon required.
         RESOLVED=$(skopeo inspect \
           --creds "${{ secrets.SWR_USERNAME }}:${{ secrets.SWR_PASSWORD }}" \
           --format '{{.Digest}}' \
@@ -388,7 +388,7 @@ jobs:
           RESOLVED="$BUILD_DIGEST"
         fi
 
-        # Normalize to "sha256:..." form for imagetools create.
+        # Normalize to "sha256:..." form.
         case "$RESOLVED" in
           sha256:*) ;;
           *) RESOLVED="sha256:${RESOLVED}" ;;
@@ -403,6 +403,14 @@ jobs:
 
     # Quay.io automatically cleans up untagged digests on a regular basis, with a cycle of approximately one hour. 
     # Add temporary tags to digests to prevent them from being removed.
+    #
+    # NOTE: We use `skopeo copy` instead of `docker buildx imagetools create`.
+    # `imagetools create` always wraps the source manifest into an OCI Image
+    # Index (manifest list), even when given a single source — the resulting
+    # index has a different digest (e.g. 711e14c... → e10b23d...) and SWR
+    # rejects the PUT with 400 Bad Request because it doesn't accept that
+    # index format. `skopeo copy` preserves the original manifest format
+    # (single-arch manifest → single-arch tag), which SWR accepts.
     - name: Tag digest to prevent GC
       if: ${{ inputs.should_push }}
       run: |
@@ -422,10 +430,17 @@ jobs:
           fi
         fi
 
-        echo "Creating temp tag: ${{ inputs.swr_temp_repo }}:$TAG"
-        docker buildx imagetools create \
-          -t "${{ inputs.swr_temp_repo }}:$TAG" \
-          "${{ inputs.swr_temp_repo }}@${{ env.PUSHED_DIGEST }}"
+        REPO="${{ inputs.swr_temp_repo }}"
+        CREDS="${{ secrets.SWR_USERNAME }}:${{ secrets.SWR_PASSWORD }}"
+        echo "Creating temp tag: ${REPO}:$TAG (from digest ${{ env.PUSHED_DIGEST }})"
+
+        # Copy the manifest as-is from <repo>@<digest> to <repo>:<tag>.
+        # skopeo copy preserves the manifest format (single manifest stays
+        # single manifest, no index wrapping) and works without docker daemon.
+        skopeo copy \
+          --creds "$CREDS" \
+          "docker://${REPO}@${{ env.PUSHED_DIGEST }}" \
+          "docker://${REPO}:${TAG}"
 
 
     - name: Export digest
