@@ -387,8 +387,8 @@ jobs:
         skopeo copy \
           --src-creds "$CREDS" \
           --dest-creds "$CREDS" \
-          "docker://${{ env.QUAY_TEMP_REPO }}@${{ steps.build.outputs.digest }}" \
-          "docker://${{ env.QUAY_TEMP_REPO }}:$TAG"
+          "docker://${{ inputs.swr_temp_repo }}@${{ steps.build.outputs.digest }}" \
+          "docker://${{ inputs.swr_temp_repo }}:$TAG"
 
     - name: Export digest
       run: |
