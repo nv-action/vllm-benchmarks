@@ -440,7 +440,7 @@ jobs:
         # Note: `skopeo copy` has no `--creds` flag (unlike `skopeo inspect`),
         # we must use `--source-creds` and `--dest-creds` separately.
         skopeo copy \
-          --source-creds "$CREDS" \
+          --src-creds "$CREDS" \
           --dest-creds "$CREDS" \
           "docker://${REPO}@${{ env.PUSHED_DIGEST }}" \
           "docker://${REPO}:${TAG}"
