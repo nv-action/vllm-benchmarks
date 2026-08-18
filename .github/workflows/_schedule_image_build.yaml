@@ -175,8 +175,8 @@ jobs:
     strategy:
       matrix:
         runner_info:
-          - {runner: linux-aarch64-cpu-4-buildkit-gy006, tag: arm64}
-          - {runner: linux-amd64-cpu-4-buildkit-gy006, tag: amd64}
+          - {runner: linux-aarch64-cpu-4, tag: arm64}
+          - {runner: linux-amd64-cpu-4, tag: amd64}
 
     steps:
 
@@ -564,6 +564,22 @@ jobs:
               $DIGESTS
           done
 
+      - name: Clean up temp tags
+        if: ${{ inputs.build_type == 'daily' }}
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq skopeo
+          SUFFIX=""
+          if [ -n "${{ inputs.suffix }}" ]; then
+            SUFFIX="-${{ inputs.suffix }}"
+          fi
+          DATE=$(date +'%Y%m%d')
+          # Temp tags were created in SWR by build-push-digest, so clean them up there.
+          for arch in amd64 arm64; do
+            TAG="nightly-${{ inputs.schedule_tag_pattern }}${SUFFIX}-${arch}-${DATE}-temp"
+            skopeo delete --creds "${{ secrets.SWR_USERNAME }}:${{ secrets.SWR_PASSWORD }}" \
+              "docker://${{ inputs.swr_temp_repo }}:${TAG}" || true
+          done
+
   merge-image-temp:
     name: merge-image-temp
     runs-on: ubuntu-latest
@@ -638,3 +654,20 @@ jobs:
               -t "$DAILY_TAG" \
               $DIGESTS
           fi
+
+      - name: Clean up temp tags
+        if: ${{ inputs.build_type == 'daily' }}
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq skopeo
+          SUFFIX=""
+          if [ -n "${{ inputs.suffix }}" ]; then
+            SUFFIX="-${{ inputs.suffix }}"
+          fi
+          VLLM_SHORT=$(echo "${{ inputs.vllm_commit }}" | cut -c1-7)
+          ASCEND_SHORT=$(echo "${{ inputs.vllm_ascend_commit }}" | cut -c1-7)
+          # Temp tags were created in SWR by build-push-digest, so clean them up there.
+          for arch in amd64 arm64; do
+            TAG="vllm-ascend-${VLLM_SHORT}-${ASCEND_SHORT}${SUFFIX}-${arch}-temp"
+            skopeo delete --creds "${{ secrets.SWR_USERNAME }}:${{ secrets.SWR_PASSWORD }}" \
+              "docker://${{ inputs.swr_temp_repo }}:${TAG}" || true
+          done
