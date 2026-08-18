@@ -318,13 +318,6 @@ jobs:
         username: ${{ secrets.SWR_USERNAME }}
         password: ${{ secrets.SWR_PASSWORD }}
 
-    # A docker-container driver builder is required for push-by-digest=true
-    # and registry cache. Without it, the default docker driver returns the
-    # local image digest instead of the registry manifest digest, causing
-    # steps.build.outputs.digest to mismatch the actually-pushed image.
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v4
-
     - name: Build and push
       uses: docker/build-push-action@v7
       id: build
@@ -364,6 +357,50 @@ jobs:
         cache-from: type=registry,ref=${{ inputs.swr_temp_repo }}:${{ steps.cache-tag.outputs.value }}
         cache-to: ${{ inputs.should_push && format('type=registry,ref={0}:{1},mode=max', inputs.swr_temp_repo, steps.cache-tag.outputs.value) || '' }}
 
+    # BuildKit reports steps.build.outputs.digest based on the manifest it
+    # computed locally, but SWR may rewrite the manifest (schema/mediaType)
+    # on ingest, producing a different digest. Re-query SWR for the actual
+    # stored manifest digest so that downstream steps (Tag digest, Export
+    # digest) reference the exact bytes the registry is holding.
+    # skopeo only talks to the registry via HTTPS — no docker daemon needed,
+    # which matters because this job runs inside a CANN container.
+    - name: Resolve pushed digest from SWR
+      if: ${{ inputs.should_push }}
+      run: |
+        set -euo pipefail
+        BUILD_DIGEST="${{ steps.build.outputs.digest }}"
+        REPO="${{ inputs.swr_temp_repo }}"
+
+        # Install skopeo if not present (image is Ubuntu-based).
+        if ! command -v skopeo >/dev/null 2>&1; then
+          apt-get update -qq && apt-get install -y -qq skopeo
+        fi
+
+        # inspect the digest BuildKit reported; --no-tags-require-digest is not
+        # needed because we pass repo@sha256:... directly.
+        RESOLVED=$(skopeo inspect \
+          --creds "${{ secrets.SWR_USERNAME }}:${{ secrets.SWR_PASSWORD }}" \
+          --format '{{.Digest}}' \
+          "docker://${REPO}@${BUILD_DIGEST#sha256:}" 2>/dev/null || echo "")
+
+        if [ -z "$RESOLVED" ]; then
+          echo "::warning::Failed to resolve digest from SWR; falling back to build digest"
+          RESOLVED="$BUILD_DIGEST"
+        fi
+
+        # Normalize to "sha256:..." form for imagetools create.
+        case "$RESOLVED" in
+          sha256:*) ;;
+          *) RESOLVED="sha256:${RESOLVED}" ;;
+        esac
+
+        echo "Manifest digest reported by build:  $BUILD_DIGEST"
+        echo "Manifest digest resolved from SWR:  $RESOLVED"
+        if [ "$BUILD_DIGEST" != "$RESOLVED" ]; then
+          echo "::warning::Build digest and SWR digest differ"
+        fi
+        echo "PUSHED_DIGEST=$RESOLVED" >> "$GITHUB_ENV"
+
     # Quay.io automatically cleans up untagged digests on a regular basis, with a cycle of approximately one hour. 
     # Add temporary tags to digests to prevent them from being removed.
     - name: Tag digest to prevent GC
@@ -384,11 +421,11 @@ jobs:
             TAG="nightly-${{ inputs.schedule_tag_pattern }}${SUFFIX}-${{ matrix.runner_info.tag }}-${DATE}-temp"
           fi
         fi
-       
+
         echo "Creating temp tag: ${{ inputs.swr_temp_repo }}:$TAG"
         docker buildx imagetools create \
           -t "${{ inputs.swr_temp_repo }}:$TAG" \
-          "${{ inputs.swr_temp_repo }}@${{ steps.build.outputs.digest }}"
+          "${{ inputs.swr_temp_repo }}@${{ env.PUSHED_DIGEST }}"
 
 
     - name: Export digest
