@@ -311,24 +311,6 @@ jobs:
           vllm_ascend/include
         key: vllm-ascend-build-v2-${{ steps.get_arch.outputs.arch }}-${{ steps.get_base_image_tag.outputs.BASE_IMAGE_TAG }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
 
-    - name: Determine SOC_VERSION
-      id: vars
-      run: |
-        case "${{ inputs.dockerfile }}" in
-          Dockerfile|Dockerfile.openEuler)
-            echo "soc_version=ascend910b1" >> $GITHUB_OUTPUT
-            ;;
-          Dockerfile.310p|Dockerfile.310p.openEuler)
-            echo "soc_version=ascend310p1" >> $GITHUB_OUTPUT
-            ;;
-          Dockerfile.a3|Dockerfile.a3.openEuler)
-            echo "soc_version=ascend910_9391" >> $GITHUB_OUTPUT
-            ;;
-          Dockerfile.a5|Dockerfile.a5.openEuler)
-            echo "soc_version=ascend950dt_9582" >> $GITHUB_OUTPUT
-            ;;
-        esac
-
     - name: Login to SWR
       uses: docker/login-action@v4
       with:
@@ -356,7 +338,6 @@ jobs:
           PYTORCH_INDEX_URL=http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu
           ASCEND_INDEX_URL=http://cache-service.nginx-pypi-cache.svc.cluster.local/ascend/repos/pypi
           GIT_PROXY=https://gh-proxy.test.osinfra.cn/
-          SOC_VERSION=${{ steps.vars.outputs.soc_version }}
           COMPILE_CUSTOM_KERNELS=${{ steps.cache-csrc.outputs.cache-hit == 'true' && '0' || '1' }}
           VLLM_COMMIT=${{ inputs.vllm_commit }}
           BUILD_TYPE=${{ inputs.build_type || 'release' }}
@@ -375,6 +356,39 @@ jobs:
         # When a new image is built and pushed, the cache will also be updated in the registry, so that next build can benefit from it.
         cache-from: type=registry,ref=${{ inputs.swr_temp_repo }}:${{ steps.cache-tag.outputs.value }}
         cache-to: ${{ inputs.should_push && format('type=registry,ref={0}:{1},mode=max', inputs.swr_temp_repo, steps.cache-tag.outputs.value) || '' }}
+
+    # Quay.io/swr automatically cleans up untagged digests on a regular basis, with a cycle of approximately one hour. 
+    # Add temporary tags to digests to prevent them from being removed.
+    - name: Tag digest to prevent GC
+      if: ${{ inputs.should_push }}
+      run: |
+        SUFFIX=""
+        if [ -n "${{ inputs.suffix }}" ]; then
+          SUFFIX="-${{ inputs.suffix }}"
+        fi
+        if [ "${{ inputs.temp_only }}" = "true" ]; then
+          VLLM_SHORT=$(echo "${{ inputs.vllm_commit }}" | cut -c1-7)
+          ASCEND_SHORT=$(echo "${{ inputs.vllm_ascend_commit }}" | cut -c1-7)
+          TAG="vllm-ascend-${VLLM_SHORT}-${ASCEND_SHORT}${SUFFIX}-${{ matrix.tag }}-temp"
+        else
+          TAG="nightly-${{ inputs.schedule_tag_pattern }}${SUFFIX}-${{ matrix.tag }}-temp"
+          if [ "${{ inputs.build_type }}" = "daily" ]; then
+            DATE=$(date +'%Y%m%d')
+            TAG="nightly-${{ inputs.schedule_tag_pattern }}${SUFFIX}-${{ matrix.tag }}-${DATE}-temp"
+          fi
+        fi
+        echo "Creating temp tag: ${{ env.QUAY_TEMP_REPO }}:$TAG"
+
+        # Install skopeo if not present (image is Ubuntu-based).
+        if ! command -v skopeo >/dev/null 2>&1; then
+          apt-get update -qq && apt-get install -y -qq skopeo
+        fi
+        CREDS="${{ secrets.SWR_USERNAME }}:${{ secrets.SWR_PASSWORD }}"
+        skopeo copy \
+          --src-creds "$CREDS" \
+          --dest-creds "$CREDS" \
+          "docker://${{ inputs.swr_temp_repo }}@${{ steps.build.outputs.digest }}" \
+          "docker://${{ inputs.swr_temp_repo }}:$TAG"
 
     - name: Export digest
       run: |
