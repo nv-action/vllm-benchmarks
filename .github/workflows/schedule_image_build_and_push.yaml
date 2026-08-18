@@ -111,38 +111,36 @@ jobs:
           - name: A2 Ubuntu
             dockerfile: Dockerfile
             suffix: ''
-          # - name: A2 openeuler
-          #   dockerfile: Dockerfile.openEuler
-          #   suffix: 'openeuler'
-          # - name: A3 Ubuntu
-          #   dockerfile: Dockerfile.a3
-          #   suffix: 'a3'
-          # - name: A3 openEuler
-          #   dockerfile: Dockerfile.a3.openEuler
-          #   suffix: 'a3-openeuler'
-          # - name: 310P Ubuntu
-          #   dockerfile: Dockerfile.310p
-          #   suffix: '310p'
-          # - name: 310P openEuler
-          #   dockerfile: Dockerfile.310p.openEuler
-          #   suffix: '310p-openeuler'
-          # - name: A5 Ubuntu
-          #   dockerfile: Dockerfile.a5
-          #   suffix: 'a5'
-          # - name: A5 openEuler
-          #   dockerfile: Dockerfile.a5.openEuler
-          #   suffix: 'a5-openeuler'
+          - name: A2 openeuler
+            dockerfile: Dockerfile.openEuler
+            suffix: 'openeuler'
+          - name: A3 Ubuntu
+            dockerfile: Dockerfile.a3
+            suffix: 'a3'
+          - name: A3 openEuler
+            dockerfile: Dockerfile.a3.openEuler
+            suffix: 'a3-openeuler'
+          - name: 310P Ubuntu
+            dockerfile: Dockerfile.310p
+            suffix: '310p'
+          - name: 310P openEuler
+            dockerfile: Dockerfile.310p.openEuler
+            suffix: '310p-openeuler'
+          - name: A5 Ubuntu
+            dockerfile: Dockerfile.a5
+            suffix: 'a5'
+          - name: A5 openEuler
+            dockerfile: Dockerfile.a5.openEuler
+            suffix: 'a5-openeuler'
     uses: ./.github/workflows/_schedule_image_build.yaml
     with:
       dockerfile: ${{ matrix.build_meta.dockerfile }}
       suffix: ${{ matrix.build_meta.suffix }}
       
       # ===== Dynamic repository and authentication based on build_type =====
-      # quay_repo: ${{ inputs.build_type == 'daily' && 'quay.io/atlas_inference/vllm-ascend' || 'quay.io/ascend/vllm-ascend' }}
-      quay_repo: ${{ inputs.build_type == 'daily' && 'quay.io/atlas_inference/vllm-atlas-temp' || 'quay.io/atlas-ci/vllm-atlas-temp' }}
+      quay_repo: ${{ inputs.build_type == 'daily' && 'quay.io/atlas_inference/vllm-ascend' || 'quay.io/ascend/vllm-ascend' }}
       quay_temp_repo: ${{ inputs.build_type == 'daily' && 'quay.io/atlas_inference/vllm-atlas-temp' || 'quay.io/atlas-ci/vllm-atlas-temp' }}
-      # quay_username: ${{ inputs.build_type == 'daily' && vars.QUAY_DAILY_USERNAME || vars.QUAY_USERNAME }}
-      quay_username: ${{ inputs.build_type == 'daily' && vars.QUAY_DAILY_TEMP_USERNAME || vars.QUAY_TEMP_USERNAME }}
+      quay_username: ${{ inputs.build_type == 'daily' && vars.QUAY_DAILY_USERNAME || vars.QUAY_USERNAME }}
       quay_temp_username: ${{ inputs.build_type == 'daily' && vars.QUAY_DAILY_TEMP_USERNAME || vars.QUAY_TEMP_USERNAME }}
       # ====================================================================
       

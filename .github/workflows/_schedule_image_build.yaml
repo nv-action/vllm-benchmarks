@@ -368,34 +368,8 @@ jobs:
         # To speed up the build, we use registry cache. The cache tag is determined by the suffix and architecture, and shared across different workflow runs.
         # For example, the cache tag for arm64 image with suffix "openeuler" will be "buildcache-openeuler-arm64".
         # When a new image is built and pushed, the cache will also be updated in the registry, so that next build can benefit from it.
-        cache-from: type=registry,ref=${{ inputs.swr_temp_repo }}:${{ steps.cache-tag.outputs.value }}
-        cache-to: ${{ inputs.should_push && format('type=registry,ref=${{ inputs.swr_temp_repo }}:{0},mode=max', steps.cache-tag.outputs.value) || '' }}
-
-    # Quay.io automatically cleans up untagged digests on a regular basis, with a cycle of approximately one hour. 
-    # Add temporary tags to digests to prevent them from being removed.
-    # - name: Tag digest to prevent GC
-    #   if: ${{ inputs.should_push }}
-    #   run: |
-    #     SUFFIX=""
-    #     if [ -n "${{ inputs.suffix }}" ]; then
-    #       SUFFIX="-${{ inputs.suffix }}"
-    #     fi
-    #     if [ "${{ inputs.temp_only }}" = "true" ]; then
-    #       VLLM_SHORT=$(echo "${{ inputs.vllm_commit }}" | cut -c1-7)
-    #       ASCEND_SHORT=$(echo "${{ inputs.vllm_ascend_commit }}" | cut -c1-7)
-    #       TAG="vllm-ascend-${VLLM_SHORT}-${ASCEND_SHORT}${SUFFIX}-${{ matrix.tag }}-temp"
-    #     else
-    #       TAG="nightly-${{ inputs.schedule_tag_pattern }}${SUFFIX}-${{ matrix.tag }}-temp"
-    #       if [ "${{ inputs.build_type }}" = "daily" ]; then
-    #         DATE=$(date +'%Y%m%d')
-    #         TAG="nightly-${{ inputs.schedule_tag_pattern }}${SUFFIX}-${{ matrix.tag }}-${DATE}-temp"
-    #       fi
-    #     fi
-    #     echo "Creating temp tag: ${{ inputs.swr_temp_repo }}:$TAG"
-    #     docker buildx imagetools create \
-    #       -t "${{ inputs.swr_temp_repo }}:$TAG" \
-    #       "${{ inputs.swr_temp_repo }}@${{ steps.build.outputs.digest }}"
-
+        cache-from: type=registry,ref=swr.cn-southwest-2.myhuaweicloud.com/modelfoundry/buildkit-test:${{ steps.cache-tag.outputs.value }}
+        cache-to: ${{ inputs.should_push && format('type=registry,ref=swr.cn-southwest-2.myhuaweicloud.com/modelfoundry/buildkit-test:{0},mode=max', steps.cache-tag.outputs.value) || '' }}
 
     - name: Export digest
       run: |
@@ -571,22 +545,6 @@ jobs:
               $DIGESTS
           done
 
-      # - name: Clean up temp tags
-      #   if: ${{ inputs.build_type == 'daily' }}
-      #   run: |
-      #     sudo apt-get update -qq && sudo apt-get install -y -qq skopeo
-      #     SUFFIX=""
-      #     if [ -n "${{ inputs.suffix }}" ]; then
-      #       SUFFIX="-${{ inputs.suffix }}"
-      #     fi
-      #     DATE=$(date +'%Y%m%d')
-      #     # Temp tags were created in SWR by build-push-digest, so clean them up there.
-      #     for arch in amd64 arm64; do
-      #       TAG="nightly-${{ inputs.schedule_tag_pattern }}${SUFFIX}-${arch}-${DATE}-temp"
-      #       skopeo delete --creds "${{ secrets.SWR_USERNAME }}:${{ secrets.SWR_PASSWORD }}" \
-      #         "docker://${{ inputs.swr_temp_repo }}:${TAG}" || true
-      #     done
-
   merge-image-temp:
     name: merge-image-temp
     runs-on: ubuntu-latest
@@ -661,20 +619,3 @@ jobs:
               -t "$DAILY_TAG" \
               $DIGESTS
           fi
-
-      # - name: Clean up temp tags
-      #   if: ${{ inputs.build_type == 'daily' }}
-      #   run: |
-      #     sudo apt-get update -qq && sudo apt-get install -y -qq skopeo
-      #     SUFFIX=""
-      #     if [ -n "${{ inputs.suffix }}" ]; then
-      #       SUFFIX="-${{ inputs.suffix }}"
-      #     fi
-      #     VLLM_SHORT=$(echo "${{ inputs.vllm_commit }}" | cut -c1-7)
-      #     ASCEND_SHORT=$(echo "${{ inputs.vllm_ascend_commit }}" | cut -c1-7)
-      #     # Temp tags were created in SWR by build-push-digest, so clean them up there.
-      #     for arch in amd64 arm64; do
-      #       TAG="vllm-ascend-${VLLM_SHORT}-${ASCEND_SHORT}${SUFFIX}-${arch}-temp"
-      #       skopeo delete --creds "${{ secrets.SWR_USERNAME }}:${{ secrets.SWR_PASSWORD }}" \
-      #         "docker://${{ inputs.swr_temp_repo }}:${TAG}" || true
-      #     done
