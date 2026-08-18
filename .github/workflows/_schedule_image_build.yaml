@@ -345,7 +345,7 @@ jobs:
         file: ${{ inputs.dockerfile || 'Dockerfile' }}
         # only trigger when tag, branch/main push
         push: ${{ inputs.should_push }}
-        outputs: type=image,name=${{ inputs.swr_temp_repo }},push-by-digest=true,name-canonical=true,push=${{ inputs.should_push }}
+        outputs: type=image,name=${{ inputs.swr_temp_repo }},push-by-digest=true,push=${{ inputs.should_push }}
         # Image builds can compile inside Docker and therefore keep a fallback;
         # NPU test jobs use fail-on-cache-miss instead.
         build-args: |
