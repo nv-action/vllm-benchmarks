@@ -311,30 +311,19 @@ jobs:
           vllm_ascend/include
         key: vllm-ascend-build-v2-${{ steps.get_arch.outputs.arch }}-${{ steps.get_base_image_tag.outputs.BASE_IMAGE_TAG }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
 
-    - name: Determine SOC_VERSION
-      id: vars
-      run: |
-        case "${{ inputs.dockerfile }}" in
-          Dockerfile|Dockerfile.openEuler)
-            echo "soc_version=ascend910b1" >> $GITHUB_OUTPUT
-            ;;
-          Dockerfile.310p|Dockerfile.310p.openEuler)
-            echo "soc_version=ascend310p1" >> $GITHUB_OUTPUT
-            ;;
-          Dockerfile.a3|Dockerfile.a3.openEuler)
-            echo "soc_version=ascend910_9391" >> $GITHUB_OUTPUT
-            ;;
-          Dockerfile.a5|Dockerfile.a5.openEuler)
-            echo "soc_version=ascend950dt_9582" >> $GITHUB_OUTPUT
-            ;;
-        esac
-
     - name: Login to SWR
       uses: docker/login-action@v4
       with:
         registry: ${{ inputs.swr_registry }}
         username: ${{ secrets.SWR_USERNAME }}
         password: ${{ secrets.SWR_PASSWORD }}
+
+    # A docker-container driver builder is required for push-by-digest=true
+    # and registry cache. Without it, the default docker driver returns the
+    # local image digest instead of the registry manifest digest, causing
+    # steps.build.outputs.digest to mismatch the actually-pushed image.
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v4
 
     - name: Build and push
       uses: docker/build-push-action@v7
@@ -345,7 +334,7 @@ jobs:
         file: ${{ inputs.dockerfile || 'Dockerfile' }}
         # only trigger when tag, branch/main push
         push: ${{ inputs.should_push }}
-        outputs: type=image,name=${{ inputs.swr_temp_repo }},push-by-digest=true,push=${{ inputs.should_push }}
+        outputs: type=image,name=${{ inputs.swr_temp_repo }},push-by-digest=true,name-canonical=true,push=${{ inputs.should_push }}
         # Image builds can compile inside Docker and therefore keep a fallback;
         # NPU test jobs use fail-on-cache-miss instead.
         build-args: |
@@ -356,7 +345,6 @@ jobs:
           PYTORCH_INDEX_URL=http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu
           ASCEND_INDEX_URL=http://cache-service.nginx-pypi-cache.svc.cluster.local/ascend/repos/pypi
           GIT_PROXY=https://gh-proxy.test.osinfra.cn/
-          SOC_VERSION=${{ steps.vars.outputs.soc_version }}
           COMPILE_CUSTOM_KERNELS=${{ steps.cache-csrc.outputs.cache-hit == 'true' && '0' || '1' }}
           VLLM_COMMIT=${{ inputs.vllm_commit }}
           BUILD_TYPE=${{ inputs.build_type || 'release' }}
@@ -396,14 +384,11 @@ jobs:
             TAG="nightly-${{ inputs.schedule_tag_pattern }}${SUFFIX}-${{ matrix.runner_info.tag }}-${DATE}-temp"
           fi
         fi
-        SOURCE_IMAGE="${{ inputs.swr_temp_repo }}"
-        DIGESTS=$(printf "${SOURCE_IMAGE}@sha256:%s " $(ls ${{ env.digest_dir }}))
+       
         echo "Creating temp tag: ${{ inputs.swr_temp_repo }}:$TAG"
-        echo "Digests: ${DIGESTS}"
-        # shellcheck disable=SC2086
         docker buildx imagetools create \
           -t "${{ inputs.swr_temp_repo }}:$TAG" \
-          ${DIGESTS}
+          "${{ inputs.swr_temp_repo }}@${{ steps.build.outputs.digest }}"
 
 
     - name: Export digest
