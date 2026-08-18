@@ -156,7 +156,7 @@ jobs:
       
       build_args: |
         BUILD_TYPE=${{ inputs.build_type || 'release' }}
-        ${{ inputs.build_type == 'daily' && format('BASE_OS={0}', contains(matrix.build_meta.suffix, 'openeuler') && 'openeuler24.03-lts-sp4' || 'ubuntu24.04') || '' }}
+        ${{ inputs.build_type == 'daily' && format('BASE_OS={0}', contains(matrix.build_meta.suffix, 'openeuler') && 'openeuler24.03-lts-sp4' || 'ubuntu22.04') || '' }}
         MEMCACHE_VERSION=${{ fromJSON(inputs.memcache || '["1.2.0", "20260725.3"]')[0] }}
         MEMCACHE_DATE=${{ fromJSON(inputs.memcache || '["1.2.0", "20260725.3"]')[1] }}
         MEMFABRIC_VERSION=${{ fromJSON(inputs.memfabric || '["1.2.0", "20260725.3"]')[0] }}
