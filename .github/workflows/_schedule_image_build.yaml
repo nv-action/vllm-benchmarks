@@ -490,8 +490,7 @@ jobs:
         with:
           # TODO(yikun): add more hub image and a note on release policy for container image
           images: |
-            # ${{ env.QUAY_REPO }}
-            quay.io/atlas_inference/vllm-atlas-temp
+            ${{ env.QUAY_REPO }}
           # Three trigger scenarios and resulting image tags:
           # https://github.com/marketplace/actions/docker-metadata-action#typeref
           #
@@ -530,26 +529,28 @@ jobs:
           registry: swr.cn-southwest-2.myhuaweicloud.com
           username: ${{ secrets.SWR_USERNAME }}
           password: ${{ secrets.SWR_PASSWORD }}
-      
-      - name: Login to Quay 
+
+      - name: Login to Quay
         uses: docker/login-action@v4
         with:
           registry: quay.io
-          username: ${{ inputs.quay_temp_username }}
-          password: ${{ secrets.QUAY_TEMP_PASSWORD }}
+          username: ${{ inputs.quay_username }}
+          password: ${{ secrets.QUAY_PASSWORD }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
       - name: Merge and push multi-arch image
         env:
-          IMAGE: ${{ env.QUAY_TEMP_REPO }}
+          # Source digests live in SWR (where build-push-digest pushed them);
+          # destination tags come from $TAGS (metadata-action → QUAY_REPO).
+          SOURCE_IMAGE: ${{ inputs.swr_temp_repo }}
           TAGS: ${{ steps.meta.outputs.tags }}
           BUILD_TYPE: ${{ inputs.build_type }}
           SCHEDULE_TAG_PATTERN: ${{ inputs.schedule_tag_pattern }}
           SUFFIX: ${{ env.SUFFIX }}
         run: |
-          DIGESTS=$(printf "$IMAGE@sha256:%s " $(ls ${{ runner.temp }}/digests))
+          DIGESTS=$(printf "$SOURCE_IMAGE@sha256:%s " $(ls ${{ runner.temp }}/digests))
 
           echo "Digests: $DIGESTS"
           echo "Current tags:"
@@ -579,10 +580,11 @@ jobs:
             SUFFIX="-${{ inputs.suffix }}"
           fi
           DATE=$(date +'%Y%m%d')
+          # Temp tags were created in SWR by build-push-digest, so clean them up there.
           for arch in amd64 arm64; do
             TAG="nightly-${{ inputs.schedule_tag_pattern }}${SUFFIX}-${arch}-${DATE}-temp"
-            skopeo delete --creds "${{ inputs.quay_temp_username }}:${{ secrets.QUAY_TEMP_PASSWORD }}" \
-              "docker://${{ env.QUAY_TEMP_REPO }}:${TAG}" || true
+            skopeo delete --creds "${{ secrets.SWR_USERNAME }}:${{ secrets.SWR_PASSWORD }}" \
+              "docker://${{ inputs.swr_temp_repo }}:${TAG}" || true
           done
 
   merge-image-temp:
@@ -624,7 +626,10 @@ jobs:
 
       - name: Merge and push multi-arch manifest to QUAY_TEMP_REPO
         env:
+          # IMAGE is the destination (Quay temp); SOURCE_IMAGE is where the
+          # single-arch digests actually live (SWR, pushed by build-push-digest).
           IMAGE: ${{ env.QUAY_TEMP_REPO }}
+          SOURCE_IMAGE: ${{ inputs.swr_temp_repo }}
         run: |
           set -euo pipefail
           SUFFIX=""
@@ -634,7 +639,7 @@ jobs:
           VLLM_SHORT=$(echo "${{ inputs.vllm_commit }}" | cut -c1-7)
           ASCEND_SHORT=$(echo "${{ inputs.vllm_ascend_commit }}" | cut -c1-7)
           TAG="${IMAGE}:vllm-ascend-${VLLM_SHORT}-${ASCEND_SHORT}${SUFFIX}"
-          DIGESTS=$(printf "$IMAGE@sha256:%s " $(ls ${{ runner.temp }}/digests))
+          DIGESTS=$(printf "$SOURCE_IMAGE@sha256:%s " $(ls ${{ runner.temp }}/digests))
           echo "Digests: $DIGESTS"
           echo "Creating multi-arch manifest tag: $TAG"
           docker buildx imagetools create \
@@ -667,8 +672,9 @@ jobs:
           fi
           VLLM_SHORT=$(echo "${{ inputs.vllm_commit }}" | cut -c1-7)
           ASCEND_SHORT=$(echo "${{ inputs.vllm_ascend_commit }}" | cut -c1-7)
+          # Temp tags were created in SWR by build-push-digest, so clean them up there.
           for arch in amd64 arm64; do
             TAG="vllm-ascend-${VLLM_SHORT}-${ASCEND_SHORT}${SUFFIX}-${arch}-temp"
-            skopeo delete --creds "${{ inputs.quay_temp_username }}:${{ secrets.QUAY_TEMP_PASSWORD }}" \
-              "docker://${{ env.QUAY_TEMP_REPO }}:${TAG}" || true
+            skopeo delete --creds "${{ secrets.SWR_USERNAME }}:${{ secrets.SWR_PASSWORD }}" \
+              "docker://${{ inputs.swr_temp_repo }}:${TAG}" || true
           done
