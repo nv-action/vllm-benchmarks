@@ -149,6 +149,8 @@ jobs:
   build-push-digest:
     name: build
     runs-on: ${{ matrix.runner }}
+    container:
+      image: swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-a3-ubuntu22.04-py3.12
     permissions:
       packages: write
       contents: read
