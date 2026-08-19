@@ -302,10 +302,10 @@ jobs:
           *) echo "arch=$ARCH" >> "$GITHUB_OUTPUT" ;;
         esac
 
-    - name: Install csrc cache dependencies
-      run: |
-        apt-get update -y
-        apt-get install -y zstd
+    # - name: Install csrc cache dependencies
+    #   run: |
+    #     apt-get update -y
+    #     apt-get install -y zstd
 
     - name: Restore vllm-ascend csrc cache
       id: cache-csrc
