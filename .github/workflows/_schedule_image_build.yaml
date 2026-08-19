@@ -148,21 +148,18 @@ env:
 jobs:
   build-push-digest:
     name: build
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ matrix.runner_info.runner }}
+    container:
+      image: swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-a3-ubuntu22.04-py3.12
     permissions:
       packages: write
       contents: read
 
     strategy:
       matrix:
-        include:
-          - arch: linux/amd64
-            runner: linux-amd64-cpu-4-buildkit-gy006
-            tag: amd64
-
-          - arch: linux/arm64
-            runner: linux-aarch64-cpu-4-buildkit-gy006
-            tag: arm64
+        runner_info:
+          - {runner: linux-aarch64-cpu-4, tag: arm64}
+          - {runner: linux-amd64-cpu-4, tag: amd64}
 
     steps:
 
