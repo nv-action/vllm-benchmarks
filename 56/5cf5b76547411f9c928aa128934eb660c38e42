@@ -1,0 +1,16 @@
+.github/workflows/_schedule_image_build.yaml
+  h_7fe88e4d865b0a 151-153,160-162
+Dockerfile
+  h_7fe88e4d865b0a 33-44,46-50,52-67,69-76,78-85,87-89,91-102,104-110,112
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.2",
+  "base_commit_sha": "565cf5b76547411f9c928aa128934eb660c38e42",
+  "prompts": {},
+  "humans": {
+    "h_7fe88e4d865b0a": {
+      "author": "qq_56278931 <wenshun3@h-partners.com>"
+    }
+  }
+}
