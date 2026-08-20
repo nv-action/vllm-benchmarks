@@ -617,7 +617,7 @@ jobs:
   ci-gate:
     needs: [pre-commit, select-tests, run-selected-tests, run-selected-tests-a5]
     if: ${{ !cancelled() }}
-    runs-on: linux-amd64-cpu-2-hk
+    runs-on: linux-amd64-cpu-8-hk
     steps:
       - name: Check all required jobs
         env:
