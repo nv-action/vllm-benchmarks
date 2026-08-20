@@ -232,7 +232,7 @@ jobs:
             "https://vllm-ascend.obs.cn-north-4.myhuaweicloud.com/ci/precision-test/coverage.tar" \
             -o coverage.tar
           echo "Downloaded coverage.tar"
-          echo "tests"
+          echo "tests1111111111111111111"
           du -h coverage.tar
           tar xf coverage.tar vllm-ascend/covstub
           test -d vllm-ascend/covstub
