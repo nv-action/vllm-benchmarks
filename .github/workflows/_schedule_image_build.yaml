@@ -403,16 +403,16 @@ jobs:
 
     - name: Export digest
       run: |
-        mkdir -p ${{ runner.temp }}/digests
+        mkdir -p ${RUNNER_TEMP}/digests
         digest="${{ steps.build.outputs.digest }}"
-        touch "${{ runner.temp }}/digests/${digest#sha256:}"
-        ls -al ${{ runner.temp }}/digests
+        touch "${RUNNER_TEMP}/digests/${digest#sha256:}"
+        ls -al ${RUNNER_TEMP}/digests
 
     - name: Upload digest
       uses: actions/upload-artifact@v7
       with:
         name: ${{ inputs.artifact_prefix }}-${{ inputs.suffix }}-${{ matrix.runner_info.tag }}
-        path: ${{ runner.temp }}/digests/*
+        path: ${RUNNER_TEMP}/digests/*
         if-no-files-found: error
         retention-days: 1
 
