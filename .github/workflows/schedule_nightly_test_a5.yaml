@@ -64,8 +64,6 @@ on:
         required: false
         default: '{"cann_version":"2026.08.03","base_image_date":"auto"}'
         type: string
-      bisect_good_commit:
-        description: 'explicit good commit for bisect (overrides good_table lookup)'
       bisect_args_json:
         description: 'JSON object containing optional bisect parameters'
         required: false

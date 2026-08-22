@@ -281,6 +281,17 @@ jobs:
             exit 1
           fi
 
+      - name: Checkout vllm-benchmarks repo
+        uses: actions/checkout@v7
+        with:
+          path: ./vllm-benchmarks
+          fetch-depth: 1
+
+      - name: Replace Qwen3.5-27B-w8a8-A2 config file
+        run: |
+          cp ./vllm-benchmarks/tests/e2e/nightly/single_node/models/configs/Qwen3.5-27B-w8a8-A2.yaml \
+            /vllm-workspace/vllm-ascend/tests/e2e/nightly/single_node/models/configs/Qwen3.5-27B-w8a8-A2.yaml
+
       - name: Run Pytest (py-driven)
         id: pytest-driven
         if: ${{ inputs.tests != '' }}
