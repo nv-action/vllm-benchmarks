@@ -52,6 +52,7 @@ module.exports = async function report({ github, core, context, branch }) {
     }
   };
 
+
   // Match core tests against job names.
   const results = [];
   for (const test of coreTests) {
