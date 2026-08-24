@@ -29,6 +29,7 @@ class DeviceConfig:
 def _device_type_from_build_info() -> AscendDeviceType:
     from vllm_ascend import _build_info  # type: ignore
 
+
     device_type = getattr(_build_info, "__device_type__", None)
     if device_type is not None:
         try:
