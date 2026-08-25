@@ -1,0 +1,12 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.2",
+  "base_commit_sha": "370339fefe29c335e7d9557e5e98d1ae05d16373",
+  "prompts": {},
+  "humans": {
+    "h_7fe88e4d865b0a": {
+      "author": "qq_56278931 <wenshun3@h-partners.com>"
+    }
+  }
+}
