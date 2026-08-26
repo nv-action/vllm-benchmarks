@@ -96,7 +96,7 @@ jobs:
             image_tag: 9.1.0-910b-ubuntu22.04-py3.12
             max_jobs: '184'
           - chip: a3
-            runner: linux-aarch64-a3-16
+            runner: linux-aarch64-a3-4
             image_tag: ${{ inputs.image_tag_a3 }}
             max_jobs: '184'
           # No 310p runner in this fork — keep the entry for reference.
@@ -348,7 +348,7 @@ jobs:
             image_tag: 9.1.0-910b-ubuntu22.04-py3.12
             max_jobs: '184'
           - chip: a3
-            runner: linux-aarch64-a3-16
+            runner: linux-aarch64-a3-4
             image_tag: ${{ inputs.image_tag_a3 }}
             max_jobs: '184'
           # No 310p runner in this fork — keep the entry for reference.
