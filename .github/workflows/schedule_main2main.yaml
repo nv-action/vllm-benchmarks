@@ -55,7 +55,7 @@ jobs:
       base_sha: ${{ steps.source.outputs.base_sha }}
     env:
       TARGET_COMMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.target_commit || '' }}
-      HEAD_FORK: vllm-ascend-ci/vllm-ascend
+      HEAD_FORK: nv-action/vllm-benchmarks
     steps:
       - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v7
@@ -119,7 +119,11 @@ jobs:
             } >> "$GITHUB_OUTPUT"
           else
             {
-              echo "source_repository=$UPSTREAM_REPO"
+              # Fresh mode starts from this repo's main HEAD (UPSTREAM_SHA is
+              # resolved from origin). source_ref must live in
+              # source_repository — the upstream repo does not carry fork
+              # commits, so point at HEAD_FORK here.
+              echo "source_repository=$HEAD_FORK"
               echo "source_ref=$UPSTREAM_SHA"
               echo "base_ref="
               echo "base_sha="
@@ -574,7 +578,7 @@ jobs:
 
           print_group "Manual review issue" /tmp/main2main-manual-review.md
           gh issue create \
-            --repo "${UPSTREAM_REPO}" \
+            --repo "${GITHUB_REPO}" \
             --title "[main2main] main2main manual review required (${SHORT_NEW})" \
             --body-file /tmp/main2main-manual-review.md
 
@@ -583,4 +587,4 @@ jobs:
         run: |
           echo "::notice::Chaining next main2main run..."
           gh workflow run Main2Main \
-            --repo "${UPSTREAM_REPO}"
+            --repo "${GITHUB_REPO}"
