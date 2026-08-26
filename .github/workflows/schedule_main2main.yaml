@@ -55,7 +55,7 @@ jobs:
       base_sha: ${{ steps.source.outputs.base_sha }}
     env:
       TARGET_COMMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.target_commit || '' }}
-      HEAD_FORK: nv-action/vllm-benchmarks
+      HEAD_FORK: vllm-ascend-ci/vllm-ascend
     steps:
       - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v7
@@ -81,8 +81,11 @@ jobs:
 
           git config user.name "main2main-bot"
           git config user.email "main2main-bot@users.noreply.github.com"
-          git fetch origin main
-          UPSTREAM_SHA=$(git rev-parse origin/main)
+          # origin is the triggering repo; resolve the fixed upstream SHA from
+          # vllm-project/vllm-ascend so source_ref always exists in UPSTREAM_REPO
+          # (a fork's main may carry commits the upstream never saw).
+          git fetch "https://github.com/${UPSTREAM_REPO}.git" main
+          UPSTREAM_SHA=$(git rev-parse FETCH_HEAD)
           USE_BASELINE=false
 
           # Attempt incremental mode: carry forward previous adaptation commits
@@ -119,11 +122,7 @@ jobs:
             } >> "$GITHUB_OUTPUT"
           else
             {
-              # Fresh mode starts from this repo's main HEAD (UPSTREAM_SHA is
-              # resolved from origin). source_ref must live in
-              # source_repository — the upstream repo does not carry fork
-              # commits, so point at HEAD_FORK here.
-              echo "source_repository=$HEAD_FORK"
+              echo "source_repository=$UPSTREAM_REPO"
               echo "source_ref=$UPSTREAM_SHA"
               echo "base_ref="
               echo "base_sha="
@@ -178,14 +177,17 @@ jobs:
       TARGET_COMMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.target_commit || '' }}
       PUSH_TO_GITHUB: 'true'
       GITHUB_REPO: nv-action/vllm-benchmarks
-      HEAD_FORK: nv-action/vllm-benchmarks
+      # Work branches and the PR head live on the fixed CI fork; only the
+      # E2E workflow repo differs during this validation.
+      HEAD_FORK: vllm-ascend-ci/vllm-ascend
       MAIN2MAIN_KEEP_BRANCH: 'true'
       MAIN2MAIN_WORKSPACE: /tmp/main2main_flow/workspace
       # External E2E on the A2/A3 runners (select_tests.py ready-all
       # selection, identical to PR CI).  The flow dispatches main2main-e2e.yaml
-      # against HEAD_FORK — round=prep only builds the runner envs, exec
-      # rounds (round=N) run the tests; MAIN2MAIN_E2E_PREP_RUN_ID is filled by
-      # the "Pre-start E2E runner envs" step so the flow reuses that run.
+      # against MAIN2MAIN_E2E_REPO — round=prep only builds the runner envs,
+      # exec rounds (round=N) run the tests; MAIN2MAIN_E2E_PREP_RUN_ID is
+      # filled by the "Pre-start E2E runner envs" step so the flow reuses that
+      # run.
       MAIN2MAIN_E2E_MODE: cumulative
       MAIN2MAIN_E2E_REPO: nv-action/vllm-benchmarks
       MAIN2MAIN_E2E_BRANCH: main2main_e2e
@@ -279,12 +281,12 @@ jobs:
           fi
           echo "Pre-starting main2main E2E env prep for vllm=${VLLM_COMMIT} (A2/A3)..."
           gh workflow run main2main-e2e.yaml \
-            --repo "${HEAD_FORK}" \
+            --repo "${MAIN2MAIN_E2E_REPO}" \
             --ref main \
             -f "vllm=${VLLM_COMMIT}" -f "base_ref=main" -f "round=prep" \
             -f "flow_ref=${MAIN2MAIN_FLOW_REF:-main}"
           for i in $(seq 1 12); do
-            RUN_ID=$(gh run list --repo "${HEAD_FORK}" \
+            RUN_ID=$(gh run list --repo "${MAIN2MAIN_E2E_REPO}" \
               --workflow main2main-e2e.yaml \
               --event workflow_dispatch --limit 1 \
               --json databaseId --jq '.[0].databaseId // empty' \
