@@ -47,7 +47,7 @@ env:
 
 jobs:
   resolve-source:
-    runs-on: linux-amd64-cpu-4-hk
+    runs-on: linux-amd64-cpu-8-hk
     outputs:
       source_repository: ${{ steps.source.outputs.source_repository }}
       source_ref: ${{ steps.source.outputs.source_ref }}
@@ -142,7 +142,7 @@ jobs:
     # All analysis/planning/adapter/QA/pre-CI/final-gate work runs on a pure
     # CPU runner; E2E runs on the A2/A3 GPU runners via the external
     # main2main-e2e workflows (dispatched by step 0 below).
-    runs-on: linux-arm64-cpu-8
+    runs-on: linux-amd64-cpu-8-hk
     timeout-minutes: 1440
     concurrency:
       group: main2main
@@ -300,7 +300,7 @@ jobs:
           set -euxo pipefail
 
           NODE_INSTALL_DIR="/opt/nodejs"
-          NODE_ARCHIVE_NAME="node-v${NODE_VERSION}-linux-arm64.tar.gz"
+          NODE_ARCHIVE_NAME="node-v${NODE_VERSION}-linux-x64.tar.gz"
           NODE_ARCHIVE="/tmp/${NODE_ARCHIVE_NAME}"
           NODE_CHECKSUMS="/tmp/node-v${NODE_VERSION}-SHASUMS256.txt"
           curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors \
