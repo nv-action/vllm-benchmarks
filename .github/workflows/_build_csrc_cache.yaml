@@ -77,7 +77,7 @@ jobs:
     # Keep standalone cache builds fail-closed by default. The ensure workflow
     # opts into tolerance only while NPU compilation remains the CI fallback.
     continue-on-error: ${{ inputs.continue_on_error }}
-    runs-on: ${{ fromJSON(inputs.target).runner }}
+    runs-on: linux-amd64-cpu-8-hk
     container:
       image: ${{ fromJSON(inputs.target).image }}
     steps:
@@ -200,4 +200,4 @@ jobs:
             vllm_ascend/*.so
             vllm_ascend/lib
             vllm_ascend/include
-          key: vllm-ascend-build-v2-${{ fromJSON(inputs.target).cache_arch }}-${{ fromJSON(inputs.target).image_tag }}-${{ inputs.csrc_hash }}
+          key: vllm-ascend-build-v2-${{ runner.arch }}-${{ fromJSON(inputs.target).image_tag }}-${{ inputs.csrc_hash }}
