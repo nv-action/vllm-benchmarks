@@ -153,7 +153,7 @@ concurrency:
 
 jobs:
   e2e:
-    name: ${{ inputs.name || inputs.config_file_path }}
+    name: ${{ inputs.config_file_path }}
     timeout-minutes: ${{ inputs.request_id != '' && 240 || fromJSON(inputs.testcase_timeout) }}
     # This is the runner with no NPU for k8s controller
     runs-on: ${{ inputs.runner }}
@@ -301,6 +301,7 @@ jobs:
             -D aop_multi_enabled="${{ inputs.aop_multi_enabled }}" \
             -D good_table="/root/.cache/vllm-ascend/${{ inputs.vllm_ascend_branch || 'main' }}/${{ inputs.test_frequency }}/good_table.csv" \
             -D openlibing_secret="$OPENLIBING_SECRET" \
+            -D vllm_ascend_branch="${{ inputs.vllm_ascend_branch }}" \
             -D soc_version="${{ inputs.soc_version }}" \
             -D npu_resource_name="${npu_resource_name:-}" \
             -D shared_volume_path="${shared_volume_path:-}" \

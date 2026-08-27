@@ -24,7 +24,7 @@ on:
 jobs:
   slashCommandDispatch:
     if: (github.event.issue.pull_request != null || startsWith(github.event.comment.body, '/wait-feedback')) && github.event.comment.user.type == 'User'
-    runs-on: linux-amd64-cpu-8-hk
+    runs-on: linux-amd64-cpu-2-hk
     steps:
       - name: Slash Command Dispatch
         uses: peter-evans/slash-command-dispatch@v5
@@ -40,7 +40,6 @@ jobs:
             revert
             weekly
             wait-feedback
-            exempt
           permission: none
           issue-type: both
           dispatch-type: repository
@@ -85,10 +84,5 @@ jobs:
                 "command": "wait-feedback",
                 "permission": "none",
                 "issue_type": "issue"
-              },
-              {
-                "command": "exempt",
-                "permission": "none",
-                "issue_type": "pull-request"
               }
             ]

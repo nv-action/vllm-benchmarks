@@ -478,8 +478,10 @@ class AscendRoutedExperts(RoutedExperts):  # type: ignore[no-redef]
             )
             topk_ids = torch.cat([topk_ids, shared_expert_ids], dim=1)
             topk_weights = torch.cat([topk_weights, shared_expert_weights], dim=1)
-
-        topk_weights = topk_weights.to(hidden_states.dtype)
+        # MXFP4 packs activations as uint8; skip the cast so topk_weights stays
+        # fp32, which is what npu_moe_token_unpermute expects for its `probs` arg.
+        if hidden_states.dtype not in [torch.uint8, torch.float8_e4m3fn]:
+            topk_weights = topk_weights.to(hidden_states.dtype)
         # This is a naive implementation for experts load balance so as to
         # avoid accumulating too much tokens on a single rank. It is only
         # activated when doing profile runs.
@@ -517,7 +519,8 @@ class AscendRoutedExperts(RoutedExperts):  # type: ignore[no-redef]
         prepare_output = _EXTRA_CTX.moe_comm_method.prepare(
             hidden_states=hidden_states,
             router_logits=router_logits,
-            replace_allreduce=_EXTRA_CTX.flash_comm_v1_enabled,
+            # The SP model wrapper already shards and gathers the MoE sequence.
+            replace_allreduce=self.moe_config.is_sequence_parallel,
             quant_type=self.quant_type,
         )
         hidden_states = prepare_output.hidden_states

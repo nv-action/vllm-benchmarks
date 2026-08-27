@@ -181,7 +181,7 @@ concurrency:
 
 jobs:
   e2e:
-    name: ${{ inputs.name || inputs.config_file_path }}
+    name: ${{ inputs.config_file_path }}
     timeout-minutes: ${{ inputs.request_id != '' && 240 || fromJSON(inputs.testcase_timeout) }}
     runs-on: ${{ inputs.runner }}
     if: ${{ inputs.should_run }}
@@ -315,6 +315,7 @@ jobs:
             -D aop_multi_enabled="${{ inputs.aop_multi_enabled }}" \
             -D good_table="/root/.cache/vllm-ascend/${{ inputs.vllm_ascend_branch || 'main' }}/${{ inputs.test_frequency }}/good_table.csv" \
             -D openlibing_secret="$OPENLIBING_SECRET" \
+            -D vllm_ascend_branch="${{ inputs.vllm_ascend_branch }}" \
             -D soc_version="${{ inputs.soc_version }}" \
             -D max_good_age_days="${{ inputs.test_frequency == 'weekly' && 8 || 3 }}" \
             -D bisect_good_commit="$BISECT_GOOD_COMMIT" \

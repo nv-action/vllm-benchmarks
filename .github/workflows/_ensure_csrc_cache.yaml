@@ -59,7 +59,7 @@ jobs:
     # During rollout, cache preparation is observational and must not block the
     # existing NPU build path. Remove this tolerance once CPU caching is stable.
     continue-on-error: true
-    runs-on: linux-amd64-cpu-8-hk
+    runs-on: linux-amd64-cpu-2-hk
     container:
       image: quay.io/ascend-ci/vllm-ascend:lint
     outputs:
@@ -166,7 +166,7 @@ jobs:
             vllm_ascend/*.so
             vllm_ascend/lib
             vllm_ascend/include
-          key: vllm-ascend-build-v2-${{ runner.arch }}-9.1.0-910b-ubuntu22.04-py3.12-${{ steps.hash.outputs.csrc_hash }}
+          key: vllm-ascend-build-v2-ARM64-9.1.0-910b-ubuntu22.04-py3.12-${{ steps.hash.outputs.csrc_hash }}
           lookup-only: 'true'
 
       - name: Look up csrc cache (a3-arm64-ubuntu)
@@ -179,7 +179,7 @@ jobs:
             vllm_ascend/*.so
             vllm_ascend/lib
             vllm_ascend/include
-          key: vllm-ascend-build-v2-${{ runner.arch }}-9.1.0-a3-ubuntu22.04-py3.12-${{ steps.hash.outputs.csrc_hash }}
+          key: vllm-ascend-build-v2-ARM64-9.1.0-a3-ubuntu22.04-py3.12-${{ steps.hash.outputs.csrc_hash }}
           lookup-only: 'true'
 
       - name: Look up csrc cache (310p-arm64-ubuntu)
@@ -192,7 +192,7 @@ jobs:
             vllm_ascend/*.so
             vllm_ascend/lib
             vllm_ascend/include
-          key: vllm-ascend-build-v2-${{ runner.arch }}-9.1.0-310p-ubuntu22.04-py3.12-${{ steps.hash.outputs.csrc_hash }}
+          key: vllm-ascend-build-v2-ARM64-9.1.0-310p-ubuntu22.04-py3.12-${{ steps.hash.outputs.csrc_hash }}
           lookup-only: 'true'
 
       - name: Summarize csrc cache results
