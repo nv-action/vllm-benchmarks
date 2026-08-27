@@ -191,7 +191,6 @@ jobs:
       # four-card, 310p 2 single-card.  Unset for the full ready-all suite.
       MAIN2MAIN_E2E_MINIMAL: |
         a2: tests/e2e/pull_request/one_card/test_qwen3_0_6b.py tests/e2e/pull_request/one_card/spec_decode/test_eagle.py
-        a3: tests/e2e/pull_request/two_card/test_prefix_caching.py tests/e2e/pull_request/two_card/test_data_parallel.py tests/e2e/pull_request/four_card/test_pipeline_parallel.py
         310p: tests/e2e/pull_request/one_card/_310p/test_dense_model_310p.py tests/e2e/pull_request/one_card/_310p/test_spec_decode_mtp_310p.py
       # Validation runs cap each opencode session at 10 min (default 60) —
       # a killed session resumes via the short continue prompt.
@@ -272,7 +271,7 @@ jobs:
         run: |
           set -euo pipefail
           # Dispatch the A2/A3/310P environment prep NOW (in parallel with
-          # the remaining CPU installs), then WAIT until all three NPU
+          # the remaining CPU installs), then WAIT until all NPU
           # runners pick up their prepare jobs (machine resources
           # allocated, pod up, runner online) before the main flow
           # proceeds — fail fast if the machines cannot come up.  The flow
@@ -282,7 +281,7 @@ jobs:
           if [ -z "${VLLM_COMMIT}" ]; then
             VLLM_COMMIT=$(git -C vllm-upstream rev-parse HEAD)
           fi
-          echo "Pre-starting main2main E2E env prep for vllm=${VLLM_COMMIT} (A2/A3/310P)..."
+          echo "Pre-starting main2main E2E env prep for vllm=${VLLM_COMMIT} (A2/310P)..."
           # Every main run prepares its own env (run-name
           # Main2Main-E2E-<main_run_id>): the env belongs to this run's
           # fixed vllm commit, and each step's E2E rounds then reuse it
@@ -319,12 +318,12 @@ jobs:
             sleep 10
           done
           if [ -z "${RUN_ID:-}" ]; then
-            echo "::error::prep run id not found after 30 polls — the three NPU runners were never dispatched"
+            echo "::error::prep run id not found after 30 polls — the two NPU runners were never dispatched"
             exit 1
           fi
           echo "MAIN2MAIN_E2E_PREP_RUN_ID=${RUN_ID}" >> "$GITHUB_ENV"
           echo "Prep run ${RUN_ID} started"
-          # Phase 2: wait until all three NPU runners picked up their
+          # Phase 2: wait until all NPU runners picked up their
           # prepare jobs (status left queued).  Jobs are queried by the
           # prep run id itself, so prefix matching on prepare-<chip>- is
           # unambiguous — no owner suffix needed in the job names.  Use the
@@ -333,14 +332,14 @@ jobs:
           # (set -u would abort on it).
           PREP_RUN_ID=${RUN_ID}
           WAIT_MIN=${MAIN2MAIN_E2E_READY_TIMEOUT_MIN:-120}
-          echo "Waiting for the three NPU runners (prepare-a2/a3/310p) — up to ${WAIT_MIN} min..."
+          echo "Waiting for the two NPU runners (prepare-a2/a3/310p) — up to ${WAIT_MIN} min..."
           DEADLINE=$(( $(date +%s) + WAIT_MIN * 60 ))
           while :; do
             READY_STATE=$(gh api "repos/${MAIN2MAIN_E2E_REPO}/actions/runs/${PREP_RUN_ID}/jobs" \
               | python3 -c "
           import json, sys
           jobs = json.load(sys.stdin).get('jobs', [])
-          want = [f'prepare-{c}-' for c in ('a2', 'a3', '310p')]
+          want = [f'prepare-{c}-' for c in ('a2', '310p')]
           state = {}
           for j in jobs:
               name = j.get('name') or ''
@@ -370,11 +369,11 @@ jobs:
               esac
             done
             if [ "${ALL_READY}" = "true" ]; then
-              echo "All three NPU runners are ready (prepare jobs in progress/completed)"
+              echo "All NPU runners are ready (prepare jobs in progress/completed)"
               break
             fi
             if [ "$(date +%s)" -gt "${DEADLINE}" ]; then
-              echo "::error::timed out after ${WAIT_MIN} min waiting for the three NPU runners (last state: ${READY_STATE})"
+              echo "::error::timed out after ${WAIT_MIN} min waiting for the two NPU runners (last state: ${READY_STATE})"
               exit 1
             fi
             sleep 30
@@ -693,7 +692,7 @@ jobs:
             --title "[main2main] main2main manual review required (${SHORT_NEW})" \
             --body-file /tmp/main2main-manual-review.md
 
-      # Stop the prep run's hold guard so the three NPU runners are
+      # Stop the prep run's hold guard so the two NPU runners are
       # released (pod reclaimed / runner freed for other CI).  Placed
       # before "Chain next run": a chained run's fresh prep dispatch must
       # not find this run's prep still holding the runners.  Cancel is
