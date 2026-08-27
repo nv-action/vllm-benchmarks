@@ -187,11 +187,12 @@ jobs:
       # feature/e2e-external while the 3-runner E2E change is under
       # validation (main2main_flow PR #3); remove once that PR merges.
       MAIN2MAIN_FLOW_REF: feature/e2e-external
-      # Minimal validation set: 2 A2 single-card tests, one A3 2-card and
-      # one A3 4-card test.  Unset for the full ready-all suite.
+      # Minimal validation set: A2 2 single-card, A3 2 two-card + 1
+      # four-card, 310p 2 single-card.  Unset for the full ready-all suite.
       MAIN2MAIN_E2E_MINIMAL: |
         a2: tests/e2e/pull_request/one_card/test_qwen3_0_6b.py tests/e2e/pull_request/one_card/spec_decode/test_eagle.py
-        a3: tests/e2e/pull_request/two_card/test_prefix_caching.py tests/e2e/pull_request/four_card/test_pipeline_parallel.py
+        a3: tests/e2e/pull_request/two_card/test_prefix_caching.py tests/e2e/pull_request/two_card/test_data_parallel.py tests/e2e/pull_request/four_card/test_pipeline_parallel.py
+        310p: tests/e2e/pull_request/one_card/_310p/test_dense_model_310p.py tests/e2e/pull_request/one_card/_310p/test_spec_decode_mtp_310p.py
       # Validation runs cap each opencode session at 10 min (default 60) —
       # a killed session resumes via the short continue prompt.
       MAIN2MAIN_ADAPTER_TIMEOUT_MINUTES: '10'
