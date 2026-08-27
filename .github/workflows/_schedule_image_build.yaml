@@ -16,12 +16,12 @@ on:
         description: 'swr repository for temp images'
         required: false
         type: string
-        default: 'swr.cn-north-12.myhuaweicloud.com'
+        default: 'swr.cn-southwest-2.myhuaweicloud.com'
       swr_temp_repo:
         description: 'swr repository for temp images'
         required: false
         type: string
-        default: 'swr.cn-north-12.myhuaweicloud.com/modelfoundry/buildkit-test'    
+        default: 'swr.cn-southwest-2.myhuaweicloud.com/modelfoundry/buildkit-test'    
       suffix:
         description: 'The tag subfix to use'
         required: true
@@ -116,7 +116,7 @@ on:
         description: 'CANN Quay URL'
         required: false
         type: string
-        default: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/cann'
+        default: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann'
       cann_version:
         description: 'CANN version'
         required: false
@@ -164,7 +164,7 @@ jobs:
     name: build
     runs-on: ${{ matrix.runner_info.runner }}
     container:
-      image: swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-a3-ubuntu22.04-py3.12
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-a3-ubuntu22.04-py3.12
     permissions:
       packages: write
       contents: read
@@ -173,8 +173,8 @@ jobs:
       max-parallel: 2
       matrix:
         runner_info:
-          - {runner: linux-aarch64-cpu-4, tag: arm64}
-          - {runner: linux-amd64-cpu-4, tag: amd64}
+          - {runner: linux-aarch64-cpu-4-buildkit-gy006, tag: arm64}
+          - {runner: linux-amd64-cpu-4-buildkit-gy006, tag: amd64}
 
     steps:
 
