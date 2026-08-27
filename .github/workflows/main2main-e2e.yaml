@@ -14,8 +14,8 @@
 # limitations under the License.
 # This file is a part of the vllm-ascend project.
 #
-# One round of the main2main external E2E on the two GPU runners (A2/A3;
-# the 310p matrix entry is commented out — this fork has no 310p runner).
+# One round of the main2main external E2E on the three GPU runners
+# (A2/A3/310P).
 # Merged prep + exec into a single workflow:
 #
 # - round=prep (dispatched by the flow at start): only the prepare-<chip>
@@ -99,11 +99,10 @@ jobs:
             runner: linux-aarch64-a3-4
             image_tag: ${{ inputs.image_tag_a3 }}
             max_jobs: '184'
-          # No 310p runner in this fork — keep the entry for reference.
-          # - chip: 310p
-          #   runner: linux-aarch64-310p-4
-          #   image_tag: 9.1.0-310p-ubuntu22.04-py3.12
-          #   max_jobs: '92'
+          - chip: 310p
+            runner: linux-aarch64-310p-4
+            image_tag: 9.1.0-310p-ubuntu22.04-py3.12
+            max_jobs: '92'
     runs-on: ${{ matrix.runner }}
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.image_tag }}
@@ -291,30 +290,28 @@ jobs:
             uv pip install -e . --no-build-isolation
           fi
 
-      # No 310p runner in this fork — the 310p-only verification steps from
-      # the upstream PR are dropped.  See matrix comment above.
-      # - name: Verify required AscendC custom ops are registered (310p)
-      #   if: ${{ steps.env-check.outputs.fresh != 'true' && matrix.image_tag == '9.1.0-310p-ubuntu22.04-py3.12' }}
-      #   run: |
-      #     source "$GITHUB_WORKSPACE/.venv/bin/activate"
-      #     python - <<'PY'
-      #     import sys, torch
-      #     import vllm_ascend.vllm_ascend_C  # noqa: F401
-      #     ops = torch.ops._C_ascend
-      #     missing = [n for n in ("chunk_gated_delta_rule_fwd_h", "chunk_fwd_o") if not hasattr(ops, n)]
-      #     if missing:
-      #         print(f"::error::Missing AscendC ops after install: {missing}. "
-      #                 f"Cache contents are stale or build skipped registration.", file=sys.stderr)
-      #         sys.exit(1)
-      #     print("AscendC chunk-gdr ops registered:",
-      #           [n for n in ("chunk_gated_delta_rule_fwd_h", "chunk_fwd_o") if hasattr(ops, n)])
-      #     PY
+      - name: Verify required AscendC custom ops are registered (310p)
+        if: ${{ steps.env-check.outputs.fresh != 'true' && matrix.image_tag == '9.1.0-310p-ubuntu22.04-py3.12' }}
+        run: |
+          source "$GITHUB_WORKSPACE/.venv/bin/activate"
+          python - <<'PY'
+          import sys, torch
+          import vllm_ascend.vllm_ascend_C  # noqa: F401
+          ops = torch.ops._C_ascend
+          missing = [n for n in ("chunk_gated_delta_rule_fwd_h", "chunk_fwd_o") if not hasattr(ops, n)]
+          if missing:
+              print(f"::error::Missing AscendC ops after install: {missing}. "
+                      f"Cache contents are stale or build skipped registration.", file=sys.stderr)
+              sys.exit(1)
+          print("AscendC chunk-gdr ops registered:",
+                [n for n in ("chunk_gated_delta_rule_fwd_h", "chunk_fwd_o") if hasattr(ops, n)])
+          PY
 
-      # - name: Uninstall Triton for 310P tests
-      #   if: ${{ steps.env-check.outputs.fresh != 'true' && matrix.image_tag == '9.1.0-310p-ubuntu22.04-py3.12' }}
-      #   run: |
-      #     source "$GITHUB_WORKSPACE/.venv/bin/activate"
-      #     pip uninstall -y triton-ascend triton
+      - name: Uninstall Triton for 310P tests
+        if: ${{ steps.env-check.outputs.fresh != 'true' && matrix.image_tag == '9.1.0-310p-ubuntu22.04-py3.12' }}
+        run: |
+          source "$GITHUB_WORKSPACE/.venv/bin/activate"
+          pip uninstall -y triton-ascend triton
 
       - name: Write freshness marker
         if: steps.env-check.outputs.fresh != 'true'
@@ -354,11 +351,10 @@ jobs:
             runner: linux-aarch64-a3-4
             image_tag: ${{ inputs.image_tag_a3 }}
             max_jobs: '184'
-          # No 310p runner in this fork — keep the entry for reference.
-          # - chip: 310p
-          #   runner: linux-aarch64-310p-4
-          #   image_tag: 9.1.0-310p-ubuntu22.04-py3.12
-          #   max_jobs: '92'
+          - chip: 310p
+            runner: linux-aarch64-310p-4
+            image_tag: 9.1.0-310p-ubuntu22.04-py3.12
+            max_jobs: '92'
     runs-on: ${{ matrix.runner }}
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.image_tag }}
