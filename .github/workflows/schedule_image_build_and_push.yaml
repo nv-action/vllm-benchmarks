@@ -41,7 +41,7 @@ on:
         required: false
         type: choice
         options:
-          - duping-main
+          - duping_main
           - main
           - releases/v0.26.0rc
           - releases/v0.25.1rc
