@@ -144,16 +144,15 @@ msgstr ""
 "|search_fn_pattern|输入|通常无需提供自定义模式对象。其定义遵循原生PyTorch "
 "MultiOutputPattern对象的规则。传入此参数后，search_fn将不再用于匹配算子组合，而是直接使用此参数作为匹配规则|否|"
 
-msgid "!!! note \"Atlas 300I DUO\""
-msgstr "!!! note \"Atlas 300I DUO\""
-
-msgid ""
-"Atlas 300I DUO and Atlas 200I Pro do not support `enable_npugraph_ex`. Set "
-"--additional-config '{\"ascend_compilation_config\": "
-"{\"enable_npugraph_ex\":false}}'."
-msgstr ""
-"Atlas 300I DUO 和 Atlas 200I Pro 不支持 `enable_npugraph_ex`。请设置 --additional-"
-"config '{\"ascend_compilation_config\": {\"enable_npugraph_ex\":false}}'。"
-
 msgid "### Usage Example"
 msgstr "### 使用示例"
+
+msgid "!!! note \"310P\""
+msgstr "!!! note \"310P\""
+
+msgid ""
+"310P series products do not support `enable_npugraph_ex`. Set --additional-"
+"config '{\"ascend_compilation_config\": {\"enable_npugraph_ex\":false}}'."
+msgstr ""
+"310P系列产品不支持`enable_npugraph_ex`。请设置--additional-config "
+"'{\"ascend_compilation_config\": {\"enable_npugraph_ex\":false}}'。"

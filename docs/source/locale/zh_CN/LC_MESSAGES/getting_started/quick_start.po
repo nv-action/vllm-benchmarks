@@ -1,0 +1,266 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2026, vllm-ascend team
+# This file is distributed under the same license as the vllm-ascend package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: vllm-ascend\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-08-28 02:09+0000\n"
+"PO-Revision-Date: 2026-08-28 02:09+0000\n"
+"Last-Translator: \n"
+"Language-Team: zh_CN <LL@li.org>\n"
+"Language: zh_CN\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"Generated-By: detect_po_changes.py\n"
+
+msgid "# Quick Start"
+msgstr "# 快速开始"
+
+msgid ""
+"This guide helps you run your first inference workload or deploy an online "
+"service on a prepared Ascend host using a prebuilt vLLM Ascend container."
+msgstr "本指南帮助您在准备好的Ascend主机上，使用预构建的vLLM Ascend容器运行您的第一个推理工作负载或部署在线服务。"
+
+msgid "## Requirements {: #quick-start-requirements }"
+msgstr "## 要求 {: #quick-start-requirements }"
+
+msgid ""
+"- Operating system: Linux\n"
+"- Python: {{ release_python_version }}\n"
+"- Hardware equipped with Ascend NPUs. This guide supports the following devices:"
+msgstr ""
+"- 操作系统：Linux\n"
+"- Python：{{ release_python_version }}\n"
+"- 配备Ascend NPU的硬件。本指南支持以下设备："
+
+msgid "| Type | Common products |"
+msgstr "| 类型 | 常见产品 |"
+
+msgid ""
+"| Ascend A2 series products | Atlas 800T A2, Atlas 900 A2 PoD, Atlas 200T A2"
+" Box16, Atlas 300T A2, Atlas 800I A2, and others |"
+msgstr ""
+"| Ascend A2系列产品 | Atlas 800T A2、Atlas 900 A2 PoD、Atlas 200T A2 Box16、Atlas "
+"300T A2、Atlas 800I A2等 |"
+
+msgid ""
+"| Ascend A3 series products | Atlas 800T A3, Atlas 900 A3 SuperPoD, Atlas "
+"9000 A3 SuperPoD, Atlas 800I A3, and others |"
+msgstr ""
+"| Ascend A3系列产品 | Atlas 800T A3、Atlas 900 A3 SuperPoD、Atlas 9000 A3 "
+"SuperPoD、Atlas 800I A3等 |"
+
+msgid "| Ascend 310P series products | Atlas 300I DUO and 310P SOC |"
+msgstr "| Ascend 310P系列产品 | Atlas 300I DUO和310P SOC |"
+
+msgid "| Ascend 950DT series products | Atlas 950DT |"
+msgstr "| Ascend 950DT系列产品 | Atlas 950DT |"
+
+msgid "- Prebuilt vLLM Ascend containers:"
+msgstr "- 预构建的vLLM Ascend容器："
+
+msgid "| Hardware | Ubuntu | openEuler |"
+msgstr "| 硬件 | Ubuntu | openEuler |"
+
+msgid ""
+"| Ascend A2 series products | `quay.io/ascend/vllm-ascend:{{ "
+"vllm_ascend_version }}` | `quay.io/ascend/vllm-ascend:{{ vllm_ascend_version"
+" }}-openeuler` |"
+msgstr ""
+"| Ascend A2系列产品 | `quay.io/ascend/vllm-ascend:{{ vllm_ascend_version }}` | "
+"`quay.io/ascend/vllm-ascend:{{ vllm_ascend_version }}-openeuler` |"
+
+msgid ""
+"| Ascend A3 series products | `quay.io/ascend/vllm-ascend:{{ "
+"vllm_ascend_version }}-a3` | `quay.io/ascend/vllm-ascend:{{ "
+"vllm_ascend_version }}-a3-openeuler` |"
+msgstr ""
+"| Ascend A3系列产品 | `quay.io/ascend/vllm-ascend:{{ vllm_ascend_version }}-a3` "
+"| `quay.io/ascend/vllm-ascend:{{ vllm_ascend_version }}-a3-openeuler` |"
+
+msgid ""
+"| Ascend 310P series products | `quay.io/ascend/vllm-ascend:{{ "
+"vllm_ascend_version }}-310p` | `quay.io/ascend/vllm-ascend:{{ "
+"vllm_ascend_version }}-310p-openeuler` |"
+msgstr ""
+"| Ascend 310P系列产品 | `quay.io/ascend/vllm-ascend:{{ vllm_ascend_version "
+"}}-310p` | `quay.io/ascend/vllm-ascend:{{ vllm_ascend_version "
+"}}-310p-openeuler` |"
+
+msgid ""
+"| Ascend 950DT series products | `quay.io/ascend/vllm-ascend:{{ "
+"vllm_ascend_version }}-950dt` | `quay.io/ascend/vllm-ascend:{{ "
+"vllm_ascend_version }}-950dt-openeuler` |"
+msgstr ""
+"| Ascend 950DT系列产品 | `quay.io/ascend/vllm-ascend:{{ vllm_ascend_version "
+"}}-950dt` | `quay.io/ascend/vllm-ascend:{{ vllm_ascend_version }}-950dt-"
+"openeuler` |"
+
+msgid "??? note \"Software versions included in the vLLM Ascend container\""
+msgstr "??? note \"vLLM Ascend容器中包含的软件版本\""
+
+msgid "| Software | Default version used in this guide |"
+msgstr "| 软件 | 本指南使用的默认版本 |"
+
+msgid "    | Python | `{{ release_image_python_version }}` |"
+msgstr "    | Python | `{{ release_image_python_version }}` |"
+
+msgid ""
+"    | Ascend HDK | See the [CANN {{ release_cann_version }} "
+"documentation](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/{{"
+" release_cann_version.replace('.', '') }}/softwareinst/releasenote/{{ "
+"release_cann_version }}/release-notes.md) |"
+msgstr ""
+"    | Ascend HDK | 请参阅[CANN {{ release_cann_version "
+"}}文档](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/{{ "
+"release_cann_version.replace('.', '') }}/softwareinst/releasenote/{{ "
+"release_cann_version }}/release-notes.md) |"
+
+msgid "    | CANN | `{{ release_cann_version }}` |"
+msgstr "    | CANN | `{{ release_cann_version }}` |"
+
+msgid "    | TorchNPU | `{{ release_torch_npu_version }}` |"
+msgstr "    | TorchNPU | `{{ release_torch_npu_version }}` |"
+
+msgid "    | PyTorch | `{{ release_pytorch_version }}` |"
+msgstr "    | PyTorch | `{{ release_pytorch_version }}` |"
+
+msgid "    | NNAL | `{{ release_nnal_version }}` |"
+msgstr "    | NNAL | `{{ release_nnal_version }}` |"
+
+msgid ""
+"    | Triton Ascend | `{{ release_triton_ascend_version }}` / Not supported "
+"on 310P |"
+msgstr ""
+"    | Triton Ascend | `{{ release_triton_ascend_version }}` / 310P上不支持 |"
+
+msgid "    | vLLM | `{{ vllm_version }}` |"
+msgstr "    | vLLM | `{{ vllm_version }}` |"
+
+msgid "    | vLLM Ascend | `{{ vllm_ascend_version }}` |"
+msgstr "    | vLLM Ascend | `{{ vllm_ascend_version }}` |"
+
+msgid "## Installation {: #quick-start-installation }"
+msgstr "## 安装 {: #quick-start-installation }"
+
+msgid "??? tip \"If image downloads are slow\""
+msgstr "??? tip \"如果镜像下载速度较慢\""
+
+msgid ""
+"vLLM Ascend images are downloaded from `quay.io` by default. If direct "
+"access is slow, use one of the following registry mirrors to accelerate the "
+"download."
+msgstr "vLLM Ascend镜像默认从`quay.io`下载。如果直接访问速度较慢，可以使用以下镜像源之一来加速下载。"
+
+msgid "For example, the original image address is:"
+msgstr "例如，原始镜像地址为："
+
+msgid "You can replace it with:"
+msgstr "您可以将其替换为："
+
+msgid ""
+"Replace only the registry prefix and preserve the complete original image "
+"tag, including suffixes such as `-a3`, `-310p`, `-950dt`, and `-openeuler`."
+msgstr "仅替换镜像仓库前缀，并保留完整的原始镜像标签，包括`-a3`、`-310p`、`-950dt`和`-openeuler`等后缀。"
+
+msgid "{% include \"getting_started/quick_start/installation/atlas-a2.inc.md\" %}"
+msgstr ""
+"{% include \"getting_started/quick_start/installation/atlas-a2.inc.md\" %}"
+
+msgid "{% include \"getting_started/quick_start/installation/atlas-a3.inc.md\" %}"
+msgstr ""
+"{% include \"getting_started/quick_start/installation/atlas-a3.inc.md\" %}"
+
+msgid ""
+"{% include "
+"\"getting_started/quick_start/installation/atlas-300i-duo.inc.md\" %}"
+msgstr ""
+"{% include "
+"\"getting_started/quick_start/installation/atlas-300i-duo.inc.md\" %}"
+
+msgid "{% include \"getting_started/quick_start/installation/310p-soc.inc.md\" %}"
+msgstr ""
+"{% include \"getting_started/quick_start/installation/310p-soc.inc.md\" %}"
+
+msgid ""
+"{% include \"getting_started/quick_start/installation/atlas-950dt.inc.md\" "
+"%}"
+msgstr ""
+"{% include \"getting_started/quick_start/installation/atlas-950dt.inc.md\" "
+"%}"
+
+msgid "### Verify the container environment"
+msgstr "### 验证容器环境"
+
+msgid "Run the following commands in the container:"
+msgstr "在容器中运行以下命令："
+
+msgid "## Inference {: #quick-start-inference }"
+msgstr "## 推理 {: #quick-start-inference }"
+
+msgid "??? tip \"If Hugging Face access is restricted\""
+msgstr "??? tip \"如果Hugging Face访问受限\""
+
+msgid ""
+"If your environment cannot reliably access Hugging Face, model downloads may"
+" fail due to connection timeouts, DNS errors, or other network issues. You "
+"can switch to ModelScope:"
+msgstr ""
+"如果您的环境无法稳定访问Hugging Face，模型下载可能会因连接超时、DNS错误或其他网络问题而失败。您可以切换到ModelScope："
+
+msgid ""
+"If the model has already been downloaded locally, replace the model ID in "
+"the examples below with the local directory. You do not need to set this "
+"environment variable."
+msgstr "如果模型已下载到本地，请将以下示例中的模型ID替换为本地目录。您无需设置此环境变量。"
+
+msgid "### Offline inference {: #quick-start-offline-inference }"
+msgstr "### 离线推理 {: #quick-start-offline-inference }"
+
+msgid "{% include \"getting_started/quick_start/offline/atlas-a2.inc.md\" %}"
+msgstr "{% include \"getting_started/quick_start/offline/atlas-a2.inc.md\" %}"
+
+msgid "{% include \"getting_started/quick_start/offline/atlas-a3.inc.md\" %}"
+msgstr "{% include \"getting_started/quick_start/offline/atlas-a3.inc.md\" %}"
+
+msgid "{% include \"getting_started/quick_start/offline/310p.inc.md\" %}"
+msgstr "{% include \"getting_started/quick_start/offline/310p.inc.md\" %}"
+
+msgid "{% include \"getting_started/quick_start/offline/atlas-950dt.inc.md\" %}"
+msgstr "{% include \"getting_started/quick_start/offline/atlas-950dt.inc.md\" %}"
+
+msgid "### Online serving {: #quick-start-online-serving }"
+msgstr "### 在线服务 {: #quick-start-online-serving }"
+
+msgid "{% include \"getting_started/quick_start/online/atlas-a2.inc.md\" %}"
+msgstr "{% include \"getting_started/quick_start/online/atlas-a2.inc.md\" %}"
+
+msgid "{% include \"getting_started/quick_start/online/atlas-a3.inc.md\" %}"
+msgstr "{% include \"getting_started/quick_start/online/atlas-a3.inc.md\" %}"
+
+msgid "{% include \"getting_started/quick_start/online/310p.inc.md\" %}"
+msgstr "{% include \"getting_started/quick_start/online/310p.inc.md\" %}"
+
+msgid "{% include \"getting_started/quick_start/online/atlas-950dt.inc.md\" %}"
+msgstr "{% include \"getting_started/quick_start/online/atlas-950dt.inc.md\" %}"
+
+msgid "## Next steps {: #quick-start-next-steps }"
+msgstr "## 后续步骤 {: #quick-start-next-steps }"
+
+msgid ""
+"- See [Supported Models](../user_guide/support_matrix/supported_models.md) to choose another model.\n"
+"- See [Model Tutorials](../tutorials/models/index.md) for deployment instructions for specific models.\n"
+"- See [Installation Guide > Set up the software environment](installation.md#installation-software-environment) for pip, CANN, and source installation methods.\n"
+"- See [Feature Tutorials](../tutorials/features/index.md) for distributed deployment and advanced features.\n"
+"- See [FAQ](../faqs.md) to troubleshoot common deployment issues."
+msgstr ""
+"- 请参阅[支持的模型](../user_guide/support_matrix/supported_models.md)选择其他模型。\n"
+"- 请参阅[模型教程](../tutorials/models/index.md)了解特定模型的部署说明。\n"
+"- 请参阅[安装指南 > 设置软件环境](installation.md#installation-software-environment)了解pip、CANN和源码安装方法。\n"
+"- 请参阅[功能教程](../tutorials/features/index.md)了解分布式部署和高级功能。\n"
+"- 请参阅[FAQ](../faqs.md)排查常见的部署问题。"

@@ -1,0 +1,50 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2026, vllm-ascend team
+# This file is distributed under the same license as the vllm-ascend package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: vllm-ascend\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-08-28 02:09+0000\n"
+"PO-Revision-Date: 2026-08-28 02:09+0000\n"
+"Last-Translator: \n"
+"Language-Team: zh_CN <LL@li.org>\n"
+"Language: zh_CN\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"Generated-By: detect_po_changes.py\n"
+
+msgid "=== \"A3\""
+msgstr "=== \"A3\""
+
+msgid "#### Pull the image"
+msgstr "#### 拉取镜像"
+
+msgid "#### Start the container {: #quick-start-atlas-a3-container }"
+msgstr "#### 启动容器 {: #quick-start-atlas-a3-container }"
+
+msgid "???+ note \"A3 device mapping\""
+msgstr "???+ note \"A3 设备映射\""
+
+msgid ""
+"A3 uses a dual-DIE design. This quick start exposes two Ascend device nodes "
+"for one selected device, such as `/dev/davinci0` and `/dev/davinci1`."
+msgstr ""
+"A3 采用双 DIE 设计。本快速入门为所选设备暴露两个 Ascend 设备节点，例如 `/dev/davinci0` 和 "
+"`/dev/davinci1`。"
+
+msgid ""
+"Exposing two device nodes does not mean that the quick start automatically "
+"uses `tensor_parallel_size=2`. Whether parallelism is enabled depends on the"
+" model and deployment method."
+msgstr "暴露两个设备节点并不意味着快速入门会自动使用 `tensor_parallel_size=2`。是否启用并行取决于模型和部署方式。"
+
+msgid "=== \"Ubuntu\""
+msgstr "=== \"Ubuntu\""
+
+msgid "=== \"openEuler\""
+msgstr "=== \"openEuler\""

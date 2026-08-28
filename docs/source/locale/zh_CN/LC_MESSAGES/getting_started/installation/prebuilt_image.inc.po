@@ -1,0 +1,90 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2026, vllm-ascend team
+# This file is distributed under the same license as the vllm-ascend package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: vllm-ascend\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-08-28 02:09+0000\n"
+"PO-Revision-Date: 2026-08-28 02:09+0000\n"
+"Last-Translator: \n"
+"Language-Team: zh_CN <LL@li.org>\n"
+"Language: zh_CN\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"Generated-By: detect_po_changes.py\n"
+
+msgid "=== \"Prebuilt image\""
+msgstr "=== \"预构建镜像\""
+
+msgid ""
+"#### Use a prebuilt vLLM Ascend image {: #installation-prebuilt-image }"
+msgstr "#### 使用预构建的 vLLM Ascend 镜像 {: #installation-prebuilt-image }"
+
+msgid ""
+"The host needs only a working Ascend driver and firmware, plus Docker. The "
+"image includes the CANN user-space environment, PyTorch/TorchNPU, vLLM, and "
+"vLLM Ascend."
+msgstr ""
+"主机只需具备可用的 Ascend 驱动和固件，以及 Docker。镜像包含 CANN 用户空间环境、PyTorch/TorchNPU、vLLM 和 "
+"vLLM Ascend。"
+
+msgid "##### Select an image {: #installation-prebuilt-image-selection }"
+msgstr "##### 选择镜像 {: #installation-prebuilt-image-selection }"
+
+msgid "| Hardware | Ubuntu | openEuler |"
+msgstr "| 硬件 | Ubuntu | openEuler |"
+
+msgid ""
+"    | Ascend A2 series products | `quay.io/ascend/vllm-ascend:{{ "
+"vllm_ascend_version }}` | `quay.io/ascend/vllm-ascend:{{ vllm_ascend_version"
+" }}-openeuler` |"
+msgstr ""
+"    | Ascend A2 系列产品 | `quay.io/ascend/vllm-ascend:{{ vllm_ascend_version "
+"}}` | `quay.io/ascend/vllm-ascend:{{ vllm_ascend_version }}-openeuler` |"
+
+msgid ""
+"    | Ascend A3 series products | `quay.io/ascend/vllm-ascend:{{ "
+"vllm_ascend_version }}-a3` | `quay.io/ascend/vllm-ascend:{{ "
+"vllm_ascend_version }}-a3-openeuler` |"
+msgstr ""
+"    | Ascend A3 系列产品 | `quay.io/ascend/vllm-ascend:{{ vllm_ascend_version "
+"}}-a3` | `quay.io/ascend/vllm-ascend:{{ vllm_ascend_version }}-a3-openeuler`"
+" |"
+
+msgid ""
+"    | Ascend 310P series products | `quay.io/ascend/vllm-ascend:{{ "
+"vllm_ascend_version }}-310p` | `quay.io/ascend/vllm-ascend:{{ "
+"vllm_ascend_version }}-310p-openeuler` |"
+msgstr ""
+"    | Ascend 310P 系列产品 | `quay.io/ascend/vllm-ascend:{{ vllm_ascend_version "
+"}}-310p` | `quay.io/ascend/vllm-ascend:{{ vllm_ascend_version "
+"}}-310p-openeuler` |"
+
+msgid ""
+"    | Ascend 950DT series products | `quay.io/ascend/vllm-ascend:{{ "
+"vllm_ascend_version }}-950dt` | `quay.io/ascend/vllm-ascend:{{ "
+"vllm_ascend_version }}-950dt-openeuler` |"
+msgstr ""
+"    | Ascend 950DT 系列产品 | `quay.io/ascend/vllm-ascend:{{ vllm_ascend_version"
+" }}-950dt` | `quay.io/ascend/vllm-ascend:{{ vllm_ascend_version }}-950dt-"
+"openeuler` |"
+
+msgid ""
+"##### Pull and inspect the image {: #installation-prebuilt-image-pull }"
+msgstr "##### 拉取并检查镜像 {: #installation-prebuilt-image-pull }"
+
+msgid "??? tip \"Build an image from a Dockerfile\""
+msgstr "??? tip \"从 Dockerfile 构建镜像\""
+
+msgid ""
+"The default `Dockerfile` targets A2. For other hardware, use the "
+"corresponding Dockerfile in the repository, such as the A3, 310P, or 950DT "
+"Dockerfile."
+msgstr ""
+"默认的 `Dockerfile` 面向 A2。对于其他硬件，请使用仓库中对应的 Dockerfile，例如 A3、310P 或 950DT 的 "
+"Dockerfile。"

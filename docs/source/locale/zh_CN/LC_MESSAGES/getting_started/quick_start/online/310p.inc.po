@@ -1,0 +1,40 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2026, vllm-ascend team
+# This file is distributed under the same license as the vllm-ascend package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: vllm-ascend\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-08-28 02:09+0000\n"
+"PO-Revision-Date: 2026-08-28 02:09+0000\n"
+"Last-Translator: \n"
+"Language-Team: zh_CN <LL@li.org>\n"
+"Language: zh_CN\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"Generated-By: detect_po_changes.py\n"
+
+msgid "=== \"310P\""
+msgstr "=== \"310P\""
+
+msgid ""
+"<span id=\"quick-start-ascend-310p-online\"></span>\n"
+"    <span id=\"quick-start-atlas-300i-duo-online\"></span>\n"
+"    <span id=\"quick-start-atlas-200i-pro-online\"></span>"
+msgstr ""
+"<span id=\"quick-start-ascend-310p-online\"></span>\n"
+"    <span id=\"quick-start-atlas-300i-duo-online\"></span>\n"
+"    <span id=\"quick-start-atlas-200i-pro-online\"></span>"
+
+msgid ""
+"{% filter indent(4, true) %}{% include "
+"\"getting_started/quick_start/online/qwen3-0.6b-310p.inc.md\" %}{% endfilter"
+" %}"
+msgstr ""
+"{% filter indent(4, true) %}{% include "
+"\"getting_started/quick_start/online/qwen3-0.6b-310p.inc.md\" %}{% endfilter"
+" %}"
