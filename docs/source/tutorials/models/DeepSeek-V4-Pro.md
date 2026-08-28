@@ -37,7 +37,7 @@ If you want to deploy a multi-node environment, you need to verify multi-node co
 
 Select an image based on your machine type and start the docker image on your node, refer to [using docker](../../getting_started/installation.md#installation-prebuilt-image).
 
-=== "A3 series"
+=== "A3"
 
     Start the docker image on each node.
 
@@ -79,7 +79,7 @@ Select an image based on your machine type and start the docker image on your no
         -it $IMAGE bash
     ```
 
-=== "A2 series"
+=== "A2"
 
     Start the docker image on each node.
 
@@ -135,7 +135,7 @@ If you want to deploy a multi-node environment, you need to set up the environme
 
 The quantized model `DeepSeek-V4-Pro-w4a8-mtp` requires at least 2 Atlas 800 A3 (128GB × 8) nodes or 4 Atlas 800 A2 (64GB × 8) nodes. Run the following scripts on each node respectively.
 
-=== "A2 series"
+=== "A2"
 
     **Node0**
 
@@ -288,7 +288,7 @@ The quantized model `DeepSeek-V4-Pro-w4a8-mtp` requires at least 2 Atlas 800 A3 
       }'
     ```
 
-=== "A3 series"
+=== "A3"
 
     **Node0**
 
@@ -454,7 +454,7 @@ In the standard deployment mode, Prefill (prompt processing) and Decode (token g
 
 The following sections describe PD separation deployment on both Atlas 800 A3 (128GB × 8) and Atlas 800 A2 (64GB × 8) multi-node environments.
 
-#### 5.2.1 A3 Series PD Separation Deployment
+#### 5.2.1 Ascend A3 Series Products PD Separation Deployment
 
 This section shows the deployment guide of DeepSeek-V4-Pro on Atlas 800 A3 (128GB × 8) multi-node environment with 1P1D for better performance.
 
@@ -825,7 +825,7 @@ Before you start, please:
 
     Refer to [Prefill-Decode Disaggregation (Deepseek)](../features/pd_disaggregation_mooncake_multi_node.md) to deploy the P-D disaggregation proxy.
 
-#### 5.2.2 A2 Series PD Separation Deployment
+#### 5.2.2 Ascend A2 Series Products PD Separation Deployment
 
 This section shows the deployment guide of DeepSeek-V4-Pro on Atlas 800 A2 (64GB × 8) multi-node environment with 1P1D for better performance.
 
@@ -1156,7 +1156,7 @@ Key Parameter Descriptions:
 - `--enforce-eager` forces eager execution on prefill nodes instead of graph compilation.
 - `enable_dsa_cp: true` enables DSA context parallelism on prefill nodes.
 - `kv_connector_extra_config.prefill.dp_size/tp_size` and `decode.dp_size/tp_size` must match the actual global DP and TP layout on the prefill and decode sides.
-- `additional_config.enable_fused_mc2=1`: enables the Fused MC2 fusion operator to accelerate communication on prefill nodes (A3 series).
+- `additional_config.enable_fused_mc2=1`: enables the Fused MC2 fusion operator to accelerate communication on prefill nodes for A3 series.
 - `recompute_scheduler_enable: true`: enables the recomputation scheduler. When the KV Cache of the decode node is insufficient, requests will be sent to the prefill node to recompute the KV Cache. In the PD separation scenario, enable this configuration only on decode nodes.
 - `MooncakeHybridConnector`: the KV transfer connector used for PD separation, transferring KV Cache between prefill and decode nodes.
 - `enable_shared_expert_dp: true`: enables data parallelism for shared experts, applicable to MoE models.

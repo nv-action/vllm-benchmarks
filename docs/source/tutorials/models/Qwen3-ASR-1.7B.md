@@ -18,7 +18,7 @@ Please refer to the [Feature Guide](../../user_guide/feature_guide/index.md) for
 
 ### 3.1 Model Weight
 
-The BF16 model can be deployed with one Ascend 910B 64 GB NPU or one Ascend Atlas 300I DUO 48 GB NPU. Download the model weights from [ModelScope](https://www.modelscope.cn/models/Qwen/Qwen3-ASR-1.7B).
+The BF16 model can be deployed with one Ascend 910B 64 GB NPU or one 48 GB NPU on Atlas 300I DUO. Download the model weights from [ModelScope](https://www.modelscope.cn/models/Qwen/Qwen3-ASR-1.7B).
 
 Download the weights to a directory that is accessible from the deployment environment. For multi-node deployments, use a shared directory; for example, `/root/.cache/`.
 
@@ -28,7 +28,7 @@ Download the weights to a directory that is accessible from the deployment envir
 
 Use the vLLM-Ascend Docker image that corresponds to your hardware. Replace the model-weight mount with the path used in your environment.
 
-=== "Atlas A2 inference products"
+=== "A2"
 
     ```bash
     export IMAGE=quay.io/ascend/vllm-ascend:{{ vllm_ascend_version }}
@@ -105,7 +105,7 @@ pip show vllm-ascend
 
 Single-node deployment runs both audio prefill and decoding on one NPU, making it suitable for development, testing, and small-scale ASR services. Replace `your_model_path` with the local model directory, or use `Qwen/Qwen3-ASR-1.7B` to download the model through the configured model hub.
 
-=== "Atlas A2 inference products"
+=== "A2"
 
     ```shell
     vllm serve your_model_path \
@@ -195,7 +195,7 @@ For general parameter tuning, refer to the [Public Performance Tuning Documentat
 
 For common environment, installation, and general parameter issues, see the [Public FAQs](../../faqs.md). This section covers model- and hardware-specific guidance.
 
-### Atlas 300I DUO runs out of memory during startup
+### Atlas 300I DUO run out of memory during startup
 
 **Symptom:** The server fails with an out-of-memory error while initializing attention.
 

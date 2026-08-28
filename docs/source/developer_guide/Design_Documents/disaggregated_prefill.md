@@ -63,12 +63,12 @@ Taking MooncakeConnector as an example, the system is organized into three prima
 
 ### 4. Specifications Design
 
-This feature is flexible and supports various configurations, including setups with MLA and GQA models. It is compatible with A2 and A3 hardware configurations and facilitates scenarios involving equal TP setups and certain unequal TP setups across multiple P and D nodes.
+This feature is flexible and supports various configurations, including setups with MLA and GQA models. It is compatible with A2 series and A3 series and facilitates scenarios involving equal TP setups and certain unequal TP setups across multiple P and D nodes.
 
 | Feature                       |      Status    |
 |-------------------------------|----------------|
-| A2                            | 🟢 Functional  |
-| A3                            | 🟢 Functional  |
+| A2            | 🟢 Functional  |
+| A3            | 🟢 Functional  |
 | equal TP configuration        | 🟢 Functional  |
 | unequal TP configuration      | 🟢 Functional  |
 | MLA                           | 🟢 Functional  |
@@ -100,6 +100,6 @@ Under non-symmetric PD scenarios, validate the P-to-D tp ratio against expected 
 
 ## Limitations
 
-- Heterogeneous P and D nodes are not supported, for example, running P nodes on A2 and D nodes on A3.
+- Heterogeneous P and D nodes are not supported, for example, running P nodes on A2 series and D nodes on A3 series.
 
 - In non-symmetric TP configurations, only cases where the P nodes have a higher TP degree than the D nodes and the P TP count is an integer multiple of the D TP count are supported (i.e., P_tp > D_tp and P_tp % D_tp = 0).

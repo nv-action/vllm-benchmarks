@@ -26,7 +26,7 @@ You can use our official docker image to run `Qwen3-Embedding` model directly.
 
 Select an image based on your machine type and start the docker image on your node, refer to [using docker](../../getting_started/installation.md#installation-prebuilt-image).
 
-=== "A3 series"
+=== "A3"
 
     Start the docker image on each node.
 
@@ -51,7 +51,7 @@ Select an image based on your machine type and start the docker image on your no
         -it $IMAGE bash
     ```
 
-=== "A2 series"
+=== "A2"
 
     Start the docker image on each node.
 
@@ -113,7 +113,7 @@ If you want to deploy multi-node environment, you need to set up environment on 
 
 ## 5 Online Service Deployment {: #5-online-service-deployment }
 
-=== "A3/A2 series"
+=== "A3 / A2"
 
     ```shell
     #!/bin/sh
@@ -143,7 +143,7 @@ If you want to deploy multi-node environment, you need to set up environment on 
 
 Key Parameter Descriptions:
 
-- `--max-model-len` represents the context length, which is the maximum value of the input plus output for a single request. For Atlas 300I DUO if automatic parsing resolves to a large context length, allocating this mask (O(max_model_len^2)) may exceed NPU memory and trigger OOM. Be sure to set an explicit and conservative value, such as --max-model-len 1024.
+- `--max-model-len` represents the context length, which is the maximum value of the input plus output for a single request. For Atlas 300I DUO, if automatic parsing resolves to a large context length, allocating this mask (O(max_model_len^2)) may exceed NPU memory and trigger OOM. Be sure to set an explicit and conservative value, such as --max-model-len 1024.
 
 Common Issues Tip: If you encounter issues, please refer to the [Public FAQs](../../faqs.md) for troubleshooting.
 

@@ -24,19 +24,19 @@ The following model variants are available. It is recommended to download the mo
 
 | Model | Hardware Requirement | Download |
 |-------|---------------------|----------|
-| Qwen3-0.6B | 1 Atlas A3 inference products (64GB × 16), 1 Atlas A2 inference products (64GB × 8) | [Download](https://modelers.cn/models/Modelers_Park/Qwen3-0.6B) |
-| Qwen3-1.7B | 1 Atlas A3 inference products (64GB × 16), 1 Atlas A2 inference products (64GB × 8) | [Download](https://modelers.cn/models/Modelers_Park/Qwen3-1.7B) |
-| Qwen3-4B | 1 Atlas A3 inference products (64GB × 16), 1 Atlas A2 inference products (64GB × 8) | [Download](https://modelers.cn/models/Modelers_Park/Qwen3-4B) |
-| Qwen3-8B | 1 Atlas A3 inference products (64GB × 16), 1 Atlas A2 inference products (64GB × 8) | [Download](https://modelers.cn/models/Modelers_Park/Qwen3-8B) |
-| Qwen3-14B | 1 Atlas A3 inference products (64GB × 16), 1 Atlas A2 inference products (64GB × 8) | [Download](https://modelers.cn/models/Modelers_Park/Qwen3-14B) |
-| Qwen3-32B | 1 Atlas A3 inference products (64GB × 16), 1 Atlas A2 inference products (64GB × 8) | [Download](https://modelers.cn/models/Modelers_Park/Qwen3-32B) |
+| Qwen3-0.6B | 1 A3 node (64GB × 16), 1 A2 node (64GB × 8) | [Download](https://modelers.cn/models/Modelers_Park/Qwen3-0.6B) |
+| Qwen3-1.7B | 1 A3 node (64GB × 16), 1 A2 node (64GB × 8) | [Download](https://modelers.cn/models/Modelers_Park/Qwen3-1.7B) |
+| Qwen3-4B | 1 A3 node (64GB × 16), 1 A2 node (64GB × 8) | [Download](https://modelers.cn/models/Modelers_Park/Qwen3-4B) |
+| Qwen3-8B | 1 A3 node (64GB × 16), 1 A2 node (64GB × 8) | [Download](https://modelers.cn/models/Modelers_Park/Qwen3-8B) |
+| Qwen3-14B | 1 A3 node (64GB × 16), 1 A2 node (64GB × 8) | [Download](https://modelers.cn/models/Modelers_Park/Qwen3-14B) |
+| Qwen3-32B | 1 A3 node (64GB × 16), 1 A2 node (64GB × 8) | [Download](https://modelers.cn/models/Modelers_Park/Qwen3-32B) |
 
-**Quantized Versions for Atlas A2/A3 inference products:**
+**Quantized Versions for A2 series / A3 series:**
 
 | Model | Quantization | Hardware Requirement | Download |
 |-------|-------------|---------------------|----------|
-| Qwen3-32B-W4A4 | W4A4 | 1 Atlas A3 inference products (64GB × 16) or 1 Atlas A2 inference products (64GB × 8) | [Download](https://www.modelscope.cn/models/vllm-ascend/Qwen3-32B-W4A4) |
-| Qwen3-32B-W8A8 | W8A8 | 1 Atlas A3 inference products (64GB × 16) or 1 Atlas A2 inference products (64GB × 8) | [Download](https://www.modelscope.cn/models/vllm-ascend/Qwen3-32B-W8A8) |
+| Qwen3-32B-W4A4 | W4A4 | 1 A3 node (64GB × 16) or 1 A2 node (64GB × 8) | [Download](https://www.modelscope.cn/models/vllm-ascend/Qwen3-32B-W4A4) |
+| Qwen3-32B-W8A8 | W8A8 | 1 A3 node (64GB × 16) or 1 A2 node (64GB × 8) | [Download](https://www.modelscope.cn/models/vllm-ascend/Qwen3-32B-W8A8) |
 
 **Quantized Versions for Atlas 300I DUO:**
 
@@ -69,7 +69,7 @@ docker pull quay.io/ascend/vllm-ascend:{{ vllm_ascend_version }}
 
 Start the docker image on each node.
 
-=== "Atlas A3 inference products"
+=== "A3"
 
     ```bash
 
@@ -110,10 +110,10 @@ Start the docker image on each node.
 
     !!! note
 
-        Atlas A3 inference products have 8 NPUs with dual-die design (16 chips total: `/dev/davinci[0-15]`).
+        A3 series have 8 NPUs with dual-die design (16 chips total: `/dev/davinci[0-15]`).
         If you are on a shared machine, map only the chips you need (e.g., `/dev/davinci[0-7]` for NPU 0-3).
 
-=== "Atlas A2 inference products"
+=== "A2"
 
     ```bash
 
@@ -225,7 +225,7 @@ Single-node deployment completes both Prefill and Decode within the same node, s
 **Start the server:**
 > The following command is an example configuration. Adjust the parameters based on your actual scenario.
 
-=== "Atlas A2 inference products / Atlas A3 inference products"
+=== "A2 / A3"
 
     Qwen3-32B-W8A8:
 
@@ -501,9 +501,9 @@ After several minutes, you will get the performance evaluation result.
 
 | Scenario | Deployment Mode | *Total NPUs | Weight Version | Key Considerations |
 |----------|----------------|-------------|----------------|---------------------|
-| High Throughput | Single-Node (TP4) | 4 (Atlas A3 inference products) | W8A8 | 4-card TP maximizes concurrent request processing |
-| Long Context | Single-Node (TP4) | 4 (Atlas A3 inference products) | W8A8 | 4-card TP extends context window for long sequences |
-| Low Latency | Single-Node (TP8) | 8 (Atlas A3 inference products) | W8A8 | 8-card TP reduces per-token latency for interactive responses |
+| High Throughput | Single-Node (TP4) | 4 (A3 series) | W8A8 | 4-card TP maximizes concurrent request processing |
+| Long Context | Single-Node (TP4) | 4 (A3 series) | W8A8 | 4-card TP extends context window for long sequences |
+| Low Latency | Single-Node (TP8) | 8 (A3 series) | W8A8 | 8-card TP reduces per-token latency for interactive responses |
 
 > `*Total NPUs` indicates the total number of NPUs used across all nodes.
 

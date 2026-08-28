@@ -36,14 +36,14 @@ Uses the `=== "Tab Label"` syntax. The vLLM-Ascend documentation currently has `
 **Example:**
 
 ```markdown
-=== "A3 series"
+=== "A3"
 
     ```bash
     export IMAGE=quay.io/ascend/vllm-ascend:{{ vllm_ascend_version }}
     docker run ...
     ```
 
-=== "A2 series"
+=== "A2"
 
     ```bash
     export IMAGE=quay.io/ascend/vllm-ascend:{{ vllm_ascend_version }}
@@ -63,7 +63,7 @@ Uses the `{tab-set}` and `{tab-item}` directives, requiring explicit declaration
     :::::{tab-set}
     :sync-group: install
 
-    ::::{tab-item} A3 series
+    ::::{tab-item} A3
     :sync: A3
 
     ```bash
@@ -73,7 +73,7 @@ Uses the `{tab-set}` and `{tab-item}` directives, requiring explicit declaration
 
     ::::
 
-    ::::{tab-item} A2 series
+    ::::{tab-item} A2
     :sync: A2
 
     ```bash

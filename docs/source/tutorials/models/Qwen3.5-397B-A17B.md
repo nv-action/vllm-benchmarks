@@ -6,7 +6,7 @@ Qwen3.5-397B-A17B is a large-scale Qwen3.5 MoE model that combines multimodal ca
 
 This document describes the main validation steps for the model, including supported features, prerequisites, installation, single-node online deployment, multi-node deployment, Prefill-Decode (PD) disaggregation, functional verification, accuracy and performance evaluation, performance tuning, and FAQs.
 
-The `Qwen3.5-397B-A17B` model is first supported in `vllm-ascend:v0.17.0rc1`. Use `v0.17.0rc1` or later for this model. For Ascend95DT, the model is supported from `vllm-ascend:v0.23.0rc1`. The examples below use the version placeholder configured by the documentation build system.
+The `Qwen3.5-397B-A17B` model is first supported in `vllm-ascend:v0.17.0rc1`. Use `v0.17.0rc1` or later for this model. For 950DT series products, the model is supported from `vllm-ascend:v0.23.0rc1`. The examples below use the version placeholder configured by the documentation build system.
 
 ## 2 Supported Features
 
@@ -22,11 +22,11 @@ The support matrix records the maximum verified capability for this model. The s
 
 ### 3.1 Model Weight
 
-- `Qwen3.5-397B-A17B` (BF16 version): requires 2 Ascend 950DT(96GB x 8) nodes or 2 Atlas 800 A3 (64GB x 16) nodes or 4 Atlas 800 A2 (64GB x 8) nodes. [Download model weight](https://www.modelscope.cn/models/Qwen/Qwen3.5-397B-A17B).
+- `Qwen3.5-397B-A17B` (BF16 version): requires two 950DT series products (96GB x 8 NPUs each), 2 Atlas 800 A3 (64GB x 16) nodes, or 4 Atlas 800 A2 (64GB x 8) nodes. [Download model weight](https://www.modelscope.cn/models/Qwen/Qwen3.5-397B-A17B).
 - `Qwen3.5-397B-A17B-w8a8` (quantized version): requires 1 Atlas 800 A3 (64GB x 16) node or 2 Atlas 800 A2 (64GB x 8) nodes. [Download model weight](https://www.modelscope.cn/models/Eco-Tech/Qwen3.5-397B-A17B-w8a8-mtp).
 - `Qwen3.5-397B-A17B-w4a8` (quantized version): requires 1 Atlas 800 A3 (64GB x 16) node or 2 Atlas 800 A2 (64GB x 8) nodes. [Download model weight](https://www.modelscope.cn/models/Eco-Tech/Qwen3.5-397B-A17B-w4a8-mtp).
-- `Qwen3.5-397B-A17B-w8a8-mxfp8` (quantized version): requires 1 Ascend 950DT(96GB x 8) node. [Download model weight](https://modelscope.cn/models/Eco-Tech/Qwen3.5-397B-A17B-w8a8-mxfp8)
-- `Qwen3.5-397B-A17B-w4a4-mxfp4` (quantized version): requires 1 Ascend 950DT(96GB x 8) node. [Download model weight](https://modelscope.cn/models/Eco-Tech/Qwen3.5-397B-A17B-w4a4-mxfp4)
+- `Qwen3.5-397B-A17B-w8a8-mxfp8` (quantized version): requires one 950DT series product (96GB x 8 NPUs). [Download model weight](https://modelscope.cn/models/Eco-Tech/Qwen3.5-397B-A17B-w8a8-mxfp8)
+- `Qwen3.5-397B-A17B-w4a4-mxfp4` (quantized version): requires one 950DT series product (96GB x 8 NPUs). [Download model weight](https://modelscope.cn/models/Eco-Tech/Qwen3.5-397B-A17B-w4a4-mxfp4)
 
 It is recommended to download the model weight to a shared directory across multiple nodes, such as `/root/.cache/`, so that all serving nodes can load the same path.
 
@@ -40,9 +40,9 @@ If you want to deploy the model in a multi-node environment, verify the communic
 
 Select an image based on your machine type and start the docker image on your node, refer to [using docker](../../getting_started/installation.md#installation-prebuilt-image).
 
-The `Qwen3.5-397B-A17B` model is first supported in `vllm-ascend:v0.17.0rc1`. Use `v0.17.0rc1` or later for this model.For Ascend95DT, the model is supported from `vllm-ascend:v0.23.0rc1`.
+The `Qwen3.5-397B-A17B` model is first supported in `vllm-ascend:v0.17.0rc1`. Use `v0.17.0rc1` or later for this model. For 950DT series products, the model is supported from `vllm-ascend:v0.23.0rc1`.
 
-=== "Ascend 950DT series"
+=== "950DT"
 
     Start the docker image on your each node.
 
@@ -79,7 +79,7 @@ The `Qwen3.5-397B-A17B` model is first supported in `vllm-ascend:v0.17.0rc1`. Us
       -itd $IMAGE bash
     ```
 
-=== "A3 series"
+=== "A3"
 
     Start the docker image on your each node.
 
@@ -120,7 +120,7 @@ The `Qwen3.5-397B-A17B` model is first supported in `vllm-ascend:v0.17.0rc1`. Us
       -it $IMAGE bash
     ```
 
-=== "A2 series"
+=== "A2"
 
     Start the docker image on your each node.
 
@@ -173,9 +173,9 @@ If you want to deploy a multi-node service, install the same version of vLLM and
 
 Single-node deployment runs both Prefill and Decode on the same node. It is suitable for functional validation, long-context single-cluster serving.
 
-=== "Ascend 950DT series"
+=== "950DT"
 
-    Run the following script to execute online inference on 1 Ascend 950DT (96G x 8). The quantized versions (`Qwen3.5-397B-A17B-w8a8-mxfp8` and `Qwen3.5-397B-A17B-w4a4-mxfp4`) can be deployed on a single Ascend 950DT node, needs `--quantization ascend`.
+    Run the following script to execute online inference on one 950DT series product (96G x 8 NPUs). The quantized versions (`Qwen3.5-397B-A17B-w8a8-mxfp8` and `Qwen3.5-397B-A17B-w4a4-mxfp4`) can be deployed on a single 950DT series product and require `--quantization ascend`.
 
     ```shell
     #!/bin/sh
@@ -217,7 +217,7 @@ Single-node deployment runs both Prefill and Decode on the same node. It is suit
       --additional-config '{"enable_cpu_binding":true}'
     ```
 
-=== "A3 series"
+=== "A3"
 
     Run the following script to execute online 128K inference on 1 Atlas 800 A3 (64GB x 16), and W8A8 deployment on 1 Atlas 800 A3 (64GB x 16) node. The W8A8 version needs `--quantization ascend`.
 
@@ -260,7 +260,7 @@ Single-node deployment runs both Prefill and Decode on the same node. It is suit
       --additional-config '{"enable_cpu_binding":true, "enable_fused_mc2":1}'
     ```
 
-=== "A2 series"
+=== "A2"
 
     For W8A8 deployment, 2 Atlas 800 A2 (64G x 8) nodes are required. Refer to [Section 5.2](#52-multi-node-deployment-with-mp-recommended) for multi-node MP deployment.
 
@@ -596,12 +596,12 @@ Common Issues Tip: If the decode node fails to initialize, check that `--tensor-
 - `VLLM_MOONCAKE_ABORT_REQUEST_TIMEOUT` is the timeout in seconds for automatically releasing the prefiller KV cache for a request.
 - `--compilation-config '{"cudagraph_mode": "FULL_DECODE_ONLY"}'` is recommended on the decode node to reduce decode dispatch overhead.
 
-### 5.5 Prefill-Decode Disaggregation (Ascend 950DT series)
+### 5.5 Prefill-Decode Disaggregation (950DT series products)
 
-For Ascend 950DT (96G x 8), we recommend deploying 1P1D with 2 nodes for `Qwen3.5-397B-A17B-w4a4-mxfp4`:
+For 950DT series products (96G x 8 NPUs), we recommend deploying 1P1D with 2 nodes for `Qwen3.5-397B-A17B-w4a4-mxfp4`:
 
-- 1 Prefill node: 1 Ascend 950DT (96G x 8). Runs an independent service with DP=1, TP=8.
-- 1 Decode node: 1 Ascend 950DT (96G x 8). Forms a global DP=1 group, with 1 local DP rank (TP=8).
+- 1 Prefill node: one 950DT series product (96G x 8 NPUs). Runs an independent service with DP=1, TP=8.
+- 1 Decode node: one 950DT series product (96G x 8 NPUs). Forms a global DP=1 group, with 1 local DP rank (TP=8).
 
 The prefill service pushes KV cache to the decode node via the Mooncake p2p connector.
 
@@ -776,7 +776,7 @@ Common Issues Tip: If decode node 0 fails to initialize, check that `--data-para
 
 Run a proxy server on the same node as the prefiller service instance. You can get the proxy program in the repository examples: [load_balance_proxy_server_example.py](https://github.com/vllm-project/vllm-ascend/blob/main/examples/disaggregated_prefill_v1/load_balance_proxy_server_example.py).
 
-=== "A3 series"
+=== "A3"
 
     For A3 PD disaggregation (1P1D), the proxy forwards requests to 1 prefill node and 1 decode node. Use the layerwise proxy script.
 
@@ -800,9 +800,9 @@ Run a proxy server on the same node as the prefiller service instance. You can g
     bash proxy.sh
     ```
 
-=== "Ascend 950DT series"
+=== "950DT"
 
-    For Ascend 950DT PD disaggregation (1P1D), the proxy forwards requests to 1 prefill node and 1 decode node. Use the layerwise proxy script.
+    For PD disaggregation on 950DT series products (1P1D), the proxy forwards requests to 1 prefill node and 1 decode node. Use the layerwise proxy script.
 
     ```shell
     unset ftp_proxy
@@ -904,10 +904,10 @@ The following configurations are validated in specific test environments and are
 | Scenario        | Deployment Mode            | Total NPUs          | Weight Version | Key Considerations                                                                                    |
 | --------------- | -------------------------- | ------------------- | -------------- | ----------------------------------------------------------------------------------------------------- |
 | Long context    | Single-node online serving | 16 A3 NPUs          | W8A8 MTP       | Use larger `--max-model-len` and reserve enough KV cache. Lower `--max-num-seqs` if OOM occurs.       |
-| Long context    | Single-node online serving | 8 Ascend 950DT NPUs  | W4A4 MXFP4 MTP | Use TP=8 and reserve enough KV cache for 133K context. Lower `--max-num-seqs` if OOM occurs.          |
+| Long context    | Single-node online serving | 8 NPUs on a 950DT series product | W4A4 MXFP4 MTP | Use TP=8 and reserve enough KV cache for 133K context. Lower `--max-num-seqs` if OOM occurs.          |
 | High throughput | Multi-node MP              | 16 A2 NPUs          | W8A8 MTP       | Increase concurrency through DP and tune `--max-num-batched-tokens` for prefill throughput.           |
 | Low latency     | 1P1D PD disaggregation     | 48 A3 NPUs          | W8A8 MTP       | Use separate prefill and decode DP/TP layouts and enable full decode ACLGraph on decode nodes.        |
-| Low latency     | 1P1D PD disaggregation     | 16 Ascend 950DT NPUs | W4A4 MXFP4 MTP | Use one 8-NPU prefill node and one 8-NPU decode node. Enable full decode ACLGraph on the decode node. |
+| Low latency     | 1P1D PD disaggregation     | 16 NPUs on 950DT series products | W4A4 MXFP4 MTP | Use one 8-NPU prefill node and one 8-NPU decode node. Enable full decode ACLGraph on the decode node. |
 
 | Scenario | Node Role | NPUs | TP | DP | Max Num Seqs | Max Model Len | Max Num Batched Tokens | MTP Tokens | Prefix Cache | Main Optimizations |
 | -------- | --------- | ---- | -- | -- | ------------ | ------------- | ---------------------- | ---------- | ------------ | ------------------ |

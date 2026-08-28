@@ -23,12 +23,12 @@ Batch invariance is crucial for several use cases:
 
 ## Hardware Requirements
 
-Batch invariance currently requires Ascend Atlas A2 and A3 inference products NPUs.
+Batch invariance currently requires NPUs from A2 series or A3 series.
 We will support Ascend 950 Products and other NPUs in the future.
 
 ## Software Requirements
 
-Batch invariance requires a custom operator library for Atlas A2 and A3 inference products, and users need to set `VLLM_BATCH_INVARIANT=1` before building vllm-ascend to install the batch invariance custom operator library during the installation process.
+Batch invariance requires a custom operator library for A2 series and A3 series. Set `VLLM_BATCH_INVARIANT=1` before building vllm-ascend to install the batch invariance custom operator library.
 
 ## Enabling Batch Invariance
 

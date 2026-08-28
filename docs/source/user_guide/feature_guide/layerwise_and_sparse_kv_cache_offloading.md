@@ -22,12 +22,12 @@ Other sparse-attention models have not been validated.
 
 ## 1. Install Dependencies
 
-The installation steps are grouped by hardware. Only A3 series is currently
+The installation steps are grouped by hardware. Only A3 series are currently
 supported.
 
 ### Prefill Build Dependencies
 
-=== "A3 series"
+=== "A3"
 
     Prefill requires MemFabric Hybrid and Memcache Hybrid. Install them in this
     order.
@@ -116,7 +116,7 @@ supported.
 
 ### Decode Build Dependencies
 
-=== "A3 series"
+=== "A3"
 
     > **Important:** MemFabric Hybrid release 1.2 must be installed on both
     > Prefill and Decode nodes. Memcache Hybrid is required only on Prefill.

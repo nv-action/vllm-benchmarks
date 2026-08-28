@@ -34,7 +34,7 @@ It is recommended to download the model weight to the shared directory of multip
 
 You can use our official docker image to run `GLM-4.x` directly.
 
-=== "A3 series"
+=== "A3"
 
     Start the docker image on each node.
 
@@ -74,7 +74,7 @@ You can use our official docker image to run `GLM-4.x` directly.
         -it $IMAGE bash
     ```
 
-=== "A2 series"
+=== "A2"
 
     Start the docker image on each node.
 

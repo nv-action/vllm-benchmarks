@@ -10,7 +10,7 @@ Taking the DeepSeek model as an example, using 8 Atlas 800T A3 servers to deploy
 ### Physical Layer Requirements
 
 - The physical machines must be located on the same LAN, with network connectivity.
-- All NPUs must be interconnected. For the Atlas A2 generation, intra-node connectivity is via HCCS, and inter-node connectivity is via RDMA. For the Atlas A3 generation, both intra-node and inter-node connectivity are via HCCS.
+- All NPUs must be interconnected. For A2 series, intra-node connectivity is via HCCS, and inter-node connectivity is via RDMA. For A3 series, both intra-node and inter-node connectivity are via HCCS.
 
 ### Verification Process
 

@@ -4,7 +4,7 @@
 
 Hy3-preview is a Mixture-of-Experts model, with 295B total parameters, 21B active parameters and 3.8B MTP layer parameters, developed by the Tencent Hy Team. It is the first model trained on Tencent rebuilt infrastructure. It improves significantly on complex reasoning, instruction following, context learning, coding, and agent tasks.
 
-This guide records the verified vLLM Ascend serving path for Hy3-preview on one Atlas A3 16-NPU node. The verified default path is TP16 + EP + MTP + ACLGraph.
+This guide records the verified vLLM Ascend serving path for Hy3-preview on one 16-NPU node from the A3 series. The verified default path is TP16 + EP + MTP + ACLGraph.
 
 ## Supported Features
 
@@ -24,11 +24,11 @@ Download or mount the checkpoint to a path shared by the runtime container, for 
 
 ### Hardware
 
-The verified configuration uses one Atlas A3 node with 16 NPUs and 64 GB HBM per NPU. The real-weight run used about 58 GB process memory per NPU after startup.
+The verified configuration uses one node from the A3 series with 16 NPUs and 64 GB HBM per NPU. The real-weight run used about 58 GB process memory per NPU after startup.
 
 ### Installation
 
-You can use our official docker image to run Hy3-preview directly. For Atlas A3 machines, select the image variant with the `-a3` suffix. The official image already includes the vLLM and vLLM Ascend runtime needed for the verified serving path.
+You can use our official docker image to run Hy3-preview directly. For A3 series, select the image variant with the `-a3` suffix. The official image already includes the vLLM and vLLM Ascend runtime needed for the verified serving path.
 
 ```bash
   export IMAGE=quay.io/ascend/vllm-ascend:{{ vllm_ascend_version }}-a3
@@ -152,8 +152,8 @@ Here are two accuracy evaluation methods.
 
 | dataset | version | metric | mode | vllm-api-general-chat | note |
 |----- | ----- | ----- | ----- | -----| ----- |
-| GSM8K | - | accuracy | gen | 93.07 | 1 Atlas A3 (64GB × 16) |
-| C-Eval | - | accuracy | gen | 87.64 | 1 Atlas A3 (64GB × 16) |
+| GSM8K | - | accuracy | gen | 93.07 | 1 node from the A3 series (64GB × 16) |
+| C-Eval | - | accuracy | gen | 87.64 | 1 node from the A3 series (64GB × 16) |
 
 ### Using Language Model Evaluation Harness
 
@@ -171,7 +171,7 @@ Refer to [vllm benchmark](https://docs.vllm.ai/en/latest/benchmarking/) for more
 
 ### Lightweight Online Benchmark
 
-The following numbers are from a real-weight smoke benchmark on one Atlas A3 16-NPU node, using TP16 + EP + MTP + ACLGraph. The benchmark used `vllm bench serve`, random prompts, output length 128, `--max-concurrency 1`, `--temperature 0`, and 4 requests per input length. These numbers are functional performance evidence, not tuned throughput limits.
+The following numbers are from a real-weight smoke benchmark on one 16-NPU node from the A3 series, using TP16 + EP + MTP + ACLGraph. The benchmark used `vllm bench serve`, random prompts, output length 128, `--max-concurrency 1`, `--temperature 0`, and 4 requests per input length. These numbers are functional performance evidence, not tuned throughput limits.
 
 ```bash
 vllm bench serve \

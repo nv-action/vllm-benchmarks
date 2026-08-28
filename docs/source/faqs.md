@@ -14,13 +14,11 @@
 
 ### 1. What devices are currently supported?
 
-Currently, **ONLY** Atlas A2 series (Ascend-cann-kernels-910b), Atlas A3 series (Atlas-A3-cann-kernels) and Atlas 300I (Ascend-cann-kernels-310p) series are supported:
+Currently, **ONLY** Ascend A2 series products (Ascend-cann-kernels-910b), Ascend A3 series products (Atlas-A3-cann-kernels), and Ascend 310P series products (Ascend-cann-kernels-310p) are supported:
 
-- Atlas A2 Training series (Atlas 800T A2, Atlas 900 A2 PoD, Atlas 200T A2 Box16, Atlas 300T A2)
-- Atlas 800I A2 Inference series (Atlas 800I A2)
-- Atlas A3 Training series (Atlas 800T A3, Atlas 900 A3 SuperPoD, Atlas 9000 A3 SuperPoD)
-- Atlas 800I A3 Inference series (Atlas 800I A3)
-- [Experimental] Atlas 300I Inference series (Atlas 300I Duo).
+- Ascend A2 series products (Atlas 800T A2, Atlas 900 A2 PoD, Atlas 200T A2 Box16, Atlas 300T A2, and Atlas 800I A2)
+- Ascend A3 series products (Atlas 800T A3, Atlas 900 A3 SuperPoD, Atlas 9000 A3 SuperPoD, and Atlas 800I A3)
+- [Experimental] Ascend 310P series products.
 - [Experimental] Currently for 310I Duo the stable version is vllm-ascend v0.10.0rc1.
 
 Below series are NOT supported yet:
@@ -268,13 +266,13 @@ When building from source (e.g. `pip install -e .`), the build may try to infer 
 You can use the defaults from `Dockerfile*` as a reference. For example:
 
 ```bash
-# Atlas A2
+# A2
 export SOC_VERSION="ascend910b1"
 
-# Atlas A3
+# A3
 export SOC_VERSION="ascend910_9391"
 
-# Atlas 300I
+# 310P
 export SOC_VERSION="ascend310p1"
 
 # Ascend 950 Products

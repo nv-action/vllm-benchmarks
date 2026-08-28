@@ -4,7 +4,7 @@
 
 Suffix Decoding is an optimization technique for speculative decoding based on pattern matching. It simultaneously retrieves repetitive sequences from both the prompt and the generated content, using frequency statistics to predict the most likely token continuations. Unlike traditional speculative decoding methods, Suffix Decoding runs entirely on the CPU, eliminating the need for additional GPU resources or draft models, which results in superior acceleration for repetitive tasks such as AI agents and code generation.
 
-This document provides step-by-step guidance on how to deploy and benchmark the Suffix Decoding speculative inference technology supported by `vllm-ascend` on Atlas A2 hardware. The setup utilizes a single Atlas 800T A2 node with a 4-card deployment of the Qwen3-32B model instance. Benchmarking is conducted using authentic open-source datasets covering the following categories:
+This document provides step-by-step guidance on how to deploy and benchmark the Suffix Decoding speculative inference technology supported by `vllm-ascend` on A2 series. The setup utilizes a single Atlas 800T A2 node with a 4-card deployment of the Qwen3-32B model instance. Benchmarking is conducted using authentic open-source datasets covering the following categories:
 
 | **Dataset Category**           | **Dataset Name** |
 | ------------------------------ | ---------------- |
@@ -37,7 +37,7 @@ export IMAGE=quay.io/ascend/vllm-ascend:{{ vllm_ascend_version }}
 export NAME=vllm-ascend
 
 # Run the container using the defined variables
-# This test uses four Atlas A2 NPU cards to create the container.
+# This test uses four NPU cards on an A2 product to create the container.
 # Mount the hccn.conf file from the host node into the container.
 
 docker run --rm \

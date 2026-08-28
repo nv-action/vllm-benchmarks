@@ -270,7 +270,7 @@ Configure online calibration data length to match your `max-model-len`. Use `bat
 
 Refer to [Using AISBench for performance evaluation](../../developer_guide/evaluation/using_ais_bench.md#execute-performance-evaluation) for details.
 
-To evaluate the effectiveness of Dynamic Chunked Pipeline Parallel in long sequence LLM inference scenarios, we use **DeepSeek-V3.1-W8A8** and **Qwen3-235B**, we deploy a P (Prefill) instance on Ascend Atlas A3 inference products (64 GB, A3), the configuration and performance data are as follows.
+To evaluate the effectiveness of Dynamic Chunked Pipeline Parallel in long sequence LLM inference scenarios, we use **DeepSeek-V3.1-W8A8** and **Qwen3-235B**. We deploy a P (prefill) instance on A3 series with 64 GB of memory. The configuration and performance data are as follows.
 
 **Fixed-length requests, concurrency=1**:
 

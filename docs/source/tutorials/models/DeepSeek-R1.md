@@ -35,7 +35,7 @@ You can use our official docker image to run `DeepSeek-R1-W8A8` directly.
 
 Select an image based on your machine type and start the docker image on your node, refer to [using docker](../../getting_started/installation.md#installation-prebuilt-image).
 
-=== "A3 series"
+=== "A3"
 
     Start the docker image on each node.
 
@@ -75,7 +75,7 @@ Select an image based on your machine type and start the docker image on your no
         -it $IMAGE bash
     ```
 
-=== "A2 series"
+=== "A2"
 
     Start the docker image on each node.
 

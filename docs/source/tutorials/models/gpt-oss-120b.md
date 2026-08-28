@@ -33,12 +33,12 @@ docker pull quay.io/ascend/vllm-ascend:{{ vllm_ascend_version }}
 
 ```bash
 
-# Update --device according to your device (Atlas A2: /dev/davinci[0-7] Atlas A3:/dev/davinci[0-15]).
+# Update --device according to your device (A2 series: /dev/davinci[0-7]; A3 series: /dev/davinci[0-15]).
 # Update the vllm-ascend image according to your environment.
 # Note you should download the weight to /root/.cache in advance.
-# For Atlas A2 machines:
+# For A2 series:
 # export IMAGE=quay.io/ascend/vllm-ascend:{{ vllm_ascend_version }}
-# For Atlas A3 machines:
+# For A3 series:
 export IMAGE=quay.io/ascend/vllm-ascend:{{ vllm_ascend_version }}-a3
 docker run --rm \
     --name vllm-ascend-env \

@@ -10,7 +10,7 @@ This tutorial uses the vLLM-Ascend `v0.11.0rc3-a3` version for demonstration, sh
 
 !!! note
 
-    For **Atlas inference products**, Qwen3-VL Dense requires vLLM-Ascend `v0.18.0` or later(for Ascend950DT, the model is supported from `vllm-ascend:v0.23.0rc1`). Do not use the demonstration version above on this hardware.
+    For **Atlas inference products**, Qwen3-VL Dense requires vLLM-Ascend `v0.18.0` or later (for 950DT series products, the model is supported from `vllm-ascend:v0.23.0rc1`). Do not use the demonstration version above on this hardware.
 
 ## 2 Supported Features
 
@@ -26,7 +26,7 @@ Requires 1 card on Atlas 800I A2 (64GB × 8), Atlas 800 A3 (64GB × 16), or Atla
 
 - `Qwen3-VL-8B-Instruct`: [Download model weight](https://modelscope.cn/models/Qwen/Qwen3-VL-8B-Instruct)
 
-Requires 1 card on Ascend950DT series (96GB × 8) node.
+Requires 1 card on a 950DT series product (96GB × 8 NPUs).
 
 - `Qwen3-VL-8B-Instruct-w8a8`(Quantized version): [Download model weight](https://modelscope.cn/models/Eco-Tech/Qwen3-VL-8B-Instruct-w8a8-mxfp8)
 
@@ -34,7 +34,7 @@ Requires 2 cards on Atlas 800I A2 (64GB × 8), Atlas 800 A3 (64GB × 16), or Atl
 
 - `Qwen3-VL-32B-Instruct`: [Download model weight](https://www.modelscope.cn/models/Qwen/Qwen3-VL-32B-Instruct)
 
-Requires 1 card on Ascend950DT series (96GB × 8) node.
+Requires 1 card on a 950DT series product (96GB × 8 NPUs).
 
 - `Qwen3-VL-32B-Instruct-w8a8`(Quantized version): [Download model weight](https://modelscope.cn/models/Eco-Tech/Qwen3-VL-32B-Instruct-w8a8-mxfp8)
 
@@ -46,7 +46,7 @@ It is recommended to download the model weight to the shared directory of multip
 
 Select an image based on your machine type and start the docker image on your node, refer to [using docker](../../getting_started/installation.md#installation-prebuilt-image).
 
-=== "Ascend950DT series"
+=== "950DT"
 
     Start the docker image on your each node.
 
@@ -86,7 +86,7 @@ Select an image based on your machine type and start the docker image on your no
     -itd $IMAGE bash
     ```
 
-=== "A2 / A3 series"
+=== "A2 / A3"
 
     ```bash
     # Update the vllm-ascend image
@@ -205,7 +205,7 @@ For more details, please refer to the [Installation Guide](../../getting_started
 
 Run docker container to start the vLLM server on single-NPU:
 
-=== "Ascend950DT series"
+=== "950DT"
 
     ```bash
     export HCCL_OP_EXPANSION_MODE="AIV"
@@ -233,7 +233,7 @@ Run docker container to start the vLLM server on single-NPU:
       --mm-processor-cache-gb 0
     ```
 
-=== "A2 / A3 series"
+=== "A2 / A3"
 
     ```bash
     export HCCL_OP_EXPANSION_MODE="AIV"
@@ -347,7 +347,7 @@ The accuracy of some models is already within our CI monitoring scope, including
 
 - `Qwen3-VL-8B-Instruct`
 
-=== "A2 / A3 series"
+=== "A2 / A3"
 
     **Using Language Model Evaluation Harness**
 

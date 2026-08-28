@@ -242,7 +242,7 @@ for decoding and replay logic.
 ## Deterministic rollouts
 
 Batch invariance reduces output differences caused by changes in batch shape
-or request order. On Atlas A2 and A3, build vLLM-Ascend with
+or request order. On A2 series and A3 series, build vLLM-Ascend with
 `COMPILE_CUSTOM_KERNELS=1`, then enable batch invariance through the unified
 RL configuration:
 

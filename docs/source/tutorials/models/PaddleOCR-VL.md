@@ -30,7 +30,7 @@ You can use our official docker image to run `PaddleOCR-VL` directly.
 
 Select an image based on your machine type and start the docker image on your node, refer to [using docker](../../getting_started/installation.md#installation-prebuilt-image).
 
-=== "A2 series"
+=== "A2"
 
     ```bash
     export IMAGE=quay.io/ascend/vllm-ascend:{{ vllm_ascend_version }}
@@ -86,7 +86,7 @@ If you don't want to use the docker image as above, you can also build all from 
 
 ### 5.1 Single-Node Online Deployment
 
-PaddleOCR-VL supports single-node single-card deployment on the A2 series and Atlas 300I DUO platform. Single-node deployment completes both Prefill and Decode within the same node.
+PaddleOCR-VL supports single-node, single-card deployment on A2 series and Atlas 300I DUO. Single-node deployment completes both Prefill and Decode within the same node.
 
 Follow these steps to start the inference service:
 
@@ -96,7 +96,7 @@ Follow these steps to start the inference service:
 
 Startup Command:
 
-=== "A2 series"
+=== "A2"
 
     ```bash
     #!/bin/sh
@@ -177,9 +177,9 @@ In the above example, we demonstrated how to use vLLM to infer the PaddleOCR-VL-
 
     Use separate virtual environments for VLLM and PP-DocLayoutV2 to prevent dependency conflicts.
 
-=== "A2 series"
+=== "A2"
 
-    The A2 series device supports inference using the PaddlePaddle framework.
+    A2 series support inference using the PaddlePaddle framework.
 
     1. Pull the PaddlePaddle-compatible CANN image
 
@@ -227,7 +227,7 @@ In the above example, we demonstrated how to use vLLM to infer the PaddleOCR-VL-
 
 === "Atlas 300I DUO"
 
-    The Atlas 300I DUO supports only the OM model inference. For details about the process, see the guide provided in [ModelZoo](https://gitcode.com/Ascend/ModelZoo-PyTorch/tree/master/ACL_PyTorch/built-in/ocr/PP-DocLayoutV2).
+    Atlas 300I DUO supports only OM model inference. For details about the process, see the guide provided in [ModelZoo](https://gitcode.com/Ascend/ModelZoo-PyTorch/tree/master/ACL_PyTorch/built-in/ocr/PP-DocLayoutV2).
 
 #### 5.3.2 Using vLLM as the backend, combined with PP-DocLayoutV2 for offline inference
 

@@ -34,7 +34,7 @@ The allocator derives its plan from runtime host state:
 | --- | --- | --- |
 | Allowed CPUs | `/proc/self/status` `Cpus_allowed_list` | The only CPUs eligible for binding. Container cpusets are respected. |
 | Logical NPU map | `npu-smi info -m` | Maps card/chip IDs to global logical NPU IDs and gives `total_logic_npus`. On Ascend 950, `Chip Logic ID` is not reported, so `NPU ID` is used as the logical ID. |
-| Running NPUs | `npu-smi info` process table, filtered by `ASCEND_RT_VISIBLE_DEVICES` | Identifies the logical NPUs used by this worker process. A2/A3 process rows use `NPU Chip`; Ascend 950 process rows use `NPU ID`. |
+| Running NPUs | `npu-smi info` process table, filtered by `ASCEND_RT_VISIBLE_DEVICES` | Identifies the logical NPUs used by this worker process. A2 and A3 product rows use `NPU Chip`; Ascend 950 process rows use `NPU ID`. |
 | Topology affinity | `npu-smi info -t topo` | Provides NPU-to-CPU affinity for `topo_affinity` mode. |
 | CPU NUMA map | `lscpu -e=CPU,NODE` | Used to extend single-NUMA affinity pools to the next NUMA node. |
 | Thread topology | `lscpu` `Thread(s) per core` | Determines Ascend 950 cluster size: 8 CPUs for 1 thread per core, 16 CPUs for 2 threads per core. |
@@ -46,9 +46,9 @@ The binding strategy is selected by Ascend device type:
 
 | Device type | Strategy | Reason |
 | --- | --- | --- |
-| A3 | `global_slice` | A3 uses HCCS card-to-card interconnect. Each NPU is nearly equidistant from all NUMA nodes, so there is no strong NPU-to-NUMA affinity signal. Global logical NPU ID based slicing gives deterministic, non-overlapping CPU pools and CPU/NUMA isolation between workers. |
+| A3 | `global_slice` | A3 products use HCCS card-to-card interconnect. Each NPU is nearly equidistant from all NUMA nodes, so there is no strong NPU-to-NUMA affinity signal. Global logical NPU ID based slicing gives deterministic, non-overlapping CPU pools and CPU/NUMA isolation between workers. |
 | Ascend 950 | `topo_affinity` | Ascend 950 uses NPU-to-CPU affinity from `npu-smi info -t topo` to choose an affinity NUMA node, then assigns one CPU cluster from that NUMA node to each worker. It also reports process rows by `NPU ID` instead of `NPU Chip`, skips IRQ binding, and binds host UVB polling threads. |
-| A2 and Atlas 300 inference products | `topo_affinity` | A2 and Atlas 300 inference products provide NPU-to-CPU affinity information through `npu-smi info -t topo`, so they use this topology signal when available. |
+| A2 and Atlas 300I DUO | `topo_affinity` | A2 products and Atlas 300I DUO provide NPU-to-CPU affinity information through `npu-smi info -t topo`, so they use this topology signal when available. |
 
 If `topo_affinity` is selected but topo affinity is unavailable, the allocator falls back to `global_slice`.
 
@@ -57,7 +57,7 @@ If `topo_affinity` is selected but topo affinity is unavailable, the allocator f
 #### global_slice
 
 `global_slice` is designed for devices without a useful NPU-to-CPU affinity
-signal, including A3. Because A3's **HCCS interconnect makes the distance
+signal, including A3 series. Because the **HCCS interconnect on A3 series makes the distance
 from each NPU to each NUMA node nearly the same**, topology affinity is not a
 useful placement signal. The allocator therefore partitions the sorted
 `allowed_cpus` list by global logical NPU ID.
@@ -88,8 +88,8 @@ does not share the same CPU or NUMA slice with another worker.
 
 #### topo_affinity
 
-`topo_affinity` is designed for A2, Atlas 300 inference products, Ascend 950,
-and other non-A3 device types. A2 and Atlas 300 inference products expose
+`topo_affinity` is designed for A2 series, Atlas 300I DUO, Ascend 950,
+and other products outside the A3 series. A2 series and Atlas 300I DUO expose
 **meaningful NPU-to-CPU affinity information**, so the allocator starts from NPU
 topology affinity when it is available and then avoids overlap for shared
 affinity groups.
@@ -166,7 +166,7 @@ setup.**
 
 ## Examples
 
-### A3 inference server with 640 CPUs and 16 NPUs
+### A3 product with 640 CPUs and 16 NPUs
 
 Inputs:
 
@@ -209,9 +209,9 @@ Concrete examples:
 This layout remains deterministic even when different worker processes share
 the same cpuset, because slicing is based on the global logical NPU ID.
 
-### A2 topo_affinity with hidden same-affinity NPUs
+### A2 product using topo_affinity with hidden same-affinity NPUs
 
-Inputs from an A2 topology:
+Inputs from an A2 product topology:
 
 - NPU0 affinity: 144-167
 - NPU2 affinity: 144-167

@@ -34,7 +34,7 @@ You can use our official docker image to run `DeepSeek-OCR-2` directly.
 
 Select an image based on your machine type and start the docker image on your node, refer to [using docker](../../getting_started/installation.md#installation-prebuilt-image).
 
-=== "A2 series"
+=== "A2"
 
     ```bash
 
@@ -68,7 +68,7 @@ Select an image based on your machine type and start the docker image on your no
     -it $IMAGE bash
     ```
 
-=== "A3 series"
+=== "A3"
 
     ```bash
 

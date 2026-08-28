@@ -46,7 +46,7 @@ You can use the official all-in-one Docker image. For the available image tags a
   export NAME=minimax-m3-dev
 
   # Start the container with the variables defined above.
-  # Update --device for your hardware (Atlas A3: /dev/davinci[0-15]; Atlas A2: /dev/davinci[0-7]).
+  # Update --device for your hardware (A3 series: /dev/davinci[0-15]; A2 series: /dev/davinci[0-7]).
   # If you use a Docker bridge network, open the ports required for multi-node communication in advance.
   docker run --rm \
   --name $NAME \

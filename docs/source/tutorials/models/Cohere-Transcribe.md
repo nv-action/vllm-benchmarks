@@ -9,13 +9,13 @@ This document covers two model versions verified on Ascend NPUs:
 | Version | Description | Verified by |
 | --- | --- | --- |
 | `CohereLabs/cohere-transcribe-03-2026` | Base multilingual model (14 languages) | Colleague verification, results recorded in the internal evaluation report |
-| `CohereLabs/cohere-transcribe-arabic-07-2026` | Arabic fine-tuned model | Internal evaluation report (WER / RTFx measured on Atlas A2 products) |
+| `CohereLabs/cohere-transcribe-arabic-07-2026` | Arabic fine-tuned model | Internal evaluation report (WER / RTFx measured on A2 series) |
 
 This document describes the supported features, environment preparation, single-node deployment, functional verification, and evaluation workflow for Cohere Transcribe on Ascend NPUs.
 
 Cohere Transcribe is supported by upstream vLLM (via the `cohere_asr` model implementation). Use a vLLM-Ascend image that matches your vLLM version, and refer to the support matrix for the current release status.
 
-The current release is adapted for Atlas A2 inference products. Support for the Ascend 950DT series is planned for the next phase.
+The current release is adapted for A2 series. Support for 950DT series products is planned for the next phase.
 
 ## 2 Supported Features
 
@@ -27,7 +27,7 @@ Please refer to the [Feature Guide](../../user_guide/feature_guide/index.md) for
 
 ### 3.1 Model Weight
 
-The BF16 model can be deployed with one Atlas A2 64 GB NPU. Download the model weights from any of the following sources:
+The BF16 model can be deployed with one 64 GB NPU from the A2 series. Download the model weights from any of the following sources:
 
 - GitCode mirror (03-2026): [weixin_62994174/CohereLabs_cohere-transcribe-03-2026](https://ai.gitcode.com/weixin_62994174/CohereLabs_cohere-transcribe-03-2026)
 - Hugging Face: [CohereLabs/cohere-transcribe-03-2026](https://huggingface.co/CohereLabs/cohere-transcribe-03-2026) or [CohereLabs/cohere-transcribe-arabic-07-2026](https://huggingface.co/CohereLabs/cohere-transcribe-arabic-07-2026)
@@ -43,7 +43,7 @@ Download the weights to a directory that is accessible from the deployment envir
 
 Use the vLLM-Ascend Docker image that corresponds to your hardware. Replace the model-weight mount with the path used in your environment.
 
-=== "Atlas A2 inference products"
+=== "A2"
 
     ```bash
     export IMAGE=quay.io/ascend/vllm-ascend:{{ vllm_ascend_version }}
@@ -96,11 +96,11 @@ pip show vllm-ascend
 
 ### 5.1 Single-Node Online Deployment
 
-Single-node deployment runs both audio prefill and decoding on one NPU, making it suitable for development, testing, and small-scale ASR services. Both model versions can be deployed on one Atlas A2 NPU with the same parameters; only the model weight path changes.
+Single-node deployment runs both audio prefill and decoding on one NPU, making it suitable for development, testing, and small-scale ASR services. Both model versions can be deployed on one NPU from the A2 series with the same parameters; only the model weight path changes.
 
-=== "Atlas A2 inference products"
+=== "A2"
 
-    The following examples are for Atlas A2 inference products.
+    The following examples are for A2 series.
 
     === "cohere-transcribe-03-2026"
 
@@ -143,7 +143,7 @@ Single-node deployment runs both audio prefill and decoding on one NPU, making i
         - `--trust-remote-code` is required because the model repository ships custom modeling code.
         - `--block-size 128` is required: the model must be served with a block size of at least 128.
         - `--tensor-parallel-size 1` uses one NPU. Increase it only after confirming that the hardware and deployment topology support the chosen parallel configuration.
-        - `--dtype bfloat16` matches the BF16 deployment validated on Atlas A2 products.
+        - `--dtype bfloat16` matches the BF16 deployment validated on A2 series.
         - `HF_HUB_OFFLINE` and `TRANSFORMERS_OFFLINE` are recommended when the model weights are downloaded to a local directory in advance.
 
 When the service starts successfully, the log contains `Application startup complete`. If startup fails, see the [Public FAQs](../../faqs.md).
@@ -192,7 +192,7 @@ Verified by a colleague on the same benchmark as 07-2026 (see Section 7.2). Resu
 
 ### 7.2 cohere-transcribe-arabic-07-2026 (Arabic fine-tuned model)
 
-Measured in the internal evaluation report on Atlas A2 products.
+Measured in the internal evaluation report on A2 series.
 
 On the Common Voice 18 (CV18) Arabic test set (10,471 samples), the model achieves a WER of 5.69%, close to the official result (5.82%). The WER distribution is as follows:
 

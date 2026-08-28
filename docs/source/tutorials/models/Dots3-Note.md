@@ -38,8 +38,8 @@ The validation environment of this document is as follows:
 
 | Item | Specification |
 |---|---|
-| Server | Single-node Atlas A3 inference series (Atlas 800I A3, board model `IT22HMDA_4_S`) |
-| NPU | Atlas A3 products (8 cards, each dual-die (2 chips)), 16 chips in total, corresponding to `/dev/davinci[0-15]` |
+| Server | Single node from the A3 series (Atlas 800I A3, board model `IT22HMDA_4_S`) |
+| NPU | A3 series (8 cards, each dual-die (2 chips)), 16 chips in total, corresponding to `/dev/davinci[0-15]` |
 | Memory | 64 GB device memory per chip |
 | Chip software version | SOC_VERSION = `ascend910_9391` (A3 series) |
 | Host form | Single-node deployment (not multi-node) |
@@ -107,10 +107,10 @@ The runtime uses the official vLLM-Ascend all-in-one image, which already contai
 
 | Image | Hardware | OS |
 |---|---|---|
-| `quay.io/ascend/vllm-ascend:dots3-note-prev` | Atlas A2 | Ubuntu |
-| `quay.io/ascend/vllm-ascend:dots3-note-prev-openeuler` | Atlas A2 | openEuler |
-| `quay.io/ascend/vllm-ascend:dots3-note-prev-a3` | Atlas A3 | Ubuntu |
-| `quay.io/ascend/vllm-ascend:dots3-note-prev-a3-openeuler` | Atlas A3 | openEuler |
+| `quay.io/ascend/vllm-ascend:dots3-note-prev` | A2 | Ubuntu |
+| `quay.io/ascend/vllm-ascend:dots3-note-prev-openeuler` | A2 | openEuler |
+| `quay.io/ascend/vllm-ascend:dots3-note-prev-a3` | A3 | Ubuntu |
+| `quay.io/ascend/vllm-ascend:dots3-note-prev-a3-openeuler` | A3 | openEuler |
 
 **Use the official prebuilt image directly (recommended)**
 
@@ -128,7 +128,7 @@ export HOST_MODEL_PATH=/path/to/dots3_note
 test -d "$HOST_MODEL_PATH"
 ```
 
-Atlas A3 requires mapping all 16 `davinci` devices and mounting the drivers. The command below has expanded all devices and can be copied directly; if the host directories differ, adjust the mount source paths first:
+A3 requires mapping all 16 `davinci` devices and mounting the drivers. The command below has expanded all devices and can be copied directly; if the host directories differ, adjust the mount source paths first:
 
 ```bash
 docker run -it --rm \

@@ -77,20 +77,20 @@ If multi-node deployment is required, please follow the [Verify Multi-node Commu
 - Provide specific installation steps and commands (parameters should be explained with meaning, value range, units, etc.).
 - **Version Number Writing Specification:** Prefer using placeholders (values are centrally configured). If a fixed value is used and it differs from the documented validation version, a comment MUST be added stating: "Please replace with your actual version."
 - Provide verification commands and expected status: guide users to check the installation result by executing commands (e.g., docker ps), specifying success criteria such as status codes or output characteristics.
-- When multiple hardware series (e.g., A3/A2 series) are involved, the tab markup syntax MUST be used to present them in separate tabs, with tabs ordered by newer hardware series first.
+- When multiple hardware series (e.g., A3 series / A2 series) are involved, the tab markup syntax MUST be used to present them in separate tabs, with tabs ordered by newer hardware series first.
 
 ### 4.1 Docker Image Installation
 
 **Example: (For MkDocs + Material tab syntax (`=== "label"`) and Sphinx + MyST-Parser tab syntax (`::::{tab-item}`), please refer to the [Syntax Supplement](template-supplement.md#3-tabs).)**
 
-=== "A3 series"
+=== "A3"
 
     ```bash
     export IMAGE=quay.io/ascend/vllm-ascend:{{ vllm_ascend_version }}
     docker run ...
     ```
 
-=== "A2 series"
+=== "A2"
 
     ```bash
     export IMAGE=quay.io/ascend/vllm-ascend:{{ vllm_ascend_version }}
@@ -111,7 +111,7 @@ If multi-node deployment is required, please follow the [Verify Multi-node Commu
 - Provide startup command templates and key parameter descriptions.
 - Provide service verification methods (e.g., curl commands) and expected results, specifying success indicators (e.g., 200 OK).
 - Below the startup command, provide guidance on common issues; if already described in the public FAQ, a direct link may be provided.
-- When multiple hardware series (e.g., A3/A2 series) are involved, the tab markup syntax MUST be used to present them in separate tabs, with tabs ordered by newer hardware series first;For detailed syntax differences between MkDocs and Sphinx frameworks, see the [Syntax Supplement](template-supplement.md#3-tabs).
+- When multiple hardware series (e.g., A3 series / A2 series) are involved, the tab markup syntax MUST be used to present them in separate tabs, with tabs ordered by newer hardware series first;For detailed syntax differences between MkDocs and Sphinx frameworks, see the [Syntax Supplement](template-supplement.md#3-tabs).
 
 **Example:**
 
@@ -140,7 +140,7 @@ Expected Result: Omitted (fill in according to actual output).
 - Describe the principles of PD separation architecture and applicable scenarios.
 - Provide startup procedures, key configurations, and **deployment verification instructions**, and indicate performance metrics.
 - Below the startup command, provide guidance on common issues; if already described in the public FAQ, a direct link may be provided.
-- When multiple hardware series (e.g., A3/A2 series) are involved, the tab markup syntax MUST be used to present them in separate tabs, with tabs ordered by newer hardware series first.
+- When multiple hardware series (e.g., A3 series / A2 series) are involved, the tab markup syntax MUST be used to present them in separate tabs, with tabs ordered by newer hardware series first.
 
 **Example:** Omitted
 

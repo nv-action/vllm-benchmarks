@@ -106,7 +106,7 @@ docker run --rm \
 
 **Parameter Descriptions:**
 
-- `IMAGE`: specifies the `vllm-ascend` image. The `-a3` suffix selects the Atlas A3 image.
+- `IMAGE`: specifies the `vllm-ascend` image. The `-a3` suffix selects the image for A3 series.
 - `NAME`: specifies the container name.
 - `--net=host`: uses host networking, so the vLLM service port is exposed on the host directly.
 - `--shm-size=1g`: configures container shared memory.

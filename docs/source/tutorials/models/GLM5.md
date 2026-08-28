@@ -39,7 +39,7 @@ If multi-node deployment is required, please follow the [Verify Multi-node Commu
 
 You can use our official docker image to run GLM-5/5.1 directly.
 
-=== "A3 series"
+=== "A3"
 
     Start the docker image on each node.
 
@@ -83,7 +83,7 @@ You can use our official docker image to run GLM-5/5.1 directly.
     -it $IMAGE bash
     ```
 
-=== "A2 series"
+=== "A2"
 
     Start the docker image on each node.
 
@@ -131,7 +131,7 @@ If you want to deploy multi-node environment, you need to set up environment on 
 
 ### 5.1 Single-Node Online Deployment
 
-=== "A3 series"
+=== "A3"
 
     - Quantized model `glm-5-w4a8` and `glm-5.1-w4a8` can be deployed on 1 Atlas 800 A3 (64GB × 16) .
 
@@ -203,7 +203,7 @@ If you want to deploy multi-node environment, you need to set up environment on 
     --speculative-config '{"num_speculative_tokens": 3, "method": "deepseek_mtp", "enforce_eager": true}'
     ```
 
-=== "A2 series"
+=== "A2"
 
     - Quantized model `glm-5-w4a8` can be deployed on 1 Atlas 800 A2 (64GB × 8) .
 
@@ -271,7 +271,7 @@ If you want to deploy multi-node environment, you need to verify multi-node comm
 
 Common Issues Tip: If you encounter issues, Refer to [Public FAQs](../../faqs.md).
 
-=== "A3 series"
+=== "A3"
 
     - `glm-5-bf16` and `glm-5.1-bf16`: require at least 2 Atlas 800 A3 (64GB × 16).
 
@@ -361,7 +361,7 @@ Common Issues Tip: If you encounter issues, Refer to [Public FAQs](../../faqs.md
     --speculative-config '{"num_speculative_tokens": 3, "method": "deepseek_mtp", "enforce_eager": true}'
     ```
 
-=== "A2 series"
+=== "A2"
 
     Run the following scripts on two nodes respectively.
 

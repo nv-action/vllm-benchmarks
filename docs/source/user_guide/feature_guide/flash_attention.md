@@ -44,7 +44,7 @@ The `flash_attn_with_kvcache` interface on NPU is semantically consistent with t
 
 ## Hardware Requirements
 
-FA3 currently requires Ascend Atlas A2 and A3 inference NPUs.
+FA3 currently requires NPUs from A2 series or A3 series.
 We will support other NPUs in the future.
 
 ## Software Requirements

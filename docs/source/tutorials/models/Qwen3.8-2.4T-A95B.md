@@ -10,7 +10,7 @@ long-horizon agent tasks.
 This document describes the main validation steps for the model, including
 supported features, prerequisites, installation, multi-node deployment,
 functional verification, accuracy and performance evaluation, performance
-tuning, and FAQs. The validated configurations cover Atlas A3 and Atlas A2
+tuning, and FAQs. The validated configurations cover A3 series and A2 series
 deployments.
 
 This document is validated and written based on **vLLM-Ascend 0.23.0**. The
@@ -61,10 +61,9 @@ communication environment according to
 
 ### 4.1 Docker Image Installation
 
-Select an image based on your machine type and start the docker image on your
-node. Refer to [using docker](../../installation.md#set-up-using-docker).
+Select the A3 image and start the docker image on each node. Refer to [using docker](../../getting_started/installation.md#installation-prebuilt-image).
 
-=== "A3 series"
+=== "A3"
 
     Start the docker image on each node.
 
@@ -111,7 +110,7 @@ node. Refer to [using docker](../../installation.md#set-up-using-docker).
     python -c "import vllm, vllm_ascend; print('vllm and vllm_ascend are ready')"
     ```
 
-=== "A2 series"
+=== "A2"
 
     Start the docker image on each node.
 
@@ -181,7 +180,7 @@ Before starting the service:
   0.
 - Assign every worker a unique `DP_START_RANK`.
 
-=== "A3 series"
+=== "A3"
 
     === "Node 0"
 
@@ -322,7 +321,7 @@ Before starting the service:
     already running, `--data-parallel-address` resolves to Node 0, all nodes
     use the same RPC port, and every worker uses a unique DP start rank.
 
-=== "A2 series"
+=== "A2"
 
     The validated mixed deployment uses eight Atlas 800 A2 (64GB × 8) nodes
     with the `Qwen3.8-2.4T-A95B-w4a8` checkpoint. Data parallelism spans the

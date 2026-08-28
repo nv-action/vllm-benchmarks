@@ -6,9 +6,9 @@ This is an optimization based on FX graphs, which can be considered an accelerat
 
 You can get its code [torchair source code repository](https://gitcode.com/Ascend/torchair)
 
-!!! note "Atlas 300I DUO"
+!!! note "310P"
 
-    Atlas 300I DUO and Atlas 200I Pro do not support `enable_npugraph_ex`. Set --additional-config '{"ascend_compilation_config": {"enable_npugraph_ex":false}}'.
+    310P series products do not support `enable_npugraph_ex`. Set --additional-config '{"ascend_compilation_config": {"enable_npugraph_ex":false}}'.
 
 ## Default FX Graph Optimization
 

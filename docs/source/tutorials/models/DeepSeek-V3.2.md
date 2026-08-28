@@ -31,7 +31,7 @@ If you want to deploy multi-node environment, you need to verify multi-node comm
 
 You can use our official docker image to run `DeepSeek-V3.2` directly.
 
-=== "A3 series"
+=== "A3"
 
     Start the docker image on each node.
 
@@ -72,7 +72,7 @@ You can use our official docker image to run `DeepSeek-V3.2` directly.
         -it $IMAGE bash
     ```
 
-=== "A2 series"
+=== "A2"
 
     Start the docker image on each node.
 
@@ -160,7 +160,7 @@ vllm serve /root/.cache/modelscope/hub/models/vllm-ascend/DeepSeek-V3.2-W8A8 \
 
 Run the following scripts on two nodes respectively.
 
-=== "A3 series"
+=== "A3"
 
     **Node0**
 
@@ -256,7 +256,7 @@ Run the following scripts on two nodes respectively.
     --speculative-config '{"num_speculative_tokens": 3, "method": "deepseek_mtp"}'
     ```
 
-=== "A2 series"
+=== "A2"
 
     **Node0**
 

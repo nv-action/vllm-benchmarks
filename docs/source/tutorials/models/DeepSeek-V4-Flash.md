@@ -41,7 +41,7 @@ Select an image based on your machine type and start the docker image on your no
 
 **Attention**: DSpark is supported on both A2 and A3 in vLLM Ascend `v0.25.0` and later. Use the image `quay.io/ascend/vllm-ascend:DeepSeekV4-flash-0731` for A2 or the image `quay.io/ascend/vllm-ascend:DeepSeekV4-flash-0731-a3` for A3.
 
-=== "A3 series"
+=== "A3"
 
     Start the docker image on each node.
 
@@ -83,7 +83,7 @@ Select an image based on your machine type and start the docker image on your no
         -it $IMAGE bash
     ```
 
-=== "A2 series"
+=== "A2"
 
     Start the docker image on each node.
 
@@ -143,7 +143,7 @@ If you want to deploy a multi-node environment, you need to set up the environme
 
 Single-node deployment completes both Prefill and Decode within the same node. The quantized model `DeepSeek-V4-Flash-w8a8-mtp` can be deployed on 1 Atlas 800 A3 (128GB × 8) or 1 Atlas 800 A2 (64GB × 8).
 
-=== "A2 series"
+=== "A2"
 
     Run the following script to execute online inference.
 
@@ -186,7 +186,7 @@ Single-node deployment completes both Prefill and Decode within the same node. T
         "multistream_overlap_shared_expert": true}'
     ```
 
-=== "A2 series with dspark"
+=== "A2 with DSpark"
 
     Run the following script to execute online inference.
 
@@ -221,7 +221,7 @@ Single-node deployment completes both Prefill and Decode within the same node. T
     ```
     tps more than 50+ ,its reach  2X speed of dsv4f with mtp
 
-=== "A3 series"
+=== "A3"
 
     Run the following script to execute online inference.
 
@@ -264,7 +264,7 @@ Single-node deployment completes both Prefill and Decode within the same node. T
         "multistream_overlap_shared_expert": true}'
     ```
 
-=== "A3 series with DSpark"
+=== "A3 with DSpark"
 
     Run the following script to execute online inference.
 
@@ -360,7 +360,7 @@ PD (Prefill-Decode) separation addresses these issues by running Prefill and Dec
 
 The following sections describe PD separation deployment on both Atlas 800 A3 (128GB × 8) and Atlas 800 A2 (64GB × 8) multi-node environments.
 
-#### 5.2.1 A3 Series PD Separation Deployment
+#### 5.2.1 Ascend A3 Series Products PD Separation Deployment
 
 This section shows the deployment guide of DeepSeek-V4-Flash on Atlas 800 A3 (128GB × 8) multi-node environment with 1P1D for better performance.
 
@@ -482,7 +482,7 @@ Before you start, please:
 
 2. Prepare the script `run_dp_template.sh` on each node.
 
-=== "A3 series"
+=== "A3"
 
     1. Prefill node
 
@@ -630,7 +630,7 @@ Before you start, please:
             }'
         ```
 
-=== "A3 series with dspark"
+=== "A3 with DSpark"
 
     1. Prefill node
 
@@ -799,7 +799,7 @@ Before you start, please:
 
     Refer to [Prefill-Decode Disaggregation (Deepseek)](../features/pd_disaggregation_mooncake_multi_node.md) to deploy the P-D disaggregation proxy.
 
-#### 5.2.2 A2 Series PD Separation Deployment
+#### 5.2.2 Ascend A2 Series Products PD Separation Deployment
 
 This section shows the deployment guide of DeepSeek-V4-Flash on Atlas 800 A2 (64GB × 8) multi-node environment with 4\*1P 1\*4D for better performance.
 

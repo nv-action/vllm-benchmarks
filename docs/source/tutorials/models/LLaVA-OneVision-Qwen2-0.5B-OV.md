@@ -18,7 +18,7 @@ Refer to [Feature Guide](../../user_guide/feature_guide/index.md) to get the fea
 
 - `llava-hf/llava-onevision-qwen2-0.5b-ov-hf`: [Download model weight](https://huggingface.co/llava-hf/llava-onevision-qwen2-0.5b-ov-hf)
 
-The verified single-card deployment uses one Atlas A2 NPU. It is recommended to cache model weights under `/root/.cache` in advance to reduce startup time.
+The verified single-card deployment uses one NPU from the A2 series. It is recommended to cache model weights under `/root/.cache` in advance to reduce startup time.
 
 ### Installation
 
@@ -51,7 +51,7 @@ docker run --rm \
 
 #### Single NPU
 
-Run the following script to start the vLLM service on a single Atlas A2 NPU:
+Run the following script to start the vLLM service on a single NPU from the A2 series:
 
 ```bash
 export MODEL_PATH="llava-hf/llava-onevision-qwen2-0.5b-ov-hf"

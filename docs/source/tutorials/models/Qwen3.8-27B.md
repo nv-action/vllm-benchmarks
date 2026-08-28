@@ -22,9 +22,9 @@ Refer to [Feature Guide](../../user_guide/feature_guide/index.md) to get feature
 
 The following model weights are available:
 
-- `Qwen3.8-27B` (BF16 version): requires 1 Ascend950DT series (96GB × 8) node or 1 Ascend950PR series (128GB × 8) node or 1 Atlas 800 A3 (64GB × 16) node or 1 Atlas 800 A2 (64GB × 8) node. [Download model weight](https://www.modelscope.cn/models/Qwen/Qwen3.8-27B)
+- `Qwen3.8-27B` (BF16 version): requires one 950DT series product (96GB × 8 NPUs), 1 Ascend950PR series (128GB × 8) node, 1 Atlas 800 A3 (64GB × 16) node, or 1 Atlas 800 A2 (64GB × 8) node. [Download model weight](https://www.modelscope.cn/models/Qwen/Qwen3.8-27B)
 - `Qwen3.8-27B-w8a8` (Quantized version): requires 1 Ascend950PR series (128GB × 8) node or 1 Atlas 800 A3 (64GB × 16) node or 1 Atlas 800 A2 (64GB × 8) node. [Download model weight](https://www.modelscope.cn/models/Eco-Tech/Qwen3.8-27B-w8a8)
-- `Qwen3.8-27B-w8a8-mxfp8` (Quantized version): requires 1 Ascend950DT series (96GB × 8) or 1 Ascend950PR series (128GB × 8) node. [Download model weight](https://www.modelscope.cn/models/Eco-Tech/Qwen3.8-27B-w8a8-mxfp8)
+- `Qwen3.8-27B-w8a8-mxfp8` (Quantized version): requires one 950DT series product (96GB × 8 NPUs) or 1 Ascend950PR series (128GB × 8) node. [Download model weight](https://www.modelscope.cn/models/Eco-Tech/Qwen3.8-27B-w8a8-mxfp8)
 
 It is recommended to download the model weight to the shared directory of multiple nodes, such as `/root/.cache/`.
 
@@ -38,7 +38,7 @@ If you want to deploy the model in a multi-node environment, verify the communic
 
 Select an image based on your machine type and start the docker image on your node, refer to [using docker](../../getting_started/installation.md#installation-prebuilt-image).
 
-=== "Ascend950DT/PR series"
+=== "950DT / Ascend950PR series"
 
     Start the docker image on each node.
 
@@ -75,7 +75,7 @@ Select an image based on your machine type and start the docker image on your no
         -it $IMAGE bash
     ```
 
-=== "A3 series"
+=== "A3"
 
     Start the docker image on each node.
 
@@ -116,7 +116,7 @@ Select an image based on your machine type and start the docker image on your no
         -it $IMAGE bash
     ```
 
-=== "A2 series"
+=== "A2"
 
     Start the docker image on each node.
 
@@ -171,9 +171,9 @@ Before starting the service:
 
 - Replace the model path, parallel sizes and service port with values from the target environment.
 
-=== "Ascend950DT series"
+=== "950DT"
 
-    The following example is for Ascend950DT series.
+    The following example is for 950DT series products.
 
     ```bash
     #!/bin/sh

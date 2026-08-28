@@ -84,7 +84,7 @@ docker pull quay.io/ascend/vllm-ascend:{{ vllm_ascend_version }}
 
 Start the docker image on each node.
 
-=== "A3 series"
+=== "A3"
 
     ```bash
 
@@ -128,7 +128,7 @@ Start the docker image on each node.
         A3 has 8 NPUs with dual-die design (16 chips total: `/dev/davinci[0-15]`).
         If you are on a shared machine, map only the chips you need (e.g., `/dev/davinci[0-7]` for NPU 0-3).
 
-=== "A2 series"
+=== "A2"
 
     ```bash
 

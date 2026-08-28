@@ -99,7 +99,7 @@ vllm serve deepseek-ai/DeepSeek-R1 \
 
 ## Experimental Results
 
-To evaluate the effectiveness of fine-grained TP in large-scale service scenarios, we use the model **DeepSeek-R1-W8A8**, deploy PD separated decode instances in an environment of 32 cards Ascend Atlas A2 inference products*64G (A2), with parallel configuration as DP32+EP32, and fine-grained TP size of 8; the performance data is as follows.
+To evaluate the effectiveness of fine-grained TP in large-scale service scenarios, we use the **DeepSeek-R1-W8A8** model and deploy P/D-disaggregated decode instances on 32 NPUs from A2 series, each with 64 GB of memory. The parallel configuration is DP32+EP32, with a fine-grained TP size of 8. The performance data is as follows.
 
 | Module           | Memory Savings | TPOT Impact (batch=24)    |
 | ---------------- | -------------- | ------------------------- |

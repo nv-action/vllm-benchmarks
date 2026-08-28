@@ -33,7 +33,7 @@ If you want to deploy multi-node environment, you need to verify multi-node comm
 
 - You can use our official docker image to run GLM-5.2 directly.
 
-=== "A3 series"
+=== "A3"
 
     Start the docker image on each node.
 
@@ -77,7 +77,7 @@ If you want to deploy multi-node environment, you need to verify multi-node comm
     -it $IMAGE bash
     ```
 
-=== "A2 series"
+=== "A2"
 
     Start the docker image on each of your nodes.
 
@@ -868,7 +868,7 @@ Merge `"enable_mc2_hierarchy_comm": true` into the existing `--additional-config
 
 ##### 5.1.2.1 Multi-Node Co-Located Deployment
 
-- `GLM-5.2-w4a8c8`: can be deployed on 2 Atlas 800 A2 (64GB × 8). A single Atlas 800 A2 node (8 × 64GB) cannot fit the w4a8c8 weights, so the 2-node deployment is the minimum configuration for the A2 series.
+- `GLM-5.2-w4a8c8`: can be deployed on 2 Atlas 800 A2 (64GB × 8). A single Atlas 800 A2 node (8 × 64GB) cannot fit the w4a8c8 weights, so the 2-node deployment is the minimum configuration for A2 series.
 
 **node 0**
 
@@ -974,7 +974,7 @@ vllm serve /root/.cache/modelscope/hub/models/vllm-ascend/GLM-5.2-w4a8c8 \
 
 Key Parameter Descriptions (in addition to [Single-Node Deployment](#5111-single-node-deployment) and [Multi-Node Co-Located Deployment](#5112-multi-node-co-located-deployment)):
 
-The A2 series uses a different optimization stack than A3; DSA-CP is not used here.
+A2 series use a different optimization stack than A3 series; DSA-CP is not used here.
 
 **A2-specific environment variables:**
 
@@ -1269,7 +1269,7 @@ Recommended configurations for serving `GLM-5.2` with a 1M context window on Atl
 | Dual-node co-located | 2 Atlas 800 A3 (64GB x 16) | `DP4 PP1 TP8 PCP1 DCP8` | `1024000` |
 | 1P1D PD disaggregation | 1 prefiller with 2 A3 nodes + 1 decoder with 2 A3 nodes | Prefill `DP4 PP1 TP8 PCP1 DCP8`, Decode `DP4 PP1 TP8 PCP1 DCP8` | `1024000` |
 
-The 1M context scenarios are validated on Atlas 800 A3 only; the A2 series is not validated for 1M context.
+The 1M context scenarios are validated on Atlas 800 A3 only; A2 series are not validated for 1M context.
 
 !!! warning
     DCP and Sparse Flash Attention C8 (`enable_sparse_sfa_c8`, also referred to as `sfa_c8`) are experimental features in v0.23.0. Enabling them together has known issues in this release, including performance degradation, and is not recommended. The following 1M deployment examples enable DCP and leave `enable_sparse_sfa_c8` disabled.

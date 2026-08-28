@@ -20,7 +20,7 @@ Refer to [Feature Guide](../../user_guide/feature_guide/index.md) to get the fea
 
 - `Qwen3-VL-235B-A22B-Instruct` (BF16 version): requires 1 Atlas 800 A3 (64G x 16) node or 2 Atlas 800 A2 (64G x 8) nodes. [Model Weight](https://www.modelscope.cn/models/Qwen/Qwen3-VL-235B-A22B-Instruct/).
 - `Qwen3-VL-235B-A22B-Instruct-w8a8-QuaRot` (quantized version used by single-node validation): requires 1 Atlas 800 A3 (64G x 16) node. [Model Weight](https://www.modelscope.cn/models/Eco-Tech/Qwen3-VL-235B-A22B-Instruct-w8a8-QuaRot).
-- `Qwen3-VL-235B-A22B-Instruct-w8a8-mxfp8` (quantized version): requires 1 Ascend 950DT (96G x 8) node. [Model Weight](https://modelscope.cn/models/Eco-Tech/Qwen3-VL-235B-A22B-Instruct-w8a8-mxfp8)
+- `Qwen3-VL-235B-A22B-Instruct-w8a8-mxfp8` (quantized version): requires one 950DT series product (96G x 8 NPUs). [Model Weight](https://modelscope.cn/models/Eco-Tech/Qwen3-VL-235B-A22B-Instruct-w8a8-mxfp8)
 
 It is recommended to download the model weight to a shared directory across multiple nodes.
 
@@ -34,7 +34,7 @@ If you want to deploy the model in a multi-node environment, verify the communic
 
 Select an image based on your machine type and start the docker image on your node, refer to [using docker](../../getting_started/installation.md#installation-prebuilt-image).
 
-=== "Ascend 950DT series"
+=== "950DT"
 
     Start the docker image on your each node.
 
@@ -71,7 +71,7 @@ Select an image based on your machine type and start the docker image on your no
       -itd $IMAGE bash
     ```
 
-=== "A3 series"
+=== "A3"
 
     Start the docker image on each node.
 
@@ -113,7 +113,7 @@ Select an image based on your machine type and start the docker image on your no
         -it $IMAGE bash
     ```
 
-=== "A2 series"
+=== "A2"
 
     Start the docker image on each node.
 
@@ -201,9 +201,9 @@ For more details, please refer to the [Installation Guide](../../getting_started
 
 Single-node deployment runs both Prefill and Decode on the same node. The W8A8 version needs `--quantization ascend`.
 
-=== "Ascend 950DT series"
+=== "950DT"
 
-    Run the following script to execute online inference on 1 Ascend 950DT (96G x 8). The quantized version (`Qwen3-VL-235B-A22B-Instruct-w8a8-mxfp8`) can be deployed on a single Ascend 950DT node.
+    Run the following script to execute online inference on one 950DT series product (96G x 8 NPUs). The quantized version (`Qwen3-VL-235B-A22B-Instruct-w8a8-mxfp8`) can be deployed on a single 950DT series product.
 
     ```shell
     #!/bin/sh
@@ -242,7 +242,7 @@ Single-node deployment runs both Prefill and Decode on the same node. The W8A8 v
       --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}'
     ```
 
-=== "A3 series"
+=== "A3"
 
     Run the following script to start online serving on 1 Atlas 800 A3 (64G x 16) node. The W8A8 example is suitable for functional validation and image-only online serving.
 
@@ -281,7 +281,7 @@ Single-node deployment runs both Prefill and Decode on the same node. The W8A8 v
       --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY","cudagraph_capture_sizes":[1,2,4,8,16,24,32]}'
     ```
 
-=== "A2 series"
+=== "A2"
 
     For W8A8 deployment on A2, 2 Atlas 800 A2 (64G x 8) nodes are required. Refer to [Section 5.2](#52-multi-node-deployment-with-mp-recommended-for-bf16) for multi-node MP deployment.
 

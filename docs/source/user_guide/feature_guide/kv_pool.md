@@ -185,9 +185,9 @@ Using `MultiConnector` to simultaneously utilize both `MooncakeConnectorV1` and 
 
 # prefill / decode
 ROLE="prefill"
-# A2 (800I/800T A2) or A3 (800I/800T A3) or A5 (950PR/950DT)
+# A2 series (Atlas 800I/800T A2), A3 series (Atlas 800I/800T A3), Ascend 950PR, or 950DT series products
 HARDWARE_SERIES="A2"
-# Link type: ROCE or HCCS in A3 series.
+# Link type: ROCE or HCCS on A3 series.
 LINK_TYPE="ROCE"
 LOCAL_IP="xx.xx.xx.xx"
 NIC_NAME="xxxxxx"
@@ -353,9 +353,9 @@ bash pd_mix.sh
 Content of pd_mix.sh:
 
 ```shell
-# A2 (800I/800T A2) or A3 (800I/800T A3) or A5 (950PR/950DT)
+# A2 series (Atlas 800I/800T A2), A3 series (Atlas 800I/800T A3), Ascend 950PR, or 950DT series products
 HARDWARE_SERIES="A2"
-# Link type: ROCE or HCCS in A3 series.
+# Link type: ROCE or HCCS on A3 series.
 LINK_TYPE="ROCE"
 LOCAL_IP="xx.xx.xx.xx"
 NIC_NAME="xxxxxx"
@@ -576,7 +576,7 @@ python -c "from memcache_hybrid import MetaService; MetaService.main()"
 
 Using `MultiConnector` to simultaneously utilize both `MooncakeConnectorV1` and `AscendStoreConnector`. `MooncakeConnectorV1` performs kv_transfer, while `AscendStoreConnector` enables KV Cache Pool
 
-#### 800I A2/800T A2/800I A3/800T A3/950PR Ascend 950 Products/950DT Ascend 950 Products Series
+#### Atlas 800I/800T A2, Atlas 800I/800T A3, Ascend 950PR, and 950DT series products
 
 **run_prefill.sh/run_decode.sh:**
 
@@ -585,9 +585,9 @@ Using `MultiConnector` to simultaneously utilize both `MooncakeConnectorV1` and 
 
 # prefill / decode
 ROLE="prefill"
-# A2 (800I/800T A2) or A3 (800I/800T A3) or A5 (950PR/950DT)
+# A2 series (Atlas 800I/800T A2), A3 series (Atlas 800I/800T A3), Ascend 950PR, or 950DT series products
 HARDWARE_SERIES="A2"
-# Link type: ROCE or HCCS in A3 series.
+# Link type: ROCE or HCCS on A3 series.
 LINK_TYPE="ROCE"
 LOCAL_IP="xx.xx.xx.xx"
 NIC_NAME="xxxxxx"
@@ -708,16 +708,16 @@ Refer to [Run Inference](#step-233-run-inference) in the MooncakeStore deploymen
 
 #### Step 3.6.1: Run Mixed Deployment Script
 
-#### 800I A2/800T A2/800I A3/800T A3/950PR Ascend 950 Products/950DT Ascend 950 Products  Series
+#### Atlas 800I/800T A2, Atlas 800I/800T A3, Ascend 950PR, and 950DT series products
 
 **Run_pd_mix.sh:**
 
 ```shell
 #!/bin/bash
 
-# A2 (800I/800T A2) or A3 (800I/800T A3) or A5 (950PR/950DT)
+# A2 series (Atlas 800I/800T A2), A3 series (Atlas 800I/800T A3), Ascend 950PR, or 950DT series products
 HARDWARE_SERIES="A2"
-# Link type: ROCE or HCCS in A3 series.
+# Link type: ROCE or HCCS on A3 series.
 LINK_TYPE="ROCE"
 LOCAL_IP="xx.xx.xx.xx"
 NIC_NAME="xxxxxx"

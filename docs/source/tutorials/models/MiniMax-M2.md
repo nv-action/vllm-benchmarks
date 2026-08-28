@@ -40,7 +40,7 @@ If you need to deploy a multi-node environment, verify the multi-node communicat
 
 You can use the official all-in-one Docker image. For the available image tags and published versions, refer to [Using Docker](../../getting_started/installation.md#installation-prebuilt-image).
 
-=== "A3 series"
+=== "A3"
 
     **Docker Run:**
 
@@ -84,7 +84,7 @@ You can use the official all-in-one Docker image. For the available image tags a
         A3 has 8 NPUs with dual-die design (16 chips total: `/dev/davinci[0-15]`).
         If you are on a shared machine, map only the chips you need (e.g., `/dev/davinci[0-7]` for NPU 0-3).
 
-=== "A2 series"
+=== "A2"
 
     **Docker Run:**
 

@@ -18,9 +18,9 @@ Run docker container:
 
 ```bash
 # Update the vllm-ascend image
-# For Atlas A2 machines:
+# For A2 series:
 # export IMAGE=quay.io/ascend/vllm-ascend:{{ vllm_ascend_version }}
-# For Atlas A3 machines:
+# For A3 series:
 export IMAGE=quay.io/ascend/vllm-ascend:{{ vllm_ascend_version }}-a3
 docker run --rm \
   --name vllm-ascend \

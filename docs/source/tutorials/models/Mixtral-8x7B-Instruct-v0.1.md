@@ -31,7 +31,7 @@ You can use our official docker image to run `Mixtral-8x7B-Instruct-v0.1` direct
 Select an image based on your machine type and start the docker image on your node, refer to [using docker](../../getting_started/installation.md#installation-prebuilt-image).
 
 ```bash
-# Update --device according to your device (Atlas A2: /dev/davinci[0-7] Atlas A3:/dev/davinci[0-15]).
+# Update --device according to your device (A2 series: /dev/davinci[0-7]; A3 series: /dev/davinci[0-15]).
 # Update the vllm-ascend image according to your environment.
 # Note you should download the weight to /root/.cache in advance.
 # Update the vllm-ascend image
@@ -128,7 +128,7 @@ curl http://localhost:8000/v1/chat/completions \
     -d '{
         "model": "mistralai/Mixtral-8x7B-Instruct-v0.1",
         "messages": [
-            {"role": "user", "content": "扮演一位资深架构师，评价一下在昇腾 Atlas A2 上部署 vLLM 的优势。"}
+            {"role": "user", "content": "Act as a senior architect and evaluate the advantages of deploying vLLM on the A2 series."}
         ],
         "max_tokens": 100,
         "temperature": 0.7
