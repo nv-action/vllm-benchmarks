@@ -192,10 +192,17 @@ jobs:
       # validation (main2main_flow PR #3); remove once that PR merges.
       MAIN2MAIN_FLOW_REF: feature/e2e-external
       # MAIN2MAIN_E2E_CHIPS must mirror main2main-e2e.yaml's resident
-      # matrix (a3 temporarily removed) — groups for chips outside it are
-      # dropped flow-side, otherwise every round waits its full timeout
-      # for a chip that never reports.
-      MAIN2MAIN_E2E_CHIPS: 'a2,310p'
+      # matrix — groups for chips outside it are dropped flow-side,
+      # otherwise every round waits its full timeout for a chip that
+      # never reports.
+      MAIN2MAIN_E2E_CHIPS: 'a2,a3,310p'
+      # Functional validation set: 2 single-card cases per chip plus 1
+      # dual-card case on a3 (the 800i-2 runner hosts both).  Unset for
+      # the full ready-all suite.
+      MAIN2MAIN_E2E_MINIMAL: |
+        a2: tests/e2e/pull_request/one_card/test_qwen3_0_6b.py tests/e2e/pull_request/one_card/test_sampler.py
+        a3: tests/e2e/pull_request/one_card/test_qwen3_0_6b.py tests/e2e/pull_request/one_card/test_sampler.py tests/e2e/pull_request/two_card/test_gemma4.py
+        310p: tests/e2e/pull_request/one_card/_310p/test_dense_model_310p.py tests/e2e/pull_request/one_card/_310p/test_scoring_310p.py
       # npu-smi exists in the CANN container but there is no device on the
       # CPU runner — skip the mega_moe JIT warmup entirely.
       MAIN2MAIN_SKIP_NPU_WARMUP: 'true'
