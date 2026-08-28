@@ -196,12 +196,11 @@ jobs:
       # otherwise every round waits its full timeout for a chip that
       # never reports.
       MAIN2MAIN_E2E_CHIPS: 'a2,a3,310p'
-      # Functional validation set: 2 single-card cases per chip plus 1
-      # dual-card case on a3 (the 800i-2 runner hosts both).  Unset for
-      # the full ready-all suite.
+      # Functional validation set: 2 single-card cases per NPU-resident
+      # chip, 2 dual-card cases on a3.  Unset for the full ready-all suite.
       MAIN2MAIN_E2E_MINIMAL: |
         a2: tests/e2e/pull_request/one_card/test_qwen3_0_6b.py tests/e2e/pull_request/one_card/test_sampler.py
-        a3: tests/e2e/pull_request/one_card/test_qwen3_0_6b.py tests/e2e/pull_request/one_card/test_sampler.py tests/e2e/pull_request/two_card/test_gemma4.py
+        a3: tests/e2e/pull_request/two_card/test_gemma4.py tests/e2e/pull_request/two_card/test_deepseek_multistream_moe.py
         310p: tests/e2e/pull_request/one_card/_310p/test_dense_model_310p.py tests/e2e/pull_request/one_card/_310p/test_scoring_310p.py
       # npu-smi exists in the CANN container but there is no device on the
       # CPU runner — skip the mega_moe JIT warmup entirely.
