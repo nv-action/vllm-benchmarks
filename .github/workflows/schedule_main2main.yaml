@@ -191,19 +191,11 @@ jobs:
       # feature/e2e-external while the 3-runner E2E change is under
       # validation (main2main_flow PR #3); remove once that PR merges.
       MAIN2MAIN_FLOW_REF: feature/e2e-external
-      # Minimal validation set: A2 2 single-card, A3 2 two-card + 1
-      # four-card, 310p 2 single-card.  Unset for the full ready-all suite.
       # MAIN2MAIN_E2E_CHIPS must mirror main2main-e2e.yaml's resident
       # matrix (a3 temporarily removed) — groups for chips outside it are
       # dropped flow-side, otherwise every round waits its full timeout
       # for a chip that never reports.
       MAIN2MAIN_E2E_CHIPS: 'a2,310p'
-      MAIN2MAIN_E2E_MINIMAL: |
-        a2: tests/e2e/pull_request/one_card/test_qwen3_0_6b.py tests/e2e/pull_request/one_card/spec_decode/test_eagle.py
-        310p: tests/e2e/pull_request/one_card/_310p/test_dense_model_310p.py tests/e2e/pull_request/one_card/_310p/test_spec_decode_mtp_310p.py
-      # Validation runs cap each opencode session at 10 min (default 60) —
-      # a killed session resumes via the short continue prompt.
-      MAIN2MAIN_ADAPTER_TIMEOUT_MINUTES: '10'
       # npu-smi exists in the CANN container but there is no device on the
       # CPU runner — skip the mega_moe JIT warmup entirely.
       MAIN2MAIN_SKIP_NPU_WARMUP: 'true'
