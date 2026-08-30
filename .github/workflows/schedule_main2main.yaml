@@ -846,8 +846,25 @@ jobs:
         if: always()
         run: |
           if [ -z "${MAIN2MAIN_E2E_PREP_RUN_ID:-}" ]; then
-            echo "::warning::MAIN2MAIN_E2E_PREP_RUN_ID unset — no resident run to release (dispatch may never have happened)"
-            exit 0
+            # The pre-start step writes the run id to GITHUB_ENV, but a
+            # k8s container-implementation failure can lose that env
+            # propagation (observed run 33314256232).  Rediscover it by
+            # run name — Main2Main-E2E-<main_run_id> is unique to this
+            # main run (same lookup as the pre-start phase-1 poll).
+            MAIN2MAIN_E2E_PREP_RUN_ID=$(gh api \
+              "repos/${MAIN2MAIN_E2E_REPO}/actions/runs?event=workflow_dispatch&branch=main&per_page=50" \
+              | python3 -c "
+          import json, sys
+          runs = json.load(sys.stdin).get('workflow_runs', [])
+          want = 'Main2Main-E2E-' + sys.argv[1]
+          cands = [r['id'] for r in runs if r.get('name') == want]
+          print(max(cands) if cands else '')
+          " "${GITHUB_RUN_ID}" || true)
+            if [ -z "${MAIN2MAIN_E2E_PREP_RUN_ID}" ]; then
+              echo "::warning::no resident-runner run found for this main run — nothing to release (dispatch may never have happened)"
+              exit 0
+            fi
+            echo "Rediscovered resident-runner run ${MAIN2MAIN_E2E_PREP_RUN_ID} by run name"
           fi
           CANCEL_OK=false
           for i in 1 2 3; do
