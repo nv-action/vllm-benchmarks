@@ -252,9 +252,6 @@ jobs:
         a2: tests/e2e/pull_request/one_card/test_qwen3_0_6b.py tests/e2e/pull_request/one_card/test_sampler.py
         a3: tests/e2e/pull_request/two_card/test_gemma4.py tests/e2e/pull_request/two_card/test_deepseek_multistream_moe.py
         310p: tests/e2e/pull_request/one_card/_310p/test_dense_model_310p.py tests/e2e/pull_request/one_card/_310p/test_scoring_310p.py
-      # npu-smi exists in the CANN container but there is no device on the
-      # CPU runner — skip the mega_moe JIT warmup entirely.
-      MAIN2MAIN_SKIP_NPU_WARMUP: 'true'
       MAIN2MAIN_LOG_HELPERS: |
         print_group() {
           local title="$1"
