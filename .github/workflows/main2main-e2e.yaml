@@ -126,10 +126,11 @@ jobs:
           - chip: a3
             runner: linux-aarch64-a3-8-sh-001
             image_tag: ${{ inputs.image_tag_a3 }}
-            # The a3 resident exposes independently usable NPUs; single-card
-            # cases get one device each, so die-pair alignment (an
-            # 800i-16 device-plugin property) does not apply here.
-            pair_aligned: ''
+            # The a3-8 machine's device plugin requires whole dual-die pairs
+            # (0-1, 2-3, 4-5, ...): run_tests.py's pair-aligned assignment
+            # validates the visible set is pair-closed and never starts a
+            # test on the odd die of a pair.
+            pair_aligned: 'true'
           - chip: 310p
             runner: linux-aarch64-310p-1
             image_tag: 9.1.0-310p-ubuntu22.04-py3.12
