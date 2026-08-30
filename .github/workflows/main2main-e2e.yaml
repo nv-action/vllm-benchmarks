@@ -123,14 +123,18 @@ jobs:
             # crashes run_tests.py's device assignment with
             # "visible devices must form complete dual-die pairs".
             pair_aligned: ''
-          - chip: a3
-            runner: linux-aarch64-a3-8-sh-001
-            image_tag: ${{ inputs.image_tag_a3 }}
-            # The a3-8 machine's device plugin requires whole dual-die pairs
-            # (0-1, 2-3, 4-5, ...): run_tests.py's pair-aligned assignment
-            # validates the visible set is pair-closed and never starts a
-            # test on the odd die of a pair.
-            pair_aligned: 'true'
+          # a3 temporarily disabled (run 33314256232: the a3-8-sh-001
+          # workflow pod is unhealthy with phase Failed — machine/infra
+          # issue, debugged separately).  Re-enable together with
+          # MAIN2MAIN_E2E_CHIPS in schedule_main2main.yaml.
+          # - chip: a3
+          #   runner: linux-aarch64-a3-8-sh-001
+          #   image_tag: ${{ inputs.image_tag_a3 }}
+          #   # The a3-8 machine's device plugin requires whole dual-die
+          #   # pairs (0-1, 2-3, 4-5, ...): run_tests.py's pair-aligned
+          #   # assignment validates the visible set is pair-closed and
+          #   # never starts a test on the odd die of a pair.
+          #   pair_aligned: 'true'
           - chip: 310p
             runner: linux-aarch64-310p-1
             image_tag: 9.1.0-310p-ubuntu22.04-py3.12
