@@ -229,6 +229,10 @@ jobs:
       # E2E runner envs" step so the flow reuses that run.
       MAIN2MAIN_E2E_REPO: nv-action/vllm-benchmarks
       MAIN2MAIN_E2E_BRANCH: main2main_e2e
+      # Dedicated branch carrying main2main-e2e.yaml — kept off
+      # main so upstream-sync resets cannot revert the workflow
+      # (observed 2026-08-29, shiqiangA's main reset wiped the line).
+      MAIN2MAIN_E2E_DISPATCH_REF: main2main-e2e
       # Fork carrying the signal branch (the adapted code + test_groups.json)
       # that the E2E workflow checks out per round — same fork the PR head
       # lives on, so the pushed history is already known there.
@@ -348,7 +352,7 @@ jobs:
           for i in 1 2 3; do
             if gh workflow run main2main-e2e.yaml \
               --repo "${MAIN2MAIN_E2E_REPO}" \
-              --ref main \
+              --ref main2main-e2e \
               -f "vllm=${VLLM_COMMIT}" \
               -f "base_ref=main" \
               -f "signal_branch=${MAIN2MAIN_E2E_BRANCH}" \
@@ -372,7 +376,7 @@ jobs:
           # the one we just dispatched.
           RUN_ID=""
           for i in $(seq 1 30); do
-            RUN_ID=$(gh api "repos/${MAIN2MAIN_E2E_REPO}/actions/runs?event=workflow_dispatch&branch=main&per_page=50" 2>/tmp/prep-poll.err \
+            RUN_ID=$(gh api "repos/${MAIN2MAIN_E2E_REPO}/actions/runs?event=workflow_dispatch&branch=main2main-e2e&per_page=50" 2>/tmp/prep-poll.err \
               | python3 -c "
           import json, sys
           runs = json.load(sys.stdin).get('workflow_runs', [])
@@ -854,7 +858,7 @@ jobs:
             # run name — Main2Main-E2E-<main_run_id> is unique to this
             # main run (same lookup as the pre-start phase-1 poll).
             MAIN2MAIN_E2E_PREP_RUN_ID=$(gh api \
-              "repos/${MAIN2MAIN_E2E_REPO}/actions/runs?event=workflow_dispatch&branch=main&per_page=50" \
+              "repos/${MAIN2MAIN_E2E_REPO}/actions/runs?event=workflow_dispatch&branch=main2main-e2e&per_page=50" \
               | python3 -c "
           import json, sys
           runs = json.load(sys.stdin).get('workflow_runs', [])
