@@ -123,6 +123,7 @@ jobs:
             # crashes run_tests.py's device assignment with
             # "visible devices must form complete dual-die pairs".
             pair_aligned: ''
+            soc_version: ''
           - chip: a3
             runner: linux-aarch64-a3-8-sh-001
             image_tag: ${{ inputs.image_tag_a3 }}
@@ -130,10 +131,17 @@ jobs:
             # alignment (run_tests.py --pair-aligned-devices: pairs must
             # close and never start from an odd die).
             pair_aligned: 'true'
+            # setup.py's auto-detection (npu-smi info -l -> "NPU ID" ->
+            # npu-smi info -t board -i <id>) parses NPU ID as -1 on sh-001
+            # (npu-smi 26.0.rc1 in a containerized allocation; observed
+            # exit 215 in run 33365868688), so pin the A3 SOC version and
+            # bypass npu-smi entirely during the editable install.
+            soc_version: ascend910_9391
           - chip: 310p
             runner: linux-aarch64-310p-1
             image_tag: 9.1.0-310p-ubuntu22.04-py3.12
             pair_aligned: ''
+            soc_version: ''
     runs-on: ${{ matrix.runner }}
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.image_tag }}
@@ -312,6 +320,9 @@ jobs:
         if: steps.env-check.outputs.fresh != 'true'
         env:
           CSRC_CACHE_HIT: ${{ steps.cache-csrc.outputs.cache-hit }}
+          # Empty for a2/310p (auto-detect works there); pinned for a3 —
+          # see the soc_version comment in the matrix.
+          SOC_VERSION: ${{ matrix.soc_version }}
         run: |
           source "$GITHUB_WORKSPACE/.venv/bin/activate"
           # Same as vllm-ascend CI (_e2e_nightly_single_node.yaml "Set
