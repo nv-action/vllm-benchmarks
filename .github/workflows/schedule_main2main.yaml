@@ -245,14 +245,12 @@ jobs:
       # matrix — groups for chips outside it are dropped flow-side,
       # otherwise every round waits its full timeout for a chip that
       # never reports.
-      # a3 temporarily disabled (a3-8-sh-001 pod unhealthy, run
-      # 33314256232) — mirror main2main-e2e.yaml's resident matrix.
-      MAIN2MAIN_E2E_CHIPS: 'a2,310p'
+      MAIN2MAIN_E2E_CHIPS: 'a2,a3,310p'
       # Functional validation set: 2 single-card cases per NPU-resident
-      # chip (a3's two-card pair disabled while its runner is out).
-      # Unset for the full ready-all suite.
+      # chip, 2 dual-card cases on a3.  Unset for the full ready-all suite.
       MAIN2MAIN_E2E_MINIMAL: |
         a2: tests/e2e/pull_request/one_card/test_qwen3_0_6b.py tests/e2e/pull_request/one_card/test_sampler.py
+        a3: tests/e2e/pull_request/two_card/test_gemma4.py tests/e2e/pull_request/two_card/test_deepseek_multistream_moe.py
         310p: tests/e2e/pull_request/one_card/_310p/test_dense_model_310p.py tests/e2e/pull_request/one_card/_310p/test_scoring_310p.py
       MAIN2MAIN_LOG_HELPERS: |
         print_group() {
