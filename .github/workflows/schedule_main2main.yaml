@@ -246,12 +246,14 @@ jobs:
       # otherwise every round waits its full timeout for a chip that
       # never reports.
       MAIN2MAIN_E2E_CHIPS: 'a2,a3,310p'
-      # Functional validation set: 2 single-card cases per NPU-resident
-      # chip, 2 dual-card cases on a3.  Unset for the full ready-all suite.
+      # Functional validation set, expanded 2026-08-31: a2 adds a w8a8
+      # quantization case and a multimodal case; a3 adds prefix caching
+      # (mamba prefix-cache path); 310p adds the embedding/classification
+      # heads.  Unset for the full ready-all suite.
       MAIN2MAIN_E2E_MINIMAL: |
-        a2: tests/e2e/pull_request/one_card/test_qwen3_0_6b.py tests/e2e/pull_request/one_card/test_sampler.py
-        a3: tests/e2e/pull_request/two_card/test_gemma4.py tests/e2e/pull_request/two_card/test_deepseek_multistream_moe.py
-        310p: tests/e2e/pull_request/one_card/_310p/test_dense_model_310p.py tests/e2e/pull_request/one_card/_310p/test_scoring_310p.py
+        a2: tests/e2e/pull_request/one_card/test_qwen3_0_6b.py tests/e2e/pull_request/one_card/test_sampler.py tests/e2e/pull_request/one_card/test_qwen3_8b_w8a8.py tests/e2e/pull_request/one_card/test_vlm.py
+        a3: tests/e2e/pull_request/two_card/test_gemma4.py tests/e2e/pull_request/two_card/test_deepseek_multistream_moe.py tests/e2e/pull_request/two_card/test_prefix_caching.py
+        310p: tests/e2e/pull_request/one_card/_310p/test_dense_model_310p.py tests/e2e/pull_request/one_card/_310p/test_scoring_310p.py tests/e2e/pull_request/one_card/_310p/test_embedding_310p.py tests/e2e/pull_request/one_card/_310p/test_classification_310p.py
       MAIN2MAIN_LOG_HELPERS: |
         print_group() {
           local title="$1"
