@@ -446,6 +446,41 @@ jobs:
           token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", "")
           git_url = ("https://x-access-token:" + token + "@github.com/"
                      + os.environ["SIGNAL_REPO"])
+          # Direct github.com egress from the NPU pods is intermittently
+          # blacked out (a3 sh-001 lost github.com:443 for 25+ min on
+          # 2026-08-31 while a2/310p pushed fine in the same window).  The
+          # osinfra proxy is Huawei-internal and unaffected; every network
+          # op below tries direct first, then falls back to this route.
+          proxy_url = ("https://x-access-token:" + token
+                       + "@gh-proxy.test.osinfra.cn/https://github.com/"
+                       + os.environ["SIGNAL_REPO"])
+          # Third route: the runner's own github rewrite (url.*.insteadOf,
+          # e.g. an in-cluster git-cdn service).  It is reachable wherever
+          # the pod's fetches work and does not traverse the public WAF
+          # fronting gh-proxy.  Discovered at runtime with the token
+          # embedded (the pattern proven by lessons._resolve_push_targets);
+          # pods without the rewrite simply get no extra route.
+          gitcdn_url = ""
+          cfg = subprocess.run(
+              ["git", "config", "--get-regexp", r"^url\..*\.insteadof$"],
+              cwd=ws, capture_output=True, text=True)
+          for line in cfg.stdout.splitlines():
+              key, _, value = line.partition(" ")
+              if "github.com" not in value:
+                  continue
+              base = key[len("url."):-len(".insteadof")]
+              scheme, _, rest = base.partition("://")
+              if scheme and rest:
+                  gitcdn_url = (scheme + "://x-access-token:" + token + "@"
+                                + rest + "https://github.com/"
+                                + os.environ["SIGNAL_REPO"])
+              break
+          urls = ((git_url, gitcdn_url, proxy_url) if gitcdn_url
+                  else (git_url, proxy_url))
+
+          def route(url):
+              return url.split("@")[-1].split("/")[0]
+
           results_branch = signal_branch + "_results_" + chip
           results_dir = os.path.join(ws, "main2main-e2e-results")
           run_tests_py = os.path.join(ws, "main2main_flow",
@@ -476,19 +511,25 @@ jobs:
           poll_fails = 0
           def remote_sha(ref):
               # Transient network/API failures must not be indistinguishable
-              # from "no command yet": count and log them.
+              # from "no command yet": count and log them.  Both routes are
+              # tried before a poll counts as failed.
               global poll_fails
-              try:
-                  r = git("ls-remote", git_url, ref, check=False, timeout=120)
-              except Exception as exc:
+              r = None
+              for url in urls:
+                  try:
+                      r = git("ls-remote", url, ref, check=False, timeout=120)
+                  except Exception as exc:
+                      log("ls-remote via " + route(url) + " failed: "
+                          + str(exc))
+                      continue
+                  if r.returncode == 0:
+                      break
+                  log("ls-remote via " + route(url) + " failed: "
+                      + r.stderr.strip()[-200:])
+              if r is None or r.returncode != 0:
                   poll_fails += 1
                   log("ls-remote failed (" + str(poll_fails)
-                      + " consecutive): " + str(exc))
-                  return ""
-              if r.returncode != 0:
-                  poll_fails += 1
-                  log("ls-remote failed (" + str(poll_fails)
-                      + " consecutive): " + r.stderr.strip()[-200:])
+                      + " consecutive, all routes)")
                   return ""
               poll_fails = 0
               out = r.stdout.split()
@@ -501,9 +542,20 @@ jobs:
           for _attempt in range(1, 4):
               try:
                   if not os.path.isdir(os.path.join(flow_dir, ".git")):
-                      git("clone", "--branch", flow_ref,
+                      clone_urls = (
                           "https://github.com/vllm-ascend/main2main_flow.git",
-                          flow_dir, timeout=600)
+                          "https://gh-proxy.test.osinfra.cn/https://github.com"
+                          "/vllm-ascend/main2main_flow.git")
+                      for ci, cu in enumerate(clone_urls):
+                          try:
+                              git("clone", "--branch", flow_ref, cu,
+                                  flow_dir, timeout=600)
+                              break
+                          except Exception as exc:
+                              if ci == len(clone_urls) - 1:
+                                  raise
+                              log("flow clone failed (trying osinfra proxy): "
+                                  + str(exc))
                   else:
                       git("-C", flow_dir, "fetch", "origin", flow_ref,
                           timeout=300)
@@ -556,10 +608,17 @@ jobs:
                        "commit", "-q", "-m",
                        "main2main e2e round " + str(round_no)
                        + " progress (" + chip + ")"], cwd=pd, check=True)
-                  subprocess.run(
-                      ["git", "push", "-q", "--force", git_url,
-                       "HEAD:refs/heads/" + results_branch],
-                      cwd=pd, check=True, capture_output=True, timeout=180)
+                  for pu in urls:
+                      r = subprocess.run(
+                          ["git", "push", "-q", "--force", pu,
+                           "HEAD:refs/heads/" + results_branch],
+                          cwd=pd, capture_output=True, text=True, timeout=180)
+                      if r.returncode == 0:
+                          break
+                      log("progress push via " + route(pu) + " failed: "
+                          + r.stderr.strip()[-200:])
+                  else:
+                      raise RuntimeError("progress push failed on all routes")
                   shutil.rmtree(pd, ignore_errors=True)
               except Exception as exc:
                   log("round " + str(round_no) + ": progress push failed: "
@@ -694,18 +753,22 @@ jobs:
                       "main2main e2e round " + str(round_no)
                       + " results (" + chip + ")", cwd=wt)
                   for attempt in range(1, 5):
+                      # Alternate routes across attempts: a dead direct path
+                      # must not burn every attempt (a3 sh-001 lost
+                      # github.com:443 for 25+ min, 2026-08-31).
+                      pu = urls[(attempt - 1) % len(urls)]
                       r = subprocess.run(
-                          ["git", "push", "--force", git_url,
+                          ["git", "push", "--force", pu,
                            "HEAD:refs/heads/" + results_branch],
                           cwd=wt, capture_output=True, text=True, timeout=300)
                       if r.returncode == 0:
                           shutil.rmtree(keep, ignore_errors=True)
                           log("round " + str(round_no) + ": results pushed to "
-                              + results_branch
+                              + results_branch + " via " + route(pu)
                               + (" (retried)" if attempt > 1 else ""))
                           return
                       log("round " + str(round_no) + ": results push attempt "
-                          + str(attempt) + "/4 failed: "
+                          + str(attempt) + "/4 via " + route(pu) + " failed: "
                           + r.stderr.strip()[-300:])
                       time.sleep(30 * attempt)
                   raise RuntimeError("results push failed after 4 attempts")
@@ -759,8 +822,17 @@ jobs:
                   cmd = {}
                   ok = True
                   try:
-                      git("fetch", "--force", "--no-tags", git_url,
-                          signal_branch, timeout=600)
+                      fetched = False
+                      for fu in urls:
+                          fr = git("fetch", "--force", "--no-tags", fu,
+                                   signal_branch, timeout=600, check=False)
+                          if fr.returncode == 0:
+                              fetched = True
+                              break
+                          log("signal fetch via " + route(fu) + " failed: "
+                              + fr.stderr.strip()[-200:])
+                      if not fetched:
+                          raise RuntimeError("signal fetch failed on all routes")
                       r = git("show", "FETCH_HEAD:command.json", check=False,
                               timeout=60)
                       # An unreadable command.json (transient object read
