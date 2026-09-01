@@ -6,17 +6,17 @@ on:
         description: 'SWR repository for final multi-arch images (same name as the quay.io repo, sync tool mirrors it to quay.io)'
         required: false
         type: string
-        default: 'swr.cn-north-12.myhuaweicloud.com/ascend/vllm-ascend'
+        default: 'swr.cn-southwest-2.myhuaweicloud.com/ascend/vllm-ascend'
       swr_registry:
         description: 'SWR registry domain'
         required: false
         type: string
-        default: 'swr.cn-north-12.myhuaweicloud.com'
+        default: 'swr.cn-southwest-2.myhuaweicloud.com'
       swr_temp_repo:
         description: 'SWR repository for single-arch temp images (mirrors quay.io/atlas-ci/vllm-atlas-temp)'
         required: false
         type: string
-        default: 'swr.cn-north-12.myhuaweicloud.com/atlas_ci/vllm-atlas-temp'
+        default: 'swr.cn-southwest-2.myhuaweicloud.com/atlas_ci_cq/vllm-atlas-temp'
       suffix:
         description: 'The tag subfix to use'
         required: true
@@ -103,7 +103,7 @@ on:
         description: 'CANN base image URL (SWR registry)'
         required: false
         type: string
-        default: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/cann'
+        default: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann'
       cann_version:
         description: 'CANN version for daily tag naming (e.g. 2026.08.03)'
         required: false
@@ -363,7 +363,9 @@ jobs:
           PYTORCH_INDEX_URL=http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu
           ASCEND_INDEX_URL=http://cache-service.nginx-pypi-cache.svc.cluster.local/ascend/repos/pypi
           GIT_PROXY=https://gh-proxy.test.osinfra.cn/
-          COMPILE_CUSTOM_KERNELS=${{ steps.cache-csrc.outputs.cache-hit == 'true' && '0' || '1' }}
+          # TODO(ci): 临时强制 0 以验证构建管线（跳过自定义算子编译，避免 buildkitd OOM）；
+          # 首次构建成功后应恢复为基于 csrc 缓存命中的逻辑
+          COMPILE_CUSTOM_KERNELS=0
           VLLM_COMMIT=${{ inputs.vllm_commit }}
           BUILD_TYPE=${{ inputs.build_type || 'release' }}
           MEMCACHE_VERSION=${{ inputs.memcache_version || '1.2.0' }}
@@ -549,7 +551,7 @@ jobs:
         env:
           # Source digests live in SWR (where build-push-digest pushed them);
           # destination tags come from $TAGS (metadata-action → SWR_REPO, same name as
-          # the quay.io repo; the sync tool then mirrors swr.cn-north-12 → quay.io).
+          # the quay.io repo; the sync tool then mirrors swr.cn-southwest-2 → quay.io).
           SOURCE_IMAGE: ${{ inputs.swr_temp_repo }}
           TAGS: ${{ steps.meta.outputs.tags }}
           BUILD_TYPE: ${{ inputs.build_type }}
