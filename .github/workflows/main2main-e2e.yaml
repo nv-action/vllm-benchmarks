@@ -740,8 +740,6 @@ jobs:
               if vllm_commit:
                   sync_vllm(vllm_commit)
               vllm_arg = vllm_commit or os.environ.get("VLLM_COMMIT", "")
-              log("serving against vllm " + (vllm_arg[:12] or "<prep frozen>")
-                  + " (reusing prep-built kernels/venv)")
               # Devices appear under their HOST physical id in /dev and
               # npu-smi (a2: NPU 7, 310p: NPU 14), but acl enumerates them
               # 0-based inside the container.  Deriving the visible set
@@ -759,6 +757,20 @@ jobs:
                   'export VLLM_WORKER_MULTIPROC_METHOD=spawn\n'
                   'export ASCEND_RT_VISIBLE_DEVICES="' + visible + '"\n'
                   'cd "' + ws + '"\n')
+              # Explicit serve identity before the tests run: the vllm
+              # commit actually checked out, the ascend snapshot HEAD, and
+              # the patch summary the command carried (the snapshot is a
+              # full tree — only the flow can say what changed).
+              ascend_head = git("rev-parse", "HEAD").stdout.strip()
+              log("round " + str(round_no) + ": SERVING vllm "
+                  + (vllm_arg[:12] or "<prep frozen>")
+                  + " (checked out "
+                  + git("-C", os.path.join(ws, "vllm-empty"),
+                        "rev-parse", "HEAD", check=False,
+                        timeout=60).stdout.strip()[:12] + "), "
+                  + "ascend HEAD " + ascend_head[:12] + " ("
+                  + (cmd.get("ascend_patch_stat") or "no stat") + "), "
+                  + str(len(cases)) + " test(s), kernels/venv from prep")
               quoted_cases = " ".join('"' + c + '"' for c in cases)
               script += (
                   'python3 "' + run_tests_py + '" '
