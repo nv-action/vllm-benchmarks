@@ -300,7 +300,7 @@ jobs:
           # openEuler 基础镜像：通常已自带 zstd，仅在缺失时安装
           if ! command -v zstd &>/dev/null; then
             # 替换 yum 源为内部镜像，同 Dockerfile.openEuler 的逻辑
-            sed -Ei 's@https?://[^/]+@http://cache-service.nginx-pypi-cache.svc.cluster.local:8083@g' /etc/yum.repos.d/*.repo
+            sed -Ei 's@https?://[^/]+@https://repo.huaweicloud.com/openeuler@g' /etc/yum.repos.d/*.repo
             dnf install -y zstd || echo "warning: failed to install zstd via dnf"
           fi
         fi
@@ -337,11 +337,11 @@ jobs:
         # NPU test jobs use fail-on-cache-miss instead.
         build-args: |
           CANN_QUAY_URL=${{ inputs.cann_quay_url }}
-          APTMIRROR=http://cache-service.nginx-pypi-cache.svc.cluster.local:8081
-          PIP_INDEX_URL=http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
-          PIP_TRUSTED_HOST=cache-service.nginx-pypi-cache.svc.cluster.local
-          PYTORCH_INDEX_URL=http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu
-          ASCEND_INDEX_URL=http://cache-service.nginx-pypi-cache.svc.cluster.local/ascend/repos/pypi
+          APTMIRROR=https://repo.huaweicloud.com
+          PIP_INDEX_URL=https://repo.huaweicloud.com/repository/pypi/simple
+          PIP_TRUSTED_HOST=repo.huaweicloud.com
+          PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
+          ASCEND_INDEX_URL=https://repo.huaweicloud.com/ascend/repos/pypi
           GIT_PROXY=https://gh-proxy.test.osinfra.cn/
           COMPILE_CUSTOM_KERNELS=${{ steps.cache-csrc.outputs.cache-hit == 'true' && '0' || '1' }}
           VLLM_COMMIT=${{ inputs.vllm_commit }}

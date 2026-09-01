@@ -34,7 +34,7 @@ SHELL ["/bin/bash", "-c"]
 
 # Install clang (for triton-ascend) and Mooncake
 ARG MOONCAKE_TAG=0.3.11.post1
-RUN sed -Ei 's@https?://[^/]+@http://cache-service.nginx-pypi-cache.svc.cluster.local:8083@g' /etc/yum.repos.d/*.repo && \
+RUN sed -Ei 's@https?://[^/]+@https://repo.huaweicloud.com/openeuler@g' /etc/yum.repos.d/*.repo && \
     yum update -y && \
     yum install -y git vim wget net-tools gcc gcc-c++ make cmake numactl numactl-devel libibverbs-devel jemalloc hiredis-devel clang patch && \
     source /usr/local/Ascend/ascend-toolkit/set_env.sh && \

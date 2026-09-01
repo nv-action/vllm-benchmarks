@@ -30,7 +30,7 @@ ARG PIP_TRUSTED_HOST=""
 
 WORKDIR /workspace
 
-RUN sed -Ei 's@https?://[^/]+@http://cache-service.nginx-pypi-cache.svc.cluster.local:8083@g' /etc/yum.repos.d/*.repo && \
+RUN sed -Ei 's@https?://[^/]+@https://repo.huaweicloud.com/openeuler@g' /etc/yum.repos.d/*.repo && \
     yum update -y && \
     yum install -y python3-pip git vim wget net-tools gcc gcc-c++ make cmake numactl numactl-devel jemalloc patch && \
     rm -rf /var/cache/yum
