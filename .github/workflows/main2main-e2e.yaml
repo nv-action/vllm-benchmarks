@@ -651,6 +651,63 @@ jobs:
               proc.wait()
               return proc.returncode
 
+          def sync_vllm(vllm_commit):
+              """Sync the prep-built vllm checkout to the commanded commit.
+
+              Prep freezes vllm at dispatch-time HEAD, which drifts from
+              the commit each step's adaptation targets (run 33507540907:
+              prep froze 40824284b while step-1 targeted 27ec8ac6 — the
+              KV-cache shared_by→layers refactor landed in between, so
+              every e2e round failed on a KVCacheTensor field that exists
+              on the adapted tree but not the tested one).  The signal
+              snapshot already carries the accumulated ascend patch; only
+              vllm moves here.  VLLM_TARGET_DEVICE=empty builds
+              pure-python (no C extensions), so the reinstall is a couple
+              of minutes — run only when the commit actually changed.
+              """
+              vllm_dir = os.path.join(ws, "vllm-empty")
+              cur = git("-C", vllm_dir, "rev-parse", "HEAD",
+                        check=False, timeout=60).stdout.strip()
+              if cur == vllm_commit:
+                  log("vllm already at commanded commit " + vllm_commit[:12])
+                  return
+              vllm_repo = "vllm-project/vllm"
+              # Same routing shape as the signal fetch: direct first, then
+              # the discovered git-cdn base (where present), then the
+              # osinfra proxy.  Direct github.com egress from the NPU pods
+              # is intermittently blacked out (2026-08-31).
+              vurls = ["https://x-access-token:" + token + "@github.com/"
+                       + vllm_repo]
+              if gitcdn_url:
+                  gcdn = gitcdn_url.split("https://github.com/")[0]
+                  vurls.append(gcdn + "https://github.com/" + vllm_repo)
+              vurls.append("https://x-access-token:" + token
+                           + "@gh-proxy.test.osinfra.cn/https://github.com/"
+                           + vllm_repo)
+              fetched = False
+              for vu in vurls:
+                  fr = git("-C", vllm_dir, "fetch", "--depth", "1", vu,
+                           vllm_commit, timeout=600, check=False)
+                  if fr.returncode == 0:
+                      fetched = True
+                      break
+                  log("vllm fetch via " + route(vu) + " failed: "
+                      + (fr.stderr or "").strip()[-200:])
+              if not fetched:
+                  raise RuntimeError("vllm fetch failed on all routes")
+              git("-C", vllm_dir, "checkout", "--force", "--detach",
+                  "FETCH_HEAD")
+              inst = subprocess.run(
+                  ["bash", "-c",
+                   'source "' + ws + '/.venv/bin/activate" && '
+                   'cd "' + vllm_dir + '" && '
+                   'VLLM_TARGET_DEVICE=empty uv pip install .'],
+                  capture_output=True, text=True, timeout=1800)
+              if inst.returncode != 0:
+                  raise RuntimeError(
+                      "vllm reinstall failed: " + (inst.stderr or "")[-400:])
+              log("vllm synced " + cur[:12] + " -> " + vllm_commit[:12])
+
           def serve_round(round_no):
               shutil.rmtree(results_dir, ignore_errors=True)
               tests_dir = os.path.join(results_dir, "0", "tests")
@@ -672,15 +729,19 @@ jobs:
               if not cases:
                   write_empty_result(round_no)
                   return
-              # Rounds only swap the adapted python code (the in-place
-              # checkout above); the prep-built env — kernels, venv, and
-              # the vllm checkout at the run's fixed commit — is reused
-              # untouched.  A mid-run reinstall/rebuild is explicitly not
-              # wanted here: a base_sha diff spans different repo histories
-              # (prep repo vs signal fork) and always looked "changed",
-              # triggering a full kernel rebuild per round.  Runner-side
-              # env issues are debugged separately on the runner.
-              log("reusing prep-built env (no kernel rebuild)")
+              # The command names the vllm commit THIS step's adaptation
+              # targets — serve against exactly that tree, not the one
+              # frozen at prep time (see sync_vllm).  Kernels and venv
+              # stay from prep; only the vllm checkout moves (empty build:
+              # no C extensions).  Empty vllm_commit (manual/local
+              # commands) keeps the prep-built checkout untouched.
+              cmd = json.load(open(os.path.join(ws, "command.json")))
+              vllm_commit = str(cmd.get("vllm_commit") or "")
+              if vllm_commit:
+                  sync_vllm(vllm_commit)
+              vllm_arg = vllm_commit or os.environ.get("VLLM_COMMIT", "")
+              log("serving against vllm " + (vllm_arg[:12] or "<prep frozen>")
+                  + " (reusing prep-built kernels/venv)")
               # Devices appear under their HOST physical id in /dev and
               # npu-smi (a2: NPU 7, 310p: NPU 14), but acl enumerates them
               # 0-based inside the container.  Deriving the visible set
@@ -702,7 +763,7 @@ jobs:
               script += (
                   'python3 "' + run_tests_py + '" '
                   '--vllm-path "' + ws + '/vllm-empty" '
-                  '--vllm-commit "' + os.environ["VLLM_COMMIT"] + '" '
+                  '--vllm-commit "' + vllm_arg + '" '
                   '--ascend-path "' + ws + '" '
                   '--ascend-commit "' + git("rev-parse", "HEAD").stdout.strip()
                   + '" '
