@@ -26,9 +26,9 @@ on:
         required: false
         default: ''
       model:
-        description: 'opencode model name (default: deepseek/deepseek-v4-flash)'
+        description: 'opencode model name (default: zhipu/glm-5.3-flash)'
         required: false
-        default: 'deepseek/deepseek-v4-flash'
+        default: 'zhipu/glm-5.3-flash'
 
 permissions:
   contents: write
@@ -42,7 +42,7 @@ defaults:
 
 env:
   UPSTREAM_REPO: vllm-project/vllm-ascend
-  MAIN2MAIN_MODEL: ${{ github.event_name == 'workflow_dispatch' && inputs.model || 'deepseek/deepseek-v4-flash' }}
+  MAIN2MAIN_MODEL: ${{ github.event_name == 'workflow_dispatch' && inputs.model || 'zhipu/glm-5.3-flash' }}
   # Accumulated adaptation state ref on HEAD_FORK, shared by resolve-source
   # (incremental mode base) and the push step (PR-success update).
   # Production uses the default main2main_baseline; this validation writes
@@ -513,13 +513,30 @@ jobs:
             --prefix "$HOME/.opencode" \
             --registry https://repo.huaweicloud.com/repository/npm/ \
             opencode-ai
-          # configure opencode auth
-          mkdir -p ~/.local/share/opencode
-          cat > ~/.local/share/opencode/auth.json <<EOF
+          # configure opencode model provider: Zhipu GLM via its
+          # OpenAI-compatible endpoint. A custom provider (not the built-in
+          # catalog) because the bundled model catalog has no zhipuai entry
+          # (verified: opencode-ai 1.18.25) — this works on any version.
+          # Strict JSON: the flow rewrites this file with json.loads, which
+          # would drop entries if the file were JSONC with comments.
+          mkdir -p ~/.config/opencode
+          cat > ~/.config/opencode/opencode.jsonc <<EOF
           {
-            "deepseek": {
-              "type": "api",
-              "key": "${{ secrets.MAIN2MAIN_API_KEY }}"
+            "\$schema": "https://opencode.ai/config.json",
+            "provider": {
+              "zhipu": {
+                "npm": "@ai-sdk/openai-compatible",
+                "name": "Zhipu",
+                "options": {
+                  "baseURL": "https://open.bigmodel.cn/api/paas/v4",
+                  "apiKey": "${{ secrets.MAIN2MAIN_API_KEY }}"
+                },
+                "models": {
+                  "glm-5.3-flash": {
+                    "name": "GLM-5.3 Flash"
+                  }
+                }
+              }
             }
           }
           EOF
