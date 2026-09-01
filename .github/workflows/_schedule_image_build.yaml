@@ -153,6 +153,7 @@ defaults:
 
 env:
   SWR_REPO: ${{ inputs.swr_repo }}
+  APTMIRROR: https://repo.huaweicloud.com
 
 jobs:
   build-push-digest:
@@ -293,13 +294,16 @@ jobs:
     - name: Install csrc cache dependencies
       run: |
         if [ -f /etc/apt/sources.list ]; then
-          # Ubuntu 基础镜像：用 apt 安装 zstd
+          # Ubuntu 基础镜像：把 apt 源替换为华为云镜像（同 Dockerfile 的 APTMIRROR 逻辑）
+          if [ -n "$APTMIRROR" ]; then
+            sed -Ei "s@(ports|archive).ubuntu.com@${APTMIRROR#*://}@g" /etc/apt/sources.list
+          fi
           apt-get update -y
           apt-get install -y zstd
         elif command -v dnf &>/dev/null; then
           # openEuler 基础镜像：通常已自带 zstd，仅在缺失时安装
           if ! command -v zstd &>/dev/null; then
-            # 替换 yum 源为内部镜像，同 Dockerfile.openEuler 的逻辑
+            # 替换 yum 源为华为云镜像，同 Dockerfile.openEuler 的逻辑
             sed -Ei 's@https?://[^/]+@https://repo.huaweicloud.com/openeuler@g' /etc/yum.repos.d/*.repo
             dnf install -y zstd || echo "warning: failed to install zstd via dnf"
           fi
