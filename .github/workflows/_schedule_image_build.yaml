@@ -344,7 +344,7 @@ jobs:
           APTMIRROR=https://repo.huaweicloud.com
           PIP_INDEX_URL=https://repo.huaweicloud.com/repository/pypi/simple
           PIP_TRUSTED_HOST=repo.huaweicloud.com
-          PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
+          PYTORCH_INDEX_URL=https://repo.huaweicloud.com/repository/pypi/simple
           ASCEND_INDEX_URL=https://repo.huaweicloud.com/ascend/repos/pypi
           GIT_PROXY=https://gh-proxy.test.osinfra.cn/
           COMPILE_CUSTOM_KERNELS=${{ steps.cache-csrc.outputs.cache-hit == 'true' && '0' || '1' }}
