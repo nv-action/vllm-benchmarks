@@ -10,6 +10,9 @@
 # 3. tags push trigger image publish
 #   - is for final release image
 #   - Publish when tag with v* (pep440 version)  ===>  vllm-ascend:v1.2.3 / vllm-ascend:v1.2.3rc1
+# Note: single-arch images are built and pushed to swr.cn-southwest-2, merged into a
+# multi-arch manifest and pushed to swr.cn-southwest-2 (same repo path as quay.io);
+# the sync tool then mirrors swr.cn-southwest-2 -> quay.io.
 name: Image Build and Push
 on:
   push:
@@ -52,12 +55,12 @@ on:
           - releases/v0.18.0
           - none
       vllm_commit:
-        description: 'vLLM commit hash (must be paired with vllm_ascend_commit; mutually exclusive with tag/branch). Image will be pushed only to QUAY_TEMP_USERNAME.'
+        description: 'vLLM commit hash (must be paired with vllm_ascend_commit; mutually exclusive with tag/branch). Image will be pushed only to SWR temp repo.'
         required: false
         default: ''
         type: string
       vllm_ascend_commit:
-        description: 'vllm-ascend commit hash (must be paired with vllm_commit; mutually exclusive with tag/branch). Image will be pushed only to QUAY_TEMP_USERNAME.'
+        description: 'vllm-ascend commit hash (must be paired with vllm_commit; mutually exclusive with tag/branch). Image will be pushed only to SWR temp repo.'
         required: false
         default: ''
         type: string
@@ -87,7 +90,7 @@ on:
       cann:
         description: 'CANN Quay URL and version (JSON array: ["url", "version"])'
         required: false
-        default: '["swr.cn-north-4.myhuaweicloud.com/inference/cann", "2026.08.03"]'
+        default: '["swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann", "2026.08.03"]'
         type: string
       triton_ascend:
         description: 'Triton Ascend version and package version (JSON array: ["version", "package_version"])'
@@ -138,19 +141,20 @@ jobs:
       dockerfile: ${{ matrix.build_meta.dockerfile }}
       suffix: ${{ matrix.build_meta.suffix }}
       
-      # ===== Dynamic repository and authentication based on build_type =====
-      quay_repo: ${{ inputs.build_type == 'daily' && 'quay.io/atlas_inference/vllm-ascend' || 'quay.io/ascend/vllm-ascend' }}
-      quay_temp_repo: ${{ inputs.build_type == 'daily' && 'quay.io/atlas_inference/vllm-atlas-temp' || 'quay.io/atlas-ci/vllm-atlas-temp' }}
-      quay_username: ${{ inputs.build_type == 'daily' && vars.QUAY_DAILY_USERNAME || vars.QUAY_USERNAME }}
-      quay_temp_username: ${{ inputs.build_type == 'daily' && vars.QUAY_DAILY_TEMP_USERNAME || vars.QUAY_TEMP_USERNAME }}
-      # ====================================================================
+      # ===== Dynamic SWR repositories based on build_type =====
+      # Final multi-arch images are pushed to swr.cn-southwest-2 with the same repo
+      # path as quay.io; the sync tool then mirrors them to quay.io.
+      swr_registry: 'swr.cn-southwest-2.myhuaweicloud.com'
+      swr_repo: ${{ inputs.build_type == 'daily' && 'swr.cn-southwest-2.myhuaweicloud.com/atlas_inference/vllm-ascend' || 'swr.cn-southwest-2.myhuaweicloud.com/ascend/vllm-ascend' }}
+      swr_temp_repo: ${{ inputs.build_type == 'daily' && 'swr.cn-southwest-2.myhuaweicloud.com/atlas_inference/vllm-atlas-temp' || 'swr.cn-southwest-2.myhuaweicloud.com/atlas_ci/vllm-atlas-temp' }}
+      # ======================================================================
       
       should_push: ${{ github.repository == 'vllm-project/vllm-ascend' && github.event_name != 'pull_request' }}
       workflow_dispatch_tag: ${{ inputs.tag != 'none' && inputs.tag || '' }}
       branch_ref: ${{ inputs.branch != 'none' && inputs.branch || '' }}
       schedule_tag_pattern: 'main'
       build_type: ${{ inputs.build_type || 'release' }}
-      cann_version: ${{ fromJSON(inputs.cann || '["quay.io/atlas_inference/cann", "2026.08.03"]')[1] }}
+      cann_version: ${{ fromJSON(inputs.cann || '["swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann", "2026.08.03"]')[1] }}
       
       build_args: |
         BUILD_TYPE=${{ inputs.build_type || 'release' }}
@@ -161,14 +165,12 @@ jobs:
         MEMFABRIC_DATE=${{ fromJSON(inputs.memfabric || '["1.2.0", "20260725.3"]')[1] }}
         TORCH_NPU_VERSION=${{ fromJSON(inputs.torch_npu || '["26.1.0", "20260715.4"]')[0] }}
         TORCH_NPU_DATE=${{ fromJSON(inputs.torch_npu || '["26.1.0", "20260715.4"]')[1] }}
-        ${{ inputs.build_type == 'daily' && format('CANN_QUAY_URL={0}', fromJSON(inputs.cann || '["quay.io/atlas_inference/cann", "2026.08.03"]')[0]) || '' }}
-        ${{ inputs.build_type == 'daily' && format('CANN_VERSION={0}', fromJSON(inputs.cann || '["quay.io/atlas_inference/cann", "2026.08.03"]')[1]) || '' }}
+        ${{ inputs.build_type == 'daily' && format('CANN_QUAY_URL={0}', fromJSON(inputs.cann || '["swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann", "2026.08.03"]')[0]) || '' }}
+        ${{ inputs.build_type == 'daily' && format('CANN_VERSION={0}', fromJSON(inputs.cann || '["swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann", "2026.08.03"]')[1]) || '' }}
         TRITON_ASCEND_VERSION=${{ fromJSON(inputs.triton_ascend || '["", "3.2.2"]')[0] }}
         TRITON_ASCEND_PACKAGE_VERSION=${{ fromJSON(inputs.triton_ascend || '["", "3.2.2"]')[1] }}
       
     secrets:
-      quay_password: ${{ inputs.build_type == 'daily' && secrets.QUAY_DAILY_PASSWORD || secrets.QUAY_PASSWORD }}
-      quay_temp_password: ${{ inputs.build_type == 'daily' && secrets.QUAY_DAILY_TEMP_PASSWORD || secrets.QUAY_TEMP_PASSWORD }}
       SWR_USERNAME: ${{ secrets.SWR_USERNAME }}
       SWR_PASSWORD: ${{ secrets.SWR_PASSWORD }}
 
@@ -212,8 +214,8 @@ jobs:
     with:
       dockerfile: ${{ matrix.build_meta.dockerfile }}
       suffix: ${{ matrix.build_meta.suffix }}
-      quay_temp_repo: ${{ inputs.build_type == 'daily' && 'quay.io/atlas_inference/vllm-atlas-temp' || 'quay.io/atlas-ci/vllm-atlas-temp' }}
-      quay_temp_username: ${{ inputs.build_type == 'daily' && vars.QUAY_DAILY_TEMP_USERNAME || vars.QUAY_TEMP_USERNAME }}
+      swr_registry: 'swr.cn-southwest-2.myhuaweicloud.com'
+      swr_temp_repo: ${{ inputs.build_type == 'daily' && 'swr.cn-southwest-2.myhuaweicloud.com/atlas_inference/vllm-atlas-temp' || 'swr.cn-southwest-2.myhuaweicloud.com/atlas_ci/vllm-atlas-temp' }}
       should_push: true
       temp_only: true
       vllm_commit: ${{ inputs.vllm_commit }}
@@ -221,7 +223,7 @@ jobs:
       workflow_dispatch_tag: ''
       branch_ref: ''
       build_type: ${{ inputs.build_type || 'release' }}
-      cann_version: ${{ fromJSON(inputs.cann || '["quay.io/atlas_inference/cann", "2026.08.03"]')[1] }}
+      cann_version: ${{ fromJSON(inputs.cann || '["swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann", "2026.08.03"]')[1] }}
 
       build_args: |
         BUILD_TYPE=${{ inputs.build_type || 'release' }}
@@ -232,12 +234,11 @@ jobs:
         MEMFABRIC_DATE=${{ fromJSON(inputs.memfabric || '["1.2.0", "20260725.3"]')[1] }}
         TORCH_NPU_VERSION=${{ fromJSON(inputs.torch_npu || '["26.1.0", "20260715.4"]')[0] }}
         TORCH_NPU_DATE=${{ fromJSON(inputs.torch_npu || '["26.1.0", "20260715.4"]')[1] }}
-        ${{ inputs.build_type == 'daily' && format('CANN_QUAY_URL={0}', fromJSON(inputs.cann || '["quay.io/atlas_inference/cann", "2026.08.03"]')[0]) || '' }}
-        ${{ inputs.build_type == 'daily' && format('CANN_VERSION={0}', fromJSON(inputs.cann || '["quay.io/atlas_inference/cann", "2026.08.03"]')[1]) || '' }}
+        ${{ inputs.build_type == 'daily' && format('CANN_QUAY_URL={0}', fromJSON(inputs.cann || '["swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann", "2026.08.03"]')[0]) || '' }}
+        ${{ inputs.build_type == 'daily' && format('CANN_VERSION={0}', fromJSON(inputs.cann || '["swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann", "2026.08.03"]')[1]) || '' }}
         TRITON_ASCEND_VERSION=${{ fromJSON(inputs.triton_ascend || '["", "3.2.2"]')[0] }}
         TRITON_ASCEND_PACKAGE_VERSION=${{ fromJSON(inputs.triton_ascend || '["", "3.2.2"]')[1] }}
 
     secrets:
-      quay_temp_password: ${{ inputs.build_type == 'daily' && secrets.QUAY_DAILY_TEMP_PASSWORD || secrets.QUAY_TEMP_PASSWORD }}
       SWR_USERNAME: ${{ secrets.SWR_USERNAME }}
       SWR_PASSWORD: ${{ secrets.SWR_PASSWORD }}
