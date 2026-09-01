@@ -1,0 +1,126 @@
+#
+# Copyright (c) 2026 Huawei Technologies Co., Ltd. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# This file is a part of the vllm-ascend project.
+#
+# Standalone probe for the flow's push routes (no main2main run needed):
+# on each resident runner label, push a KB-size and a ~12MB orphan commit
+# to scratch branches on the fork through main2main_flow's _push_via_proxy
+# (route rotation: gh-proxy -> runner git-cdn rewrite -> direct github.com,
+# negotiation seed, 413 drop).  Scratch branches are deleted afterwards.
+#
+# Dispatch-only; lives on the main2main-e2e branch.
+
+run-name: Main2Main-Push-Probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: push-probe-${{ matrix.chip }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - chip: a2
+            runner: linux-aarch64-a2-1
+            image_tag: 9.1.0-910b-ubuntu22.04-py3.12
+          - chip: a3
+            runner: linux-aarch64-a3-8-sh-001
+            image_tag: 9.1.0-a3-ubuntu22.04-py3.12
+          - chip: 310p
+            runner: linux-aarch64-310p-1
+            image_tag: 9.1.0-310p-ubuntu22.04-py3.12
+    runs-on: ${{ matrix.runner }}
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.image_tag }}
+    env:
+      GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+      PROBE_CHIP: ${{ matrix.chip }}
+      PROBE_FORK: vllm-ascend-ci/vllm-ascend
+    steps:
+      - name: Route discovery (runner insteadOf rewrite)
+        run: |
+          echo "--- url.*.insteadOf visible inside the container:"
+          git config --global --get-regexp '^url\..*\.insteadof$' || echo "(none)"
+
+      - name: Checkout main2main_flow
+        uses: actions/checkout@v7
+        with:
+          repository: vllm-ascend/main2main_flow
+          ref: feature/e2e-external
+          persist-credentials: false
+
+      - name: Push probe (small KB pack + large 12MB pack)
+        run: |
+          python3 - <<'PY'
+          import os, subprocess, sys, tempfile
+          sys.path.insert(0, os.environ["GITHUB_WORKSPACE"])
+          from main2main_flow.scripts.utils.push_to_github import _push_via_proxy
+
+          chip = os.environ["PROBE_CHIP"]
+          fork = os.environ["PROBE_FORK"]
+          real_run = subprocess.run
+
+          def logged_run(cmd, **kw):
+              args = list(cmd)
+              if args[:2] == ["git", "push"]:
+                  url = next((a for a in args if "x-access-token" in a), "")
+                  host = url.split("@")[-1].split("/")[0] if "@" in url else "(credential-helper)"
+                  print(f"[probe] >>> git push via route: {host}", flush=True)
+              return real_run(cmd, **kw)
+
+          subprocess.run = logged_run
+
+          def make_orphan(tag, blob_mb):
+              d = tempfile.mkdtemp(prefix=f"probe-{tag}-")
+              real_run(["git", "init", "-q"], cwd=d, check=True)
+              with open(os.path.join(d, "f.txt"), "w") as f:
+                  f.write(f"{tag} probe {chip}\n")
+              if blob_mb:
+                  with open(os.path.join(d, "blob.bin"), "wb") as f:
+                      f.write(os.urandom(blob_mb * 1024 * 1024))
+              real_run(["git", "add", "-A"], cwd=d, check=True)
+              real_run(["git", "-c", "user.name=probe", "-c",
+                        "user.email=probe@example.com", "commit", "-q", "-m",
+                        f"push probe {tag} ({chip})"], cwd=d, check=True)
+              return d
+
+          for tag, mb in (("small", 0), ("large", 12)):
+              d = make_orphan(tag, mb)
+              branch = f"m2m_probe_{chip}_{tag}"
+              print(f"\n[probe] === {tag} pack ({mb}MB blob) -> {branch} ===",
+                    flush=True)
+              try:
+                  _push_via_proxy(d, fork, f"HEAD:refs/heads/{branch}",
+                                  "--force")
+                  print(f"[probe] {tag}: PUSH OK", flush=True)
+              except Exception as exc:
+                  print(f"[probe] {tag}: PUSH FAILED: {exc}", flush=True)
+          PY
+
+      - name: Cleanup probe branches
+        if: always()
+        run: |
+          for b in "m2m_probe_${PROBE_CHIP}_small" "m2m_probe_${PROBE_CHIP}_large"; do
+            git push --force --delete \
+              "https://x-access-token:${GH_TOKEN}@github.com/${PROBE_FORK}.git" \
+              "$b" >/dev/null 2>&1 || true
+          done
+          echo "probe branches cleaned"
