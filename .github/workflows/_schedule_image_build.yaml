@@ -105,10 +105,25 @@ on:
         type: string
         default: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann'
       cann_version:
-        description: 'CANN version'
+        description: 'CANN version for daily tag naming (e.g. 2026.08.03)'
         required: false
         type: string
         default: '2026.08.03'
+      cann_image_version:
+        description: 'CANN version for the build container image tag (default matches Dockerfile FROM: 9.1.0)'
+        required: false
+        type: string
+        default: '9.1.0'
+      soc:
+        description: 'Ascend SoC type for the CANN base image (e.g. 910b, a3, 310p, 950)'
+        required: false
+        type: string
+        default: '910b'
+      base_os:
+        description: 'Base OS for the CANN base image (e.g. ubuntu22.04, openeuler24.03)'
+        required: false
+        type: string
+        default: 'ubuntu22.04'
       triton_ascend_version:
         description: 'Triton Ascend version'
         required: false
@@ -144,7 +159,7 @@ jobs:
     name: build
     runs-on: ${{ matrix.runner_info.runner }}
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-a3-ubuntu22.04-py3.12
+      image: ${{ format('{0}:{1}-{2}-{3}-py3.12', inputs.cann_quay_url, inputs.cann_image_version, inputs.soc, inputs.base_os) }}
     permissions:
       packages: write
       contents: read
@@ -242,7 +257,9 @@ jobs:
       id: get_base_image_tag
       run: |
         DOCKERFILE="${{ inputs.dockerfile || 'Dockerfile' }}"
-        BASE_IMAGE_TAG=$(grep -m1 '^FROM' "$DOCKERFILE" | awk -F: '{print $NF}')
+        BASE_IMAGE_TAG=$(grep -m1 '^FROM' "$DOCKERFILE" | awk -F: '{print $NF}' \
+          | sed -e "s|\${CANN_VERSION}|${{ inputs.cann_image_version }}|g" \
+                -e "s|\${BASE_OS}|${{ inputs.base_os }}|g")
         echo "BASE_IMAGE_TAG=$BASE_IMAGE_TAG" >> $GITHUB_OUTPUT
 
     - name: Get csrc hash
