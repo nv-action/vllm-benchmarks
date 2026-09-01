@@ -292,8 +292,18 @@ jobs:
 
     - name: Install csrc cache dependencies
       run: |
-        apt-get update -y
-        apt-get install -y zstd
+        if [ -f /etc/apt/sources.list ]; then
+          # Ubuntu 基础镜像：用 apt 安装 zstd
+          apt-get update -y
+          apt-get install -y zstd
+        elif command -v dnf &>/dev/null; then
+          # openEuler 基础镜像：通常已自带 zstd，仅在缺失时安装
+          if ! command -v zstd &>/dev/null; then
+            # 替换 yum 源为内部镜像，同 Dockerfile.openEuler 的逻辑
+            sed -Ei 's@https?://[^/]+@http://cache-service.nginx-pypi-cache.svc.cluster.local:8083@g' /etc/yum.repos.d/*.repo
+            dnf install -y zstd || echo "warning: failed to install zstd via dnf"
+          fi
+        fi
 
     - name: Restore vllm-ascend csrc cache
       id: cache-csrc
