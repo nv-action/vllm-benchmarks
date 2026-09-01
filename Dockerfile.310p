@@ -31,7 +31,7 @@ ARG PIP_TRUSTED_HOST=""
 WORKDIR /workspace
 
 RUN if [ -n "$APTMIRROR" ]; then \
-        sed -Ei "s@(ports|archive).ubuntu.com@${APTMIRROR#http://}@g" /etc/apt/sources.list; \
+        sed -Ei "s@(ports|archive).ubuntu.com@${APTMIRROR#*://}@g" /etc/apt/sources.list; \
     fi && \
     apt-get update -y && \
     apt-get install -y python3-pip git vim wget net-tools gcc g++ cmake numactl libnuma-dev libjemalloc2 pciutils && \

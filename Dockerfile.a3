@@ -35,7 +35,7 @@ WORKDIR /workspace
 # Install clang-15 (for triton-ascend) and Mooncake
 ARG MOONCAKE_TAG=0.3.11.post1
 RUN if [ -n "$APTMIRROR" ]; then \
-        sed -Ei "s@(ports|archive).ubuntu.com@${APTMIRROR#http://}@g" /etc/apt/sources.list; \
+        sed -Ei "s@(ports|archive).ubuntu.com@${APTMIRROR#*://}@g" /etc/apt/sources.list; \
     fi && \
     apt-get update -y && \
     apt-get install -y git vim wget net-tools gcc g++ cmake numactl libnuma-dev libibverbs-dev libjemalloc2 libhiredis-dev clang-15 && \
