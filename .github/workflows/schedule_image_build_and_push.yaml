@@ -170,7 +170,7 @@ jobs:
       # path as quay.io; the sync tool then mirrors them to quay.io.
       swr_registry: 'swr.cn-southwest-2.myhuaweicloud.com'
       swr_repo: ${{ inputs.build_type == 'daily' && 'swr.cn-southwest-2.myhuaweicloud.com/atlas_inference_cq/vllm-ascend' || 'swr.cn-southwest-2.myhuaweicloud.com/ascend/vllm-ascend' }}
-      swr_temp_repo: ${{ inputs.build_type == 'daily' && 'swr.cn-southwest-2.myhuaweicloud.com/atlas_inference/vllm-atlas-temp' || 'swr.cn-southwest-2.myhuaweicloud.com/atlas_ci_cq/vllm-atlas-temp' }}
+      swr_temp_repo: ${{ inputs.build_type == 'daily' && 'swr.cn-southwest-2.myhuaweicloud.com/atlas_inference_cq/vllm-atlas-temp' || 'swr.cn-southwest-2.myhuaweicloud.com/atlas_ci_cq/vllm-atlas-temp' }}
       # ======================================================================
       
       should_push: ${{ github.repository == 'nv-action/vllm-benchmarks' && github.event_name != 'pull_request' }}
@@ -258,7 +258,7 @@ jobs:
       base_os: ${{ matrix.build_meta.base_os }}
       cann_image_version: ${{ inputs.cann_image_version || '9.1.0' }}
       swr_registry: 'swr.cn-southwest-2.myhuaweicloud.com'
-      swr_temp_repo: ${{ inputs.build_type == 'daily' && 'swr.cn-southwest-2.myhuaweicloud.com/atlas_inference/vllm-atlas-temp' || 'swr.cn-southwest-2.myhuaweicloud.com/atlas_ci_cq/vllm-atlas-temp' }}
+      swr_temp_repo: ${{ inputs.build_type == 'daily' && 'swr.cn-southwest-2.myhuaweicloud.com/atlas_inference_cq/vllm-atlas-temp' || 'swr.cn-southwest-2.myhuaweicloud.com/atlas_ci_cq/vllm-atlas-temp' }}
       should_push: true
       temp_only: true
       vllm_commit: ${{ inputs.vllm_commit }}
