@@ -16,7 +16,7 @@ on:
         description: 'SWR repository for single-arch temp images (mirrors quay.io/atlas-ci/vllm-atlas-temp)'
         required: false
         type: string
-        default: 'swr.cn-southwest-2.myhuaweicloud.com/atlas_ci/vllm-atlas-temp'
+        default: 'swr.cn-southwest-2.myhuaweicloud.com/atlas_ci_cq/vllm-atlas-temp'
       suffix:
         description: 'The tag subfix to use'
         required: true
