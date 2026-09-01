@@ -149,7 +149,7 @@ jobs:
       swr_temp_repo: ${{ inputs.build_type == 'daily' && 'swr.cn-southwest-2.myhuaweicloud.com/atlas_inference/vllm-atlas-temp' || 'swr.cn-southwest-2.myhuaweicloud.com/atlas_ci/vllm-atlas-temp' }}
       # ======================================================================
       
-      should_push: ${{ github.repository == 'vllm-project/vllm-ascend' && github.event_name != 'pull_request' }}
+      should_push: ${{ github.repository == 'nv-action/vllm-benchmarks' && github.event_name != 'pull_request' }}
       workflow_dispatch_tag: ${{ inputs.tag != 'none' && inputs.tag || '' }}
       branch_ref: ${{ inputs.branch != 'none' && inputs.branch || '' }}
       schedule_tag_pattern: 'main'
