@@ -131,6 +131,10 @@ jobs:
             --no-build-isolation -e .
 
       - name: Run pristine CPU UT (flow ut_check)
+        env:
+          # Import ascend/vllm from the installed packages (upstream
+          # pr_test model) instead of PYTHONPATH source-tree injection.
+          MAIN2MAIN_UT_SYSTEM_IMPORT: '1'
         run: |
           python3 - <<'PY'
           import json
