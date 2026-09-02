@@ -85,38 +85,19 @@ jobs:
           git config user.email "main2main-bot@users.noreply.github.com"
           gh --version
 
-      # flow provides ut_check + the pytest plugins; same install as the
-      # main job (opencode itself is not needed for the UT probe).
+      # flow provides ut_check + the pytest plugins; checked out via
+      # actions/checkout (runner insteadOf route — a raw git clone of
+      # github.com is intermittently blocked on this runner) then
+      # editable-installed like the main job does.
+      - name: Checkout main2main_flow
+        uses: actions/checkout@v7
+        with:
+          repository: vllm-ascend/main2main_flow
+          ref: ${{ env.MAIN2MAIN_FLOW_REF }}
+          path: flow
+
       - name: Install main2main-flow
-        run: |
-          set -euxo pipefail
-          M2M_FLOW_DIR="/tmp/main2main_flow"
-          FLOW_REF="${MAIN2MAIN_FLOW_REF:-main}"
-          FLOW_OK=false
-          for i in 1 2 3; do
-            if [ ! -d "${M2M_FLOW_DIR}/.git" ]; then
-              if git clone --branch "${FLOW_REF}" \
-                https://github.com/vllm-ascend/main2main_flow.git "${M2M_FLOW_DIR}" \
-                && pip install -e "${M2M_FLOW_DIR}"; then
-                FLOW_OK=true
-                break
-              fi
-            else
-              if git -C "${M2M_FLOW_DIR}" fetch origin "${FLOW_REF}" \
-                && git -C "${M2M_FLOW_DIR}" checkout --detach FETCH_HEAD \
-                && pip install -e "${M2M_FLOW_DIR}"; then
-                FLOW_OK=true
-                break
-              fi
-            fi
-            echo "main2main_flow install failed (attempt ${i}/3)"
-            rm -rf "${M2M_FLOW_DIR}"
-            [ "${i}" -lt 3 ] && sleep 15
-          done
-          if [ "${FLOW_OK}" != "true" ]; then
-            echo "::error::main2main_flow install failed after 3 attempts"
-            exit 1
-          fi
+        run: pip install -e flow
 
       - name: Install vllm-project/vllm from source
         working-directory: vllm-upstream
