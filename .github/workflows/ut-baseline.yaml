@@ -120,13 +120,11 @@ jobs:
           uv pip install -r requirements-dev.txt
           uv pip install -e .
 
-      # System-mode full chain (NO venv — the exact upstream cpu-0 model):
-      # version dump + ut_check NO_VENV batch + system mypy
-      # (tools/mypy.sh scope) + format.sh.  Decides whether ut_check's
-      # venv (numpy 1.26.4 / pytest 8.3.2 pins) is still needed.
-      - name: System-mode full chain (no venv) + version dump
+      # Full pre_ci chain through the FLOW's real run_check (system-mode
+      # after the venv removal): version dump + run_check (format + mypy +
+      # ut, exactly what per-step pre_ci and the final gate run).
+      - name: Flow run_check (system-mode, no venv) + version dump
         env:
-          MAIN2MAIN_UT_NO_VENV: '1'
           MAIN2MAIN_UT_SYSTEM_IMPORT: '1'
           TORCH_DEVICE_BACKEND_AUTOLOAD: '0'
           VLLM_WORKER_MULTIPROC_METHOD: spawn
@@ -135,7 +133,7 @@ jobs:
           python3 -c "import numpy; print('numpy:', numpy.__version__)"
           python3 -m pytest --version
           python3 -m mypy --version
-          echo "== ut_check NO_VENV batch =="
+          echo "== flow run_check =="
           python3 - <<'PY'
           import json
           import os
@@ -144,25 +142,16 @@ jobs:
 
           ws = Path(os.environ["GITHUB_WORKSPACE"])
           sys.path.insert(0, str(ws))
-          from main2main_flow.scripts.utils.ut_check import check_ut
-          r = check_ut(ws, ws / "vllm-upstream", log_label="sysmode")
-          print("SYS-UT violations:", len(r.get("violations", [])))
-          for v in r.get("violations", [])[:6]:
-              print("---")
-              print(v[:400])
+          from main2main_flow.scripts.utils.pre_ci_check import run_check
+          r = run_check(ws, "0.27.1", vllm_path=ws / "vllm-upstream")
+          print("RUN_CHECK all_passed:", r.get("all_passed"))
+          for c in r.get("checks", []):
+              print(f"  {c['name']}: passed={c.get('passed')} "
+                    f"skipped={c.get('skipped', False)} "
+                    f"violations={len(c.get('violations', []))}")
+              for v in c.get("violations", [])[:4]:
+                  print("    -", v[:200])
           PY
-          echo "== system mypy (upstream tools/mypy.sh: separate targets) =="
-          cd "$GITHUB_WORKSPACE"
-          for t in vllm_ascend examples tests; do
-            PYTHONPATH="$GITHUB_WORKSPACE/vllm-upstream" mypy \
-              --follow-imports skip --check-untyped-defs \
-              "$t" > /tmp/mypy-${t}.log 2>&1
-            echo "mypy $t exit: $?"
-            tail -2 /tmp/mypy-${t}.log
-          done
-          echo "== format.sh =="
-          bash format.sh > /tmp/format.log 2>&1; echo "format.sh exit: $?"
-          tail -3 /tmp/format.log
 
       - name: Run pristine CPU UT (flow ut_check)
         env:
