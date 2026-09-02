@@ -1,0 +1,100 @@
+# Pristine CPU-UT baseline probe.
+#
+# Runs the flow's ut_check batch against PRISTINE vllm-ascend upstream
+# main + the verified vllm commit (ascend's .github/vllm-main-verified.commit)
+# — no adaptation applied.  Answers: are there CPU-UT failures that belong
+# to the environment/upstream itself rather than to the adapter's diff?
+# Same container image, same deps install, same ut_check path as the main
+# job's pre_ci / final gate, so failures here are the baseline the gate
+# must tolerate (or classify) instead of feeding them to the adapter.
+name: UT baseline probe
+
+on:
+  workflow_dispatch:
+
+jobs:
+  ut-baseline:
+    runs-on: linux-amd64-cpu-8-hk
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-910b-ubuntu22.04-py3.12
+      env:
+        VLLM_LOGGING_LEVEL: ERROR
+    steps:
+      - name: Checkout vllm-ascend (upstream main)
+        uses: actions/checkout@v7
+        with:
+          repository: vllm-project/vllm-ascend
+          path: ascend
+
+      - name: Resolve verified vllm commit
+        run: |
+          echo "VLLM_COMMIT=$(tr -d '[:space:]' < ascend/.github/vllm-main-verified.commit)" >> "$GITHUB_ENV"
+          echo "verified vllm commit: ${VLLM_COMMIT}"
+
+      - name: Checkout vllm (verified commit)
+        uses: actions/checkout@v7
+        with:
+          repository: vllm-project/vllm
+          ref: ${{ env.VLLM_COMMIT }}
+          path: vllm-upstream
+
+      - name: Checkout main2main_flow (ut_check provider)
+        uses: actions/checkout@v7
+        with:
+          repository: vllm-ascend/main2main_flow
+          ref: feature/e2e-external
+          path: flow
+
+      - name: Install vllm-ascend deps (same as main job)
+        working-directory: ${{ github.workspace }}
+        env:
+          SOC_VERSION: ascend910b1
+        run: |
+          grep -v '^uc-manager$' ascend/requirements-dev.txt > ascend/requirements-dev-nouc.txt
+          uv pip install -r ascend/requirements-dev-nouc.txt
+          rm -f ascend/requirements-dev-nouc.txt
+          python3 - <<'PY'
+          import importlib.util
+          import os
+          from pathlib import Path
+
+          spec = importlib.util.spec_from_file_location(
+              "hardware", os.path.join(os.getcwd(), "ascend", "vllm_ascend", "device", "hardware.py"))
+          hardware = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(hardware)
+          device_type = hardware.device_type_from_soc_version(os.environ["SOC_VERSION"]).name
+          Path("ascend/vllm_ascend/_build_info.py").write_text(
+              "# Auto-generated file\n"
+              f"DEVICE_TYPE = '{device_type}'\n"
+              f"SOC_VERSION = '{os.environ['SOC_VERSION']}'\n")
+          print("build info:", device_type)
+          PY
+          pip install -q pyyaml regex
+
+      - name: Run pristine CPU UT (flow ut_check)
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          ws = Path(os.environ["GITHUB_WORKSPACE"])
+          os.environ["PYTHONPATH"] = str(ws / "flow")
+          from main2main_flow.scripts.utils.ut_check import check_ut
+
+          r = check_ut(ws / "ascend", ws / "vllm-upstream", log_label="ut-baseline")
+          (ws / "ut-baseline-result.json").write_text(
+              json.dumps(r, indent=2, ensure_ascii=False), encoding="utf-8")
+          print("=== RESULT ===")
+          print(json.dumps({"skipped": r.get("skipped", False),
+                            "violations_count": len(r.get("violations", [])),
+                            "detail": r.get("detail", "")}, indent=2))
+          for v in r.get("violations", [])[:40]:
+              print("---")
+              print(v)
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ut-baseline
+          path: ut-baseline-result.json
