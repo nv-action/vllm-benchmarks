@@ -4,13 +4,16 @@
 # main + the verified vllm commit (ascend's .github/vllm-main-verified.commit)
 # — no adaptation applied.  Answers: are there CPU-UT failures that belong
 # to the environment/upstream itself rather than to the adapter's diff?
-# Same container image, same deps install, same ut_check path as the main
-# job's pre_ci / final gate, so failures here are the baseline the gate
-# must tolerate (or classify) instead of feeding them to the adapter.
+# Every setup step is copied VERBATIM from schedule_main2main.yaml's
+# main2main job (install deps / vllm from source / ascend deps) so the
+# environment is byte-identical to the flow's pre_ci and final gate.
 name: UT baseline probe
 
 on:
   workflow_dispatch:
+
+env:
+  MAIN2MAIN_FLOW_REF: feature/e2e-external
 
 jobs:
   ut-baseline:
@@ -29,58 +32,122 @@ jobs:
         UV_HTTP_TIMEOUT: 120
         UV_NO_CACHE: 1
         UV_SYSTEM_PYTHON: 1
+        PRE_COMMIT_HOME: /tmp/main2main-pre-commit
+
     steps:
-      - name: Checkout vllm-ascend (upstream main)
+      - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v7
         with:
           repository: vllm-project/vllm-ascend
-          path: ascend
+          ref: main
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Exclude vllm dir from ascend git
+        run: echo "vllm-upstream/" >> .git/info/exclude
 
       - name: Resolve verified vllm commit
+        id: verified
         run: |
-          echo "VLLM_COMMIT=$(tr -d '[:space:]' < ascend/.github/vllm-main-verified.commit)" >> "$GITHUB_ENV"
+          echo "VLLM_COMMIT=$(tr -d '[:space:]' < .github/vllm-main-verified.commit)" >> "$GITHUB_ENV"
           echo "verified vllm commit: ${VLLM_COMMIT}"
 
-      - name: Checkout vllm (verified commit)
+      - name: Checkout vllm-project/vllm repo
         uses: actions/checkout@v7
         with:
           repository: vllm-project/vllm
           ref: ${{ env.VLLM_COMMIT }}
           path: vllm-upstream
+          fetch-depth: 0
 
-      - name: Checkout main2main_flow (ut_check provider)
-        uses: actions/checkout@v7
-        with:
-          repository: vllm-ascend/main2main_flow
-          ref: feature/e2e-external
-          path: flow
+      - name: Install dependencies
+        run: |
+          sed -Ei 's@(ports|archive).ubuntu.com@cache-service.nginx-pypi-cache.svc.cluster.local:8081@g' /etc/apt/sources.list
+          pip config set global.index-url http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+          pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
+          apt-get update -y
+          if [ -s "$GITHUB_WORKSPACE/packages.txt" ]; then
+            xargs -r apt-get -y install < "$GITHUB_WORKSPACE/packages.txt"
+          fi
+          apt-get -y install git curl ca-certificates gcc g++ cmake libnuma-dev zstd clang-15 jq gh shellcheck
+          update-alternatives --install /usr/bin/clang clang /usr/bin/clang-15 20
+          update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-15 20
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/vllm-upstream"
+          pip install uv pytest
 
-      - name: Install vllm-ascend deps (same as main job)
+      - name: Configure git identity
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -eu
+          git config user.name "main2main-bot"
+          git config user.email "main2main-bot@users.noreply.github.com"
+          gh --version
+
+      # flow provides ut_check + the pytest plugins; same install as the
+      # main job (opencode itself is not needed for the UT probe).
+      - name: Install main2main-flow
+        run: |
+          set -euxo pipefail
+          M2M_FLOW_DIR="/tmp/main2main_flow"
+          FLOW_REF="${MAIN2MAIN_FLOW_REF:-main}"
+          FLOW_OK=false
+          for i in 1 2 3; do
+            if [ ! -d "${M2M_FLOW_DIR}/.git" ]; then
+              if git clone --branch "${FLOW_REF}" \
+                https://github.com/vllm-ascend/main2main_flow.git "${M2M_FLOW_DIR}" \
+                && pip install -e "${M2M_FLOW_DIR}"; then
+                FLOW_OK=true
+                break
+              fi
+            else
+              if git -C "${M2M_FLOW_DIR}" fetch origin "${FLOW_REF}" \
+                && git -C "${M2M_FLOW_DIR}" checkout --detach FETCH_HEAD \
+                && pip install -e "${M2M_FLOW_DIR}"; then
+                FLOW_OK=true
+                break
+              fi
+            fi
+            echo "main2main_flow install failed (attempt ${i}/3)"
+            rm -rf "${M2M_FLOW_DIR}"
+            [ "${i}" -lt 3 ] && sleep 15
+          done
+          if [ "${FLOW_OK}" != "true" ]; then
+            echo "::error::main2main_flow install failed after 3 attempts"
+            exit 1
+          fi
+
+      - name: Install vllm-project/vllm from source
+        working-directory: vllm-upstream
+        run: |
+          VLLM_TARGET_DEVICE=empty uv pip install .
+          pip uninstall -y triton
+
+      - name: Install vllm-ascend deps only (no csrc compile/install)
         working-directory: ${{ github.workspace }}
         env:
           SOC_VERSION: ascend910b1
         run: |
-          pip install -q uv
-          grep -v '^uc-manager$' ascend/requirements-dev.txt > ascend/requirements-dev-nouc.txt
-          uv pip install -r ascend/requirements-dev-nouc.txt
-          rm -f ascend/requirements-dev-nouc.txt
+          grep -v '^uc-manager$' requirements-dev.txt > requirements-dev-nouc.txt
+          uv pip install -r requirements-dev-nouc.txt
+          rm -f requirements-dev-nouc.txt
           python3 - <<'PY'
           import importlib.util
           import os
           from pathlib import Path
 
           spec = importlib.util.spec_from_file_location(
-              "hardware", os.path.join(os.getcwd(), "ascend", "vllm_ascend", "device", "hardware.py"))
+              "hardware", os.path.join(os.getcwd(), "vllm_ascend", "device", "hardware.py"))
           hardware = importlib.util.module_from_spec(spec)
           spec.loader.exec_module(hardware)
           device_type = hardware.device_type_from_soc_version(os.environ["SOC_VERSION"]).name
-          Path("ascend/vllm_ascend/_build_info.py").write_text(
+          Path("vllm_ascend/_build_info.py").write_text(
               "# Auto-generated file\n"
-              f"DEVICE_TYPE = '{device_type}'\n"
-              f"SOC_VERSION = '{os.environ['SOC_VERSION']}'\n")
-          print("build info:", device_type)
+              f"__device_type__ = '{device_type}'\n")
           PY
-          pip install -q pyyaml regex
+          COMPILE_CUSTOM_KERNELS=0 uv pip install --no-deps \
+            --no-build-isolation -e .
 
       - name: Run pristine CPU UT (flow ut_check)
         run: |
@@ -91,10 +158,11 @@ jobs:
           from pathlib import Path
 
           ws = Path(os.environ["GITHUB_WORKSPACE"])
-          sys.path.insert(0, str(ws / "flow"))
+          sys.path.insert(0, str(ws))
+          sys.path.insert(0, str(ws / "vllm-upstream"))
           from main2main_flow.scripts.utils.ut_check import check_ut
 
-          r = check_ut(ws / "ascend", ws / "vllm-upstream", log_label="ut-baseline")
+          r = check_ut(ws, ws / "vllm-upstream", log_label="ut-baseline")
           (ws / "ut-baseline-result.json").write_text(
               json.dumps(r, indent=2, ensure_ascii=False), encoding="utf-8")
           print("=== RESULT ===")
@@ -103,7 +171,7 @@ jobs:
                             "detail": r.get("detail", "")}, indent=2))
           for v in r.get("violations", [])[:40]:
               print("---")
-              print(v)
+              print(v[:800])
           PY
 
       - uses: actions/upload-artifact@v4
