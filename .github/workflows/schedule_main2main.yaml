@@ -638,35 +638,21 @@ jobs:
       # uc-manager is excluded: it has no amd64 wheel and its sdist build
       # fetches vendor deps over git, which fails on this runner (run
       # 32985956048).  It is a device-side library — no CPU UT imports it.
-      - name: Install vllm-ascend deps only (no csrc compile/install)
+      # Verbatim copy of upstream _selected_tests.yaml "Install
+      # vllm-project/vllm-ascend no device" (cpu group): uc-manager IS
+      # installed (amd64 wheel now exists on the internal whl index —
+      # upstream cpu jobs install it fine), requirements-dev fully, and a
+      # FULL editable install — setup.py's custom_develop generates
+      # _build_info.py itself, no manual stub needed.
+      - name: Install vllm-project/vllm-ascend no device (upstream cpu mode)
         working-directory: ${{ github.workspace }}
         env:
           SOC_VERSION: ascend910b1
+          COMPILE_CUSTOM_KERNELS: 0
         run: |
-          # Keep the filtered copy in the repo root so the `-r
-          # requirements-lint.txt` / `-r requirements.txt` includes inside
-          # requirements-dev.txt still resolve relative to the checkout.
-          grep -v '^uc-manager$' requirements-dev.txt > requirements-dev-nouc.txt
-          uv pip install -r requirements-dev-nouc.txt
-          rm -f requirements-dev-nouc.txt
-          python3 - <<'PY'
-          import importlib.util
-          import os
-          from pathlib import Path
-
-          # Reproduce setup.py's gen_build_info without installing the
-          # package (hardware.py is stdlib-only by design for setup.py).
-          spec = importlib.util.spec_from_file_location(
-              "hardware", os.path.join(os.getcwd(), "vllm_ascend", "device", "hardware.py"))
-          hardware = importlib.util.module_from_spec(spec)
-          spec.loader.exec_module(hardware)
-          device_type = hardware.device_type_from_soc_version(os.environ["SOC_VERSION"]).name
-          Path("vllm_ascend/_build_info.py").write_text(
-              "# Auto-generated file\n"
-              f"__device_type__ = '{device_type}'\n")
-          PY
-          COMPILE_CUSTOM_KERNELS=0 uv pip install --no-deps \
-            --no-build-isolation -e .
+          pip install uc-manager
+          uv pip install -r requirements-dev.txt
+          uv pip install -e .
 
       - name: Run main2main flow
         id: run-main2main
