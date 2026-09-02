@@ -87,10 +87,11 @@ jobs:
           python3 - <<'PY'
           import json
           import os
+          import sys
           from pathlib import Path
 
           ws = Path(os.environ["GITHUB_WORKSPACE"])
-          os.environ["PYTHONPATH"] = str(ws / "flow")
+          sys.path.insert(0, str(ws / "flow"))
           from main2main_flow.scripts.utils.ut_check import check_ut
 
           r = check_ut(ws / "ascend", ws / "vllm-upstream", log_label="ut-baseline")
