@@ -2,26 +2,21 @@ name: Image_oncall
 on:
   workflow_call:
     inputs:
-      quay_repo:
-        description: 'Quay repository for final images'
+      swr_repo:
+        description: 'SWR repository for final multi-arch images (same name as the quay.io repo, sync tool mirrors it to quay.io)'
         required: false
         type: string
-        default: 'quay.io/ascend/vllm-ascend'
-      quay_temp_repo:
-        description: 'Quay repository for temp images'
-        required: false
-        type: string
-        default: 'quay.io/atlas-ci/vllm-atlas-temp'
+        default: 'swr.cn-southwest-2.myhuaweicloud.com/ascend/vllm-ascend'
       swr_registry:
-        description: 'swr repository for temp images'
+        description: 'SWR registry domain'
         required: false
         type: string
-        default: 'swr.cn-north-12.myhuaweicloud.com'
+        default: 'swr.cn-southwest-2.myhuaweicloud.com'
       swr_temp_repo:
-        description: 'swr repository for temp images'
+        description: 'SWR repository for single-arch temp images (mirrors quay.io/atlas-ci/vllm-atlas-temp)'
         required: false
         type: string
-        default: 'swr.cn-north-12.myhuaweicloud.com/modelfoundry/buildkit-test'    
+        default: 'swr.cn-southwest-2.myhuaweicloud.com/atlas_ci_cq/vllm-atlas-temp'
       suffix:
         description: 'The tag subfix to use'
         required: true
@@ -33,14 +28,6 @@ on:
         default: False
       dockerfile:
         description: 'The Dockerfile to use'
-        required: false
-        type: string
-      quay_username:
-        description: 'Quay username for pushing images'
-        required: false
-        type: string
-      quay_temp_username:
-        description: 'Quay username for pushing temp tag digests'
         required: false
         type: string
       workflow_dispatch_tag:
@@ -73,7 +60,7 @@ on:
         type: string
         default: ''
       temp_only:
-        description: 'If true, push only to QUAY_TEMP_REPO and skip the merge-image job (no push to QUAY_REPO).'
+        description: 'If true, push only to SWR temp repo and skip the merge-image job (no push to SWR_REPO).'
         required: false
         type: boolean
         default: false
@@ -113,15 +100,30 @@ on:
         type: string
         default: '20260715.4'
       cann_quay_url:
-        description: 'CANN Quay URL'
+        description: 'CANN base image URL'
         required: false
         type: string
-        default: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/cann'
+        default: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann'
       cann_version:
-        description: 'CANN version'
+        description: 'CANN version for daily tag naming (e.g. 2026.08.03)'
         required: false
         type: string
         default: '2026.08.03'
+      cann_image_version:
+        description: 'CANN version for the build container image tag (default matches Dockerfile FROM: 9.1.0)'
+        required: false
+        type: string
+        default: '9.1.0'
+      soc:
+        description: 'Ascend SoC type for the CANN base image (e.g. 910b, a3, 310p, 950)'
+        required: false
+        type: string
+        default: '910b'
+      base_os:
+        description: 'Base OS for the CANN base image (e.g. ubuntu22.04, openeuler24.03)'
+        required: false
+        type: string
+        default: 'ubuntu22.04'
       triton_ascend_version:
         description: 'Triton Ascend version'
         required: false
@@ -138,17 +140,11 @@ on:
         type: string
         default: ''
     secrets:
-        QUAY_PASSWORD:
-            description: 'Quay password for pushing images'
-            required: false
-        QUAY_TEMP_PASSWORD:
-            description: 'Quay password for pushing temp tag digests'
-            required: false
         SWR_USERNAME:
-            description: 'SWR username for pulling and pushing CANN base images'
+            description: 'SWR username for pulling and pushing images'
             required: false
         SWR_PASSWORD:
-            description: 'SWR password for pulling and pushing CANN base images'
+            description: 'SWR password for pulling and pushing images'
             required: false
 
 defaults:
@@ -156,15 +152,14 @@ defaults:
     shell: bash -el {0}
 
 env:
-  QUAY_REPO: ${{ inputs.quay_repo }}
-  QUAY_TEMP_REPO: ${{ inputs.quay_temp_repo }}
+  SWR_REPO: ${{ inputs.swr_repo }}
 
 jobs:
   build-push-digest:
     name: build
     runs-on: ${{ matrix.runner_info.runner }}
     container:
-      image: swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-a3-ubuntu22.04-py3.12
+      image: ${{ format('{0}:{1}-{2}-{3}-py3.12', inputs.cann_quay_url, inputs.cann_image_version, inputs.soc, inputs.base_os) }}
     permissions:
       packages: write
       contents: read
@@ -173,8 +168,8 @@ jobs:
       max-parallel: 2
       matrix:
         runner_info:
-          - {runner: linux-aarch64-cpu-4, tag: arm64}
-          - {runner: linux-amd64-cpu-4, tag: amd64}
+          - {runner: linux-aarch64-cpu-4-buildkit-gy006, tag: arm64}
+          - {runner: linux-amd64-cpu-4-buildkit-gy006, tag: amd64}
 
     steps:
 
@@ -262,7 +257,9 @@ jobs:
       id: get_base_image_tag
       run: |
         DOCKERFILE="${{ inputs.dockerfile || 'Dockerfile' }}"
-        BASE_IMAGE_TAG=$(grep -m1 '^FROM' "$DOCKERFILE" | awk -F: '{print $NF}')
+        BASE_IMAGE_TAG=$(grep -m1 '^FROM' "$DOCKERFILE" | awk -F: '{print $NF}' \
+          | sed -e "s|\${CANN_VERSION}|${{ inputs.cann_image_version }}|g" \
+                -e "s|\${BASE_OS}|${{ inputs.base_os }}|g")
         echo "BASE_IMAGE_TAG=$BASE_IMAGE_TAG" >> $GITHUB_OUTPUT
 
     - name: Get csrc hash
@@ -295,8 +292,19 @@ jobs:
 
     - name: Install csrc cache dependencies
       run: |
-        apt-get update -y
-        apt-get install -y zstd
+        if [ -f /etc/apt/sources.list ]; then
+          # Ubuntu 基础镜像：替换 apt 源为内部镜像以加速安装 zstd
+          sed -Ei 's@https?://[^/]+@http://cache-service.nginx-pypi-cache.svc.cluster.local:8081@g' /etc/apt/sources.list
+          apt-get update -y
+          apt-get install -y zstd
+        elif command -v dnf &>/dev/null; then
+          # openEuler 基础镜像：通常已自带 zstd，仅在缺失时安装
+          if ! command -v zstd &>/dev/null; then
+            # 替换 yum 源为内部镜像，同 Dockerfile.openEuler 的逻辑
+            sed -Ei 's@https?://[^/]+@http://cache-service.nginx-pypi-cache.svc.cluster.local:8083@g' /etc/yum.repos.d/*.repo
+            dnf install -y zstd || echo "warning: failed to install zstd via dnf"
+          fi
+        fi
 
     - name: Restore vllm-ascend csrc cache
       id: cache-csrc
@@ -336,7 +344,9 @@ jobs:
           PYTORCH_INDEX_URL=http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu
           ASCEND_INDEX_URL=http://cache-service.nginx-pypi-cache.svc.cluster.local/ascend/repos/pypi
           GIT_PROXY=https://gh-proxy.test.osinfra.cn/
-          COMPILE_CUSTOM_KERNELS=${{ steps.cache-csrc.outputs.cache-hit == 'true' && '0' || '1' }}
+          # TODO(ci): 临时强制 0 以验证构建管线（跳过自定义算子编译，避免 buildkitd OOM）；
+          # 首次构建成功后应恢复为基于 csrc 缓存命中的逻辑
+          COMPILE_CUSTOM_KERNELS=0
           VLLM_COMMIT=${{ inputs.vllm_commit }}
           BUILD_TYPE=${{ inputs.build_type || 'release' }}
           MEMCACHE_VERSION=${{ inputs.memcache_version || '1.2.0' }}
@@ -375,7 +385,7 @@ jobs:
             TAG="nightly-${{ inputs.schedule_tag_pattern }}${SUFFIX}-${{ matrix.runner_info.tag }}-${DATE}-temp"
           fi
         fi
-        echo "Creating temp tag: ${{ env.swr_temp_repo }}:$TAG"
+        echo "Creating temp tag: ${{ inputs.swr_temp_repo }}:$TAG"
 
         # Install skopeo if not present (image is Ubuntu-based).
         if ! command -v skopeo >/dev/null 2>&1; then
@@ -481,7 +491,7 @@ jobs:
         with:
           # TODO(yikun): add more hub image and a note on release policy for container image
           images: |
-            ${{ env.QUAY_REPO }}
+            ${{ env.SWR_REPO }}
           # Three trigger scenarios and resulting image tags:
           # https://github.com/marketplace/actions/docker-metadata-action#typeref
           #
@@ -521,20 +531,14 @@ jobs:
           username: ${{ secrets.SWR_USERNAME }}
           password: ${{ secrets.SWR_PASSWORD }}
 
-      - name: Login to Quay
-        uses: docker/login-action@v4
-        with:
-          registry: quay.io
-          username: ${{ inputs.quay_username }}
-          password: ${{ secrets.QUAY_PASSWORD }}
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
       - name: Merge and push multi-arch image
         env:
           # Source digests live in SWR (where build-push-digest pushed them);
-          # destination tags come from $TAGS (metadata-action → QUAY_REPO).
+          # destination tags come from $TAGS (metadata-action → SWR_REPO, same name as
+          # the quay.io repo; the sync tool then mirrors swr.cn-southwest-2 → quay.io).
           SOURCE_IMAGE: ${{ inputs.swr_temp_repo }}
           TAGS: ${{ steps.meta.outputs.tags }}
           BUILD_TYPE: ${{ inputs.build_type }}
@@ -552,7 +556,7 @@ jobs:
           UNWANTED_TAG="nightly-${SCHEDULE_TAG_PATTERN}${SUFFIX}"
 
           for tag in $TAGS; do
-            if [ "$BUILD_TYPE" = "daily" ] && [ "$tag" = "${{ env.QUAY_REPO }}:${UNWANTED_TAG}" ]; then
+            if [ "$BUILD_TYPE" = "daily" ] && [ "$tag" = "${{ env.SWR_REPO }}:${UNWANTED_TAG}" ]; then
               echo "Skipping unwanted schedule tag: $tag"
               continue
             fi
@@ -605,21 +609,14 @@ jobs:
           username: ${{ secrets.SWR_USERNAME }}
           password: ${{ secrets.SWR_PASSWORD }}
 
-      - name: Login to Quay Temp
-        uses: docker/login-action@v4
-        with:
-          registry: quay.io
-          username: ${{ inputs.quay_temp_username }}
-          password: ${{ secrets.QUAY_TEMP_PASSWORD }}
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Merge and push multi-arch manifest to QUAY_TEMP_REPO
+      - name: Merge and push multi-arch manifest to SWR temp
         env:
-          # IMAGE is the destination (Quay temp); SOURCE_IMAGE is where the
+          # IMAGE is the destination (SWR temp); SOURCE_IMAGE is where the
           # single-arch digests actually live (SWR, pushed by build-push-digest).
-          IMAGE: ${{ env.QUAY_TEMP_REPO }}
+          IMAGE: ${{ inputs.swr_temp_repo }}
           SOURCE_IMAGE: ${{ inputs.swr_temp_repo }}
         run: |
           set -euo pipefail
