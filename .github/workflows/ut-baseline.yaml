@@ -137,9 +137,8 @@ jobs:
       - name: Probe vllm.config loading (CANN env sourced)
         run: |
           . /usr/local/Ascend/ascend-toolkit/set_env.sh
-          find /usr/local/Ascend -name "libascend_hal.so" 2>/dev/null | head -2
-          python3 -c "import vllm; print('import vllm OK, vllm.config loaded:', 'vllm.config' in sys.modules)"
-          python3 -c "import vllm_ascend.config_utils; print('config_utils -> vllm.config loaded:', 'vllm.config' in sys.modules)"
+          python3 -c "import sys; import vllm; print('import vllm OK, vllm.config loaded:', 'vllm.config' in sys.modules)"
+          python3 -c "import sys; import vllm_ascend.config_utils; print('config_utils -> vllm.config loaded:', 'vllm.config' in sys.modules)"
           python3 -c "import sys; import vllm_ascend.config_utils; assert 'vllm.config' not in sys.modules; import vllm_ascend.ascend_config; assert 'vllm.config' not in sys.modules; print('PROBE PASS')" && echo "PROBE: PASS" || echo "PROBE: FAIL"
 
       - name: Run pristine CPU UT (flow ut_check)
