@@ -75,7 +75,7 @@ jobs:
           update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-15 20
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git config --global --add safe.directory "$GITHUB_WORKSPACE/vllm-upstream"
-          pip install uv pytest
+          pip install uv  # pytest comes from requirements-dev (upstream resolution, 8.3.2)
 
       - name: Configure git identity
         working-directory: ${{ github.workspace }}
@@ -155,8 +155,9 @@ jobs:
           cd "$GITHUB_WORKSPACE"
           PYTHONPATH="$GITHUB_WORKSPACE/vllm-upstream" mypy \
             --follow-imports skip --check-untyped-defs \
-            vllm_ascend examples tests 2>&1 | tail -4
+            vllm_ascend examples tests > /tmp/mypy.log 2>&1
           echo "mypy exit: $?"
+          tail -4 /tmp/mypy.log
           echo "== format.sh =="
           bash format.sh > /tmp/format.log 2>&1; echo "format.sh exit: $?"
           tail -3 /tmp/format.log
