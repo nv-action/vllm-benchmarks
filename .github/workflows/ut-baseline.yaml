@@ -50,6 +50,7 @@ jobs:
         env:
           SOC_VERSION: ascend910b1
         run: |
+          pip install -q uv
           grep -v '^uc-manager$' ascend/requirements-dev.txt > ascend/requirements-dev-nouc.txt
           uv pip install -r ascend/requirements-dev-nouc.txt
           rm -f ascend/requirements-dev-nouc.txt
