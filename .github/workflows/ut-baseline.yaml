@@ -120,36 +120,46 @@ jobs:
           uv pip install -r requirements-dev.txt
           uv pip install -e .
 
-      # ut_check's batch still fails torch_npu (exit=4) while the clean
-      # probe venv passes — the remaining difference is ut_check's venv
-      # pip overrides (numpy from triton-ascend).  Expose torch_npu's real
-      # error and test the numpy override hypothesis.
-      - name: Probe torch_npu real error + numpy override
+      # System-mode full chain (NO venv — the exact upstream cpu-0 model):
+      # version dump + ut_check NO_VENV batch + system mypy
+      # (tools/mypy.sh scope) + format.sh.  Decides whether ut_check's
+      # venv (numpy 1.26.4 / pytest 8.3.2 pins) is still needed.
+      - name: System-mode full chain (no venv) + version dump
+        env:
+          MAIN2MAIN_UT_NO_VENV: '1'
+          MAIN2MAIN_UT_SYSTEM_IMPORT: '1'
+          TORCH_DEVICE_BACKEND_AUTOLOAD: '0'
+          VLLM_WORKER_MULTIPROC_METHOD: spawn
         run: |
-          . /usr/local/Ascend/ascend-toolkit/set_env.sh
-          python3 -c "import torch_npu; print('system torch_npu OK')" 2>&1 | tail -3
-          python3 -m venv /tmp/vtest --system-site-packages
-          /tmp/vtest/bin/pip install -q numpy==1.26.4
-          /tmp/vtest/bin/python -c "import torch; print('venv+numpy1.26.4 torch OK')" 2>&1 | tail -3
-          /tmp/vtest/bin/python -c "import sys; print('numpy:', sys.modules.get('numpy', '<not loaded>')); import torch; print('torch OK, vllm.config loaded:', 'vllm.config' in sys.modules)" 2>&1 | tail -3
-
-      # Trace WHO loads vllm.config in the test's subprocess: print full
-      # output + the importer chain (which module pulls vllm.config in).
-      - name: Trace vllm.config loading chain
-        run: |
-          TORCH_DEVICE_BACKEND_AUTOLOAD=0 python3 - <<'PY' 2>&1 | tail -25
+          echo "== system versions =="
+          python3 -c "import numpy; print('numpy:', numpy.__version__)"
+          python3 -m pytest --version
+          python3 -m mypy --version
+          echo "== ut_check NO_VENV batch =="
+          python3 - <<'PY'
+          import json
+          import os
           import sys
-          import vllm_ascend.config_utils
-          print('RESULT: vllm.config loaded =', 'vllm.config' in sys.modules)
-          if 'vllm.config' in sys.modules:
-              m = sys.modules['vllm.config']
-              print('vllm.config from:', m.__file__)
-          # who imported it: walk the import chain by re-importing in a
-          # fresh interpreter with -v is too noisy; show ascend package init
-          import vllm_ascend
-          print('ascend from:', vllm_ascend.__file__)
+          from pathlib import Path
+
+          ws = Path(os.environ["GITHUB_WORKSPACE"])
+          sys.path.insert(0, str(ws))
+          from main2main_flow.scripts.utils.ut_check import check_ut
+          r = check_ut(ws, ws / "vllm-upstream", log_label="sysmode")
+          print("SYS-UT violations:", len(r.get("violations", [])))
+          for v in r.get("violations", [])[:6]:
+              print("---")
+              print(v[:400])
           PY
-          TORCH_DEVICE_BACKEND_AUTOLOAD=0 python3 -m pytest -q --no-header tests/ut/test_ascend_config.py 2>&1 | tail -3
+          echo "== system mypy (tools/mypy.sh scope) =="
+          cd "$GITHUB_WORKSPACE"
+          PYTHONPATH="$GITHUB_WORKSPACE/vllm-upstream" mypy \
+            --follow-imports skip --check-untyped-defs \
+            vllm_ascend examples tests 2>&1 | tail -4
+          echo "mypy exit: $?"
+          echo "== format.sh =="
+          bash format.sh > /tmp/format.log 2>&1; echo "format.sh exit: $?"
+          tail -3 /tmp/format.log
 
       - name: Run pristine CPU UT (flow ut_check)
         env:
