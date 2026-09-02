@@ -130,16 +130,16 @@ jobs:
           COMPILE_CUSTOM_KERNELS=0 uv pip install --no-deps \
             --no-build-isolation -e .
 
-      # libascend_hal.so was missing on import (CANN LD_LIBRARY_PATH not
-      # sourced) — import vllm crashed, and ut_check's AUTOLOAD=0 bypass
-      # changed the import chain, loading vllm.config.  Source the CANN
-      # env (like the e2e serve path) and re-probe.
-      - name: Probe vllm.config loading (CANN env sourced)
+      # ut_check's CANN env injection still left torch_npu failing in the
+      # venv batch (exit=4).  Verify the extracted env and the venv python
+      # torch import under the sourced CANN env.
+      - name: Probe CANN env extraction + venv torch import
         run: |
+          bash -c ". /usr/local/Ascend/ascend-toolkit/set_env.sh && env" | grep -E "^(LD_LIBRARY_PATH|PATH)=" | cut -c1-260 | head -3
           . /usr/local/Ascend/ascend-toolkit/set_env.sh
-          python3 -c "import sys; import vllm; print('import vllm OK, vllm.config loaded:', 'vllm.config' in sys.modules)"
-          python3 -c "import sys; import vllm_ascend.config_utils; print('config_utils -> vllm.config loaded:', 'vllm.config' in sys.modules)"
-          python3 -c "import sys; import vllm_ascend.config_utils; assert 'vllm.config' not in sys.modules; import vllm_ascend.ascend_config; assert 'vllm.config' not in sys.modules; print('PROBE PASS')" && echo "PROBE: PASS" || echo "PROBE: FAIL"
+          python3 -m venv /tmp/vtest --system-site-packages
+          /tmp/vtest/bin/python -c "import torch; print('venv torch OK')" 2>&1 | tail -2
+          /tmp/vtest/bin/python -c "import sys; import torch; import vllm_ascend.config_utils; print('venv config_utils OK, vllm.config loaded:', 'vllm.config' in sys.modules)" 2>&1 | tail -2
 
       - name: Run pristine CPU UT (flow ut_check)
         env:
