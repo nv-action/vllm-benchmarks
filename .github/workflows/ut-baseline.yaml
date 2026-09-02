@@ -50,6 +50,10 @@ jobs:
         env:
           SOC_VERSION: ascend910b1
         run: |
+          # Same internal pypi mirror as the main job: the CANN image's
+          # torch is a local build (2.10.0+cpu) only resolvable there.
+          pip config set global.index-url http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+          pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
           pip install -q uv
           grep -v '^uc-manager$' ascend/requirements-dev.txt > ascend/requirements-dev-nouc.txt
           uv pip install --system -r ascend/requirements-dev-nouc.txt
