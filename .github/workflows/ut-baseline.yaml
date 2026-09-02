@@ -105,30 +105,20 @@ jobs:
           VLLM_TARGET_DEVICE=empty uv pip install .
           pip uninstall -y triton
 
-      - name: Install vllm-ascend deps only (no csrc compile/install)
+      # Verbatim copy of upstream _selected_tests.yaml "Install
+      # vllm-project/vllm-ascend no device" (cpu group): uc-manager IS
+      # installed (we previously excluded it as "no amd64 wheel" — the
+      # upstream cpu job installs it fine), requirements-dev fully, and a
+      # FULL editable install (setup.py generates _build_info.py itself).
+      - name: Install vllm-project/vllm-ascend no device (upstream cpu mode)
         working-directory: ${{ github.workspace }}
         env:
           SOC_VERSION: ascend910b1
+          COMPILE_CUSTOM_KERNELS: 0
         run: |
-          grep -v '^uc-manager$' requirements-dev.txt > requirements-dev-nouc.txt
-          uv pip install -r requirements-dev-nouc.txt
-          rm -f requirements-dev-nouc.txt
-          python3 - <<'PY'
-          import importlib.util
-          import os
-          from pathlib import Path
-
-          spec = importlib.util.spec_from_file_location(
-              "hardware", os.path.join(os.getcwd(), "vllm_ascend", "device", "hardware.py"))
-          hardware = importlib.util.module_from_spec(spec)
-          spec.loader.exec_module(hardware)
-          device_type = hardware.device_type_from_soc_version(os.environ["SOC_VERSION"]).name
-          Path("vllm_ascend/_build_info.py").write_text(
-              "# Auto-generated file\n"
-              f"__device_type__ = '{device_type}'\n")
-          PY
-          COMPILE_CUSTOM_KERNELS=0 uv pip install --no-deps \
-            --no-build-isolation -e .
+          pip install uc-manager
+          uv pip install -r requirements-dev.txt
+          uv pip install -e .
 
       # ut_check's batch still fails torch_npu (exit=4) while the clean
       # probe venv passes — the remaining difference is ut_check's venv
