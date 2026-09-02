@@ -133,14 +133,22 @@ jobs:
           /tmp/vtest/bin/python -c "import torch; print('venv+numpy1.26.4 torch OK')" 2>&1 | tail -3
           /tmp/vtest/bin/python -c "import sys; print('numpy:', sys.modules.get('numpy', '<not loaded>')); import torch; print('torch OK, vllm.config loaded:', 'vllm.config' in sys.modules)" 2>&1 | tail -3
 
-      # Upstream cpu-0's log shows "can not use command: npu-smi info"
-      # (vllm probes npu-smi, absent there -> degrade, vllm.config NOT
-      # loaded).  If npu-smi EXISTS here, the probe takes the platform
-      # branch and loads vllm.config.  Check visibility.
-      - name: Probe npu-smi visibility + vllm.config loading
+      # Trace WHO loads vllm.config in the test's subprocess: print full
+      # output + the importer chain (which module pulls vllm.config in).
+      - name: Trace vllm.config loading chain
         run: |
-          which npu-smi && echo "npu-smi EXISTS at: $(which npu-smi)" || echo "NO npu-smi"
-          TORCH_DEVICE_BACKEND_AUTOLOAD=0 python3 -c "import sys; import vllm_ascend.config_utils; print('vllm.config loaded:', 'vllm.config' in sys.modules); import vllm; print('vllm from:', vllm.__file__); import vllm_ascend; print('ascend from:', vllm_ascend.__file__)" 2>&1 | tail -4
+          TORCH_DEVICE_BACKEND_AUTOLOAD=0 python3 - <<'PY' 2>&1 | tail -25
+          import sys
+          import vllm_ascend.config_utils
+          print('RESULT: vllm.config loaded =', 'vllm.config' in sys.modules)
+          if 'vllm.config' in sys.modules:
+              m = sys.modules['vllm.config']
+              print('vllm.config from:', m.__file__)
+          # who imported it: walk the import chain by re-importing in a
+          # fresh interpreter with -v is too noisy; show ascend package init
+          import vllm_ascend
+          print('ascend from:', vllm_ascend.__file__)
+          PY
           TORCH_DEVICE_BACKEND_AUTOLOAD=0 python3 -m pytest -q --no-header tests/ut/test_ascend_config.py 2>&1 | tail -3
 
       - name: Run pristine CPU UT (flow ut_check)
