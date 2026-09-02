@@ -130,16 +130,18 @@ jobs:
           COMPILE_CUSTOM_KERNELS=0 uv pip install --no-deps \
             --no-build-isolation -e .
 
-      # ut_check's CANN env injection still left torch_npu failing in the
-      # venv batch (exit=4).  Verify the extracted env and the venv python
-      # torch import under the sourced CANN env.
-      - name: Probe CANN env extraction + venv torch import
+      # ut_check's batch still fails torch_npu (exit=4) while the clean
+      # probe venv passes — the remaining difference is ut_check's venv
+      # pip overrides (numpy from triton-ascend).  Expose torch_npu's real
+      # error and test the numpy override hypothesis.
+      - name: Probe torch_npu real error + numpy override
         run: |
-          bash -c ". /usr/local/Ascend/ascend-toolkit/set_env.sh && env" | grep -E "^(LD_LIBRARY_PATH|PATH)=" | cut -c1-260 | head -3
           . /usr/local/Ascend/ascend-toolkit/set_env.sh
+          python3 -c "import torch_npu; print('system torch_npu OK')" 2>&1 | tail -3
           python3 -m venv /tmp/vtest --system-site-packages
-          /tmp/vtest/bin/python -c "import torch; print('venv torch OK')" 2>&1 | tail -2
-          /tmp/vtest/bin/python -c "import sys; import torch; import vllm_ascend.config_utils; print('venv config_utils OK, vllm.config loaded:', 'vllm.config' in sys.modules)" 2>&1 | tail -2
+          /tmp/vtest/bin/pip install -q numpy==1.26.4
+          /tmp/vtest/bin/python -c "import torch; print('venv+numpy1.26.4 torch OK')" 2>&1 | tail -3
+          /tmp/vtest/bin/python -c "import sys; print('numpy:', sys.modules.get('numpy', '<not loaded>')); import torch; print('torch OK, vllm.config loaded:', 'vllm.config' in sys.modules)" 2>&1 | tail -3
 
       - name: Run pristine CPU UT (flow ut_check)
         env:
