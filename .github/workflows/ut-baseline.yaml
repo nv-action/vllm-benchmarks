@@ -126,14 +126,10 @@ jobs:
       - name: Flow run_check (system-mode, no venv) + version dump
         env:
           MAIN2MAIN_UT_SYSTEM_IMPORT: '1'
+          MAIN2MAIN_UT_NO_ISOLATION: '1'
           TORCH_DEVICE_BACKEND_AUTOLOAD: '0'
           VLLM_WORKER_MULTIPROC_METHOD: spawn
         run: |
-          echo "== system versions =="
-          python3 -c "import numpy; print('numpy:', numpy.__version__)"
-          python3 -m pytest --version
-          python3 -m mypy --version
-          echo "== flow run_check =="
           python3 - <<'PY'
           import json
           import os
@@ -144,13 +140,12 @@ jobs:
           sys.path.insert(0, str(ws))
           from main2main_flow.scripts.utils.pre_ci_check import run_check
           r = run_check(ws, "0.27.1", vllm_path=ws / "vllm-upstream")
-          print("RUN_CHECK all_passed:", r.get("all_passed"))
+          print("RUN_CHECK_NO_ISO all_passed:", r.get("all_passed"))
           for c in r.get("checks", []):
               print(f"  {c['name']}: passed={c.get('passed')} "
-                    f"skipped={c.get('skipped', False)} "
                     f"violations={len(c.get('violations', []))}")
-              for v in c.get("violations", [])[:4]:
-                  print("    -", v[:200])
+              for v in c.get("violations", [])[:6]:
+                  print("    -", v[:250])
           PY
 
       - name: Run pristine CPU UT (flow ut_check)
