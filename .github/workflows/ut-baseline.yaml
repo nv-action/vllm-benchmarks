@@ -151,14 +151,15 @@ jobs:
               print("---")
               print(v[:400])
           PY
-          echo "== system mypy (tools/mypy.sh scope) =="
+          echo "== system mypy (upstream tools/mypy.sh: separate targets) =="
           cd "$GITHUB_WORKSPACE"
-          rc=0
-          PYTHONPATH="$GITHUB_WORKSPACE/vllm-upstream" mypy \
-            --follow-imports skip --check-untyped-defs \
-            vllm_ascend examples tests > /tmp/mypy.log 2>&1 || rc=$?
-          echo "mypy exit: $rc"
-          tail -6 /tmp/mypy.log
+          for t in vllm_ascend examples tests; do
+            PYTHONPATH="$GITHUB_WORKSPACE/vllm-upstream" mypy \
+              --follow-imports skip --check-untyped-defs \
+              "$t" > /tmp/mypy-${t}.log 2>&1
+            echo "mypy $t exit: $?"
+            tail -2 /tmp/mypy-${t}.log
+          done
           echo "== format.sh =="
           bash format.sh > /tmp/format.log 2>&1; echo "format.sh exit: $?"
           tail -3 /tmp/format.log
