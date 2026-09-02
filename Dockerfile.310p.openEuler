@@ -22,7 +22,7 @@ FROM ${CANN_QUAY_URL}:${CANN_VERSION}-310p-${BASE_OS}-py3.12
 
 ARG PIP_INDEX_URL="https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
 ARG MOONCAKE_INDEX_URL="https://repo.huaweicloud.com/repository/pypi/simple"
-ARG PYTORCH_INDEX_URL="https://repo.huaweicloud.com/repository/pypi/simple"
+ARG PYTORCH_INDEX_URL="https://download.pytorch.org/whl/cpu/"
 ARG ASCEND_INDEX_URL="https://mirrors.huaweicloud.com/ascend/repos/pypi"
 ARG APTMIRROR=""
 ARG GIT_PROXY=""
