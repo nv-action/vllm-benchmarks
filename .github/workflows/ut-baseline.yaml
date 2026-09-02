@@ -130,6 +130,16 @@ jobs:
           COMPILE_CUSTOM_KERNELS=0 uv pip install --no-deps \
             --no-build-isolation -e .
 
+      # Bisect test_ascend_config::test_config_modules_do_not_load_vllm_config:
+      # runs the test's subprocess body under the PURE container python
+      # (no ut_check venv, no ut_check env overrides).  PASS here but fail
+      # in the batch -> venv/env override is the cause; FAIL here -> the
+      # installed packages themselves load vllm.config on this image.
+      - name: Probe ascend_config subprocess (pure env)
+        run: |
+          python3 -c "import sys; import vllm_ascend.config_utils; assert 'vllm.config' not in sys.modules; import vllm_ascend.ascend_config; assert 'vllm.config' not in sys.modules; print('PROBE PASS')" && echo "PROBE: PASS" || echo "PROBE: FAIL"
+          python3 -c "import vllm; print('vllm from:', vllm.__file__); import vllm_ascend; print('ascend from:', vllm_ascend.__file__)"
+
       - name: Run pristine CPU UT (flow ut_check)
         env:
           # Import ascend/vllm from the installed packages (upstream
