@@ -19,6 +19,16 @@ jobs:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-910b-ubuntu22.04-py3.12
       env:
         VLLM_LOGGING_LEVEL: ERROR
+        VLLM_USE_MODELSCOPE: True
+        HCCL_BUFFSIZE: 1024
+        HF_HUB_OFFLINE: 1
+        UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+        UV_EXTRA_INDEX_URL: "https://repo.huaweicloud.com/ascend/repos/pypi http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu/"
+        UV_INDEX_STRATEGY: unsafe-best-match
+        UV_INSECURE_HOST: cache-service.nginx-pypi-cache.svc.cluster.local
+        UV_HTTP_TIMEOUT: 120
+        UV_NO_CACHE: 1
+        UV_SYSTEM_PYTHON: 1
     steps:
       - name: Checkout vllm-ascend (upstream main)
         uses: actions/checkout@v7
@@ -50,13 +60,9 @@ jobs:
         env:
           SOC_VERSION: ascend910b1
         run: |
-          # Same internal pypi mirror as the main job: the CANN image's
-          # torch is a local build (2.10.0+cpu) only resolvable there.
-          pip config set global.index-url http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
-          pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
           pip install -q uv
           grep -v '^uc-manager$' ascend/requirements-dev.txt > ascend/requirements-dev-nouc.txt
-          uv pip install --system -r ascend/requirements-dev-nouc.txt
+          uv pip install -r ascend/requirements-dev-nouc.txt
           rm -f ascend/requirements-dev-nouc.txt
           python3 - <<'PY'
           import importlib.util
