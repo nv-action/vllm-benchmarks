@@ -347,7 +347,9 @@ jobs:
           PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cpu/
           ASCEND_INDEX_URL=https://repo.huaweicloud.com/ascend/repos/pypi
           GIT_PROXY=https://gh-proxy.test.osinfra.cn/
-          COMPILE_CUSTOM_KERNELS=${{ steps.cache-csrc.outputs.cache-hit == 'true' && '0' || '1' }}
+          # TODO(ci): 临时强制 0 以验证构建管线（跳过自定义算子编译，避免 buildkitd OOM）；
+          # 首次构建成功后应恢复为基于 csrc 缓存命中的逻辑
+          COMPILE_CUSTOM_KERNELS=0
           VLLM_COMMIT=${{ inputs.vllm_commit }}
           BUILD_TYPE=${{ inputs.build_type || 'release' }}
           MEMCACHE_VERSION=${{ inputs.memcache_version || '1.2.0' }}
