@@ -131,14 +131,15 @@ jobs:
             --no-build-isolation -e .
 
       # Bisect test_ascend_config::test_config_modules_do_not_load_vllm_config:
-      # runs the test's subprocess body under the PURE container python
-      # (no ut_check venv, no ut_check env overrides).  PASS here but fail
-      # in the batch -> venv/env override is the cause; FAIL here -> the
-      # installed packages themselves load vllm.config on this image.
-      - name: Probe ascend_config subprocess (pure env)
+      # which env/venv difference makes `import vllm_ascend.config_utils`
+      # load vllm.config in the subprocess.  System python, env on/off.
+      - name: Probe vllm.config loading (system python, env bisect)
         run: |
-          python3 -c "import sys; import vllm_ascend.config_utils; assert 'vllm.config' not in sys.modules; import vllm_ascend.ascend_config; assert 'vllm.config' not in sys.modules; print('PROBE PASS')" && echo "PROBE: PASS" || echo "PROBE: FAIL"
-          python3 -c "import vllm; print('vllm from:', vllm.__file__); import vllm_ascend; print('ascend from:', vllm_ascend.__file__)"
+          python3 -c "import sys; print('python:', sys.executable)"
+          python3 -c "import vllm; print('plain import vllm -> vllm.config loaded:', 'vllm.config' in sys.modules)"
+          TORCH_DEVICE_BACKEND_AUTOLOAD=0 python3 -c "import vllm_ascend.config_utils; print('AUTOLOAD=0 config_utils -> vllm.config loaded:', 'vllm.config' in sys.modules)"
+          TORCH_DEVICE_BACKEND_AUTOLOAD=0 ASCEND_RT_VISIBLE_DEVICES='' python3 -c "import vllm_ascend.config_utils; print('+ASCEND_EMPTY -> vllm.config loaded:', 'vllm.config' in sys.modules)"
+          TORCH_DEVICE_BACKEND_AUTOLOAD=0 VLLM_USE_MODELSCOPE=True python3 -c "import vllm_ascend.config_utils; print('+MODELSCOPE -> vllm.config loaded:', 'vllm.config' in sys.modules)"
 
       - name: Run pristine CPU UT (flow ut_check)
         env:
