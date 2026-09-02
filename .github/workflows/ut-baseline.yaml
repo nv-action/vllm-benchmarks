@@ -133,15 +133,15 @@ jobs:
           /tmp/vtest/bin/python -c "import torch; print('venv+numpy1.26.4 torch OK')" 2>&1 | tail -3
           /tmp/vtest/bin/python -c "import sys; print('numpy:', sys.modules.get('numpy', '<not loaded>')); import torch; print('torch OK, vllm.config loaded:', 'vllm.config' in sys.modules)" 2>&1 | tail -3
 
-      # Control experiment: replicate upstream _selected_tests.yaml cpu-0
-      # EXACTLY (system python, AUTOLOAD=0, no venv, no CANN source, no
-      # fake npu-smi, no device overrides) on test_ascend_config.py — the
-      # last remaining pristine failure.
-      - name: Run CPU-UT upstream-mode (system pytest, no venv)
+      # Upstream cpu-0's log shows "can not use command: npu-smi info"
+      # (vllm probes npu-smi, absent there -> degrade, vllm.config NOT
+      # loaded).  If npu-smi EXISTS here, the probe takes the platform
+      # branch and loads vllm.config.  Check visibility.
+      - name: Probe npu-smi visibility + vllm.config loading
         run: |
-          TORCH_DEVICE_BACKEND_AUTOLOAD=0 VLLM_WORKER_MULTIPROC_METHOD=spawn \
-            python3 -m pytest -q --no-header tests/ut/test_ascend_config.py 2>&1 | tail -4
-          echo "CTRL exit: $?"
+          which npu-smi && echo "npu-smi EXISTS at: $(which npu-smi)" || echo "NO npu-smi"
+          TORCH_DEVICE_BACKEND_AUTOLOAD=0 python3 -c "import sys; import vllm_ascend.config_utils; print('vllm.config loaded:', 'vllm.config' in sys.modules); import vllm; print('vllm from:', vllm.__file__); import vllm_ascend; print('ascend from:', vllm_ascend.__file__)" 2>&1 | tail -4
+          TORCH_DEVICE_BACKEND_AUTOLOAD=0 python3 -m pytest -q --no-header tests/ut/test_ascend_config.py 2>&1 | tail -3
 
       - name: Run pristine CPU UT (flow ut_check)
         env:
