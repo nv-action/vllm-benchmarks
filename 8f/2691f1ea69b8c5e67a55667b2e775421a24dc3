@@ -1,0 +1,27 @@
+.github/workflows/schedule_image_build_and_push.yaml
+  s_ba7dea2c7b53a0::t_98fb9c5bdea6b2 109,114,124-132,184,189,199-207
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.2",
+  "base_commit_sha": "8f2691f1ea69b8c5e67a55667b2e775421a24dc3",
+  "prompts": {},
+  "sessions": {
+    "s_ba7dea2c7b53a0": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a8524d2f134e78eb5250c42",
+        "model": "glm-5.3__dev"
+      },
+      "human_author": "qq_56278931 <wenshun3@h-partners.com>",
+      "custom_attributes": {
+        "tool_name": "RunCommand",
+        "external_session_id": "6a8524d2f134e78eb5250c42",
+        "tool_use_id": "6a8d150a68418f4d2b9edac5",
+        "edit_kind": "bash",
+        "session_id": "6a8524d2f134e78eb5250c42",
+        "operation_id": "6a8d150a68418f4d2b9edac5"
+      }
+    }
+  }
+}

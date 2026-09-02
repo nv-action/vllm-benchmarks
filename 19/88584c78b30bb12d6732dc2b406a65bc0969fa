@@ -1,0 +1,14 @@
+.github/workflows/_schedule_image_build.yaml
+  h_7fe88e4d865b0a 321-327,337,387,391
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.2",
+  "base_commit_sha": "1988584c78b30bb12d6732dc2b406a65bc0969fa",
+  "prompts": {},
+  "humans": {
+    "h_7fe88e4d865b0a": {
+      "author": "qq_56278931 <wenshun3@h-partners.com>"
+    }
+  }
+}

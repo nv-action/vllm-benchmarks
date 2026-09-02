@@ -1,0 +1,28 @@
+Dockerfile.310p
+  h_7fe88e4d865b0a 24-29,33-35,43,49,56,60,73,76
+Dockerfile.310p.openEuler
+  h_7fe88e4d865b0a 24-29,39,45,52,56,68,71
+Dockerfile
+  h_7fe88e4d865b0a 23-28,34-36,42,48,54,61,65,78,82,84
+Dockerfile.a3.openEuler
+  h_7fe88e4d865b0a 24-29,40,45,51,58,62,74,78,80
+Dockerfile.a5
+  h_7fe88e4d865b0a 24-29,37-39,45,51,57-58,61,74,77,79
+Dockerfile.a5.openEuler
+  h_7fe88e4d865b0a 24-29,40,45,51-52,55,67,70,72
+Dockerfile.openEuler
+  h_7fe88e4d865b0a 24-29,40,45,51,58,62,74,78,80
+Dockerfile.a3
+  h_7fe88e4d865b0a 24-29,37-39,45,51,57,64,68,81,85,87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.2",
+  "base_commit_sha": "86dd9336064e951c02f62ac8982883ee6aa5f052",
+  "prompts": {},
+  "humans": {
+    "h_7fe88e4d865b0a": {
+      "author": "qq_56278931 <wenshun3@h-partners.com>"
+    }
+  }
+}

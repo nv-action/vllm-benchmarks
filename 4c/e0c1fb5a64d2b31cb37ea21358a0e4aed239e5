@@ -1,0 +1,14 @@
+.github/workflows/buildkit-dockerfile-test-group1.yaml
+  h_7fe88e4d865b0a 43-49,93-98
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.2",
+  "base_commit_sha": "4ce0c1fb5a64d2b31cb37ea21358a0e4aed239e5",
+  "prompts": {},
+  "humans": {
+    "h_7fe88e4d865b0a": {
+      "author": "qq_56278931 <wenshun3@h-partners.com>"
+    }
+  }
+}

@@ -1,0 +1,18 @@
+Dockerfile
+  h_7fe88e4d865b0a 21-26
+Dockerfile.310p
+  h_7fe88e4d865b0a 21-26
+Dockerfile.310p.openEuler
+  h_7fe88e4d865b0a 21-26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.2",
+  "base_commit_sha": "5c2f6272137e87b0488b9223008ef40f654148ac",
+  "prompts": {},
+  "humans": {
+    "h_7fe88e4d865b0a": {
+      "author": "qq_56278931 <wenshun3@h-partners.com>"
+    }
+  }
+}
