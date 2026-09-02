@@ -153,11 +153,12 @@ jobs:
           PY
           echo "== system mypy (tools/mypy.sh scope) =="
           cd "$GITHUB_WORKSPACE"
+          rc=0
           PYTHONPATH="$GITHUB_WORKSPACE/vllm-upstream" mypy \
             --follow-imports skip --check-untyped-defs \
-            vllm_ascend examples tests > /tmp/mypy.log 2>&1
-          echo "mypy exit: $?"
-          tail -4 /tmp/mypy.log
+            vllm_ascend examples tests > /tmp/mypy.log 2>&1 || rc=$?
+          echo "mypy exit: $rc"
+          tail -6 /tmp/mypy.log
           echo "== format.sh =="
           bash format.sh > /tmp/format.log 2>&1; echo "format.sh exit: $?"
           tail -3 /tmp/format.log
