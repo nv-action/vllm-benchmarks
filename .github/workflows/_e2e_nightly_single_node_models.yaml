@@ -55,6 +55,11 @@ on:
         default: 120
         type: string
         description: test case execution timeout period,default:120 minutes
+      enable_coverage:
+        required: false
+        type: boolean
+        default: false
+        description: run tests with coverage enabled
     secrets:
       OBS_ACCESS_KEY_ID:
         required: false
@@ -247,11 +252,20 @@ jobs:
               test_script="./tests/e2e/models/test_lm_eval_correctness.py"
             fi
             echo "  model_type=${model_type} → ${test_script}"
-            pytest -sv "${test_script}" \
-              --config "${config_path}" || {
-              echo "Test failed for model: $model"
-              any_failure=1
-            }
+            if [ "${{ inputs.enable_coverage }}" = "true" ]; then
+              export COVERAGE_FILE="/vllm-workspace/vllm-ascend/tests/outputs/${{ inputs.runner }}/covdata/coverage"
+              python -m coverage run --rcfile=/vllm-workspace/vllm-ascend/tests/coveragerc -m pytest -sv "${test_script}" \
+                --config "${config_path}" || {
+                echo "Test failed for model: $model"
+                any_failure=1
+              }
+            else
+              pytest -sv "${test_script}" \
+                --config "${config_path}" || {
+                echo "Test failed for model: $model"
+                any_failure=1
+              }
+            fi
           done
 
           if [ $any_failure -ne 0 ]; then
@@ -296,3 +310,37 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
           overwrite: true
+
+      - name: Upload coverage data
+        if: ${{ !cancelled() && inputs.enable_coverage }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-coverage-models-${{ inputs.runner }}
+          path: /vllm-workspace/vllm-ascend/tests/outputs/**/covdata/**
+          if-no-files-found: ignore
+          retention-days: 14
+          compression-level: 0
+
+      - name: Generate coverage HTML report
+        if: ${{ !cancelled() && inputs.enable_coverage }}
+        continue-on-error: true
+        working-directory: /vllm-workspace/vllm-ascend
+        run: |
+          coverage combine \
+            --data-file /tmp/combined.coverage \
+            "tests/outputs/${{ inputs.runner }}/covdata/"
+          coverage html --rcfile=tests/coveragerc \
+            --data-file /tmp/combined.coverage \
+            -d /tmp/covhtml
+
+      - name: Upload coverage HTML report
+        if: ${{ !cancelled() && inputs.enable_coverage }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-coverage-html-models-${{ inputs.runner }}
+          path: /tmp/covhtml/**
+          if-no-files-found: ignore
+          retention-days: 14
+          compression-level: 0

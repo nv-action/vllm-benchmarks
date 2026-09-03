@@ -10,7 +10,7 @@ on:
       runner:
         required: false
         type: string
-        default: linux-aarch64-a3-0
+        default: linux-aarch64-a3-800t-0
       image:
         required: false
         type: string
@@ -83,6 +83,11 @@ on:
         type: boolean
         default: false
         description: enable Pod AOP pipeline on failure
+      enable_coverage:
+        required: false
+        type: boolean
+        default: false
+        description: run tests with coverage enabled
       bisect_good_commit:
         required: false
         type: string
@@ -299,6 +304,7 @@ jobs:
             -D benchmark_job_name="$benchmark_job_name" \
             -D runner="$runner" \
             -D aop_multi_enabled="${{ inputs.aop_multi_enabled }}" \
+            -D enable_coverage="${{ inputs.enable_coverage }}" \
             -D good_table="/root/.cache/vllm-ascend/${{ inputs.vllm_ascend_branch || 'main' }}/${{ inputs.test_frequency }}/good_table.csv" \
             -D openlibing_secret="$OPENLIBING_SECRET" \
             -D vllm_ascend_branch="${{ inputs.vllm_ascend_branch }}" \
@@ -452,6 +458,52 @@ jobs:
             echo "Directory contents (if exists):"
             ls -la "$SRC" 2>/dev/null || echo "Directory does not exist"
           fi
+
+      - name: Fetch coverage data from PVC
+        if: ${{ always() && inputs.enable_coverage }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/covdata
+          SRC="${LOG_PREFIX}/covdata"
+          if [ -d "$SRC" ] && [ "$(ls -A "$SRC" 2>/dev/null)" ]; then
+            cp -r "$SRC"/. /tmp/covdata/
+            echo "Coverage data fetched successfully:"
+            find /tmp/covdata -type f
+          else
+            echo "Warning: No coverage data found in PVC at $SRC"
+          fi
+
+      - name: Upload coverage data
+        if: ${{ always() && inputs.enable_coverage }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-coverage-multi-${{ steps.vars.outputs.benchmark_job_name }}
+          path: /tmp/covdata/**
+          if-no-files-found: ignore
+          retention-days: 14
+          compression-level: 0
+
+      - name: Generate coverage HTML report
+        if: ${{ always() && inputs.enable_coverage }}
+        continue-on-error: true
+        working-directory: /vllm-workspace/vllm-ascend
+        run: |
+          coverage combine --data-file /tmp/combined.coverage /tmp/covdata/
+          coverage html --rcfile=tests/coveragerc \
+            --data-file /tmp/combined.coverage \
+            -d /tmp/covhtml
+
+      - name: Upload coverage HTML report
+        if: ${{ always() && inputs.enable_coverage }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-coverage-html-multi-${{ steps.vars.outputs.benchmark_job_name }}
+          path: /tmp/covhtml/**
+          if-no-files-found: ignore
+          retention-days: 14
+          compression-level: 0
 
       - name: Post process
         if: always()

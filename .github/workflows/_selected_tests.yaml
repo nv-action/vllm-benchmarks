@@ -335,6 +335,31 @@ jobs:
           retention-days: 14
           compression-level: 0
 
+      - name: Generate coverage HTML report
+        if: ${{ !cancelled() && inputs.enable-coverage }}
+        continue-on-error: true
+        working-directory: ./vllm-empty
+        run: |
+          mkdir -p /tmp/covdata /tmp/covhtml
+          find tests/outputs -type d -name covdata | while read -r d; do
+            cp "$d"/coverage.* /tmp/covdata/ 2>/dev/null || true
+          done
+          coverage combine --data-file /tmp/combined.coverage /tmp/covdata/ || true
+          coverage html --rcfile=tests/coveragerc \
+            --data-file /tmp/combined.coverage \
+            -d /tmp/covhtml || true
+
+      - name: Upload coverage HTML report
+        if: ${{ !cancelled() && inputs.enable-coverage }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: selected-test-coverage-html-vllm-${{ inputs.vllm }}-${{ matrix.group.npu_type }}-${{ matrix.group.num_npus }}card-${{ matrix.group.partition }}
+          path: /tmp/covhtml/**
+          if-no-files-found: ignore
+          retention-days: 14
+          compression-level: 0
+
       - name: Upload selected test logs
         if: ${{ !cancelled() }}
         continue-on-error: true

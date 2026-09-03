@@ -78,6 +78,11 @@ on:
         type: boolean
         default: false
         description: enable AOP hooks (capture / classify / skip-or-process)
+      enable_coverage:
+        required: false
+        type: boolean
+        default: false
+        description: run tests with coverage enabled
       bisect_good_commit:
         required: false
         type: string
@@ -294,15 +299,23 @@ jobs:
           VLLM_WORKER_MULTIPROC_METHOD: spawn
           VLLM_USE_MODELSCOPE: True
           VLLM_CI_RUNNER: ${{ inputs.runner }}
+          ENABLE_COVERAGE: ${{ inputs.enable_coverage }}
         working-directory: /vllm-workspace/vllm-ascend
         run: |
           export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
           echo "Running pytest with tests path: ${{ inputs.tests }}"
           mkdir -p /tmp/test-logs
           set -o pipefail
-          pytest -sv "${{ inputs.tests }}" \
-            --ignore=tests/e2e/nightly/single_node/ops/singlecard_ops/test_fused_moe.py \
-            2>&1 | tee /tmp/test-logs/pytest-driven.log
+          if [ "${{ inputs.enable_coverage }}" = "true" ]; then
+            export COVERAGE_FILE="/vllm-workspace/vllm-ascend/tests/outputs/${{ inputs.name || 'unnamed' }}/covdata/coverage"
+            python -m coverage run --rcfile=/vllm-workspace/vllm-ascend/tests/coveragerc -m pytest -sv "${{ inputs.tests }}" \
+              --ignore=tests/e2e/nightly/single_node/ops/singlecard_ops/test_fused_moe.py \
+              2>&1 | tee /tmp/test-logs/pytest-driven.log
+          else
+            pytest -sv "${{ inputs.tests }}" \
+              --ignore=tests/e2e/nightly/single_node/ops/singlecard_ops/test_fused_moe.py \
+              2>&1 | tee /tmp/test-logs/pytest-driven.log
+          fi
 
       - name: Run Pytest (YAML-driven)
         id: yaml-test
@@ -321,8 +334,48 @@ jobs:
           echo "Running YAML-driven test with config: ${{ inputs.config_file_path }}"
           mkdir -p /tmp/test-logs
           set -o pipefail
-          pytest -sv tests/e2e/nightly/single_node/models/scripts/test_single_node.py \
-            2>&1 | tee /tmp/test-logs/yaml-test.log
+          if [ "${{ inputs.enable_coverage }}" = "true" ]; then
+            export COVERAGE_FILE="/vllm-workspace/vllm-ascend/tests/outputs/${{ inputs.name || 'unnamed' }}/covdata/coverage"
+            python -m coverage run --rcfile=/vllm-workspace/vllm-ascend/tests/coveragerc -m pytest -sv tests/e2e/nightly/single_node/models/scripts/test_single_node.py \
+              2>&1 | tee /tmp/test-logs/yaml-test.log
+          else
+            pytest -sv tests/e2e/nightly/single_node/models/scripts/test_single_node.py \
+              2>&1 | tee /tmp/test-logs/yaml-test.log
+          fi
+
+      - name: Upload coverage data
+        if: ${{ !cancelled() && inputs.enable_coverage }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-coverage-single-${{ inputs.name || 'unnamed' }}
+          path: /vllm-workspace/vllm-ascend/tests/outputs/**/covdata/**
+          if-no-files-found: ignore
+          retention-days: 14
+          compression-level: 0
+
+      - name: Generate coverage HTML report
+        if: ${{ !cancelled() && inputs.enable_coverage }}
+        continue-on-error: true
+        working-directory: /vllm-workspace/vllm-ascend
+        run: |
+          coverage combine \
+            --data-file /tmp/combined.coverage \
+            "tests/outputs/${{ inputs.name || 'unnamed' }}/covdata/"
+          coverage html --rcfile=tests/coveragerc \
+            --data-file /tmp/combined.coverage \
+            -d /tmp/covhtml
+
+      - name: Upload coverage HTML report
+        if: ${{ !cancelled() && inputs.enable_coverage }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-coverage-html-single-${{ inputs.name || 'unnamed' }}
+          path: /tmp/covhtml/**
+          if-no-files-found: ignore
+          retention-days: 14
+          compression-level: 0
 
       - name: Update good_table.csv on success
         if: >-
