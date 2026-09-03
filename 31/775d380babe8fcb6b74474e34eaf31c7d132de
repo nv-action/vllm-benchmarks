@@ -1,0 +1,36 @@
+Dockerfile.a3
+  s_3a7fc6c5556748::t_19d5fb0726be88 32-33
+Dockerfile.a3.openEuler
+  s_3a7fc6c5556748::t_0cb6f6585ce8d9 32-33
+.github/workflows/_schedule_image_build.yaml
+  s_3a7fc6c5556748::t_1e0bea3a957003 346-347
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.2",
+  "base_commit_sha": "31775d380babe8fcb6b74474e34eaf31c7d132de",
+  "prompts": {},
+  "sessions": {
+    "s_3a7fc6c5556748": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a96382a2397bca1f9dfe679",
+        "model": "deepseek_v4_flash_official__dev"
+      },
+      "human_author": "chenqi49 <479148871@qq.com>",
+      "custom_attributes": {
+        "operation_id": "6a991a7b87857a3d21378f86",
+        "dedupe_key": "6a96382a2397bca1f9dfe679:6a991a7b87857a3d21378f86:afterEdit:9c53f4ec",
+        "external_session_id": "6a96382a2397bca1f9dfe679",
+        "tool_use_id": "6a991a7b87857a3d21378f86",
+        "runtime_client": "trae-tob-git-ai",
+        "edit_kind": "file_edit",
+        "client_type": "ide",
+        "tool_type": "agent",
+        "source_scene": "unknown",
+        "session_id": "6a96382a2397bca1f9dfe679",
+        "tool_id": "Edit"
+      }
+    }
+  }
+}
