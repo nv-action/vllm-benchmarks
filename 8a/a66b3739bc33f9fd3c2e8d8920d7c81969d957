@@ -1,0 +1,32 @@
+.github/workflows/_schedule_image_build.yaml
+  s_3a7fc6c5556748::t_dd8794edab389a 346-347
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.2",
+  "base_commit_sha": "8aa66b3739bc33f9fd3c2e8d8920d7c81969d957",
+  "prompts": {},
+  "sessions": {
+    "s_3a7fc6c5556748": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a96382a2397bca1f9dfe679",
+        "model": "deepseek_v4_flash_official__dev"
+      },
+      "human_author": "chenqi49 <479148871@qq.com>",
+      "custom_attributes": {
+        "session_id": "6a96382a2397bca1f9dfe679",
+        "tool_use_id": "6a99155187857a3d21378ed8",
+        "external_session_id": "6a96382a2397bca1f9dfe679",
+        "tool_id": "Edit",
+        "tool_type": "agent",
+        "operation_id": "6a99155187857a3d21378ed8",
+        "dedupe_key": "6a96382a2397bca1f9dfe679:6a99155187857a3d21378ed8:afterEdit:9c53f4ec",
+        "source_scene": "unknown",
+        "edit_kind": "file_edit",
+        "client_type": "ide",
+        "runtime_client": "trae-tob-git-ai"
+      }
+    }
+  }
+}
