@@ -29,6 +29,8 @@ ARG GIT_PROXY=""
 ARG PIP_TRUSTED_HOST=""
 
 WORKDIR /workspace
+# 实验：让 pip 使用系统信任库（含 BuildKit 注入的 MITM CA），替代 PIP_TRUSTED_HOST
+ENV PIP_CERT=/etc/pki/tls/certs/ca-bundle.crt
 
 SHELL ["/bin/bash", "-c"]
 
