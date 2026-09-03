@@ -343,7 +343,8 @@ jobs:
           CANN_QUAY_URL=${{ inputs.cann_quay_url }}
           APTMIRROR=https://repo.huaweicloud.com
           PIP_INDEX_URL=https://repo.huaweicloud.com/repository/pypi/simple
-          PIP_TRUSTED_HOST=repo.huaweicloud.com download.pytorch.org download-r2.pytorch.org files.pythonhosted.org
+          # 实验：临时移除 PIP_TRUSTED_HOST（ignore_ssl），验证去掉后是否触发 SSL 证书校验失败
+          # PIP_TRUSTED_HOST=repo.huaweicloud.com download.pytorch.org download-r2.pytorch.org files.pythonhosted.org
           PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cpu/
           ASCEND_INDEX_URL=https://repo.huaweicloud.com/ascend/repos/pypi
           GIT_PROXY=https://gh-proxy.test.osinfra.cn/
