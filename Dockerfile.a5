@@ -21,7 +21,7 @@ ARG BASE_OS="ubuntu22.04"
 FROM ${CANN_QUAY_URL}:${CANN_VERSION}-950-${BASE_OS}-py3.12
 
 ARG PIP_INDEX_URL="https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
-ARG MOONCAKE_INDEX_URL="https://mirrors.aliyun.com/pypi/web/simple"
+ARG MOONCAKE_INDEX_URL="https://repo.huaweicloud.com/repository/pypi/simple"
 ARG PYTORCH_INDEX_URL="https://download.pytorch.org/whl/cpu/"
 ARG ASCEND_INDEX_URL="https://mirrors.huaweicloud.com/ascend/repos/pypi"
 ARG APTMIRROR=""
@@ -35,7 +35,7 @@ WORKDIR /workspace
 # Install clang-15 (for triton-ascend) and Mooncake
 ARG MOONCAKE_TAG=0.3.11.post1
 RUN if [ -n "$APTMIRROR" ]; then \
-        sed -Ei "s@(ports|archive).ubuntu.com@${APTMIRROR#http://}@g" /etc/apt/sources.list; \
+        sed -Ei "s@(ports|archive).ubuntu.com@${APTMIRROR#*://}@g" /etc/apt/sources.list; \
     fi && \
     apt-get update -y && \
     apt-get install -y git vim wget net-tools gcc g++ cmake numactl libnuma-dev libibverbs-dev libjemalloc2 libhiredis-dev clang-15 && \

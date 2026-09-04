@@ -21,7 +21,7 @@ ARG BASE_OS="openeuler24.03"
 FROM ${CANN_QUAY_URL}:${CANN_VERSION}-a3-${BASE_OS}-py3.12
 
 ARG PIP_INDEX_URL="https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
-ARG MOONCAKE_INDEX_URL="https://mirrors.aliyun.com/pypi/web/simple"
+ARG MOONCAKE_INDEX_URL="https://repo.huaweicloud.com/repository/pypi/simple"
 ARG PYTORCH_INDEX_URL="https://download.pytorch.org/whl/cpu/"
 ARG ASCEND_INDEX_URL="https://mirrors.huaweicloud.com/ascend/repos/pypi"
 ARG APTMIRROR=""
@@ -29,12 +29,15 @@ ARG GIT_PROXY=""
 ARG PIP_TRUSTED_HOST=""
 
 WORKDIR /workspace
+# 实验：让 pip 使用系统信任库（含 BuildKit 注入的 MITM CA），替代 PIP_TRUSTED_HOST
+ENV PIP_CERT=/etc/pki/tls/certs/ca-bundle.crt
 
 SHELL ["/bin/bash", "-c"]
 
 # Install clang (for triton-ascend) and Mooncake
 ARG MOONCAKE_TAG=0.3.11.post1
-RUN yum update -y && \
+RUN sed -Ei 's@https?://[^/]+@https://repo.huaweicloud.com/openeuler@g' /etc/yum.repos.d/*.repo && \
+    yum update -y && \
     yum install -y git vim wget net-tools gcc gcc-c++ make cmake numactl numactl-devel libibverbs-devel jemalloc hiredis-devel clang patch && \
     source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
     python3 -m pip install mooncake-transfer-engine-npu==${MOONCAKE_TAG} --extra-index-url ${MOONCAKE_INDEX_URL} && \
