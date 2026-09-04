@@ -1,0 +1,32 @@
+docs/ci-ca-trust-investigation.md
+  s_799d46b43730c2::t_0736a8b6a649ea 1-101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.2",
+  "base_commit_sha": "00fe6adee0029f2b25690dd513cf7275a715771e",
+  "prompts": {},
+  "sessions": {
+    "s_799d46b43730c2": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a9a239a87857a3d21379e81",
+        "model": "deepseek_v4_flash_official__dev"
+      },
+      "human_author": "chenqi49 <479148871@qq.com>",
+      "custom_attributes": {
+        "external_session_id": "6a9a239a87857a3d21379e81",
+        "tool_use_id": "6a9a24e387857a3d2137a354",
+        "edit_kind": "file_edit",
+        "tool_id": "Write",
+        "session_id": "6a9a239a87857a3d21379e81",
+        "runtime_client": "trae-tob-git-ai",
+        "tool_type": "agent",
+        "source_scene": "unknown",
+        "client_type": "ide",
+        "operation_id": "6a9a24e387857a3d2137a354",
+        "dedupe_key": "6a9a239a87857a3d21379e81:6a9a24e387857a3d2137a354:afterEdit:b9e77b63"
+      }
+    }
+  }
+}
