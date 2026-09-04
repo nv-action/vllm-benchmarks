@@ -47,7 +47,7 @@ env:
 
 jobs:
   resolve-source:
-    runs-on: linux-amd64-cpu-4-hk
+    runs-on: linux-amd64-cpu-8-hk
     outputs:
       source_repository: ${{ steps.source.outputs.source_repository }}
       source_ref: ${{ steps.source.outputs.source_ref }}
@@ -130,7 +130,11 @@ jobs:
     needs: resolve-source
     uses: ./.github/workflows/_ensure_csrc_cache.yaml
     with:
-      target_ids: '["a3-arm64-ubuntu"]'
+      # No CPU csrc cache for this branch: the a3 cache build runner pool is
+      # not among the available CPU runners, and an x86-built cache would be
+      # poisoned (x86 .so saved under the hard-coded ARM64 key). The main2main
+      # job compiles csrc on the a3 NPU runner instead (Install step below).
+      target_ids: '[]'
       repository: ${{ needs.resolve-source.outputs.source_repository }}
       source_ref: ${{ needs.resolve-source.outputs.source_ref }}
       base_repository: vllm-project/vllm-ascend
@@ -416,8 +420,9 @@ jobs:
         working-directory: ${{ github.workspace }}
         env:
           CSRC_CACHE_HIT: ${{ steps.cache-csrc.outputs.cache-hit }}
-          # a3 SoC values from the a3 csrc cache builder — do not derive
-          # from the runner name's trailing digits.
+          # a3 SoC values for the on-runner compile (this branch runs without
+          # a CPU-produced csrc cache) — do not derive from the runner name's
+          # trailing digits.
           SOC_VERSION: ascend910_9391
           MAX_JOBS: '184'
         run: |
