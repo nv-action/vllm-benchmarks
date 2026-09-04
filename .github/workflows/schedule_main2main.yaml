@@ -673,7 +673,10 @@ jobs:
 
       - name: Chain next run
         if: steps.final-status.outputs.status == 'completed' && steps.final-status.outputs.steps_completed != '0'
+        # Validation branch (dispatch-only, fixed target): chaining would
+        # kick off a production run via the shared Main2Main workflow, and
+        # the pre-fix template targeted UPSTREAM_REPO which lacks dispatch
+        # permission (run 33914264881 exited 1 here after a fully
+        # successful flow). Production (690ac8404) chains via GITHUB_REPO.
         run: |
-          echo "::notice::Chaining next main2main run..."
-          gh workflow run Main2Main \
-            --repo "${UPSTREAM_REPO}"
+          echo "::notice::main2main completed on the a3-16 validation branch — chain disabled"
