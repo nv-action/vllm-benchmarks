@@ -43,6 +43,11 @@ defaults:
 env:
   UPSTREAM_REPO: vllm-project/vllm-ascend
   MAIN2MAIN_MODEL: ${{ github.event_name == 'workflow_dispatch' && inputs.model || 'deepseek/deepseek-v4-flash' }}
+  # Accumulated adaptation state ref on HEAD_FORK, shared by resolve-source
+  # (incremental mode base) and the push step (PR-success update).  This a3
+  # validation branch uses a scratch ref so the production main2main_baseline
+  # stays untouched.
+  MAIN2MAIN_BASELINE_REF: main2main_baseline_test
   
 
 jobs:
@@ -81,15 +86,49 @@ jobs:
 
           git config user.name "main2main-bot"
           git config user.email "main2main-bot@users.noreply.github.com"
-          git fetch origin main
-          UPSTREAM_SHA=$(git rev-parse origin/main)
+          # origin is the triggering repo; resolve the fixed upstream SHA from
+          # vllm-project/vllm-ascend so source_ref always exists in UPSTREAM_REPO
+          # (a benchmarks-sha source_ref made the main2main checkout fail with
+          # "upload-pack: not our ref" — run 33883282362).  This fetch gates
+          # the whole run — retry transient failures instead of dying before
+          # any notification path exists.
+          UPSTREAM_FETCH_OK=false
+          for i in 1 2 3; do
+            if git fetch "https://github.com/${UPSTREAM_REPO}.git" main; then
+              UPSTREAM_FETCH_OK=true
+              break
+            fi
+            echo "upstream fetch failed (attempt ${i}/3), retrying in 15s"
+            sleep 15
+          done
+          if [ "${UPSTREAM_FETCH_OK}" != "true" ]; then
+            echo "::error::upstream fetch from ${UPSTREAM_REPO} failed after 3 attempts"
+            exit 1
+          fi
+          UPSTREAM_SHA=$(git rev-parse FETCH_HEAD)
           USE_BASELINE=false
 
           # Attempt incremental mode: carry forward previous adaptation commits
-          # by rebasing main2main_baseline onto this run's fixed upstream SHA.
-          if git fetch "https://github.com/${HEAD_FORK}.git" \
-            "refs/heads/main2main_baseline:refs/remotes/main2main/main2main_baseline" 2>/dev/null; then
-            BASELINE_SHA=$(git rev-parse refs/remotes/main2main/main2main_baseline)
+          # by rebasing the baseline ref onto this run's fixed upstream SHA.
+          # A MISSING ref is the normal first-run state (fresh mode); a
+          # transport/auth failure must not silently discard the accumulated
+          # baseline — retry it and fall back to fresh mode only with a
+          # loud warning.
+          BASELINE_PRESENT=false
+          BASELINE_FETCH_ERR=""
+          for i in 1 2 3; do
+            BASELINE_FETCH_ERR=$(git fetch "https://github.com/${HEAD_FORK}.git" \
+              "refs/heads/${MAIN2MAIN_BASELINE_REF}:refs/remotes/main2main/baseline" 2>&1) \
+              && { BASELINE_PRESENT=true; break; }
+            case "${BASELINE_FETCH_ERR}" in
+              *"couldn't find remote ref"*|*"does not exist"*|*"not found in"*|"")
+                break ;;  # genuinely absent — no retry, fresh mode
+            esac
+            echo "baseline ref fetch failed (attempt ${i}/3, transport?): ${BASELINE_FETCH_ERR}"
+            sleep 15
+          done
+          if [ "${BASELINE_PRESENT}" = "true" ]; then
+            BASELINE_SHA=$(git rev-parse refs/remotes/main2main/baseline)
             BASELINE_VLLM=$(git show "${BASELINE_SHA}:.github/vllm-main-verified.commit" 2>/dev/null || true)
             TARGET_BEHIND=false
             if [ -n "$TARGET_COMMIT" ] && [ -n "$BASELINE_VLLM" ] && \
@@ -105,6 +144,13 @@ jobs:
                 git rebase --abort
               fi
             fi
+          else
+            case "${BASELINE_FETCH_ERR}" in
+              *"couldn't find remote ref"*|*"does not exist"*|*"not found in"*|"")
+                echo "No baseline ref ${MAIN2MAIN_BASELINE_REF} on ${HEAD_FORK} — starting in fresh mode" ;;
+              *)
+                echo "::warning::baseline ref fetch failed after retries (${BASELINE_FETCH_ERR}) — falling back to fresh mode; the incremental adaptation state is NOT carried forward" ;;
+            esac
           fi
 
           # Fresh mode starts directly from the fixed upstream SHA when no
