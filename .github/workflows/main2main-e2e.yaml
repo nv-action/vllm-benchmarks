@@ -686,8 +686,20 @@ jobs:
                            + vllm_repo)
               fetched = False
               for vu in vurls:
-                  fr = git("-C", vllm_dir, "fetch", "--depth", "1", vu,
-                           vllm_commit, timeout=600, check=False)
+                  # 120s per route, NOT 600: when direct egress is blacked
+                  # out the git subprocess hangs until the timeout fires and
+                  # raises TimeoutExpired, which BYPASSES this loop entirely
+                  # (git helper doesn't catch it) — the git-cdn/proxy routes
+                  # were never tried and the round died after 10 minutes
+                  # (runs 33842213061/33859134958: 310p 4x NOT_RUN both
+                  # runs).  Catch the timeout, move to the next route.
+                  try:
+                      fr = git("-C", vllm_dir, "fetch", "--depth", "1", vu,
+                               vllm_commit, timeout=120, check=False)
+                  except subprocess.TimeoutExpired:
+                      log("vllm fetch via " + route(vu) + " timed out "
+                          "(120s)")
+                      continue
                   if fr.returncode == 0:
                       fetched = True
                       break
