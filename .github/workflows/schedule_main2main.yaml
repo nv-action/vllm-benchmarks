@@ -507,6 +507,20 @@ jobs:
             uv pip install -e . --no-build-isolation
           fi
 
+      - name: Save vllm-ascend csrc cache
+        # Mirror vllm-ascend main CI: after an on-runner compile (cache
+        # miss), persist the built artifacts under the restore step's
+        # primary key so the next dispatch hits instead of recompiling.
+        if: steps.cache-csrc.outputs.cache-hit != 'true'
+        uses: runs-on/cache/save@v5
+        with:
+          path: |
+            vllm_ascend/_cann_ops_custom
+            vllm_ascend/*.so
+            vllm_ascend/lib
+            vllm_ascend/include
+          key: vllm-ascend-build-v2-${{ steps.get_arch.outputs.arch }}-${{ env.MAIN2MAIN_IMAGE_TAG }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
+
       - name: Run main2main flow
         id: run-main2main
         working-directory: ${{ github.workspace }}
