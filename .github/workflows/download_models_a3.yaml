@@ -16,6 +16,10 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash -el {0}
+
 jobs:
   download-models:
     runs-on: linux-aarch64-a3-16-sh-001
