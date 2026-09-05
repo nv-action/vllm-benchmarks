@@ -303,12 +303,57 @@ jobs:
           gh --version
 
       - name: Check npu and CANN info
+        # Fail fast when NPU chips are occupied before the flow starts: a
+        # crashed previous job or a co-tenant holding HBM makes every later
+        # e2e case fail on memory (run 33944487577: chips 8-15 at ~62/65GB
+        # cost 5 env_flakes and ~4h).  fuser only reaches processes inside
+        # THIS container; a host-side or other-pod occupier is invisible to
+        # npu-smi's process table and can only be cleaned by the runner
+        # admin — the error names the exact chips for that escalation.
         if: ${{ !cancelled() }}
         run: |
+          set -u
           npu-smi info || true
           if [ -d /usr/local/Ascend/ascend-toolkit/latest ]; then
             cat /usr/local/Ascend/ascend-toolkit/latest/"$(uname -i)"-linux/ascend_toolkit_install.info || true
           fi
+          # Kill leftover processes of THIS container holding NPU devices.
+          if command -v fuser >/dev/null 2>&1 && ls /dev/davinci* >/dev/null 2>&1; then
+            fuser -k /dev/davinci* 2>/dev/null || true
+            sleep 5
+          fi
+          # Chip rows carry a PCI bus-id; $3 is the Phy-ID (= global chip
+          # id 0-15, what ASCEND_RT_VISIBLE_DEVICES exposes) and the last
+          # "used / total" pair is HBM-Usage(MB) — npu-smi drops the space
+          # before the slash for 5-digit values ("62265/ 65536"), so the
+          # separator regex must tolerate both.  An idle chip holds ~3GB
+          # driver reserve; a foreign occupier showed ~62GB — threshold
+          # 20GB separates the two with wide margin on both sides.
+          occupied=""
+          while read -r chip used total; do
+            [ -n "$chip" ] || continue
+            [ "$total" -gt 0 ] 2>/dev/null || continue
+            if [ "$used" -ge 20480 ]; then
+              occupied="${occupied} chip${chip}(${used}/${total}MB)"
+            fi
+          done < <(npu-smi info 2>/dev/null | awk '
+            /[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]\.[0-9A-Fa-f]/ {
+              chip = $3; line = $0; pair = ""
+              while (match(line, /[0-9]+ *\/ *[0-9]+/)) {
+                pair = substr(line, RSTART, RLENGTH)
+                line = substr(line, RSTART + RLENGTH)
+              }
+              if (pair != "") {
+                split(pair, kv, "/")
+                gsub(/ /, "", kv[1]); gsub(/ /, "", kv[2])
+                print chip, kv[1], kv[2]
+              }
+            }')
+          if [ -n "$occupied" ]; then
+            echo "::error::NPU chips still occupied after in-container cleanup:${occupied}. These are not this container's processes — the occupier is host-side or in another pod; the runner admin must clean the host."
+            exit 1
+          fi
+          echo "[check-npu] all chips below 20GB HBM usage - clean"
 
       - name: Install opencode + main2main-flow
         env:
