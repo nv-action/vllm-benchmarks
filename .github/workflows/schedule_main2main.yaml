@@ -254,8 +254,21 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
-      - name: Exclude vllm dir from ascend git
-        run: echo "vllm-upstream/" >> .git/info/exclude
+      - name: Prepare ascend working tree
+        run: |
+          # Keep the nested upstream checkout invisible to the ascend repo's
+          # git status/diff (the flow reads the working tree diff to commit).
+          echo "vllm-upstream/" >> .git/info/exclude
+
+          # Fail fast on a malformed dispatch target instead of half an
+          # hour into the run.
+          TARGET="${TARGET_COMMIT}"
+          if [ -n "${TARGET}" ]; then
+            if ! echo "${TARGET}" | grep -Eq '^[0-9a-f]{40}$'; then
+              echo "::error::Invalid target_commit format: ${TARGET}"
+              exit 1
+            fi
+          fi
 
       - name: Checkout vllm-project/vllm repo
         uses: actions/checkout@v7
@@ -264,16 +277,6 @@ jobs:
           ref: ${{ env.TARGET_COMMIT != '' && env.TARGET_COMMIT || 'main' }}
           path: vllm-upstream
           fetch-depth: 0
-
-      - name: Validate target commit
-        run: |
-          TARGET="${TARGET_COMMIT}"
-          if [ -n "${TARGET}" ]; then
-            if ! echo "${TARGET}" | grep -Eq '^[0-9a-f]{40}$'; then
-              echo "::error::Invalid target_commit format: ${TARGET}"
-              exit 1
-            fi
-          fi
 
       - name: Install dependencies
         run: |
@@ -481,7 +484,7 @@ jobs:
           VLLM_TARGET_DEVICE=empty uv pip install .
           pip uninstall -y triton
 
-      - name: Install vllm-ascend
+      - name: Install vllm-project/vllm-ascend
         working-directory: ${{ github.workspace }}
         env:
           CSRC_CACHE_HIT: ${{ steps.cache-csrc.outputs.cache-hit }}
@@ -638,45 +641,3 @@ jobs:
           echo "::notice::final_status=${FINAL_STATUS}, reached_commit=${REACHED_COMMIT}, steps=${STEPS_COMPLETED}/${STEPS_TOTAL}, commit_count=${COMMIT_COUNT}"
           print_group_if_nonempty "main2main created commits" /tmp/main2main/created-commits.md
 
-      - name: Create manual review issue
-        if: steps.final-status.outputs.manual_review_required == 'true'
-        working-directory: ${{ github.workspace }}
-        run: |
-          eval "${MAIN2MAIN_LOG_HELPERS}"
-
-          PR_URL=$(cat /tmp/main2main/pr_url.txt 2>/dev/null || echo "")
-          OLD="${{ steps.final-status.outputs.old_commit }}"
-          NEW="${{ steps.final-status.outputs.new_commit }}"
-          SHORT_NEW=$(printf '%.8s' "${NEW}")
-
-          cat > /tmp/main2main-manual-review.md <<EOF
-          ## Summary
-
-          main2main automation stopped before completing all planned steps.
-
-          ## Context
-
-          - Draft PR: ${PR_URL}
-          - Commit range: \`${OLD}\`...\`${NEW}\`
-          - Status: \`${{ steps.final-status.outputs.status }}\`
-
-          ## Final Summary
-
-          $(cat /tmp/main2main/final-summary.md 2>/dev/null || echo "(final summary unavailable)")
-          EOF
-
-          print_group "Manual review issue" /tmp/main2main-manual-review.md
-          gh issue create \
-            --repo "${UPSTREAM_REPO}" \
-            --title "[main2main] main2main manual review required (${SHORT_NEW})" \
-            --body-file /tmp/main2main-manual-review.md
-
-      - name: Chain next run
-        if: steps.final-status.outputs.status == 'completed' && steps.final-status.outputs.steps_completed != '0'
-        # Validation branch (dispatch-only, fixed target): chaining would
-        # kick off a production run via the shared Main2Main workflow, and
-        # the pre-fix template targeted UPSTREAM_REPO which lacks dispatch
-        # permission (run 33914264881 exited 1 here after a fully
-        # successful flow). Production (690ac8404) chains via GITHUB_REPO.
-        run: |
-          echo "::notice::main2main completed on the a3-16 validation branch — chain disabled"
