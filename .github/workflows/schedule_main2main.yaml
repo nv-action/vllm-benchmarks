@@ -254,22 +254,6 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
-      - name: Prepare ascend working tree
-        run: |
-          # Keep the nested upstream checkout invisible to the ascend repo's
-          # git status/diff (the flow reads the working tree diff to commit).
-          echo "vllm-upstream/" >> .git/info/exclude
-
-          # Fail fast on a malformed dispatch target instead of half an
-          # hour into the run.
-          TARGET="${TARGET_COMMIT}"
-          if [ -n "${TARGET}" ]; then
-            if ! echo "${TARGET}" | grep -Eq '^[0-9a-f]{40}$'; then
-              echo "::error::Invalid target_commit format: ${TARGET}"
-              exit 1
-            fi
-          fi
-
       - name: Checkout vllm-project/vllm repo
         uses: actions/checkout@v7
         with:
@@ -294,22 +278,41 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE/vllm-upstream"
           pip install uv pytest
 
-      - name: Configure git identity
+      - name: Prepare ascend workspace
         working-directory: ${{ github.workspace }}
         run: |
           set -eu
+          # Keep the nested upstream checkout invisible to the ascend repo's
+          # git status/diff (the flow reads the working tree diff to commit).
+          echo "vllm-upstream/" >> .git/info/exclude
+
+          # Fail fast on a malformed dispatch target instead of half an
+          # hour into the run.
+          TARGET="${TARGET_COMMIT}"
+          if [ -n "${TARGET}" ]; then
+            if ! echo "${TARGET}" | grep -Eq '^[0-9a-f]{40}$'; then
+              echo "::error::Invalid target_commit format: ${TARGET}"
+              exit 1
+            fi
+          fi
+
           git config user.name "main2main-bot"
           git config user.email "main2main-bot@users.noreply.github.com"
           gh --version
 
       - name: Check npu and CANN info
-        # Fail fast when NPU chips are occupied before the flow starts: a
-        # crashed previous job or a co-tenant holding HBM makes every later
-        # e2e case fail on memory (run 33944487577: chips 8-15 at ~62/65GB
-        # cost 5 env_flakes and ~4h).  fuser only reaches processes inside
-        # THIS container; a host-side or other-pod occupier is invisible to
-        # npu-smi's process table and can only be cleaned by the runner
-        # admin — the error names the exact chips for that escalation.
+        id: check-npu
+        # Detect which NPU chips are usable before the flow starts.  A
+        # crashed previous job or a co-tenant holding HBM makes any e2e case
+        # scheduled on those chips fail on memory (run 33944487577: chips
+        # 8-15 at ~62/65GB cost 5 env_flakes and ~4h).  fuser only reaches
+        # processes inside THIS container; a host-side or other-pod occupier
+        # is invisible to npu-smi's process table and can only be cleaned by
+        # the runner admin — the warning names the exact chips for that
+        # escalation.  Partial occupancy no longer fails the run: the free
+        # chips are exported and the flow schedules its e2e on them
+        # (run_tests pair-aligned filtering consumes the list); only "zero
+        # usable chips" is fatal.
         if: ${{ !cancelled() }}
         run: |
           set -u
@@ -330,11 +333,18 @@ jobs:
           # driver reserve; a foreign occupier showed ~62GB — threshold
           # 20GB separates the two with wide margin on both sides.
           occupied=""
+          free=""
+          free_count=0
+          total_count=0
           while read -r chip used total; do
             [ -n "$chip" ] || continue
             [ "$total" -gt 0 ] 2>/dev/null || continue
+            total_count=$((total_count + 1))
             if [ "$used" -ge 20480 ]; then
               occupied="${occupied} chip${chip}(${used}/${total}MB)"
+            else
+              free="${free}${free:+,}${chip}"
+              free_count=$((free_count + 1))
             fi
           done < <(npu-smi info 2>/dev/null | awk '
             /[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]\.[0-9A-Fa-f]/ {
@@ -348,12 +358,18 @@ jobs:
                 gsub(/ /, "", kv[1]); gsub(/ /, "", kv[2])
                 print chip, kv[1], kv[2]
               }
-            }')
-          if [ -n "$occupied" ]; then
-            echo "::error::NPU chips still occupied after in-container cleanup:${occupied}. These are not this container's processes — the occupier is host-side or in another pod; the runner admin must clean the host."
+            }' | sort -n)
+          if [ "$free_count" -eq 0 ]; then
+            echo "::error::All ${total_count} NPU chips still occupied after in-container cleanup:${occupied}. These are not this container's processes — the occupier is host-side or in another pod; the runner admin must clean the host."
             exit 1
           fi
-          echo "[check-npu] all chips below 20GB HBM usage - clean"
+          if [ -n "$occupied" ]; then
+            echo "::warning::NPU chips occupied by host-side/other-pod processes (not cleanable from here; the runner admin must clean the host):${occupied}. Degrading: the flow will schedule e2e on the ${free_count} free chip(s) [${free}] only."
+          else
+            echo "[check-npu] all ${total_count} chips below 20GB HBM usage - clean"
+          fi
+          echo "[check-npu] available devices: ${free} (${free_count}/${total_count})"
+          echo "available_devices=${free}" >> "$GITHUB_OUTPUT"
 
       - name: Install opencode + main2main-flow
         env:
@@ -570,6 +586,10 @@ jobs:
         id: run-main2main
         working-directory: ${{ github.workspace }}
         env:
+          # Free chips only (from check-npu): run_tests' _detect_cards reads
+          # this list as the physical device pool, and every child process
+          # (warmup, e2e) inherits the same restriction.
+          ASCEND_RT_VISIBLE_DEVICES: ${{ steps.check-npu.outputs.available_devices }}
           RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES: True
         run: |
           set -euo pipefail
