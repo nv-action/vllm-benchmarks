@@ -229,7 +229,9 @@ jobs:
       # its die partner (id^1) allocated together, or two_card/four_card
       # cases land on orphan dies and fail at HCCL init.
       MAIN2MAIN_PAIR_ALIGNED_DEVICES: '1'
-      MAIN2MAIN_TEST_TIMEOUT: '3600'
+      # 20min per suite (2026-09-06): no single suite may hold an e2e round
+      # for an hour; the 900s hang-quiet kill fires first for silent hangs.
+      MAIN2MAIN_TEST_TIMEOUT: '1200'
       MAIN2MAIN_LOG_HELPERS: |
         print_group() {
           local title="$1"
