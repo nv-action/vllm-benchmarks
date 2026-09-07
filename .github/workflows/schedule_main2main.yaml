@@ -26,9 +26,9 @@ on:
         required: false
         default: ''
       model:
-        description: 'opencode model name (default: zhipu/deepseek-v4-flash)'
+        description: 'opencode model name (default: deepseek/deepseek-v4-flash)'
         required: false
-        default: 'zhipu/deepseek-v4-flash'
+        default: 'deepseek/deepseek-v4-flash'
 
 permissions:
   contents: write
@@ -42,7 +42,7 @@ defaults:
 
 env:
   UPSTREAM_REPO: vllm-project/vllm-ascend
-  MAIN2MAIN_MODEL: ${{ github.event_name == 'workflow_dispatch' && inputs.model || 'zhipu/deepseek-v4-flash' }}
+  MAIN2MAIN_MODEL: ${{ github.event_name == 'workflow_dispatch' && inputs.model || 'deepseek/deepseek-v4-flash' }}
   # Accumulated adaptation state ref on HEAD_FORK, shared by resolve-source
   # (incremental mode base) and the push step (PR-success update).  This a3
   # validation branch uses a scratch ref so the production main2main_baseline
@@ -401,24 +401,27 @@ jobs:
             --prefix "$HOME/.opencode" \
             --registry https://repo.huaweicloud.com/repository/npm/ \
             opencode-ai
-          # configure opencode model provider: deepseek-v4-flash served
-          # through Zhipu's OpenAI-compatible endpoint (MAIN2MAIN_API_KEY is
-          # a Zhipu key — run 33886011133 failed auth when this yaml handed
-          # it to the deepseek provider directly).  A custom provider (not
-          # the built-in catalog) because the bundled model catalog has no
-          # zhipuai entry — this works on any opencode version.  Strict
-          # JSON: downstream tooling rewrites this file with json.loads,
-          # which would drop entries if the file were JSONC with comments.
+          # configure opencode model provider: DeepSeek official platform
+          # (OpenAI-compatible, api.deepseek.com).  MAIN2MAIN_API_KEY holds
+          # the DeepSeek platform key (2026-09-07 switch from Zhipu, whose
+          # catalog has no deepseek-v4-flash — run 34076411700 verify gate
+          # rejected the id with "modelCode: 不存在").  Key and provider
+          # must match: run 33886011133 failed auth when the yaml handed a
+          # Zhipu key to this same deepseek provider.  A custom provider
+          # (not the built-in catalog) works on any opencode version.
+          # Strict JSON: downstream tooling rewrites this file with
+          # json.loads, which would drop entries if the file were JSONC
+          # with comments.
           mkdir -p ~/.config/opencode
           cat > ~/.config/opencode/opencode.jsonc <<EOF
           {
             "\$schema": "https://opencode.ai/config.json",
             "provider": {
-              "zhipu": {
+              "deepseek": {
                 "npm": "@ai-sdk/openai-compatible",
-                "name": "Zhipu",
+                "name": "DeepSeek",
                 "options": {
-                  "baseURL": "https://open.bigmodel.cn/api/paas/v4",
+                  "baseURL": "https://api.deepseek.com",
                   "apiKey": "${{ secrets.MAIN2MAIN_API_KEY }}"
                 },
                 "models": {
