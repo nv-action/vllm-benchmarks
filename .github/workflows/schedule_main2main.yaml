@@ -274,7 +274,10 @@ jobs:
           if [ -s "$GITHUB_WORKSPACE/packages.txt" ]; then
             xargs -r apt-get -y install < "$GITHUB_WORKSPACE/packages.txt"
           fi
-          apt-get -y install git curl ca-certificates gcc g++ cmake libnuma-dev zstd clang-15 jq gh shellcheck
+          # ripgrep: the adapter's fix sessions grep with rg via bash; without
+          # it each attempt burns a round on "rg: command not found" (run
+          # 34084313012 step-1 attempt-1, 2 wasted calls before falling back).
+          apt-get -y install git curl ca-certificates gcc g++ cmake libnuma-dev zstd clang-15 jq gh shellcheck ripgrep
           update-alternatives --install /usr/bin/clang clang /usr/bin/clang-15 20
           update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-15 20
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
