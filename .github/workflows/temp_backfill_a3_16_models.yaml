@@ -1,0 +1,62 @@
+# TEMPORARY: backfill the model cache of the dedicated main2main runner pool.
+#
+# The shared downloader (labeled_download_model_dataset.yaml) only syncs
+# a2b3-0 / a3-800t-0 / a5-0; this pool (linux-aarch64-a3-16-sh-001) got a
+# one-shot cache copy at setup and never receives later list additions —
+# run 34084313012 missed RedHatAI/Qwen3-8B-speculator.eagle3 and
+# Qwen/Qwen2.5-VL-7B-Instruct (modelscope snapshot_download raised
+# "Cannot find the requested files in the cached path" under
+# HF_HUB_OFFLINE=1). Download into the default modelscope cache
+# (/root/.cache/modelscope) which the e2e suite reads.
+#
+# Delete this file once the pool cache is confirmed complete.
+name: 'temp: backfill a3-16 model cache'
+
+on:
+  workflow_dispatch:
+    inputs:
+      models:
+        description: 'ModelScope model ids (one per line), downloaded to /root/.cache/modelscope'
+        required: false
+        default: |
+          RedHatAI/Qwen3-8B-speculator.eagle3
+          Qwen/Qwen2.5-VL-7B-Instruct
+
+defaults:
+  run:
+    shell: bash -el {0}
+
+jobs:
+  backfill:
+    name: Download models on a3-16
+    runs-on: linux-aarch64-a3-16-sh-001
+    timeout-minutes: 180
+    steps:
+      - name: Show current cache
+        run: |
+          df -h /root/.cache | grep -v Filesystem || true
+          du -sh /root/.cache/modelscope 2>/dev/null || echo "(no modelscope cache yet)"
+
+      - name: Install modelscope CLI
+        run: |
+          pip config set global.index-url http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+          pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
+          pip install 'modelscope<1.38'
+
+      - name: Download models
+        env:
+          MODELS: ${{ github.event.inputs.models }}
+        run: |
+          set -euo pipefail
+          while read -r model; do
+            [ -z "$model" ] && continue
+            echo "▶ Downloading $model"
+            modelscope download "$model"
+          done <<< "$MODELS"
+
+      - name: Verify cache layout
+        run: |
+          du -sh /root/.cache/modelscope
+          find /root/.cache/modelscope -maxdepth 5 -type d \
+            \( -iname "*eagle3*" -o -iname "*Qwen2.5-VL-7B*" \) | head
+          df -h /root/.cache | grep -v Filesystem || true
