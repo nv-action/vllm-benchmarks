@@ -87,12 +87,12 @@ jobs:
             [ -z "$ds" ] && continue
             echo "▶ Downloading dataset $ds"
             t0=$SECONDS
-            if ! /tmp/msdl_venv/bin/modelscope download --repo_type dataset "$ds"; then
+            if ! /tmp/msdl_venv/bin/modelscope download --dataset "$ds"; then
               failed="$failed $ds"
             fi
             echo "[took $((SECONDS - t0))s] $ds"
           done <<< "$DATASETS"
-          [ -z "$failed" ] || exit "download failed:$failed"
+          if [ -n "$failed" ]; then echo "download failed:$failed"; exit 1; fi
 
       - name: Reproduce the e2e offline read (modelscope 1.37, no network)
         env:
