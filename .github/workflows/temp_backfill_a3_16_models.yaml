@@ -1,15 +1,22 @@
 # TEMPORARY: backfill the model cache of the dedicated main2main runner pool.
 #
-# The shared downloader (labeled_download_model_dataset.yaml) only syncs
-# a2b3-0 / a3-800t-0 / a5-0; this pool (linux-aarch64-a3-16-sh-001) got a
-# one-shot cache copy at setup and never receives later list additions —
-# run 34084313012 missed RedHatAI/Qwen3-8B-speculator.eagle3 and
-# Qwen/Qwen2.5-VL-7B-Instruct (modelscope snapshot_download raised
-# "Cannot find the requested files in the cached path" under
-# HF_HUB_OFFLINE=1). Download into the default modelscope cache
-# (/root/.cache/modelscope) which the e2e suite reads.
+# Run 34084313012 (2026-09-07) missed RedHatAI/Qwen3-8B-speculator.eagle3,
+# Qwen/Qwen2.5-VL-7B-Instruct and openai-mirror/whisper-large-v3-turbo
+# (modelscope snapshot_download raised "Cannot find the requested files in
+# the cached path" under HF_HUB_OFFLINE=1) — the same assets a previous
+# temp WF downloaded and verified on 2026-09-06, so this WF is also the
+# persistence probe: dispatch it TWICE. If the second run's pre-check shows
+# the directories populated (and download finishes in seconds), /root/.cache
+# survives across pods; if it re-downloads ~20GB, the cache is ephemeral and
+# the fix must move to the image or an NFS mount.
 #
-# Delete this file once the pool cache is confirmed complete.
+# Same shape as the previous temp WF: cann container (the e2e job's
+# /root/.cache is the container's), modelscope<1.38 in an isolated venv —
+# it keeps the legacy hub/models/{org}/{name} layout the offline e2e jobs
+# read, and leaves the image's vllm-deps modelscope untouched.  Dots in
+# repo names are stored as triple underscores (Qwen3-8B-speculator___eagle3).
+#
+# Delete this file once the cache is confirmed to stick.
 name: 'temp: backfill a3-16 model cache'
 
 on:
@@ -19,8 +26,10 @@ on:
         description: 'ModelScope model ids (one per line), downloaded to /root/.cache/modelscope'
         required: false
         default: |
-          RedHatAI/Qwen3-8B-speculator.eagle3
           Qwen/Qwen2.5-VL-7B-Instruct
+          openai-mirror/whisper-large-v3-turbo
+          RedHatAI/Qwen3-8B-speculator.eagle3
+          Qwen/Qwen2-Audio-7B-Instruct
 
 defaults:
   run:
@@ -30,33 +39,66 @@ jobs:
   backfill:
     name: Download models on a3-16
     runs-on: linux-aarch64-a3-16-sh-001
-    timeout-minutes: 180
+    timeout-minutes: 240
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-a3-ubuntu22.04-py3.12
     steps:
-      - name: Show current cache
+      - name: Pre-check cache state (persistence probe reads this)
         run: |
-          df -h /root/.cache | grep -v Filesystem || true
           du -sh /root/.cache/modelscope 2>/dev/null || echo "(no modelscope cache yet)"
+          for d in \
+            /root/.cache/modelscope/hub/models/Qwen/Qwen2___5-VL-7B-Instruct \
+            /root/.cache/modelscope/hub/models/openai-mirror/whisper-large-v3-turbo \
+            /root/.cache/modelscope/hub/models/RedHatAI/Qwen3-8B-speculator___eagle3 \
+            /root/.cache/modelscope/hub/models/Qwen/Qwen2-Audio-7B-Instruct; do
+            if [ -d "$d" ]; then du -sh "$d"; else echo "MISSING $d"; fi
+          done
+          ls /root/.cache/vllm/vllm_public_assets/ 2>/dev/null || echo "(no vllm public assets yet)"
 
-      - name: Install modelscope CLI
+      - name: Install modelscope<1.38 in an isolated venv
         run: |
-          pip config set global.index-url http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
-          pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
-          pip install 'modelscope<1.38'
+          set -euxo pipefail
+          python3 -m venv /tmp/msdl_venv
+          /tmp/msdl_venv/bin/pip install -q \
+            -i https://repo.huaweicloud.com/repository/pypi/simple \
+            "modelscope<1.38"
+          /tmp/msdl_venv/bin/python -c \
+            "import modelscope; print('modelscope', modelscope.__version__)"
 
       - name: Download models
         env:
           MODELS: ${{ github.event.inputs.models }}
         run: |
           set -euo pipefail
+          failed=""
           while read -r model; do
             [ -z "$model" ] && continue
             echo "▶ Downloading $model"
-            modelscope download "$model"
+            if ! /tmp/msdl_venv/bin/modelscope download "$model"; then
+              failed="$failed $model"
+            fi
           done <<< "$MODELS"
+          [ -z "$failed" ] || exit "model download failed:$failed"
+
+      - name: Prefetch vllm public audio assets
+        run: |
+          set -euxo pipefail
+          mkdir -p /root/.cache/vllm/vllm_public_assets
+          cd /root/.cache/vllm/vllm_public_assets
+          for a in mary_had_lamb winning_call; do
+            [ -s "$a.ogg" ] || curl -fsSL --retry 5 --retry-delay 3 \
+              -o "$a.ogg" \
+              "https://vllm-public-assets.s3.us-west-2.amazonaws.com/multimodal_asset/$a.ogg"
+            ls -la "$a.ogg"
+          done
 
       - name: Verify cache layout
+        if: always()
         run: |
           du -sh /root/.cache/modelscope
-          find /root/.cache/modelscope -maxdepth 5 -type d \
-            \( -iname "*eagle3*" -o -iname "*Qwen2.5-VL-7B*" \) | head
-          df -h /root/.cache | grep -v Filesystem || true
+          find /root/.cache/modelscope/hub/models -maxdepth 2 -type d \
+            \( -iname "*eagle3*" -o -iname "*VL-7B*" -o -iname "*whisper*" \
+               -o -iname "*Audio-7B*" \) | sort
+          find /root/.cache/modelscope/hub/models/RedHatAI \
+            -name "*.safetensors" -size +100M -exec ls -la {} \;
+          ls -la /root/.cache/vllm/vllm_public_assets/
