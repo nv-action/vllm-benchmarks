@@ -83,10 +83,12 @@ jobs:
       - name: Reproduce the e2e offline read (image modelscope, no network)
         run: |
           set -uxo pipefail
-          # the e2e pytest runs /usr/local/python3.12.13/bin/python3.12 — the
-          # image's default python3 on PATH has no modelscope
-          E2E_PY=/usr/local/python3.12.13/bin/python3.12
-          $E2E_PY -c "import modelscope; print('image modelscope', modelscope.__version__)"
+          # the e2e installs modelscope<1.38 via requirements-dev.txt
+          # (resolved 1.37.1 in run 34084313012) — the isolated venv above
+          # carries the same family, so its offline scan is faithful; the
+          # image pythons have no modelscope at all
+          E2E_PY=/tmp/msdl_venv/bin/python
+          $E2E_PY -c "import modelscope; print('repro modelscope', modelscope.__version__)"
           HF_HUB_OFFLINE=1 $E2E_PY - <<'PY'
           from modelscope import snapshot_download
           import traceback
