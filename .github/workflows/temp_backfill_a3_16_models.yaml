@@ -80,6 +80,36 @@ jobs:
           done <<< "$MODELS"
           [ -z "$failed" ] || exit "model download failed:$failed"
 
+      - name: Reproduce the e2e offline read (image modelscope, no network)
+        run: |
+          set -uxo pipefail
+          python3 -c "import modelscope; print('image modelscope', modelscope.__version__)"
+          HF_HUB_OFFLINE=1 python3 - <<'PY'
+          from modelscope import snapshot_download
+          import traceback
+          for m in ["RedHatAI/Qwen3-8B-speculator.eagle3",
+                    "Qwen/Qwen2.5-VL-7B-Instruct"]:
+              try:
+                  p = snapshot_download(m, local_files_only=True)
+                  print(f"[OFFLINE-OK] {m} -> {p}", flush=True)
+              except Exception as e:
+                  print(f"[OFFLINE-FAIL] {m}: {type(e).__name__}: {e}",
+                        flush=True)
+                  traceback.print_exc()
+          PY
+
+      - name: Dump repo metadata the offline scan depends on
+        run: |
+          for d in \
+            /root/.cache/modelscope/hub/models/RedHatAI/Qwen3-8B-speculator___eagle3 \
+            /root/.cache/modelscope/hub/models/Qwen/Qwen2___5-VL-7B-Instruct \
+            /root/.cache/modelscope/hub/models/Qwen/Qwen3-8B; do
+            echo "== $d"; ls -la "$d" | head -12
+            find "$d" -maxdepth 2 \( -name ".msc" -o -name "*revision*" \
+              -o -name "._____temp" \) | head
+            cat "$d/.msc/master_revision" 2>/dev/null || echo "(no master_revision)"
+          done
+
       - name: Prefetch vllm public audio assets
         run: |
           set -euxo pipefail
