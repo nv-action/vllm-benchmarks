@@ -83,8 +83,11 @@ jobs:
       - name: Reproduce the e2e offline read (image modelscope, no network)
         run: |
           set -uxo pipefail
-          python3 -c "import modelscope; print('image modelscope', modelscope.__version__)"
-          HF_HUB_OFFLINE=1 python3 - <<'PY'
+          # the e2e pytest runs /usr/local/python3.12.13/bin/python3.12 — the
+          # image's default python3 on PATH has no modelscope
+          E2E_PY=/usr/local/python3.12.13/bin/python3.12
+          $E2E_PY -c "import modelscope; print('image modelscope', modelscope.__version__)"
+          HF_HUB_OFFLINE=1 $E2E_PY - <<'PY'
           from modelscope import snapshot_download
           import traceback
           for m in ["RedHatAI/Qwen3-8B-speculator.eagle3",
