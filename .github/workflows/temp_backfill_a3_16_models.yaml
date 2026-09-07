@@ -45,6 +45,14 @@ jobs:
     steps:
       - name: Pre-check cache state (persistence probe reads this)
         run: |
+          echo "runner=$(hostname) machine-id=$(cat /etc/machine-id 2>/dev/null || echo none)"
+          echo "fs-of-cache: $(df -T /root/.cache 2>/dev/null | tail -1)"
+          grep -E ' /root| / ' /proc/mounts | head -5
+          # pod-name markers accumulate on the volume — their set tells us
+          # which pods (and via fs identity, which nodes) share this cache
+          mkdir -p /root/.cache/m2m_probe
+          touch "/root/.cache/m2m_probe/pod-$(hostname)"
+          echo "markers seen: $(ls /root/.cache/m2m_probe | tr '\n' ' ')"
           du -sh /root/.cache/modelscope 2>/dev/null || echo "(no modelscope cache yet)"
           for d in \
             /root/.cache/modelscope/hub/models/Qwen/Qwen2___5-VL-7B-Instruct \
@@ -74,9 +82,12 @@ jobs:
           while read -r model; do
             [ -z "$model" ] && continue
             echo "▶ Downloading $model"
+            t0=$SECONDS
             if ! /tmp/msdl_venv/bin/modelscope download "$model"; then
               failed="$failed $model"
             fi
+            # <20s means everything was already cached on THIS node
+            echo "[took $((SECONDS - t0))s] $model"
           done <<< "$MODELS"
           [ -z "$failed" ] || exit "model download failed:$failed"
 
