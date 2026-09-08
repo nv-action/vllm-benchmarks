@@ -12,6 +12,8 @@ _info() { _cyan "Info: $*"; }
 _warn() { _yellow "Warn: $*"; }
 _err() { _red "Error: $*" && exit 1; }
 
+# Default polling parameters for wait_url_ready: probe with a CURL_TIMEOUT
+# second curl, retry every CURL_COOLDOWN seconds, give up after CURL_MAX_TRIES.
 CURL_TIMEOUT=1
 CURL_COOLDOWN=5
 CURL_MAX_TRIES=300
