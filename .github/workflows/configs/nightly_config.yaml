@@ -13,7 +13,7 @@ a2:
     test_config:
       # YAML-driven tests
       - name: qwen3-vl-32b-instruct-w8a8
-        os: linux-aarch64-a2b3-4
+        os: linux-aarch64-a2-8
         config_file_path: Qwen3-VL-32B-Instruct-W8A8.yaml
       - name: qwen3-32b-int8
         os: linux-aarch64-a2b3-4
