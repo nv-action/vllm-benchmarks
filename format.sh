@@ -37,6 +37,8 @@ check_command pre-commit
 
 # TODO: cleanup SC exclude
 export SHELLCHECK_OPTS="--exclude=SC2046,SC2006,SC2086"
+# Run in local mode (default) or CI mode: passing 'ci' selects the manual hook
+# stage, which runs the extra checks (e.g. markdownlint) required by CI.
 if [[ "$1" != 'ci' ]]; then
     pre-commit run --all-files
 else
