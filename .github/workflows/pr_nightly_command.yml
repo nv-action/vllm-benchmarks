@@ -735,7 +735,7 @@ jobs:
     name: Post workflow links
     needs: [authorize, dispatch-a2, dispatch-a3, dispatch-a3-560t, dispatch-a5, dispatch-310p, dispatch-weekly-a2, dispatch-weekly-a3, dispatch-weekly-a3-560t, dispatch-weekly-310p]
     if: always() && needs.authorize.outputs.is_authorized == 'true'
-    runs-on: linux-amd64-cpu-2-hk
+    runs-on: linux-amd64-cpu-8-hk
     steps:
       - name: Build comment body
         id: body
