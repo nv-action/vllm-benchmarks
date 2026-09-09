@@ -219,8 +219,7 @@ jobs:
           fi
         else
           if [[ -n "$tag" && -n "$branch" ]]; then
-            echo "Error: 'tag' and 'branch' are mutually exclusive. Please specify only one."
-            exit 1
+            echo "::warning::Both 'tag' ($tag) and 'branch' ($branch) provided. Using 'tag' ($tag) as the priority."
           fi
           if [[ -z "$tag" && -z "$branch" ]]; then
             echo "Error: Either 'tag', 'branch', or (vllm_commit + vllm_ascend_commit) must be specified."
