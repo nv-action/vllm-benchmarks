@@ -64,3 +64,25 @@ def shallow_clone(repo_with_commits):
         return dst
 
     return _make
+
+
+@pytest.fixture
+def pr_checkout_repo(repo_with_commits):
+    """Factory: a clone with origin/main plus a test-only PR branch checked out.
+
+    Returns (repo, mainline_shas, pr_sha): the repo's starting HEAD is the PR
+    head, mimicking the nightly pod after ``checkout_src`` checked out the PR.
+    """
+
+    def _make():
+        src, shas = repo_with_commits(3, name="upstream")
+        repo = src.parent / "pr_repo"
+        run_git(src.parent, "clone", "--quiet", src.resolve().as_posix(), str(repo))
+        run_git(repo, "checkout", "--quiet", "-b", "pr", shas[1])
+        (repo / "tests_new_case.yaml").write_text("case: new\n", encoding="utf-8")
+        run_git(repo, "add", ".")
+        run_git(repo, "commit", "--quiet", "-m", "add new test case (#9999)")
+        pr_sha = run_git(repo, "rev-parse", "HEAD")
+        return repo, shas, pr_sha
+
+    return _make

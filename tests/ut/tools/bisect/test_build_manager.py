@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -127,3 +128,38 @@ def test_prepare_resolves_commit_missing_from_shallow_clone(tmp_path: Path, repo
     # c2 only touches a.py -> no native change -> checkout-only deploy.
     assert decision.rebuild is False
     assert decision.reinstall_reqs is False
+
+
+def test_prepare_carries_pr_content_onto_candidates(tmp_path: Path, pr_checkout_repo):
+    """--carry-pr: every candidate checkout carries the PR's (test-only)
+    content, so a case added by the PR can run across the whole range."""
+    repo, shas, pr_sha = pr_checkout_repo()
+    manager = BuildManager(BisectOptions(repo_dir=repo, assume_built_head=True, carry_pr=True))
+
+    decision = manager.prepare(shas[0])  # candidate older than the PR fork point
+
+    assert git_ops.current_commit(repo) == shas[0]
+    assert (repo / "tests_new_case.yaml").read_text(encoding="utf-8") == "case: new\n"
+    assert decision.rebuild is False
+
+
+def test_prepare_without_carry_pr_leaves_candidate_tree_clean(tmp_path: Path, pr_checkout_repo):
+    repo, shas, pr_sha = pr_checkout_repo()
+    manager = BuildManager(BisectOptions(repo_dir=repo, assume_built_head=True))
+
+    manager.prepare(shas[0])
+
+    assert not (repo / "tests_new_case.yaml").exists()
+
+
+def test_carry_pr_is_noop_when_starting_head_is_on_mainline(tmp_path: Path, pr_checkout_repo):
+    """When the bisect starts from a mainline checkout there is no PR to carry:
+    the feature must silently do nothing (all existing scenarios unaffected)."""
+    repo, shas, pr_sha = pr_checkout_repo()
+    subprocess.run(["git", "-C", str(repo), "checkout", "--quiet", "--detach", shas[2]], check=True)
+    manager = BuildManager(BisectOptions(repo_dir=repo, assume_built_head=True, carry_pr=True))
+
+    manager.prepare(shas[0])
+
+    assert git_ops.current_commit(repo) == shas[0]
+    assert not (repo / "tests_new_case.yaml").exists()

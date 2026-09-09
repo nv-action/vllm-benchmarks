@@ -43,6 +43,12 @@ trigger (case FAIL)
   unshallow/fetch, exactly like the master does when resolving the endpoints;
   the worker additionally unshallows once at agent startup so the slow fetch
   stays out of the first barrier window.
+* **Carry-PR bisect** (`--carry-pr`): carry the PR content onto every
+  candidate checkout -- the diff between the repo's starting HEAD (the PR
+  checkout in the nightly pod) and its fork point from `origin/main`. This
+  lets a case ADDED by the PR run across the whole good..bad range, e.g. to
+  locate the older mainline regression a new probe case detects. No-op when
+  the starting HEAD is on mainline.
 * **Abort on missing workers**: if a multi-node barrier times out and no worker
   node has ever signalled ready (any round), the bisect aborts with exit code 2
   instead of SKIP-scanning the whole range at the full barrier timeout per

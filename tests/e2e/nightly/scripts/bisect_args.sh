@@ -18,6 +18,8 @@ build_bisect_extra_args() {
     BISECT_EXTRA_ARGS+=(--no-verify-bad)
   [ "${BISECT_FORCE_INITIAL_BUILD:-}" = "true" ] &&
     BISECT_EXTRA_ARGS+=(--force-initial-build)
+  [ "${BISECT_CARRY_PR:-}" = "true" ] &&
+    BISECT_EXTRA_ARGS+=(--carry-pr)
 
   # The rebuild policy is owned by AOP and is intentionally not user-overridable.
   BISECT_EXTRA_ARGS+=(--native-check since-build)

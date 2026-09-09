@@ -149,6 +149,7 @@ jobs:
           BISECT_NO_VERIFY_GOOD="false"
           BISECT_NO_VERIFY_BAD="false"
           BISECT_FORCE_INITIAL_BUILD="false"
+          BISECT_CARRY_PR="false"
           PENDING_OPTION=""
           # Preserve slash-command tokens literally; do not expand '*' or '?'
           # against files in the runner workspace.
@@ -229,6 +230,8 @@ jobs:
               BISECT_NO_VERIFY_BAD="true"
             elif [ "$WORD" = "--force-initial-build" ]; then
               BISECT_FORCE_INITIAL_BUILD="true"
+            elif [ "$WORD" = "--carry-pr" ]; then
+              BISECT_CARRY_PR="true"
             elif [[ "$WORD" == --* ]]; then
               echo "ERROR: unknown option: $WORD"
               exit 1
@@ -279,7 +282,7 @@ jobs:
 
 
           printf -v BISECT_ARGS_JSON \
-            '{"good_commit":"%s","bad_commit":"%s","fail_confirm_retries":"%s","trial_timeout":"%s","barrier_timeout":"%s","no_verify_good":%s,"no_verify_bad":%s,"force_initial_build":%s}' \
+            '{"good_commit":"%s","bad_commit":"%s","fail_confirm_retries":"%s","trial_timeout":"%s","barrier_timeout":"%s","no_verify_good":%s,"no_verify_bad":%s,"force_initial_build":%s,"carry_pr":%s}' \
             "$BISECT_GOOD_COMMIT" \
             "$BISECT_BAD_COMMIT" \
             "$BISECT_FAIL_CONFIRM_RETRIES" \
@@ -287,7 +290,8 @@ jobs:
             "$BISECT_BARRIER_TIMEOUT" \
             "$BISECT_NO_VERIFY_GOOD" \
             "$BISECT_NO_VERIFY_BAD" \
-            "$BISECT_FORCE_INITIAL_BUILD"
+            "$BISECT_FORCE_INITIAL_BUILD" \
+            "$BISECT_CARRY_PR"
 
           {
             echo "test_cases=$TEST_CASES"
@@ -302,6 +306,7 @@ jobs:
             echo "bisect_no_verify_good=$BISECT_NO_VERIFY_GOOD"
             echo "bisect_no_verify_bad=$BISECT_NO_VERIFY_BAD"
             echo "bisect_force_initial_build=$BISECT_FORCE_INITIAL_BUILD"
+            echo "bisect_carry_pr=$BISECT_CARRY_PR"
             echo "bisect_args_json=$BISECT_ARGS_JSON"
           } >> "$GITHUB_OUTPUT"
 

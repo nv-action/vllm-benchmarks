@@ -33,7 +33,7 @@ import time
 from pathlib import Path
 
 from tools.bisect import git_ops, report
-from tools.bisect.build_manager import DEPLOY_ERRORS, BuildManager
+from tools.bisect.build_manager import DEPLOY_ERRORS, BuildManager, CarryError
 from tools.bisect.config import (
     DEFAULT_COORD_DIR,
     DEFAULT_GOOD_TABLE,
@@ -380,6 +380,15 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "commit's own diff (compile iff it touched native/cpp files); "
         "'since-build': from all changes since the last build",
     )
+    p.add_argument(
+        "--carry-pr",
+        action="store_true",
+        help="carry the PR content onto every candidate checkout: "
+        "the diff between the repo's starting HEAD -- the PR checkout in the "
+        "nightly pod -- and its fork point from origin/main. Lets a case ADDED "
+        "by the PR run across the whole good..bad range. No-op when the "
+        "starting HEAD is on mainline",
+    )
     return p.parse_args(argv)
 
 
@@ -443,6 +452,7 @@ def main(argv: list[str] | None = None) -> int:
         assume_built_head=not args.no_assume_built_head,
         force_initial_build=args.force_initial_build,
         native_check=args.native_check,
+        carry_pr=args.carry_pr,
     )
 
     # On a multi-node worker, drive the worker loop instead of the search.
@@ -453,7 +463,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         first_bad = Bisector(inp, opt).run()
-    except BisectFatalError as exc:
+    except (BisectFatalError, CarryError) as exc:
         logger.error("Bisect aborted: %s", exc)
         return 2
     return 0 if first_bad is not None else 2

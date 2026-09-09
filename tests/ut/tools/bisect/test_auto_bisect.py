@@ -5,6 +5,7 @@ import pytest
 
 from tools.bisect import git_ops
 from tools.bisect.auto_bisect import Bisector, _parse_args, _resolve_num_nodes, main
+from tools.bisect.build_manager import CarryError
 from tools.bisect.config import SCENE_MULTI, BisectInput, BisectOptions, Candidate
 from tools.bisect.runner import BisectFatalError
 from tools.bisect.version_compat import PackageVersions
@@ -216,6 +217,49 @@ def test_run_writes_report_when_aborting_on_fatal_error(tmp_path: Path, monkeypa
         bisector.run()
 
     assert bisector.report_path.exists()
+
+
+def test_parse_args_maps_carry_pr_flag():
+    args = _parse_args(
+        [
+            "--scene",
+            "single_node",
+            "--config-yaml",
+            "case.yaml",
+            "--soc",
+            "a2",
+            "--carry-pr",
+        ]
+    )
+
+    assert args.carry_pr is True
+
+
+def test_main_returns_2_on_carry_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def boom(self):
+        raise CarryError("bisect PR must be test-only")
+
+    monkeypatch.setattr(Bisector, "run", boom)
+
+    rc = main(
+        [
+            "--scene",
+            "single_node",
+            "--config-yaml",
+            "case.yaml",
+            "--soc",
+            "a2",
+            "--good-commit",
+            "a" * 40,
+            "--repo-dir",
+            str(tmp_path),
+            "--work-dir",
+            str(tmp_path / "work"),
+            "--carry-pr",
+        ]
+    )
+
+    assert rc == 2
 
 
 def test_main_returns_2_on_fatal_abort(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

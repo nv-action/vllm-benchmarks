@@ -210,6 +210,12 @@ class BisectOptions:
     #       built commit and the target -> safe against bisect jumps (a native
     #       change in a jumped-over commit still triggers a rebuild).
     native_check: str = "per-commit"
+    # Carry the (test-only) PR content onto every candidate checkout. The PR is
+    # the diff between the repo's starting HEAD -- the PR checkout in the
+    # nightly pod -- and its fork point from origin/main. This lets a case
+    # ADDED by the PR run across the whole good..bad range (probe for an older
+    # mainline regression). No-op when the starting HEAD is on mainline.
+    carry_pr: bool = False
     # Multi-node coordination.
     num_nodes: int = 1
     node_index: int = 0

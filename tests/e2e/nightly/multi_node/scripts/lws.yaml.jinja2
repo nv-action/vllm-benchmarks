@@ -73,6 +73,8 @@ spec:
                 value: {{ bisect_force_initial_build | default("") | tojson }}
               - name: BISECT_CONFIG_BASE_PATH
                 value: {{ bisect_config_base_path | default("") | tojson }}
+              - name: BISECT_CARRY_PR
+                value: {{ bisect_carry_pr | default(false) | tojson }}
               - name: OPENLIBING_SECRET
                 value: "{{ openlibing_secret | default("") }}"
               - name: VLLM_ASCEND_BRANCH
@@ -180,6 +182,8 @@ spec:
                 value: {{ bisect_force_initial_build | default("") | tojson }}
               - name: BISECT_CONFIG_BASE_PATH
                 value: {{ bisect_config_base_path | default("") | tojson }}
+              - name: BISECT_CARRY_PR
+                value: {{ bisect_carry_pr | default(false) | tojson }}
             command:
               - sh
               - -c

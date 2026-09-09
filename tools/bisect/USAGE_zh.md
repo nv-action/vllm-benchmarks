@@ -116,6 +116,9 @@ python -m tools.bisect.auto_bisect \
 > - worker 仓库通常是 nightly 的 `--depth 1` 浅克隆,本地没有候选 commit;worker agent 启动时会先 `git fetch --unshallow` 恢复完整历史(把慢速网络操作挪出首轮屏障窗口),部署时再按需解析,无需手动处理。
 > - 若屏障超时且**从未有任何 worker 上报过 ready**,master 会**整体中止**(退出码 2)而不是逐轮空等屏障超时;迟到的 worker(其 ready 标记落在已结束的轮次)仍按单轮 SKIP 处理。已知限制:这是"曾加入"检查而非存活检查,worker 中途死亡后剩余轮次会退化为逐轮 SKIP(心跳检测为后续工作)。
 > - CI 里 leader 的"等待 worker 就绪"门槛读的是 `LOG_PREFIX/worker_ready_*`(每次运行唯一),协调目录也默认按运行隔离(`LOG_PREFIX/nightly_bisect_coord`,可用 `COORD_DIR` 覆盖),避免共享 PVC 上上一轮或并发运行的残留状态互相干扰;协调文件(command/verdict/ready)均以原子方式写入,避免 PVC 上的撕裂读。
+> - **携带 PR 二分**(`--carry-pr`,PR 评论命令 `--carry-pr`):每轮 checkout 候选提交后,把 PR 的内容(= 启动时 HEAD 相对 `origin/main` 分叉点的差异)叠加到工作区,让 **PR 新增的用例可以在整个 good..bad 区间运行**(例如用新用例当探针,定位更早的 mainline 回归)。说明:
+>   - 启动 HEAD 在 mainline 上时差异为空,自动空操作,不影响任何现有场景;
+>   - 携带文件按 PR 最终版本整体覆盖(`git checkout PR -- <paths>`),不与候选提交合并。
 
 ---
 

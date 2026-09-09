@@ -74,6 +74,53 @@ class BuildManager:
                 logger.info("[build] assuming container is built at HEAD %s", self.last_built_commit[:12])
             except Exception:  # noqa: BLE001 - best effort; fall back to rebuild
                 self.last_built_commit = None
+        # The repo's HEAD when the agent starts: the PR checkout in a nightly
+        # pod. Captured once (before any candidate checkout) because it defines
+        # the PR content that --carry-pr replays onto every candidate.
+        self.initial_head: str | None = None
+        try:
+            self.initial_head = git_ops.current_commit(self.repo)
+        except Exception:  # noqa: BLE001 - best effort; carry will fail loudly
+            self.initial_head = None
+        # (source, paths) of the carried PR content, computed lazily on first use.
+        self._carry: tuple[str, list[str]] | None = None
+
+    # ------------------------------------------------------------- carry-pr
+    def _carry_plan(self) -> tuple[str, list[str]]:
+        """Source commit + paths of the PR content carried onto every checkout.
+
+        The PR is the diff between the repo's starting HEAD (the PR checkout in
+        the nightly pod) and its fork point from origin/main. When the starting
+        HEAD is on mainline the diff is empty and carrying is a no-op -- every
+        existing scenario keeps its exact behaviour.
+        """
+        if self._carry is None:
+            if self.initial_head is None:
+                raise CarryError("--carry-pr: could not read the repository's starting HEAD")
+            try:
+                base = git_ops.merge_base(self.repo, self.initial_head, "origin/main")
+            except git_ops.GitError as exc:
+                raise CarryError(
+                    "--carry-pr: could not determine the PR fork point against origin/main "
+                    f"(is the origin/main ref available after unshallow?): {exc}"
+                ) from exc
+            paths = git_ops.diff_paths(self.repo, base, self.initial_head, diff_filter="d")
+            self._carry = (self.initial_head, paths)
+            if paths:
+                logger.info(
+                    "[build] carrying PR content from %s (fork point %s): %s",
+                    self.initial_head[:12],
+                    base[:12],
+                    paths[:5],
+                )
+            else:
+                logger.info(
+                    "[build] carry-pr: nothing to carry -- starting HEAD %s has no diff against "
+                    "mainline (fork point %s); all candidates run with their own tree",
+                    self.initial_head[:12],
+                    base[:12],
+                )
+        return self._carry
 
     # ------------------------------------------------------------ decision
     def decide(self, target_commit: str) -> BuildDecision:
@@ -131,13 +178,17 @@ class BuildManager:
 
         Raises ``BuildError`` on a failed install and ``GitError`` when the
         commit cannot be recovered, so the caller can record a SKIP (rather
-        than a misleading FAIL) for this commit.
+        than a misleading FAIL) for this commit. ``CarryError`` (the carried
+        PR content cannot be determined) aborts the whole bisect instead.
         """
         target_commit = git_ops.resolve_commit(self.repo, target_commit)
         decision = self.decide(target_commit)
         logger.info("[build] %s -> %s", target_commit[:12], decision.reason)
 
         git_ops.checkout(self.repo, target_commit)
+        if self.opt.carry_pr:
+            source, paths = self._carry_plan()
+            git_ops.checkout_paths(self.repo, source, paths)
 
         if (decision.reinstall_reqs or decision.rebuild) and log_file is not None:
             logger.info(
@@ -182,6 +233,12 @@ class BuildManager:
 
 class BuildError(RuntimeError):
     pass
+
+
+class CarryError(RuntimeError):
+    """The PR content to carry cannot be determined (no starting HEAD, or the
+    fork point against origin/main is unavailable). Aborts the whole search.
+    """
 
 
 # Everything a deploy (resolve + checkout + build + version adaptation) can

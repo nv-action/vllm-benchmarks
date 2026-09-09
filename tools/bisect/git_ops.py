@@ -156,6 +156,25 @@ def is_ancestor(repo: Path, ancestor: str, descendant: str) -> bool:
     return proc.returncode == 0
 
 
+def merge_base(repo: Path, a: str, b: str) -> str:
+    """Nearest common ancestor of ``a`` and ``b`` (e.g. a PR head and mainline)."""
+    return _git(repo, "merge-base", a, b)
+
+
+def diff_paths(repo: Path, base: str, target: str, diff_filter: str = "") -> list[str]:
+    """Files changed between ``base`` and ``target``, optionally git-filtered.
+
+    ``diff_filter="d"`` excludes deletions, so every returned path exists in
+    ``target`` and can be restored from it (used by the PR carry).
+    """
+    args = ["diff", "--name-only"]
+    if diff_filter:
+        args.append(f"--diff-filter={diff_filter}")
+    args += [base, target]
+    out = _git(repo, *args)
+    return [line.strip() for line in out.splitlines() if line.strip()]
+
+
 def _parse_pr(subject: str) -> str | None:
     m = _PR_RE.search(subject)
     return m.group(1) if m else None
@@ -219,14 +238,25 @@ def checkout(repo: Path, commit: str) -> None:
     logger.info("Checked out %s", commit[:12])
 
 
+def checkout_paths(repo: Path, source: str, paths: list[str]) -> None:
+    """Restore ``paths`` from ``source`` into the working tree and index.
+
+    Used to carry a PR's content onto a candidate checkout: each listed path is
+    taken at its ``source`` (PR head) state, wholesale -- no merge needed.
+    """
+    if not paths:
+        return
+    _git(repo, "checkout", source, "--", *paths)
+    logger.info("Carried %d path(s) from %s", len(paths), source[:12])
+
+
 def current_commit(repo: Path) -> str:
     return _git(repo, "rev-parse", "HEAD")
 
 
 def changed_files(repo: Path, base: str, target: str) -> list[str]:
     """Files changed between ``base`` and ``target`` (both inclusive of range)."""
-    out = _git(repo, "diff", "--name-only", base, target)
-    return [line.strip() for line in out.splitlines() if line.strip()]
+    return diff_paths(repo, base, target)
 
 
 def file_at_commit(repo: Path, commit: str, rel_path: str) -> str | None:
