@@ -331,25 +331,14 @@ jobs:
             --prefix "$HOME/.opencode" \
             --registry https://repo.huaweicloud.com/repository/npm/ \
             opencode-ai
+          # configure opencode auth
           # DeepSeek official platform; MAIN2MAIN_API_KEY must hold a DeepSeek key.
-          mkdir -p ~/.config/opencode
-          cat > ~/.config/opencode/opencode.jsonc <<EOF
+          mkdir -p ~/.local/share/opencode
+          cat > ~/.local/share/opencode/auth.json <<EOF
           {
-            "\$schema": "https://opencode.ai/config.json",
-            "provider": {
-              "deepseek": {
-                "npm": "@ai-sdk/openai-compatible",
-                "name": "DeepSeek",
-                "options": {
-                  "baseURL": "https://api.deepseek.com",
-                  "apiKey": "${{ secrets.MAIN2MAIN_API_KEY }}"
-                },
-                "models": {
-                  "deepseek-v4-flash": {
-                    "name": "DeepSeek V4 Flash"
-                  }
-                }
-              }
+            "deepseek": {
+              "type": "api",
+              "key": "${{ secrets.MAIN2MAIN_API_KEY }}"
             }
           }
           EOF
