@@ -1,0 +1,87 @@
+.github/workflows/_ensure_csrc_cache.yaml
+  s_fb191144625a12::t_7cb3c075e4d2e6 62
+.github/workflows/bot_issue_manage.yaml
+  s_fb191144625a12::t_bdae78bfb2e3d5 12
+.github/workflows/bot_merge_conflict.yaml
+  s_fb191144625a12::t_946a2fe0f0e46f 9
+.github/workflows/bot_pr_create.yaml
+  s_fb191144625a12::t_b4f0a74bec2fd1 32
+.github/workflows/issue_wait_feedback_command.yml
+  s_fb191144625a12::t_1c80f679fe61b6 13
+.github/workflows/labeled_doctest.yaml
+  s_fb191144625a12::t_0c5e1de93c7e06 68
+.github/workflows/pr_cancel_command.yml
+  s_fb191144625a12::t_b0c7ecb8225877 37
+.github/workflows/pr_cherry_pick_command.yml
+  s_fb191144625a12::t_8070f1da71aa8b 37
+.github/workflows/pr_close_job.yaml
+  s_fb191144625a12::t_bb6f967526a253 12
+.github/workflows/pr_e2e_command.yml
+  s_fb191144625a12::t_d28f661580ee2c 37,220
+.github/workflows/pr_nightly_command.yml
+  s_fb191144625a12::t_43ea0d7505ba00 37,352,396,440,484,526,568,609,652,695,738
+.github/workflows/pr_rerun_command.yml
+  s_fb191144625a12::t_e4c0bd7230c242 37
+.github/workflows/pr_revert_command.yml
+  s_fb191144625a12::t_997349abf006db 37
+.github/workflows/pr_supplement_new_tests.yaml
+  s_fb191144625a12::t_fe308769cdb800 15
+.github/workflows/pr_test.yaml
+  s_fb191144625a12::t_945279e9360c8a 45,233,250,370,657
+.github/workflows/push_build_csrc_cache.yaml
+  s_fb191144625a12::t_8bcf5f59929d6b 44
+.github/workflows/push_build_precommit_cache.yaml
+  s_fb191144625a12::t_103933eb60febb 42
+.github/workflows/schedule_doc_linkcheck.yaml
+  s_fb191144625a12::t_3d96e108bdea77 29
+.github/workflows/schedule_doc_translate.yaml
+  s_fb191144625a12::t_92c9b822e55487 42
+.github/workflows/schedule_e2e_test.yaml
+  s_fb191144625a12::t_4eb3b965a71034 50
+.github/workflows/schedule_e2e_upstream_test.yaml
+  s_fb191144625a12::t_033175481dff91 47
+.github/workflows/schedule_main2main.yaml
+  s_fb191144625a12::t_bf8299569b39b6 50
+.github/workflows/schedule_nightly_test_a2.yaml
+  s_fb191144625a12::t_570b73a6858952 107,139,224,266,335,425,440
+.github/workflows/schedule_nightly_test_a3.yaml
+  s_fb191144625a12::t_1956235a849d0e 138,417
+.github/workflows/schedule_nightly_test_a3_560t.yaml
+  s_fb191144625a12::t_58f51c08381a5f 128,289
+.github/workflows/schedule_nightly_test_a5.yaml
+  s_fb191144625a12::t_e5e22f51e78de3 136
+.github/workflows/schedule_release_code_and_wheel.yml
+  s_fb191144625a12::t_6cb8cdbcce61a1 43
+.github/workflows/schedule_stale_manage.yaml
+  s_fb191144625a12::t_d8115734450b91 11,31
+.github/workflows/schedule_test_coverage.yaml
+  s_fb191144625a12::t_854563eb5d7bb5 43
+.github/workflows/schedule_weekly_test_a3.yaml
+  s_fb191144625a12::t_b48d84634caec6 138,374
+.github/workflows/schedule_weekly_test_a3_560t.yaml
+  s_fb191144625a12::t_62697f360f39e5 125,290
+.github/workflows/scripts/csrc_cache_targets.json
+  s_fb191144625a12::t_4b81b7dd6d6d47 53,61,69,77,85,93
+.github/workflows/scripts/runner_label.json
+  s_fb191144625a12::t_560099e21b8319 80
+.github/workflows/scripts/test_config.yaml
+  s_fb191144625a12::t_c3a00c81d306f6 269
+.github/workflows/slash_command_dispatch.yml
+  s_fb191144625a12::t_ed3288ad2be5ca 27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.2",
+  "base_commit_sha": "c94f0a30316cbe0e1be212cb38987fe528e4b68b",
+  "prompts": {},
+  "sessions": {
+    "s_fb191144625a12": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a9683682397bca1f9dfea0d",
+        "model": "deepseek_v4_flash_official__dev"
+      },
+      "human_author": "chenqi49 <479148871@qq.com>"
+    }
+  }
+}
