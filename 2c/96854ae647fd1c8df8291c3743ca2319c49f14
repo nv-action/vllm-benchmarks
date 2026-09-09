@@ -13,17 +13,17 @@
       },
       "human_author": "chenqi49 <479148871@qq.com>",
       "custom_attributes": {
+        "tool_type": "agent",
+        "edit_kind": "file_edit",
         "external_session_id": "6a96382a2397bca1f9dfe679",
         "session_id": "6a96382a2397bca1f9dfe679",
         "tool_use_id": "6a97f36c87857a3d21377e90",
-        "tool_type": "agent",
-        "source_scene": "unknown",
+        "dedupe_key": "6a96382a2397bca1f9dfe679:6a97f36c87857a3d21377e90:afterEdit:f88db179",
+        "runtime_client": "trae-tob-git-ai",
         "client_type": "ide",
         "operation_id": "6a97f36c87857a3d21377e90",
-        "runtime_client": "trae-tob-git-ai",
-        "edit_kind": "file_edit",
-        "dedupe_key": "6a96382a2397bca1f9dfe679:6a97f36c87857a3d21377e90:afterEdit:f88db179",
-        "tool_id": "Edit"
+        "tool_id": "Edit",
+        "source_scene": "unknown"
       }
     }
   }
