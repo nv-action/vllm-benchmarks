@@ -223,6 +223,10 @@ jobs:
       soc_version: a2
       runner: linux-amd64-cpu-8-hk
       image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a2'
+      # The pod checks out the tested PR from this remote: default to the
+      # repository that dispatched this workflow, so /nightly works on any
+      # fork (the PR head only exists in the repository the PR was opened on).
+      vllm_ascend_remote_url: 'https://github.com/${{ github.repository }}.git'
       ascend_log_prefix: ${{ needs.setup-vars.outputs.ascend_log_prefix }}/${{ matrix.vllm_ascend_branch }}
       vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
       request_id: ${{ inputs.request_id || '' }}

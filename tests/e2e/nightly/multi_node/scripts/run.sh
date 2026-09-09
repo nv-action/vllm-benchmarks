@@ -183,13 +183,20 @@ checkout_src() {
         echo "Cloning vllm-ascend from $VLLM_ASCEND_REMOTE_URL"
         git clone --depth 1 --recurse-submodules "$VLLM_ASCEND_REMOTE_URL" "$WORKSPACE/vllm-ascend"
         cd "$WORKSPACE/vllm-ascend"
-        PR_REF=$(git ls-remote origin 'refs/pull/*/head' | grep "^${VLLM_ASCEND_REF}" | awk '{print $2}' | head -1)
+        # NOTE the `|| true`: with `set -euo pipefail` a non-matching grep here
+        # would kill the script SILENTLY inside the assignment (no message at
+        # all), which is very hard to diagnose from the streamed pod logs.
+        PR_REF=$(git ls-remote origin 'refs/pull/*/head' | grep "^${VLLM_ASCEND_REF}" | awk '{print $2}' | head -1 || true)
         if [ -n "$PR_REF" ]; then
             git fetch --depth 1 origin "$PR_REF"
             git checkout FETCH_HEAD
         else
             git fetch origin '+refs/pull/*/head:refs/remotes/pull/*' 2>/dev/null || true
-            git checkout "$VLLM_ASCEND_REF"
+            if ! git checkout "$VLLM_ASCEND_REF" 2>/dev/null; then
+                echo "ERROR: ref ${VLLM_ASCEND_REF} not found in ${VLLM_ASCEND_REMOTE_URL};" \
+                    "the PR must belong to the repository being cloned (VLLM_ASCEND_REMOTE_URL)." >&2
+                exit 1
+            fi
         fi
         git submodule update --init --recursive
     fi
