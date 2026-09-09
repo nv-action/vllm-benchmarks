@@ -47,12 +47,6 @@ spec:
                 value: {{ vllm_ascend_ref | default("main") }}
               - name: AOP_MULTI_ENABLED
                 value: "{{ aop_multi_enabled | default("false") }}"
-{% if profile_enabled | default("false") | lower == "true" %}
-              - name: VLLM_ASCEND_FORCE_PROFILE
-                value: "true"
-              - name: VLLM_ASCEND_PROFILE_DIR
-                value: "/root/.cache/profile_output/{{ benchmark_job_name | default("") }}"
-{% endif %}
               - name: GOOD_TABLE
                 value: "{{ good_table | default("/root/.cache/vllm-ascend/nightly/good_table.csv") }}"
               - name: BISECT_GOOD_COMMIT
@@ -77,8 +71,6 @@ spec:
                 value: "{{ openlibing_secret | default("") }}"
               - name: VLLM_ASCEND_BRANCH
                 value: "{{ vllm_ascend_branch | default("") }}"
-              - name: OPENLIBING_SECRET
-                value: ${{ secrets.OPENLIBING_SECRET }}
             command:
               - sh
               - -c
@@ -88,13 +80,13 @@ spec:
                   "{{ max_good_age_days | default("3") }}"
             resources:
               limits:
-                {{ npu_resource_name | default("huawei.com/ascend-1980") }}: {{ npu_per_node | default("16") }}
                 memory: 512Gi
                 ephemeral-storage: 100Gi
+                huawei.com/ascend-1980: {{ npu_per_node | default("16") }}
               requests:
-                {{ npu_resource_name | default("huawei.com/ascend-1980") }}: {{ npu_per_node | default("16") }}
                 ephemeral-storage: 100Gi
                 cpu: 125
+                huawei.com/ascend-1980: {{ npu_per_node | default("16") }}
             ports:
               - containerPort: 8080
             volumeMounts:
@@ -156,12 +148,6 @@ spec:
                 value: {{ runner | default("linux-aarch64-a3-800t-0") }}
               - name: AOP_MULTI_ENABLED
                 value: "{{ aop_multi_enabled | default("false") }}"
-{% if profile_enabled | default("false") | lower == "true" %}
-              - name: VLLM_ASCEND_FORCE_PROFILE
-                value: "true"
-              - name: VLLM_ASCEND_PROFILE_DIR
-                value: "/root/.cache/profile_output/{{ benchmark_job_name | default("") }}"
-{% endif %}
               - name: GOOD_TABLE
                 value: "{{ good_table | default("/root/.cache/vllm-ascend/nightly/good_table.csv") }}"
               - name: BISECT_GOOD_COMMIT
@@ -182,8 +168,6 @@ spec:
                 value: {{ bisect_force_initial_build | default("") | tojson }}
               - name: BISECT_CONFIG_BASE_PATH
                 value: {{ bisect_config_base_path | default("") | tojson }}
-              - name: OPENLIBING_SECRET
-                value: ${{ secrets.OPENLIBING_SECRET }}
             command:
               - sh
               - -c
@@ -193,13 +177,13 @@ spec:
                   "{{ max_good_age_days | default("3") }}"
             resources:
               limits:
-                {{ npu_resource_name | default("huawei.com/ascend-1980") }}: {{ npu_per_node | default("16") }}
                 memory: 512Gi
                 ephemeral-storage: 100Gi
+                huawei.com/ascend-1980: {{ npu_per_node | default("16") }}
               requests:
-                {{ npu_resource_name | default("huawei.com/ascend-1980") }}: {{ npu_per_node | default("16") }}
                 ephemeral-storage: 100Gi
                 cpu: 125
+                huawei.com/ascend-1980: {{ npu_per_node | default("16") }}
             volumeMounts:
               - mountPath: /root/.cache
                 name: shared-volume
