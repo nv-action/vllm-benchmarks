@@ -180,6 +180,10 @@ spec:
                 value: {{ bisect_force_initial_build | default("") | tojson }}
               - name: BISECT_CONFIG_BASE_PATH
                 value: {{ bisect_config_base_path | default("") | tojson }}
+              - name: VLLM_ASCEND_BRANCH
+                value: "{{ vllm_ascend_branch | default("") }}"
+              - name: OPENLIBING_SECRET
+                value: "{{ openlibing_secret | default("") }}"
             command:
               - sh
               - -c
