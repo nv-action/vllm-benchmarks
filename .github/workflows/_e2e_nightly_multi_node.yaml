@@ -173,7 +173,6 @@ jobs:
       env:
         KUBECONFIG: /tmp/kubeconfig
         NAMESPACE: vllm-project
-        OPENLIBING_SECRET: ${{ secrets.OPENLIBING_SECRET }}
     steps:
       - name: Decode kubeconfig
         run: echo "${{ secrets.KUBECONFIG_B64 }}" | base64 -d > "$KUBECONFIG"
@@ -327,7 +326,6 @@ jobs:
             -D bisect_no_verify_bad="$BISECT_NO_VERIFY_BAD" \
             -D bisect_force_initial_build="$BISECT_FORCE_INITIAL_BUILD" \
             -D bisect_config_base_path="$BISECT_CONFIG_BASE_PATH" \
-            -D openlibing_secret="$OPENLIBING_SECRET" \
             --outfile lws.yaml
 
           kubectl apply -f ./lws.yaml
