@@ -1,0 +1,14 @@
+.github/workflows/pr_close_job.yaml
+  h_dc619ff2c05908 49-156
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.2",
+  "base_commit_sha": "ef62ca4f94a507bf236c7686466a51ff09914285",
+  "prompts": {},
+  "humans": {
+    "h_dc619ff2c05908": {
+      "author": "chenqi49 <479148871@qq.com>"
+    }
+  }
+}
