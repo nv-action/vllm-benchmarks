@@ -133,6 +133,11 @@ on:
         type: string
         default: ''
         description: override CONFIG_BASE_PATH for bisect
+      openlibing_secret:
+        required: false
+        type: string
+        default: ''
+        description: openlibing api secret
     secrets:
       KUBECONFIG_B64:
         required: true
@@ -258,6 +263,7 @@ jobs:
           BISECT_NO_VERIFY_BAD: ${{ inputs.bisect_no_verify_bad }}
           BISECT_FORCE_INITIAL_BUILD: ${{ inputs.bisect_force_initial_build }}
           BISECT_CONFIG_BASE_PATH: ${{ inputs.bisect_config_base_path }}
+          OPENLIBING_SECRET: ${{ inputs.openlibing_secret }}
         run: |
           set -euo pipefail
 
@@ -321,6 +327,7 @@ jobs:
             -D bisect_no_verify_bad="$BISECT_NO_VERIFY_BAD" \
             -D bisect_force_initial_build="$BISECT_FORCE_INITIAL_BUILD" \
             -D bisect_config_base_path="$BISECT_CONFIG_BASE_PATH" \
+            -D openlibing_secret="$OPENLIBING_SECRET" \
             --outfile lws.yaml
 
           kubectl apply -f ./lws.yaml
