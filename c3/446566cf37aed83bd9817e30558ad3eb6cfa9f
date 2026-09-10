@@ -1,0 +1,35 @@
+.github/workflows/_schedule_image_build.yaml
+  s_28039e37115309::t_bbb16cc0b92c1b 179-180
+  s_28039e37115309::t_1503304cef548a 620
+.github/workflows/schedule_image_build_and_push.yaml
+  s_28039e37115309::t_0ee254f9d67014 231
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.2",
+  "base_commit_sha": "c3446566cf37aed83bd9817e30558ad3eb6cfa9f",
+  "prompts": {},
+  "sessions": {
+    "s_28039e37115309": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a9676922397bca1f9dfe922",
+        "model": "deepseek_v4_flash_official__dev"
+      },
+      "human_author": "chenqi49 <479148871@qq.com>",
+      "custom_attributes": {
+        "session_id": "6a9676922397bca1f9dfe922",
+        "client_type": "ide",
+        "external_session_id": "6a9676922397bca1f9dfe922",
+        "tool_use_id": "6aa20be61c176cc28c04ba8f",
+        "source_scene": "unknown",
+        "tool_id": "Edit",
+        "dedupe_key": "6a9676922397bca1f9dfe922:6aa20be61c176cc28c04ba8f:afterEdit:c4a6742f",
+        "tool_type": "agent",
+        "operation_id": "6aa20be61c176cc28c04ba8f",
+        "runtime_client": "trae-tob-git-ai",
+        "edit_kind": "file_edit"
+      }
+    }
+  }
+}
