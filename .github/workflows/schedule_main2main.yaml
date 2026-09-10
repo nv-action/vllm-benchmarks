@@ -26,9 +26,9 @@ on:
         required: false
         default: ''
       model:
-        description: 'opencode model name (default: deepseek/deepseek-v4-flash)'
+        description: 'opencode model name (default: deepseek/deepseek-flash)'
         required: false
-        default: 'deepseek/deepseek-v4-flash'
+        default: 'deepseek/deepseek-flash'
 
 permissions:
   contents: write
@@ -42,7 +42,7 @@ defaults:
 
 env:
   UPSTREAM_REPO: vllm-project/vllm-ascend
-  MAIN2MAIN_MODEL: ${{ github.event_name == 'workflow_dispatch' && inputs.model || 'deepseek/deepseek-v4-flash' }}
+  MAIN2MAIN_MODEL: ${{ github.event_name == 'workflow_dispatch' && inputs.model || 'deepseek/deepseek-flash' }}
   # Accumulated adaptation state ref on HEAD_FORK, shared by resolve-source
   # (incremental mode base) and the push step (PR-success update).
   # Scratch ref: keeps the production main2main_baseline untouched.
@@ -339,6 +339,19 @@ jobs:
             "deepseek": {
               "type": "api",
               "key": "${{ secrets.MAIN2MAIN_API_KEY }}"
+            }
+          }
+          EOF
+          # extend opencode's model catalog: models.dev does not list deepseek-flash yet
+          mkdir -p ~/.config/opencode
+          cat > ~/.config/opencode/opencode.json <<EOF
+          {
+            "provider": {
+              "deepseek": {
+                "models": {
+                  "deepseek-flash": {}
+                }
+              }
             }
           }
           EOF
