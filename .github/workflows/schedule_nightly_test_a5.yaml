@@ -14,7 +14,6 @@
 # limitations under the License.
 # This file is a part of the vllm-ascend project.
 #
-
 # This workflow related to the resources atlas 800 A5
 name: Nightly-A5
 
