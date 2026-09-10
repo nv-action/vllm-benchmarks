@@ -10,9 +10,9 @@
 # 3. tags push trigger image publish
 #   - is for final release image
 #   - Publish when tag with v* (pep440 version)  ===>  vllm-ascend:v1.2.3 / vllm-ascend:v1.2.3rc1
-# Note: single-arch images are built and pushed to swr.cn-north-12, merged into a
-# multi-arch manifest and pushed to swr.cn-north-12 (same repo path as quay.io);
-# the sync tool then mirrors swr.cn-north-12 -> quay.io.
+# Note: single-arch images are built and pushed to swr.cn-southwest-2, merged into a
+# multi-arch manifest and pushed to swr.cn-southwest-2 (same repo path as quay.io);
+# the sync tool then mirrors swr.cn-southwest-2 -> quay.io.
 name: Image Build and Push
 on:
   push:
@@ -87,7 +87,7 @@ on:
       cann:
         description: 'CANN URL, version and image tag (JSON array: ["url", "version", "image_tag"])'
         required: false
-        default: '["swr.cn-north-12.myhuaweicloud.com/atlas_inference/cann", "9.1.0_20260731131545"]'
+        default: '["swr.cn-southwest-2.myhuaweicloud.com/atlas_inference/cann", "9.1.0_20260731131545"]'
         type: string
       triton_ascend:
         description: 'Triton Ascend version and package version (JSON array: ["version", "package_version"])'
@@ -97,7 +97,7 @@ on:
       chips:
         description: 'Chips to build (JSON array: ["a2","a3","310p","a5"]). Default builds all.'
         required: false
-        default: '["a2","a3","310p","a5"]'
+        default: '["a3"]'
         type: string
 
 permissions:
@@ -114,7 +114,7 @@ jobs:
       - name: Filter build matrix by chips
         id: filter
         run: |
-          CHIPS='${{ inputs.chips || '["a2","a3","310p","a5"]' }}'
+          CHIPS='${{ inputs.chips || '["a3"]' }}'
           ALL_MATRIX=$(jq -nc '[
             {name: "A2 Ubuntu",      dockerfile: "Dockerfile",              suffix: "",               chip: "a2", soc: "910b", base_os: "ubuntu22.04"},
             {name: "A3 Ubuntu",      dockerfile: "Dockerfile.a3",            suffix: "a3",             chip: "a3", soc: "a3",   base_os: "ubuntu22.04"},
@@ -144,23 +144,23 @@ jobs:
       suffix: ${{ matrix.build_meta.suffix }}
       soc: ${{ matrix.build_meta.soc }}
       base_os: ${{ matrix.build_meta.base_os }}
-      cann_image_version: ${{ inputs.build_type == 'daily' && fromJSON(inputs.cann || '["swr.cn-north-12.myhuaweicloud.com/atlas_inference/cann", "9.1.0_20260731131545"]')[1] || (fromJSON(inputs.cann || '["swr.cn-north-12.myhuaweicloud.com/atlas_inference/cann", "2026.08.03", "9.1.0"]')[2] || '9.1.0') }}
-      cann_swr_url: ${{ inputs.build_type == 'daily' && fromJSON(inputs.cann || '["swr.cn-north-12.myhuaweicloud.com/atlas_inference/cann", "9.1.0_20260731131545"]')[0] || 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/cann' }}
+      cann_image_version: ${{ inputs.build_type == 'daily' && fromJSON(inputs.cann || '["swr.cn-southwest-2.myhuaweicloud.com/atlas_inference/cann", "9.1.0_20260731131545"]')[1] || (fromJSON(inputs.cann || '["swr.cn-southwest-2.myhuaweicloud.com/atlas_inference/cann", "2026.08.03", "9.1.0"]')[2] || '9.1.0') }}
+      cann_swr_url: ${{ inputs.build_type == 'daily' && fromJSON(inputs.cann || '["swr.cn-southwest-2.myhuaweicloud.com/atlas_inference/cann", "9.1.0_20260731131545"]')[0] || 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann' }}
       
       # ===== Dynamic SWR repositories based on build_type =====
-      # Final multi-arch images are pushed to swr.cn-north-12 with the same repo
+      # Final multi-arch images are pushed to swr.cn-southwest-2 with the same repo
       # path as quay.io; the sync tool then mirrors them to quay.io.
-      swr_registry: 'swr.cn-north-12.myhuaweicloud.com'
-      swr_repo: ${{ inputs.build_type == 'daily' && 'swr.cn-north-12.myhuaweicloud.com/atlas_inference/vllm-ascend' || 'swr.cn-north-12.myhuaweicloud.com/ascend/vllm-ascend' }}
-      swr_temp_repo: ${{ inputs.build_type == 'daily' && 'swr.cn-north-12.myhuaweicloud.com/atlas_inference/vllm-atlas-temp' || 'swr.cn-north-12.myhuaweicloud.com/atlas_ci/vllm-atlas-temp' }}
+      swr_registry: 'swr.cn-southwest-2.myhuaweicloud.com'
+      swr_repo: ${{ inputs.build_type == 'daily' && 'swr.cn-southwest-2.myhuaweicloud.com/atlas_inference_cq/vllm-ascend' || 'swr.cn-southwest-2.myhuaweicloud.com/ascend/vllm-ascend' }}
+      swr_temp_repo: ${{ inputs.build_type == 'daily' && 'swr.cn-southwest-2.myhuaweicloud.com/atlas_inference_cq/vllm-atlas-temp' || 'swr.cn-southwest-2.myhuaweicloud.com/atlas_ci_cq/vllm-atlas-temp' }}
       # ======================================================================
       
-      should_push: ${{ github.event_name != 'pull_request' }}
+      should_push: ${{ github.repository == 'nv-action/vllm-benchmarks' && github.event_name != 'pull_request' }}
       workflow_dispatch_tag: ${{ inputs.tag != 'none' && inputs.tag || '' }}
       branch_ref: ${{ inputs.branch != 'none' && inputs.branch || '' }}
       schedule_tag_pattern: 'main'
       build_type: ${{ inputs.build_type || 'release' }}
-      cann_version: ${{ fromJSON(inputs.cann || '["swr.cn-north-12.myhuaweicloud.com/atlas_inference/cann", "9.1.0_20260731131545"]')[1] }}
+      cann_version: ${{ fromJSON(inputs.cann || '["swr.cn-southwest-2.myhuaweicloud.com/atlas_inference/cann", "9.1.0_20260731131545"]')[1] }}
       memcache_version: ${{ fromJSON(inputs.mem_deps || '{"memcache":["20260811.14","1.2.0"],"memfabric":["20260811.7","1.2.0"]}').memcache[1] }}
       memcache_date: ${{ fromJSON(inputs.mem_deps || '{"memcache":["20260811.14","1.2.0"],"memfabric":["20260811.7","1.2.0"]}').memcache[0] }}
       memfabric_version: ${{ fromJSON(inputs.mem_deps || '{"memcache":["20260811.14","1.2.0"],"memfabric":["20260811.7","1.2.0"]}').memfabric[1] }}
@@ -172,7 +172,7 @@ jobs:
       
       build_args: |
         ${{ inputs.build_type == 'daily' && format('BASE_OS={0}', contains(matrix.build_meta.suffix, 'openeuler') && 'openeuler24.03-lts-sp4' || 'ubuntu24.04') || '' }}
-        ${{ inputs.build_type == 'daily' && format('CANN_VERSION={0}', fromJSON(inputs.cann || '["swr.cn-north-12.myhuaweicloud.com/atlas_inference/cann", "9.1.0_20260731131545"]')[1]) || '' }}
+        ${{ inputs.build_type == 'daily' && format('CANN_VERSION={0}', fromJSON(inputs.cann || '["swr.cn-southwest-2.myhuaweicloud.com/atlas_inference/cann", "9.1.0_20260731131545"]')[1]) || '' }}
     secrets:
       SWR_USERNAME: ${{ secrets.SWR_USERNAME }}
       SWR_PASSWORD: ${{ secrets.SWR_PASSWORD }}
@@ -196,10 +196,10 @@ jobs:
       suffix: ${{ matrix.build_meta.suffix }}
       soc: ${{ matrix.build_meta.soc }}
       base_os: ${{ matrix.build_meta.base_os }}
-      cann_image_version: ${{ inputs.build_type == 'daily' && fromJSON(inputs.cann || '["swr.cn-north-12.myhuaweicloud.com/atlas_inference/cann", "9.1.0_20260731131545"]')[1] || (fromJSON(inputs.cann || '["swr.cn-north-12.myhuaweicloud.com/atlas_inference/cann", "2026.08.03", "9.1.0"]')[2] || '9.1.0') }}
-      cann_swr_url: ${{ inputs.build_type == 'daily' && fromJSON(inputs.cann || '["swr.cn-north-12.myhuaweicloud.com/atlas_inference/cann", "9.1.0_20260731131545"]')[0] || 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/cann' }}
-      swr_registry: 'swr.cn-north-12.myhuaweicloud.com'
-      swr_temp_repo: ${{ inputs.build_type == 'daily' && 'swr.cn-north-12.myhuaweicloud.com/atlas_inference/vllm-atlas-temp' || 'swr.cn-north-12.myhuaweicloud.com/atlas_ci/vllm-atlas-temp' }}
+      cann_image_version: ${{ inputs.build_type == 'daily' && fromJSON(inputs.cann || '["swr.cn-southwest-2.myhuaweicloud.com/atlas_inference/cann", "9.1.0_20260731131545"]')[1] || (fromJSON(inputs.cann || '["swr.cn-southwest-2.myhuaweicloud.com/atlas_inference/cann", "2026.08.03", "9.1.0"]')[2] || '9.1.0') }}
+      cann_swr_url: ${{ inputs.build_type == 'daily' && fromJSON(inputs.cann || '["swr.cn-southwest-2.myhuaweicloud.com/atlas_inference/cann", "9.1.0_20260731131545"]')[0] || 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann' }}
+      swr_registry: 'swr.cn-southwest-2.myhuaweicloud.com'
+      swr_temp_repo: ${{ inputs.build_type == 'daily' && 'swr.cn-southwest-2.myhuaweicloud.com/atlas_inference_cq/vllm-atlas-temp' || 'swr.cn-southwest-2.myhuaweicloud.com/atlas_ci_cq/vllm-atlas-temp' }}
       should_push: true
       temp_only: true
       vllm_commit: ${{ inputs.vllm_commit }}
@@ -207,7 +207,7 @@ jobs:
       workflow_dispatch_tag: ''
       branch_ref: ''
       build_type: ${{ inputs.build_type || 'release' }}
-      cann_version: ${{ fromJSON(inputs.cann || '["swr.cn-north-12.myhuaweicloud.com/atlas_inference/cann", "9.1.0_20260731131545"]')[1] }}
+      cann_version: ${{ fromJSON(inputs.cann || '["swr.cn-southwest-2.myhuaweicloud.com/atlas_inference/cann", "9.1.0_20260731131545"]')[1] }}
       memcache_version: ${{ fromJSON(inputs.mem_deps || '{"memcache":["20260811.14","1.2.0"],"memfabric":["20260811.7","1.2.0"]}').memcache[1] }}
       memcache_date: ${{ fromJSON(inputs.mem_deps || '{"memcache":["20260811.14","1.2.0"],"memfabric":["20260811.7","1.2.0"]}').memcache[0] }}
       memfabric_version: ${{ fromJSON(inputs.mem_deps || '{"memcache":["20260811.14","1.2.0"],"memfabric":["20260811.7","1.2.0"]}').memfabric[1] }}
@@ -219,7 +219,7 @@ jobs:
 
       build_args: |
         ${{ inputs.build_type == 'daily' && format('BASE_OS={0}', contains(matrix.build_meta.suffix, 'openeuler') && 'openeuler24.03-lts-sp4' || 'ubuntu24.04') || '' }}
-        ${{ inputs.build_type == 'daily' && format('CANN_VERSION={0}', fromJSON(inputs.cann || '["swr.cn-north-12.myhuaweicloud.com/atlas_inference/cann", "9.1.0_20260731131545"]')[1]) || '' }}
+        ${{ inputs.build_type == 'daily' && format('CANN_VERSION={0}', fromJSON(inputs.cann || '["swr.cn-southwest-2.myhuaweicloud.com/atlas_inference/cann", "9.1.0_20260731131545"]')[1]) || '' }}
     secrets:
       SWR_USERNAME: ${{ secrets.SWR_USERNAME }}
       SWR_PASSWORD: ${{ secrets.SWR_PASSWORD }}
@@ -228,7 +228,7 @@ jobs:
     name: Trigger quay.io sync
     if: ${{ !cancelled() && (needs.image_build.result == 'success' || needs.image_build_by_commit.result == 'success') }}
     needs: [image_build, image_build_by_commit]
-    runs-on: linux-amd64-cpu-4-buildkit-gy006
+    runs-on: linux-amd64-cpu-4
     steps:
       - name: Dispatch sync-vllm-ascend
         env:
