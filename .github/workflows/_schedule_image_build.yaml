@@ -21,7 +21,6 @@ on:
         description: 'The tag subfix to use'
         required: true
         type: string
-      should_push:
         description: 'Whether to push the image'
         required: false
         type: boolean
@@ -332,7 +331,6 @@ jobs:
         key: vllm-ascend-build-v2-${{ steps.get_arch.outputs.arch }}-${{ steps.get_base_image_tag.outputs.BASE_IMAGE_TAG }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
 
     - name: Login to SWR
-      if: ${{ inputs.should_push }}
       uses: docker/login-action@v4
       with:
         registry: ${{ inputs.swr_registry }}
@@ -347,8 +345,6 @@ jobs:
         context: .
         file: ${{ inputs.dockerfile || 'Dockerfile' }}
         # only trigger when tag, branch/main push
-        push: ${{ inputs.should_push }}
-        outputs: type=image,name=${{ inputs.swr_temp_repo }},push-by-digest=true,name-canonical=true,push=${{ inputs.should_push }},oci-mediatypes=false
         # Image builds can compile inside Docker and therefore keep a fallback;
         # NPU test jobs use fail-on-cache-miss instead.
         build-args: |
@@ -380,12 +376,10 @@ jobs:
         # For example, the cache tag for arm64 image with suffix "openeuler" will be "buildcache-openeuler-arm64".
         # When a new image is built and pushed, the cache will also be updated in the registry, so that next build can benefit from it.
         cache-from: type=registry,ref=${{ inputs.swr_temp_repo }}:${{ steps.cache-tag.outputs.value }}
-        cache-to: ${{ inputs.should_push && format('type=registry,ref={0}:{1},mode=max', inputs.swr_temp_repo, steps.cache-tag.outputs.value) || '' }}
 
     # Quay.io/swr automatically cleans up untagged digests on a regular basis, with a cycle of approximately one hour. 
     # Add temporary tags to digests to prevent them from being removed.
     - name: Tag digest to prevent GC
-      if: ${{ inputs.should_push }}
       run: |
         SUFFIX=""
         if [ -n "${{ inputs.suffix }}" ]; then
@@ -429,7 +423,6 @@ jobs:
   merge-image:
     runs-on: linux-amd64-cpu-4
     needs: build-push-digest
-    if: ${{ inputs.should_push && !inputs.temp_only }}
     steps:
       - name: Download arm64 digests
         uses: actions/download-artifact@v8
@@ -538,7 +531,6 @@ jobs:
             latest=false
 
       - name: Login to SWR
-        if: ${{ inputs.should_push }}
         uses: docker/login-action@v4
         with:
           registry: ${{ inputs.swr_registry }}
@@ -617,7 +609,6 @@ jobs:
     name: merge-image-temp
     runs-on: linux-amd64-cpu-4
     needs: build-push-digest
-    if: ${{ inputs.should_push && inputs.temp_only }}
     steps:
       - name: Download arm64 digests
         uses: actions/download-artifact@v8
@@ -648,7 +639,6 @@ jobs:
           echo "pattern=${PATTERN}" >> $GITHUB_OUTPUT
 
       - name: Login to SWR
-        if: ${{ inputs.should_push }}
         uses: docker/login-action@v4
         with:
           registry: ${{ inputs.swr_registry }}
