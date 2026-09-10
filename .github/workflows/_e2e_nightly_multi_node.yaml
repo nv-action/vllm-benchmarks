@@ -249,11 +249,6 @@ jobs:
             echo "Waiting for pods to be deleted: $PODS_EXIST"
             sleep $SLEEP_INTERVAL
           done
-          # ========= DEBUG PRINT =========
-          echo "=== DEBUG inputs.openlibing_secret ==="
-          echo "inputs.openlibing_secret length: ${{ length(inputs.openlibing_secret) }}"
-          echo "inputs.openlibing_secret value: |${{ inputs.openlibing_secret }}|"
-          # ===============================
       - name: Launch cluster
         env:
           BISECT_GOOD_COMMIT: ${{ inputs.bisect_good_commit }}
