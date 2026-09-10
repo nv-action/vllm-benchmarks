@@ -103,7 +103,7 @@ on:
         description: 'CANN base image URL (SWR registry)'
         required: false
         type: string
-        default: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/cann'
+        default: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann'
       cann_version:
         description: 'CANN version for daily tag naming (e.g. 2026.08.03)'
         required: false
