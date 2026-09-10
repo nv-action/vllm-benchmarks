@@ -103,7 +103,7 @@ on:
         description: 'CANN base image URL (SWR registry)'
         required: false
         type: string
-        default: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/cann'
+        default: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann'
       cann_version:
         description: 'CANN version for daily tag naming (e.g. 2026.08.03)'
         required: false
@@ -332,7 +332,6 @@ jobs:
         key: vllm-ascend-build-v2-${{ steps.get_arch.outputs.arch }}-${{ steps.get_base_image_tag.outputs.BASE_IMAGE_TAG }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
 
     - name: Login to SWR
-      if: ${{ inputs.should_push }}
       uses: docker/login-action@v4
       with:
         registry: ${{ inputs.swr_registry }}
@@ -538,7 +537,6 @@ jobs:
             latest=false
 
       - name: Login to SWR
-        if: ${{ inputs.should_push }}
         uses: docker/login-action@v4
         with:
           registry: ${{ inputs.swr_registry }}
@@ -648,7 +646,6 @@ jobs:
           echo "pattern=${PATTERN}" >> $GITHUB_OUTPUT
 
       - name: Login to SWR
-        if: ${{ inputs.should_push }}
         uses: docker/login-action@v4
         with:
           registry: ${{ inputs.swr_registry }}
