@@ -1,0 +1,57 @@
+Dockerfile.openEuler
+  s_28039e37115309::t_47f3da264beed3 36-37
+Dockerfile.310p.openEuler
+  s_28039e37115309::t_9e205256c15466 32-33
+.github/workflows/_schedule_image_build.yaml
+  h_dc619ff2c05908 14,106,366-368
+  s_28039e37115309::t_ea0b9eff412904 9
+  s_28039e37115309::t_235d0b478dc1e6 19
+  s_28039e37115309::t_cbbc8d87f75951 554
+.github/workflows/schedule_image_build_and_push.yaml
+  s_28039e37115309::t_403c6a24688425 117
+  s_28039e37115309::t_35fed6dee06f77 100
+  s_28039e37115309::t_859d0a21f12a36 151
+  s_28039e37115309::t_a705255a6313f9 13-15
+  s_28039e37115309::t_fa1bfa4cc2ca06 158
+  s_28039e37115309::t_20e3e60b7fc45f 90,147-148,153,163,175,199-201,210,222
+  s_28039e37115309::t_a7b23f9f1aa1d4 154
+  s_28039e37115309::t_59b1bd76679b33 155,202
+Dockerfile.a3.openEuler
+  s_28039e37115309::t_128931e1864ec5 36-37
+Dockerfile.a5.openEuler
+  s_28039e37115309::t_b061ff4fb4840a 36-37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.2",
+  "base_commit_sha": "7cc460b1f8a59af179fef23c3b2fd33fe56777f2",
+  "prompts": {},
+  "humans": {
+    "h_dc619ff2c05908": {
+      "author": "chenqi49 <479148871@qq.com>"
+    }
+  },
+  "sessions": {
+    "s_28039e37115309": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a9676922397bca1f9dfe922",
+        "model": "deepseek_v4_flash_official__dev"
+      },
+      "human_author": "chenqi49 <479148871@qq.com>",
+      "custom_attributes": {
+        "tool_type": "agent",
+        "dedupe_key": "6a9676922397bca1f9dfe922:6aa150061c176cc28c04b547:afterEdit:c4a6742f",
+        "edit_kind": "file_edit",
+        "source_scene": "unknown",
+        "client_type": "ide",
+        "session_id": "6a9676922397bca1f9dfe922",
+        "external_session_id": "6a9676922397bca1f9dfe922",
+        "tool_id": "Edit",
+        "operation_id": "6aa150061c176cc28c04b547",
+        "runtime_client": "trae-tob-git-ai",
+        "tool_use_id": "6aa150061c176cc28c04b547"
+      }
+    }
+  }
+}
