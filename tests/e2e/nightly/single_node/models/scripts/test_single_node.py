@@ -15,6 +15,7 @@ import requests
 import vllm
 
 from tests.e2e.conftest import DisaggEpdProxy, RemoteEPDServer, RemoteOpenAIServer
+from tests.e2e.nightly.scripts.profiling import inject_profiler_config, profiling_session
 from tests.e2e.nightly.scripts.result_postprocess import postprocess_benchmark_results
 from tests.e2e.nightly.single_node.models.scripts.kv_pool_runtime import (
     create_single_node_kv_pool_manager,
@@ -381,36 +382,6 @@ def _parse_json_flag(cmd_list: list[str], flag: str) -> dict[str, Any]:
         return {}
 
 
-def _inject_force_profiler(server_cmd: list[str]) -> list[str]:
-    """Inject --profiler-config into a serve command when profiling is forced.
-
-    Reads VLLM_ASCEND_FORCE_PROFILE (enabled by the nightly --profile switch) and
-    VLLM_ASCEND_PROFILE_DIR. Any existing --profiler-config is replaced so the
-    forced profiler output lands in the expected directory.
-    """
-    if os.environ.get("VLLM_ASCEND_FORCE_PROFILE", "").lower() not in ("true", "1"):
-        return server_cmd
-    profile_dir = os.environ.get("VLLM_ASCEND_PROFILE_DIR", "")
-    if not profile_dir:
-        logger.warning(
-            "VLLM_ASCEND_FORCE_PROFILE is set but VLLM_ASCEND_PROFILE_DIR is empty, skipping profiler injection"
-        )
-        return server_cmd
-    with_stack = os.environ.get("VLLM_TORCH_PROFILER_WITH_STACK", "1").lower() not in ("0", "false", "f")
-    profiler_config = {
-        "profiler": "torch",
-        "torch_profiler_dir": profile_dir,
-        "torch_profiler_with_stack": with_stack,
-    }
-    cmd = list(server_cmd)
-    if "--profiler-config" in cmd:
-        idx = cmd.index("--profiler-config")
-        del cmd[idx : idx + 2]
-    cmd += ["--profiler-config", json.dumps(profiler_config)]
-    logger.info("Injected --profiler-config into serve command: %s", profiler_config)
-    return cmd
-
-
 def _extract_features(server_cmd: list[str] | str, envs: dict[str, Any]) -> list[str]:
     """Extract enabled feature names from server_cmd and environment variables."""
     if isinstance(server_cmd, str):
@@ -618,17 +589,22 @@ async def test_single_node(config: SingleNodeConfig) -> None:
             subprocess.call(command)
     kv_pool_manager = create_single_node_kv_pool_manager(config.kv_pool, config.name)
     if config.service_mode == "epd":
-        epd_server_cmds = [_inject_force_profiler(cmd) for cmd in config.epd_server_cmds]
+        epd_server_cmds = [
+            inject_profiler_config(cmd, output_subdir=f"epd-{index}")
+            for index, cmd in enumerate(config.epd_server_cmds)
+        ]
         with (
             kv_pool_manager,
             RemoteEPDServer(
                 vllm_serve_args=epd_server_cmds,
                 env_dict={**config.envs, **kv_pool_manager.server_envs},
-            ) as _,
+            ) as epd_server,
             DisaggEpdProxy(proxy_args=config.epd_proxy_args, env_dict=config.envs) as proxy,
         ):
             await _dispatch_tests(config, proxy)
-            await _run_benchmarks_and_spec_decode(config, proxy, proxy.port)
+            profile_targets = [health_url.removesuffix("/health") for health_url in epd_server.health_url_list]
+            with profiling_session(profile_targets):
+                await _run_benchmarks_and_spec_decode(config, proxy, proxy.port)
         return
 
     # Standard OpenAI service mode
@@ -636,7 +612,7 @@ async def test_single_node(config: SingleNodeConfig) -> None:
         kv_pool_manager,
         RemoteOpenAIServer(
             model=config.model,
-            vllm_serve_args=_inject_force_profiler(config.server_cmd),
+            vllm_serve_args=inject_profiler_config(config.server_cmd, output_subdir="server"),
             server_port=config.server_port,
             env_dict={**config.envs, **kv_pool_manager.server_envs},
             auto_port=False,
@@ -648,6 +624,7 @@ async def test_single_node(config: SingleNodeConfig) -> None:
         except Exception as e:
             errors.append(e)
             logger.error("dispatch_tests failed: %s", e)
-        await _run_benchmarks_and_spec_decode(config, server, config.server_port)
+        with profiling_session([server.url_root]):
+            await _run_benchmarks_and_spec_decode(config, server, config.server_port)
         if errors:
             raise errors[0]

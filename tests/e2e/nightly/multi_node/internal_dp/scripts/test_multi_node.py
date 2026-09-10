@@ -21,6 +21,7 @@ from tests.e2e.nightly.multi_node.scripts.benchmark_results import (
     filter_environment,
     write_results_json,
 )
+from tests.e2e.nightly.scripts.profiling import profiling_session
 from tests.e2e.nightly.scripts.result_postprocess import postprocess_benchmark_results
 from tools.aisbench import run_aisbench_cases
 
@@ -199,12 +200,20 @@ async def test_multi_node() -> None:
         host, port = config.benchmark_endpoint
 
         if config.is_master:
-            results = run_aisbench_cases(
-                model=config.model,
-                port=port,
-                aisbench_cases=config.benchmark_cases,
-                host_ip=host,
-            )
+            if config.disagg_cfg:
+                profile_targets = [
+                    f"http://{node.ip}:{config.server_port}" for node in config.nodes if not node.headless
+                ]
+            else:
+                profile_targets = [server.url_root]
+
+            with profiling_session(profile_targets):
+                results = run_aisbench_cases(
+                    model=config.model,
+                    port=port,
+                    aisbench_cases=config.benchmark_cases,
+                    host_ip=host,
+                )
             _save_benchmark_results_json(config, results)
         else:
             # We should keep listening on the master node's server url determining when to exit.

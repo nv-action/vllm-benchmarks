@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 import shlex
@@ -16,33 +15,13 @@ from tests.e2e.nightly.multi_node.scripts.utils import (
     resolve_current_node_index,
     setup_logger,
 )
+from tests.e2e.nightly.scripts.profiling import inject_profiler_config
 
 setup_logger()
 logger = logging.getLogger(__name__)
 
 DEFAULT_CONFIG_BASE_PATH = "tests/e2e/nightly/multi_node/internal_dp/config/"
 DEFAULT_SERVER_PORT = 8080
-
-
-def _inject_force_profiler_to_cmd(cmd: str) -> str:
-    """Inject --profiler-config into a server_cmd string when profiling is forced."""
-    if os.environ.get("VLLM_ASCEND_FORCE_PROFILE", "").lower() not in ("true", "1"):
-        return cmd
-    profile_dir = os.environ.get("VLLM_ASCEND_PROFILE_DIR", "")
-    if not profile_dir:
-        return cmd
-    with_stack = os.environ.get("VLLM_TORCH_PROFILER_WITH_STACK", "1").lower() not in ("0", "false", "f")
-    profiler_config = {
-        "profiler": "torch",
-        "torch_profiler_dir": profile_dir,
-        "torch_profiler_with_stack": with_stack,
-    }
-    parts = shlex.split(cmd)
-    if "--profiler-config" in parts:
-        idx = parts.index("--profiler-config")
-        del parts[idx : idx + 2]
-    parts += ["--profiler-config", json.dumps(profiler_config)]
-    return " ".join(shlex.quote(p) for p in parts)
 
 
 @dataclass(frozen=True)
@@ -224,7 +203,11 @@ class MultiNodeConfig:
         ).build()
         logger.info("Node %d envs: %s", self.cur_index, self.envs)
 
-        self.server_cmd = _inject_force_profiler_to_cmd(self._expand_env(self.cur_node.server_cmd))
+        expanded_server_cmd = self._expand_env(self.cur_node.server_cmd)
+        profiled_server_args = inject_profiler_config(
+            shlex.split(expanded_server_cmd), output_subdir=f"node-{self.cur_index}"
+        )
+        self.server_cmd = shlex.join(profiled_server_args)
 
     def _resolve_cur_index(self) -> int:
         return resolve_current_node_index([node.ip for node in self.nodes])

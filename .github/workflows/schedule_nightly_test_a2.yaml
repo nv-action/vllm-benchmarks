@@ -238,6 +238,7 @@ jobs:
       vllm_ascend_ref: ${{ inputs.vllm_ascend_ref || needs.parse-trigger.outputs.ref }}
       aop_multi_enabled: ${{ inputs.aop_enabled }}
       profile_enabled: ${{ inputs.profile_enabled }}
+      profile_with_stack: ${{ fromJSON(inputs.bisect_args_json || '{}').profile_with_stack || false }}
       bisect_good_commit: ${{ fromJSON(inputs.bisect_args_json || '{}').good_commit || '' }}
       bisect_bad_commit: ${{ fromJSON(inputs.bisect_args_json || '{}').bad_commit || 'HEAD' }}
       bisect_fail_confirm_retries: ${{ fromJSON(inputs.bisect_args_json || '{}').fail_confirm_retries || '' }}
@@ -306,6 +307,7 @@ jobs:
       vllm_ascend_ref: ${{ inputs.vllm_ascend_ref || needs.parse-trigger.outputs.ref }}
       aop_single_enabled: ${{ inputs.aop_enabled }}
       profile_enabled: ${{ inputs.profile_enabled }}
+      profile_with_stack: ${{ fromJSON(inputs.bisect_args_json || '{}').profile_with_stack || false }}
       bisect_good_commit: ${{ fromJSON(inputs.bisect_args_json || '{}').good_commit || '' }}
       bisect_bad_commit: ${{ fromJSON(inputs.bisect_args_json || '{}').bad_commit || 'HEAD' }}
       bisect_fail_confirm_retries: ${{ fromJSON(inputs.bisect_args_json || '{}').fail_confirm_retries || '' }}

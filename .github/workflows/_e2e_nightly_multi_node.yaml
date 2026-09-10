@@ -88,6 +88,11 @@ on:
         type: boolean
         default: false
         description: force-enable the torch profiler and export profiling artifacts
+      profile_with_stack:
+        required: false
+        type: boolean
+        default: false
+        description: record Python stacks in torch profiler traces
       bisect_good_commit:
         required: false
         type: string
@@ -311,6 +316,7 @@ jobs:
             -D runner="$runner" \
             -D aop_multi_enabled="${{ inputs.aop_multi_enabled }}" \
             -D profile_enabled="${{ inputs.profile_enabled }}" \
+            -D profile_with_stack="${{ inputs.profile_with_stack }}" \
             -D good_table="/root/.cache/vllm-ascend/${{ inputs.vllm_ascend_branch || 'main' }}/${{ inputs.test_frequency }}/good_table.csv" \
             -D openlibing_secret="${OPENLIBING_SECRET:-}" \
             -D vllm_ascend_branch="${{ inputs.vllm_ascend_branch }}" \
@@ -602,17 +608,21 @@ jobs:
 
       - name: Package profiling results
         if: ${{ always() && inputs.profile_enabled }}
+        id: package_profile
         run: |
           if [ -d /tmp/profile_results ] && [ "$(ls -A /tmp/profile_results 2>/dev/null)" ]; then
             tar -czf /tmp/profile-results.tar.gz -C /tmp/profile_results .
             echo "Profiling results packaged:"
             du -sh /tmp/profile-results.tar.gz
+            echo "profile_ready=true" >> "$GITHUB_OUTPUT"
           else
-            echo "Warning: No profiling results found in /tmp/profile_results"
+            echo "profile_ready=false" >> "$GITHUB_OUTPUT"
+            echo "::error::Profiling was requested but no results were found in /tmp/profile_results"
+            exit 1
           fi
 
       - name: Upload profiling results (OBS)
-        if: ${{ always() && inputs.profile_enabled }}
+        if: ${{ always() && inputs.profile_enabled && steps.package_profile.outputs.profile_ready == 'true' }}
         continue-on-error: true
         uses: ascend-gha-runners/artifact/upload@v0.3
         with:
@@ -624,8 +634,7 @@ jobs:
           retention-days: 14
 
       - name: Upload profiling results (GitHub Artifacts)
-        if: ${{ always() && inputs.profile_enabled }}
-        continue-on-error: true
+        if: ${{ always() && inputs.profile_enabled && steps.package_profile.outputs.profile_ready == 'true' }}
         uses: actions/upload-artifact@v7
         with:
           name: nightly-test-profiling-${{ steps.vars.outputs.benchmark_job_name }}-${{ steps.profile_ts.outputs.artifact_ts }}

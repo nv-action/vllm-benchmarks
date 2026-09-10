@@ -49,6 +49,7 @@ jobs:
       vllm_ascend_ref: ${{ steps.resolve.outputs.vllm_ascend_ref }}
       aop_enabled: ${{ steps.resolve.outputs.aop_enabled }}
       profile_enabled: ${{ steps.resolve.outputs.profile_enabled }}
+      profile_with_stack: ${{ steps.resolve.outputs.profile_with_stack }}
       bisect_args_json: ${{ steps.resolve.outputs.bisect_args_json }}
       command: ${{ steps.resolve.outputs.command }}
     steps:
@@ -134,6 +135,7 @@ jobs:
           TEST_CASES=""
           AOP_ENABLED="false"
           PROFILE_ENABLED="false"
+          PROFILE_WITH_STACK="false"
           IS_A3_560T="false"
           NEXT_IS_BRANCH=0
           NEXT_IS_GOOD_COMMIT=0
@@ -207,6 +209,12 @@ jobs:
                 exit 1
               fi
               PROFILE_ENABLED="true"
+            elif [ "$WORD" = "--profile-with-stack" ]; then
+              if [ "$PROFILE_ENABLED" != "true" ]; then
+                echo "ERROR: --profile-with-stack must appear after --profile"
+                exit 1
+              fi
+              PROFILE_WITH_STACK="true"
             elif [ "$WORD" = "--a3-560t" ]; then
               IS_A3_560T="true"
             elif [ "$WORD" = "--good-commit" ]; then
@@ -282,7 +290,7 @@ jobs:
 
 
           printf -v BISECT_ARGS_JSON \
-            '{"good_commit":"%s","bad_commit":"%s","fail_confirm_retries":"%s","trial_timeout":"%s","barrier_timeout":"%s","no_verify_good":%s,"no_verify_bad":%s,"force_initial_build":%s,"carry_pr":%s}' \
+            '{"good_commit":"%s","bad_commit":"%s","fail_confirm_retries":"%s","trial_timeout":"%s","barrier_timeout":"%s","no_verify_good":%s,"no_verify_bad":%s,"force_initial_build":%s,"carry_pr":%s,"profile_with_stack":%s}' \
             "$BISECT_GOOD_COMMIT" \
             "$BISECT_BAD_COMMIT" \
             "$BISECT_FAIL_CONFIRM_RETRIES" \
@@ -291,13 +299,15 @@ jobs:
             "$BISECT_NO_VERIFY_GOOD" \
             "$BISECT_NO_VERIFY_BAD" \
             "$BISECT_FORCE_INITIAL_BUILD" \
-            "$BISECT_CARRY_PR"
+            "$BISECT_CARRY_PR" \
+            "$PROFILE_WITH_STACK"
 
           {
             echo "test_cases=$TEST_CASES"
             echo "branch=$BRANCH"
             echo "aop_enabled=$AOP_ENABLED"
             echo "profile_enabled=$PROFILE_ENABLED"
+            echo "profile_with_stack=$PROFILE_WITH_STACK"
             echo "bisect_good_commit=$BISECT_GOOD_COMMIT"
             echo "bisect_bad_commit=$BISECT_BAD_COMMIT"
             echo "bisect_fail_confirm_retries=$BISECT_FAIL_CONFIRM_RETRIES"
@@ -505,6 +515,7 @@ jobs:
         id: dispatch_a5
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+          BISECT_ARGS_JSON: ${{ needs.authorize.outputs.bisect_args_json }}
         run: |
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
           REQUEST_ID='${{ github.run_id }}'
@@ -517,7 +528,8 @@ jobs:
             -f skip_build_image=true \
             -f vllm_ascend_ref='${{ needs.authorize.outputs.vllm_ascend_ref }}' \
             -f aop_enabled='${{ needs.authorize.outputs.aop_enabled }}' \
-            -f profile_enabled='${{ needs.authorize.outputs.profile_enabled }}'
+            -f profile_enabled='${{ needs.authorize.outputs.profile_enabled }}' \
+            -f bisect_args_json="$BISECT_ARGS_JSON"
           sleep 8
           A5_RUN_ID=$(gh api "repos/$REPO/actions/workflows/schedule_nightly_test_a5.yaml/runs?per_page=1" \
             --jq '.workflow_runs[0].id')
@@ -559,7 +571,8 @@ jobs:
             -f skip_build_image=true \
             -f vllm_ascend_ref='${{ needs.authorize.outputs.vllm_ascend_ref }}' \
             -f aop_enabled='${{ needs.authorize.outputs.aop_enabled }}' \
-            -f profile_enabled='${{ needs.authorize.outputs.profile_enabled }}'
+            -f profile_enabled='${{ needs.authorize.outputs.profile_enabled }}' \
+            -f profile_with_stack='${{ needs.authorize.outputs.profile_with_stack }}'
           sleep 8
           _310P_RUN_ID=$(gh api "repos/$REPO/actions/workflows/schedule_nightly_test_310p.yaml/runs?per_page=1" \
             --jq '.workflow_runs[0].id')

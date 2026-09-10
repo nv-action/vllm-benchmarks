@@ -83,6 +83,11 @@ on:
         type: boolean
         default: false
         description: force-enable the torch profiler and export profiling artifacts
+      profile_with_stack:
+        required: false
+        type: boolean
+        default: false
+        description: record Python stacks in torch profiler traces
       bisect_good_commit:
         required: false
         type: string
@@ -294,7 +299,7 @@ jobs:
           {
             echo "VLLM_ASCEND_FORCE_PROFILE=true"
             echo "VLLM_ASCEND_PROFILE_DIR=${PROFILE_DIR}"
-            echo "VLLM_TORCH_PROFILER_WITH_STACK=1"
+            echo "VLLM_TORCH_PROFILER_WITH_STACK=${{ inputs.profile_with_stack && '1' || '0' }}"
           } >> "$GITHUB_ENV"
           echo "Profiling enabled, profile output dir: ${PROFILE_DIR}"
 
@@ -505,18 +510,22 @@ jobs:
 
       - name: Package profiling output
         if: ${{ always() && inputs.profile_enabled }}
+        id: package_profile
         run: |
           PROFILE_DIR="/vllm-workspace/vllm-ascend/profile_output"
           if [ -d "$PROFILE_DIR" ] && [ "$(ls -A "$PROFILE_DIR" 2>/dev/null)" ]; then
             tar -czf /tmp/profile-output.tar.gz -C "$PROFILE_DIR" .
             echo "Profiling output packaged:"
             du -sh /tmp/profile-output.tar.gz
+            echo "profile_ready=true" >> "$GITHUB_OUTPUT"
           else
-            echo "Warning: No profiling output found in $PROFILE_DIR"
+            echo "profile_ready=false" >> "$GITHUB_OUTPUT"
+            echo "::error::Profiling was requested but no output was found in $PROFILE_DIR"
+            exit 1
           fi
 
       - name: Upload profiling artifacts (OBS)
-        if: ${{ always() && inputs.profile_enabled }}
+        if: ${{ always() && inputs.profile_enabled && steps.package_profile.outputs.profile_ready == 'true' }}
         continue-on-error: true
         uses: ascend-gha-runners/artifact/upload@v0.3
         with:
@@ -528,8 +537,7 @@ jobs:
           retention-days: 14
 
       - name: Upload profiling artifacts (GitHub Artifacts)
-        if: ${{ always() && inputs.profile_enabled }}
-        continue-on-error: true
+        if: ${{ always() && inputs.profile_enabled && steps.package_profile.outputs.profile_ready == 'true' }}
         uses: actions/upload-artifact@v7
         with:
           name: nightly-test-profiling-${{ inputs.vllm_ascend_branch }}-${{ inputs.name }}-${{ steps.profile_ts.outputs.artifact_ts }}
