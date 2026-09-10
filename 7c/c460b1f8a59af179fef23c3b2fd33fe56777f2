@@ -40,17 +40,17 @@ Dockerfile.a5.openEuler
       },
       "human_author": "chenqi49 <479148871@qq.com>",
       "custom_attributes": {
-        "tool_type": "agent",
-        "dedupe_key": "6a9676922397bca1f9dfe922:6aa150061c176cc28c04b547:afterEdit:c4a6742f",
+        "tool_id": "Edit",
+        "runtime_client": "trae-tob-git-ai",
+        "session_id": "6a9676922397bca1f9dfe922",
+        "operation_id": "6aa150061c176cc28c04b547",
         "edit_kind": "file_edit",
         "source_scene": "unknown",
+        "dedupe_key": "6a9676922397bca1f9dfe922:6aa150061c176cc28c04b547:afterEdit:c4a6742f",
         "client_type": "ide",
-        "session_id": "6a9676922397bca1f9dfe922",
-        "external_session_id": "6a9676922397bca1f9dfe922",
-        "tool_id": "Edit",
-        "operation_id": "6aa150061c176cc28c04b547",
-        "runtime_client": "trae-tob-git-ai",
-        "tool_use_id": "6aa150061c176cc28c04b547"
+        "tool_use_id": "6aa150061c176cc28c04b547",
+        "tool_type": "agent",
+        "external_session_id": "6a9676922397bca1f9dfe922"
       }
     }
   }
