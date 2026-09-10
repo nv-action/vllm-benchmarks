@@ -1,18 +1,18 @@
 {
   "cases": [
-    "tests/e2e/pull_request/one_card/test_qwen3_0_6b.py",
     "tests/e2e/pull_request/one_card/test_sampler.py",
     "tests/e2e/pull_request/one_card/test_qwen3_8b_w8a8.py",
     "tests/e2e/pull_request/one_card/test_vlm.py",
     "tests/e2e/pull_request/one_card/test_gumbel_sampling.py",
     "tests/e2e/pull_request/one_card/spec_decode/test_ngram.py",
     "tests/e2e/pull_request/one_card/rlhf/state_transitions/test_pause_resume.py",
+    "tests/e2e/pull_request/one_card/model_runner_v2/test_uva.py",
     "tests/e2e/pull_request/two_card/test_deepseek_multistream_moe.py",
     "tests/e2e/pull_request/two_card/test_prefix_caching.py",
     "tests/e2e/pull_request/two_card/test_disaggregated_encoder.py",
     "tests/e2e/pull_request/two_card/test_hccl_weight_transfer.py",
     "tests/e2e/pull_request/four_card/test_deepseek_v3_2_w8a8_pruning.py",
-    "tests/e2e/pull_request/four_card/test_graph_mode.py",
+    "tests/e2e/pull_request/four_card/model_runner_v2/test_deepseek_v4.py",
     "tests/e2e/pull_request/four_card/test_data_parallel_tp2.py",
     "tests/e2e/pull_request/four_card/test_pipeline_parallel.py"
   ]
