@@ -1,5 +1,5 @@
-test_name: "Qwen3.5-27B-W8A8 external DP profiling smoke test (2 nodes x 2 NPUs)"
-model: "Eco-Tech/Qwen3.5-27B-w8a8-mtp"
+test_name: "DeepSeek-V2-Lite-W8A8 external DP profiling smoke test (2 nodes x 2 NPUs)"
+model: "vllm-ascend/DeepSeek-V2-Lite-W8A8"
 num_nodes: 2
 npu_per_node: 2
 
@@ -38,7 +38,6 @@ env_common: &env_common
   OMP_PROC_BIND: "false"
   OMP_NUM_THREADS: "1"
   TASK_QUEUE_ENABLE: "1"
-  VLLM_ASCEND_ENABLE_DENSE_OPTIMIZE: "1"
   LD_LIBRARY_PATH: "/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:$LD_LIBRARY_PATH"
 
 templates:
@@ -62,6 +61,7 @@ templates:
       - ${TP_SIZE}
       - --quantization
       - ascend
+      - --enable-expert-parallel
       - --max-num-seqs
       - "8"
       - --max-model-len
@@ -100,6 +100,7 @@ templates:
       - ${TP_SIZE}
       - --quantization
       - ascend
+      - --enable-expert-parallel
       - --max-num-seqs
       - "8"
       - --max-model-len
@@ -121,7 +122,7 @@ templates:
 benchmarks:
   perf:
     case_type: performance
-    dataset_path: vllm-ascend/GSM8K-in3500-bs8000-qwen3
+    dataset_path: vllm-ascend/GSM8K-in3500-bs2800
     request_conf: vllm_api_stream_chat
     dataset_conf: gsm8k/gsm8k_gen_0_shot_cot_str_perf
     num_prompts: 8
