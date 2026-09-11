@@ -1,0 +1,314 @@
+#
+# Copyright (c) 2025 Huawei Technologies Co., Ltd. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+# TEMPORARY workflow: measure the vllm-ascend-main CPU-UT baseline against
+# BOTH pinned vllm versions (verified-commit / verified-tag) with real pip
+# installs, and diff the failure sets. The release-only failures seed
+# main2main_flow's release_ut_baseline.json; release-lane collection errors
+# become visible here with full tracebacks (run 34583706211's blind spot).
+# Delete this file from both m2m-a3-16 and main after use.
+
+name: Temp UT baseline (a3-16)
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash -el {0}
+
+concurrency:
+  group: temp-ut-baseline-a3-16
+  cancel-in-progress: false
+
+env:
+  ARTIFACT_DIR: ut_baseline_artifacts
+
+jobs:
+  ut-baseline:
+    runs-on: linux-aarch64-a3-16-sh-001
+    timeout-minutes: 90
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-a3-ubuntu22.04-py3.12
+      env:
+        VLLM_LOGGING_LEVEL: ERROR
+        VLLM_USE_MODELSCOPE: True
+        HF_HUB_OFFLINE: 1
+        # UT is pure CPU; the fake npu-smi keeps tests/ut/conftest.py on its
+        # mocked torch_npu path.
+        ASCEND_RT_VISIBLE_DEVICES: ''
+    steps:
+      - name: Checkout vllm-project/vllm-ascend main
+        uses: actions/checkout@v7
+        with:
+          repository: vllm-project/vllm-ascend
+          ref: main
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Read pinned vllm versions
+        id: pins
+        run: |
+          set -eu
+          MAIN_PIN=$(cat .github/vllm-main-verified.commit)
+          RELEASE_TAG=$(cat .github/vllm-release-tag.commit)
+          echo "main pin:    ${MAIN_PIN}"
+          echo "release tag: ${RELEASE_TAG}"
+          echo "main_pin=${MAIN_PIN}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout vllm at main pin
+        uses: actions/checkout@v7
+        with:
+          repository: vllm-project/vllm
+          ref: ${{ steps.pins.outputs.main_pin }}
+          path: vllm-main
+          persist-credentials: false
+
+      - name: Checkout vllm at release tag
+        uses: actions/checkout@v7
+        with:
+          repository: vllm-project/vllm
+          ref: ${{ steps.pins.outputs.release_tag }}
+          path: vllm-release
+          persist-credentials: false
+
+      - name: Install dependencies
+        run: |
+          set -eu
+          pip config set global.index-url http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+          pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
+          pip install -q pytest pyyaml
+          # Hide the nested vllm checkouts from the ascend repo's git status.
+          echo "vllm-main/" >> .git/info/exclude
+          echo "vllm-release/" >> .git/info/exclude
+          FAKE_BIN="${RUNNER_TEMP}/fake-bin"
+          mkdir -p "${FAKE_BIN}"
+          printf '#!/bin/sh\nexit 1\n' > "${FAKE_BIN}/npu-smi"
+          chmod +x "${FAKE_BIN}/npu-smi"
+          echo "FAKE_BIN=${FAKE_BIN}" >> "$GITHUB_ENV"
+
+      - name: Write UT lane runner
+        run: |
+          cat > "${RUNNER_TEMP}/ut_runner.py" <<'PYEOF'
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          import yaml
+
+          REPO = Path.cwd()
+          LANE = os.environ["LANE"]
+          ART = Path(os.environ["ARTIFACT_DIR"])
+          ART.mkdir(exist_ok=True)
+
+          # CPU-routed selection, ported from the flow's _collect_cpu_ut_files:
+          # all tests/ut test files except NPU-routed ones (runner_mapping
+          # patterns starting with tests/ut, or the a2/a3_2 convention dirs)
+          # and skip_tests entries.
+          skip_tests = set()
+          npu_patterns = []
+          cfg = REPO / ".github/workflows/scripts/test_config.yaml"
+          if cfg.exists():
+              meta = {}
+              for doc in yaml.safe_load_all(cfg.read_text(encoding="utf-8")):
+                  if isinstance(doc, list):
+                      for module in doc:
+                          if isinstance(module, dict):
+                              skip_tests.update(
+                                  str(s).rstrip("/")
+                                  for s in module.get("skip_tests", []) or [])
+                  elif isinstance(doc, dict):
+                      if "runner_mapping" in doc:
+                          meta = doc
+                      skip_tests.update(
+                          str(s).rstrip("/") for s in doc.get("skip_tests", []) or []
+                          if isinstance(s, str))
+              npu_patterns = [
+                  re.compile(p) for p in (meta.get("runner_mapping", {}) or {})
+                  if str(p).startswith("tests/ut")]
+          convention = [re.compile(r"tests/ut/.+/a2(/|$)"),
+                        re.compile(r"tests/ut/.+/a3_2(/|$)")]
+
+          files = []
+          for root, dirs, fnames in os.walk(REPO / "tests" / "ut"):
+              dirs[:] = [d for d in dirs if d != "__pycache__"]
+              for f in sorted(fnames):
+                  if not (f.startswith("test_") and f.endswith(".py")):
+                      continue
+                  rel = os.path.relpath(os.path.join(root, f), REPO)
+                  if rel in skip_tests:
+                      continue
+                  if any(p.search(rel) for p in (npu_patterns or convention)):
+                      continue
+                  files.append(rel)
+
+          # Shared-process pollution: each of these runs in its own pytest
+          # process (same isolation as the flow's UT batch).
+          ISOLATED_SUFFIX = ("test_batch_invariant.py",
+                             "test_vocab_parallel_embedding.py",
+                             "test_gdn_layerwise_kv.py")
+          batch = [f for f in files if not f.endswith(ISOLATED_SUFFIX)]
+          isolated = [f for f in files if f.endswith(ISOLATED_SUFFIX)]
+
+          FLAGS = ["-q", "--tb=short", "--no-header",
+                   "--continue-on-collection-errors",
+                   "-k", "not test_schedule_body_matches_pinned_release_tag"]
+          env = os.environ.copy()
+          env["PATH"] = f"{os.environ['FAKE_BIN']}:{env['PATH']}"
+          env["TORCH_DEVICE_BACKEND_AUTOLOAD"] = "0"
+          env["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
+
+          version = subprocess.run(
+              [sys.executable, "-c", "import vllm; print(vllm.__version__)"],
+              capture_output=True, text=True, check=True).stdout.strip()
+
+          log = ART / f"ut_{LANE}.log"
+          with log.open("w", encoding="utf-8") as lf:
+              lf.write(f"# lane={LANE} vllm.__version__={version}\n")
+              lf.write(f"# files: {len(batch)} batch + {len(isolated)} isolated\n")
+
+          rcs = []
+
+          def run(targets, tag):
+              with log.open("a", encoding="utf-8") as lf:
+                  lf.write(f"\n##### {tag}: {len(targets)} file(s) #####\n")
+                  lf.flush()
+                  try:
+                      r = subprocess.run(
+                          [sys.executable, "-m", "pytest", *targets, *FLAGS],
+                          env=env, stdout=lf, stderr=subprocess.STDOUT,
+                          timeout=1800)
+                      rcs.append(r.returncode)
+                  except subprocess.TimeoutExpired:
+                      lf.write(f"\n##### TIMEOUT after 1800s #####\n")
+                      rcs.append(-9)
+
+          run(batch, "batch")
+          for f in isolated:
+              run([f], f"isolated {f}")
+
+          text = log.read_text(encoding="utf-8")
+          fails = sorted({m.group(2) for m in re.finditer(
+              r"^(FAILED|ERROR)\s+(\S+\.py(?:::\S+)?)", text, re.MULTILINE)})
+          collection = [f for f in fails if "::" not in f]
+          (ART / f"ut_{LANE}_failures.json").write_text(json.dumps(
+              {"lane": LANE, "vllm_version": version, "pytest_rc": rcs,
+               "files": len(files), "failures": fails}, indent=2) + "\n",
+              encoding="utf-8")
+
+          print(f"[{LANE}] vllm {version}: {len(files)} UT files, "
+                f"pytest rc={rcs}")
+          print(f"[{LANE}] {len(fails)} failure/error line(s) "
+                f"({len(collection)} collection error(s)):")
+          for f in fails:
+              mark = " [collection error]" if "::" not in f else ""
+              print(f"  {f}{mark}")
+          PYEOF
+
+      - name: Install vllm (main pin)
+        run: |
+          set -eu
+          pip uninstall -y vllm || true
+          VLLM_TARGET_DEVICE=empty pip install ./vllm-main
+          pip uninstall -y triton
+
+      - name: Install vllm-ascend (no csrc compile)
+        run: |
+          set -eu
+          pip install -q uc-manager || echo "::warning::uc-manager install failed (not needed for UT)"
+          pip install -q -r requirements-dev.txt
+          COMPILE_CUSTOM_KERNELS=0 pip install -q -e .
+          python -c "import vllm, vllm_ascend; print('vllm', vllm.__version__); print('vllm_ascend', vllm_ascend.__version__)"
+
+      - name: UT lane main (vllm @ main pin)
+        env:
+          LANE: main
+        run: python "${RUNNER_TEMP}/ut_runner.py"
+
+      - name: Install vllm (release tag)
+        run: |
+          set -eu
+          pip uninstall -y vllm
+          VLLM_TARGET_DEVICE=empty pip install ./vllm-release
+          pip uninstall -y triton
+          python -c "import vllm; print('vllm', vllm.__version__)"
+
+      - name: UT lane release (vllm @ release tag)
+        env:
+          LANE: release
+        run: python "${RUNNER_TEMP}/ut_runner.py"
+
+      - name: Diff lanes and emit baseline
+        if: ${{ !cancelled() }}
+        run: |
+          python - <<'PYEOF'
+          import json
+          import os
+          from pathlib import Path
+
+          art = Path(os.environ["ARTIFACT_DIR"])
+          main = json.loads((art / "ut_main_failures.json").read_text())
+          rel = json.loads((art / "ut_release_failures.json").read_text())
+          mset, rset = set(main["failures"]), set(rel["failures"])
+          release_only = sorted(rset - mset)
+          main_only = sorted(mset - rset)
+          both = sorted(mset & rset)
+          (art / "release_ut_baseline.json").write_text(
+              json.dumps({"excluded": release_only}, indent=2) + "\n",
+              encoding="utf-8")
+
+          def fmt(entries):
+              return "\n".join(f"- `{e}`" for e in entries) or "- (none)"
+
+          report = "\n".join([
+              "# UT baseline report (vllm-ascend @ main)",
+              f"- main lane: vllm {main['vllm_version']} — "
+              f"{len(mset)} failure(s), pytest rc={main['pytest_rc']}",
+              f"- release lane: vllm {rel['vllm_version']} — "
+              f"{len(rset)} failure(s), pytest rc={rel['pytest_rc']}",
+              "",
+              f"## Release-only failures ({len(release_only)}) — "
+              f"release_ut_baseline.json candidates",
+              fmt(release_only),
+              "",
+              f"## Both lanes ({len(both)}) — env noise, NOT baseline candidates",
+              fmt(both),
+              "",
+              f"## Main-only failures ({len(main_only)}) — main-lane noise",
+              fmt(main_only),
+          ]) + "\n"
+          (art / "baseline_report.md").write_text(report, encoding="utf-8")
+          print(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a",
+                    encoding="utf-8") as f:
+              f.write(report)
+          PYEOF
+
+      - name: Upload baseline artifacts
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ut-baseline-${{ github.run_id }}
+          path: ${{ env.ARTIFACT_DIR }}
+          retention-days: 7
