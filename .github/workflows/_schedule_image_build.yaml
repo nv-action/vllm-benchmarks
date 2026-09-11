@@ -257,11 +257,10 @@ jobs:
     - uses: actions/checkout@v7
       if: ${{ github.event_name == 'workflow_dispatch' && inputs.workflow_dispatch_tag == '' && inputs.vllm_ascend_commit == '' }}
       with:
-        repository: vllm-project/vllm-ascend
         submodules: recursive
         fetch-depth: 0
         persist-credentials: false
-        ref: ${{ inputs.branch_ref }}
+        ref: ${{ inputs.branch_ref != '' && inputs.branch_ref || github.ref_name }}
 
     - name: Compute cache tag
       id: cache-tag
