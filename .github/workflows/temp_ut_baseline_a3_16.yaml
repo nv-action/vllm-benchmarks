@@ -176,17 +176,26 @@ jobs:
           res = check_ut(ascend, vllm_path=vllm,
                          vllm_release_path=release, release_tag=tag)
 
-          # Main-lane violations are bare node ids; release-lane ones carry
-          # a "[<tag>] " prefix.  Extract the node id (the token after
-          # FAILED/ERROR) for stable baseline keys.
+          # Violations carry a "[<label>] " prefix: label "main" for the
+          # main lane, the tag (v-stripped) for the release lane — and the
+          # string continues past the first line (failure excerpt), so the
+          # lane must be split with startswith, never an anchored regex.
+          # Extract the node id (the token after FAILED/ERROR) for stable
+          # baseline keys.
           node_re = re.compile(r"(?:FAILED|ERROR)\s+(\S+)")
+          main_prefix, rel_prefix = "[main] ", f"[{tag.lstrip('v')}] "
           main_fails, rel_fails, unparsed = [], [], []
           for v in res["violations"]:
-              m = re.match(r"^\[.+?\]\s*(.*)$", v)
-              body, is_rel = (m.group(1), True) if m else (v, False)
+              if v.startswith(rel_prefix):
+                  body, lane = v[len(rel_prefix):], rel_fails
+              elif v.startswith(main_prefix):
+                  body, lane = v[len(main_prefix):], main_fails
+              else:
+                  unparsed.append(v)
+                  continue
               nm = node_re.search(body)
               if nm:
-                  (rel_fails if is_rel else main_fails).append(nm.group(1))
+                  lane.append(nm.group(1))
               else:
                   unparsed.append(v)
           release_only = sorted(set(rel_fails) - set(main_fails))
