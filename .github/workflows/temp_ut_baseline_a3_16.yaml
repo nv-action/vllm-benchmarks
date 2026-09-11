@@ -14,11 +14,13 @@
 # limitations under the License.
 #
 
-# TEMPORARY workflow: measure the vllm-ascend-main CPU-UT baseline against
-# BOTH pinned vllm versions (verified-commit / verified-tag) with real pip
-# installs, and diff the failure sets. The release-only failures seed
-# main2main_flow's release_ut_baseline.json; release-lane collection errors
-# become visible here with full tracebacks (run 34583706211's blind spot).
+# TEMPORARY workflow: run vllm-ascend main's CPU UT batch against BOTH pinned
+# vllm versions (verified-commit / verified-tag) and diff the failure sets.
+# The release-only failures seed main2main_flow's release_ut_baseline.json;
+# release-lane collection errors become visible here with full tracebacks
+# (run 34596462417 died installing vllm-ascend with pip + a single index —
+# install steps here follow schedule_main2main.yaml verbatim: uv + the
+# container's UV_EXTRA_INDEX_URL, which carries triton-ascend).
 # Delete this file from both m2m-a3-16 and main after use.
 
 name: Temp UT baseline (a3-16)
@@ -43,7 +45,7 @@ env:
 jobs:
   ut-baseline:
     runs-on: linux-aarch64-a3-16-sh-001
-    timeout-minutes: 90
+    timeout-minutes: 120
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-a3-ubuntu22.04-py3.12
       env:
@@ -53,6 +55,16 @@ jobs:
         # UT is pure CPU; the fake npu-smi keeps tests/ut/conftest.py on its
         # mocked torch_npu path.
         ASCEND_RT_VISIBLE_DEVICES: ''
+        UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+        UV_EXTRA_INDEX_URL: "https://repo.huaweicloud.com/ascend/repos/pypi http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu/"
+        UV_INDEX_STRATEGY: unsafe-best-match
+        UV_INSECURE_HOST: cache-service.nginx-pypi-cache.svc.cluster.local
+        UV_HTTP_TIMEOUT: 120
+        UV_NO_CACHE: 1
+        UV_SYSTEM_PYTHON: 1
+    defaults:
+      run:
+        shell: bash -el {0}
     steps:
       - name: Checkout vllm-project/vllm-ascend main
         uses: actions/checkout@v7
@@ -79,26 +91,26 @@ jobs:
         with:
           repository: vllm-project/vllm
           ref: ${{ steps.pins.outputs.main_pin }}
-          path: vllm-main
-          persist-credentials: false
-
-      - name: Checkout vllm at release tag
-        uses: actions/checkout@v7
-        with:
-          repository: vllm-project/vllm
-          ref: ${{ steps.pins.outputs.release_tag }}
-          path: vllm-release
+          path: vllm-upstream
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Install dependencies
         run: |
           set -eu
+          sed -Ei 's@(ports|archive).ubuntu.com@cache-service.nginx-pypi-cache.svc.cluster.local:8081@g' /etc/apt/sources.list
           pip config set global.index-url http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
           pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
-          pip install -q pytest pyyaml
-          # Hide the nested vllm checkouts from the ascend repo's git status.
-          echo "vllm-main/" >> .git/info/exclude
-          echo "vllm-release/" >> .git/info/exclude
+          apt-get update -y
+          if [ -s "$GITHUB_WORKSPACE/packages.txt" ]; then
+            xargs -r apt-get -y install < "$GITHUB_WORKSPACE/packages.txt"
+          fi
+          apt-get -y install git curl ca-certificates gcc g++ cmake libnuma-dev zstd
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/vllm-upstream"
+          pip install uv pytest
+          # Hide the nested vllm checkout from the ascend repo's git status.
+          echo "vllm-upstream/" >> .git/info/exclude
           FAKE_BIN="${RUNNER_TEMP}/fake-bin"
           mkdir -p "${FAKE_BIN}"
           printf '#!/bin/sh\nexit 1\n' > "${FAKE_BIN}/npu-smi"
@@ -226,19 +238,24 @@ jobs:
               print(f"  {f}{mark}")
           PYEOF
 
-      - name: Install vllm (main pin)
+      - name: Install vllm at main pin
+        working-directory: vllm-upstream
         run: |
           set -eu
-          pip uninstall -y vllm || true
-          VLLM_TARGET_DEVICE=empty pip install ./vllm-main
+          VLLM_TARGET_DEVICE=empty uv pip install .
           pip uninstall -y triton
+          python -c "import vllm; print('vllm', vllm.__version__)"
 
       - name: Install vllm-ascend (no csrc compile)
+        env:
+          SOC_VERSION: ascend910b1
+          COMPILE_CUSTOM_KERNELS: 0
         run: |
           set -eu
-          pip install -q uc-manager || echo "::warning::uc-manager install failed (not needed for UT)"
-          pip install -q -r requirements-dev.txt
-          COMPILE_CUSTOM_KERNELS=0 pip install -q -e .
+          pip install uc-manager
+          uv pip install -r requirements-dev.txt
+          uv pip install --force-reinstall --no-deps triton-ascend==3.2.2
+          uv pip install -e .
           python -c "import vllm, vllm_ascend; print('vllm', vllm.__version__); print('vllm_ascend', vllm_ascend.__version__)"
 
       - name: UT lane main (vllm @ main pin)
@@ -246,11 +263,13 @@ jobs:
           LANE: main
         run: python "${RUNNER_TEMP}/ut_runner.py"
 
-      - name: Install vllm (release tag)
+      - name: Install vllm at release tag
+        working-directory: vllm-upstream
         run: |
           set -eu
-          pip uninstall -y vllm
-          VLLM_TARGET_DEVICE=empty pip install ./vllm-release
+          git checkout "${{ steps.pins.outputs.release_tag }}"
+          uv pip uninstall vllm || true
+          VLLM_TARGET_DEVICE=empty uv pip install .
           pip uninstall -y triton
           python -c "import vllm; print('vllm', vllm.__version__)"
 
@@ -307,7 +326,7 @@ jobs:
 
       - name: Upload baseline artifacts
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ut-baseline-${{ github.run_id }}
           path: ${{ env.ARTIFACT_DIR }}
