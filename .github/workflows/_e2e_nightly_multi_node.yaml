@@ -220,13 +220,21 @@ jobs:
         id: vars
         run: |
           # Derive a unique, valid k8s resource name from config_file_path.
-          # Append 6-char random suffix to avoid conflicts; total length capped at 63 chars.
+          # LWS uses this name in generated labels and appends a group index plus
+          # a 10-character revision hash. Keep headroom below k8s' 63-char limit.
 
+          MAX_LWS_SUFFIX_LENGTH=32
+          MAX_K8S_LABEL_LENGTH=63
+          LWS_CONTROLLER_LABEL_SUFFIX="-0-0000000000"
           config_file="${{ inputs.config_file_path }}"
           config_stem="${config_file%.yaml}"
-          lws_suffix=$(echo "$config_stem" | tr '[:upper:]' '[:lower:]' | tr '._' '-' | cut -c1-43)
+          lws_suffix=$(echo "$config_stem" | tr '[:upper:]' '[:lower:]' | tr '._' '-' | cut -c "1-${MAX_LWS_SUFFIX_LENGTH}")
           rand_suffix=$(tr -d '-' < /proc/sys/kernel/random/uuid | cut -c1-6)
           LWS_NAME="vllm-${lws_suffix}-${rand_suffix}"
+          if (( ${#LWS_NAME} + ${#LWS_CONTROLLER_LABEL_SUFFIX} > MAX_K8S_LABEL_LENGTH )); then
+            echo "Generated LWS name is too long for controller labels: ${LWS_NAME}" >&2
+            exit 1
+          fi
 
           branch="${{ inputs.vllm_ascend_branch }}"
           if [ -n "$branch" ]; then
