@@ -14,13 +14,16 @@
 # limitations under the License.
 #
 
-# TEMPORARY workflow: run vllm-ascend main's CPU UT batch against BOTH pinned
-# vllm versions (verified-commit / verified-tag) and diff the failure sets.
-# The release-only failures seed main2main_flow's release_ut_baseline.json;
-# release-lane collection errors become visible here with full tracebacks
-# (run 34596462417 died installing vllm-ascend with pip + a single index —
-# install steps here follow schedule_main2main.yaml verbatim: uv + the
-# container's UV_EXTRA_INDEX_URL, which carries triton-ascend).
+# TEMPORARY workflow: measure the release-lane UT baseline of CLEAN
+# vllm-ascend main by PORTING main2main_flow's proven main-UT environment:
+# vllm/vllm-ascend are NOT pip-installed — check_ut runs both lanes through
+# its PYTHONPATH checkout duality (persistent venv with
+# --system-site-packages + numpy==1.26.4, fake npu-smi, mocked torch_npu),
+# which is exactly the env where the main lane runs 4190 tests green in
+# production (run 34583706211). Install steps mirror schedule_main2main.yaml
+# (mooncake wheel, requirements-dev.txt, triton-ascend) so the system site
+# matches the flow's runner. The release-only failure set seeds
+# main2main_flow's release_ut_baseline.json.
 # Delete this file from both m2m-a3-16 and main after use.
 
 name: Temp UT baseline (a3-16)
@@ -52,9 +55,6 @@ jobs:
         VLLM_LOGGING_LEVEL: ERROR
         VLLM_USE_MODELSCOPE: True
         HF_HUB_OFFLINE: 1
-        # UT is pure CPU; the fake npu-smi keeps tests/ut/conftest.py on its
-        # mocked torch_npu path.
-        ASCEND_RT_VISIBLE_DEVICES: ''
         UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
         UV_EXTRA_INDEX_URL: "https://repo.huaweicloud.com/ascend/repos/pypi http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu/"
         UV_INDEX_STRATEGY: unsafe-best-match
@@ -111,212 +111,97 @@ jobs:
           pip install uv pytest
           # Hide the nested vllm checkout from the ascend repo's git status.
           echo "vllm-upstream/" >> .git/info/exclude
-          FAKE_BIN="${RUNNER_TEMP}/fake-bin"
-          mkdir -p "${FAKE_BIN}"
-          printf '#!/bin/sh\nexit 1\n' > "${FAKE_BIN}/npu-smi"
-          chmod +x "${FAKE_BIN}/npu-smi"
-          echo "FAKE_BIN=${FAKE_BIN}" >> "$GITHUB_ENV"
 
-      - name: Write UT lane runner
+      - name: Install main2main_flow and runner deps
         run: |
-          cat > "${RUNNER_TEMP}/ut_runner.py" <<'PYEOF'
-          import json
-          import os
-          import re
-          import subprocess
-          import sys
-          from pathlib import Path
-
-          import yaml
-
-          REPO = Path.cwd()
-          LANE = os.environ["LANE"]
-          ART = Path(os.environ["ARTIFACT_DIR"])
-          ART.mkdir(exist_ok=True)
-
-          # CPU-routed selection, ported from the flow's _collect_cpu_ut_files:
-          # all tests/ut test files except NPU-routed ones (runner_mapping
-          # patterns starting with tests/ut, or the a2/a3_2 convention dirs)
-          # and skip_tests entries.
-          skip_tests = set()
-          npu_patterns = []
-          cfg = REPO / ".github/workflows/scripts/test_config.yaml"
-          if cfg.exists():
-              meta = {}
-              for doc in yaml.safe_load_all(cfg.read_text(encoding="utf-8")):
-                  if isinstance(doc, list):
-                      for module in doc:
-                          if isinstance(module, dict):
-                              skip_tests.update(
-                                  str(s).rstrip("/")
-                                  for s in module.get("skip_tests", []) or [])
-                  elif isinstance(doc, dict):
-                      if "runner_mapping" in doc:
-                          meta = doc
-                      skip_tests.update(
-                          str(s).rstrip("/") for s in doc.get("skip_tests", []) or []
-                          if isinstance(s, str))
-              npu_patterns = [
-                  re.compile(p) for p in (meta.get("runner_mapping", {}) or {})
-                  if str(p).startswith("tests/ut")]
-          convention = [re.compile(r"tests/ut/.+/a2(/|$)"),
-                        re.compile(r"tests/ut/.+/a3_2(/|$)")]
-
-          files = []
-          for root, dirs, fnames in os.walk(REPO / "tests" / "ut"):
-              dirs[:] = [d for d in dirs if d != "__pycache__"]
-              for f in sorted(fnames):
-                  if not (f.startswith("test_") and f.endswith(".py")):
-                      continue
-                  rel = os.path.relpath(os.path.join(root, f), REPO)
-                  if rel in skip_tests:
-                      continue
-                  if any(p.search(rel) for p in (npu_patterns or convention)):
-                      continue
-                  files.append(rel)
-
-          # Shared-process pollution: each of these runs in its own pytest
-          # process (same isolation as the flow's UT batch).
-          ISOLATED_SUFFIX = ("test_batch_invariant.py",
-                             "test_vocab_parallel_embedding.py",
-                             "test_gdn_layerwise_kv.py")
-          batch = [f for f in files if not f.endswith(ISOLATED_SUFFIX)]
-          isolated = [f for f in files if f.endswith(ISOLATED_SUFFIX)]
-
-          FLAGS = ["-q", "--tb=short", "--no-header",
-                   "--continue-on-collection-errors",
-                   "-k", "not test_schedule_body_matches_pinned_release_tag"]
-          env = os.environ.copy()
-          env["PATH"] = f"{os.environ['FAKE_BIN']}:{env['PATH']}"
-          env["TORCH_DEVICE_BACKEND_AUTOLOAD"] = "0"
-          env["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
-
-          # Version via package metadata: a real `import vllm` here would
-          # drag in torch/torch_npu outside pytest's mocked-conftest env.
-          from importlib.metadata import version as _pkg_version
-          version = _pkg_version("vllm")
-
-          log = ART / f"ut_{LANE}.log"
-          with log.open("w", encoding="utf-8") as lf:
-              lf.write(f"# lane={LANE} vllm.__version__={version}\n")
-              lf.write(f"# files: {len(batch)} batch + {len(isolated)} isolated\n")
-
-          rcs = []
-
-          def run(targets, tag):
-              with log.open("a", encoding="utf-8") as lf:
-                  lf.write(f"\n##### {tag}: {len(targets)} file(s) #####\n")
-                  lf.flush()
-                  try:
-                      r = subprocess.run(
-                          [sys.executable, "-m", "pytest", *targets, *FLAGS],
-                          env=env, stdout=lf, stderr=subprocess.STDOUT,
-                          timeout=1800)
-                      rcs.append(r.returncode)
-                  except subprocess.TimeoutExpired:
-                      lf.write(f"\n##### TIMEOUT after 1800s #####\n")
-                      rcs.append(-9)
-
-          run(batch, "batch")
-          for f in isolated:
-              run([f], f"isolated {f}")
-
-          text = log.read_text(encoding="utf-8")
-          fails = sorted({m.group(2) for m in re.finditer(
-              r"^(FAILED|ERROR)\s+(\S+\.py(?:::\S+)?)", text, re.MULTILINE)})
-          collection = [f for f in fails if "::" not in f]
-          (ART / f"ut_{LANE}_failures.json").write_text(json.dumps(
-              {"lane": LANE, "vllm_version": version, "pytest_rc": rcs,
-               "files": len(files), "failures": fails}, indent=2) + "\n",
-              encoding="utf-8")
-
-          print(f"[{LANE}] vllm {version}: {len(files)} UT files, "
-                f"pytest rc={rcs}")
-          print(f"[{LANE}] {len(fails)} failure/error line(s) "
-                f"({len(collection)} collection error(s)):")
-          for f in fails:
-              mark = " [collection error]" if "::" not in f else ""
-              print(f"  {f}{mark}")
-          PYEOF
-
-      - name: Install vllm at main pin
-        working-directory: vllm-upstream
-        run: |
-          set -eu
-          VLLM_TARGET_DEVICE=empty uv pip install .
-          pip uninstall -y triton
-          python -c "import vllm; print('vllm', vllm.__version__)"
-
-      - name: Install vllm-ascend (no csrc compile)
-        env:
-          SOC_VERSION: ascend910b1
-          COMPILE_CUSTOM_KERNELS: 0
-        run: |
-          set -eu
+          set -euxo pipefail
+          # Same system-site packages the flow's runner has.
+          apt-get install -y --no-install-recommends \
+            libibverbs1 ibverbs-providers librdmacm1 libcurl4
+          ldconfig
+          MOONCAKE_WHEEL="mooncake_transfer_engine_ascend-0.3.9-cp312-cp312-manylinux_2_35_aarch64.whl"
+          pip install --no-cache-dir --no-deps \
+            "https://vllm-ascend.obs.cn-north-4.myhuaweicloud.com/vllm-ascend/${MOONCAKE_WHEEL}"
           pip install uc-manager
           uv pip install -r requirements-dev.txt
           uv pip install --force-reinstall --no-deps triton-ascend==3.2.2
-          uv pip install -e .
-          # vllm_ascend has no __version__ attribute under editable install;
-          # the import itself is the verification (same as CI's cpu block).
-          python -c "import vllm, vllm_ascend; print('import ok, vllm', vllm.__version__)"
+          # main2main_flow provides check_ut (the dual-lane UT runner).
+          git clone --depth 1 https://github.com/vllm-ascend/main2main_flow.git \
+            /tmp/main2main_flow
+          pip install -e /tmp/main2main_flow
 
-      - name: UT lane main (vllm @ main pin)
-        env:
-          LANE: main
-        run: python "${RUNNER_TEMP}/ut_runner.py"
-
-      - name: Install vllm at release tag
-        working-directory: vllm-upstream
+      - name: Prepare vllm release worktree
         run: |
           set -eu
-          git checkout "${{ steps.pins.outputs.release_tag }}"
-          uv pip uninstall vllm || true
-          VLLM_TARGET_DEVICE=empty uv pip install .
-          pip uninstall -y triton
-          # The vllm install re-pulled NVIDIA triton over triton-ascend's
-          # shared `triton/` files and the uninstall deleted them — restore
-          # triton-ascend or torch_npu sees a broken triton module.
-          uv pip install --force-reinstall --no-deps triton-ascend==3.2.2
-          # No import verify here: under ucm's boot_patch the bare
-          # `import vllm` from the vllm-upstream cwd can crash on
-          # main-tree patches applied to 0.28.0 — the UT lane below runs
-          # from the ascend root with TORCH_DEVICE_BACKEND_AUTOLOAD=0
-          # (the flow's proven release-lane env) and reports for itself.
+          RELEASE_TAG="${{ steps.pins.outputs.release_tag }}"
+          # fetch is a no-op on the full checkout; kept to mirror the flow's
+          # _prepare_release_worktree (shallow clones lack the tag).
+          git -C vllm-upstream fetch --depth 1 origin \
+            "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}" || true
+          git -C vllm-upstream worktree add -f --detach \
+            /tmp/vllm-release "${RELEASE_TAG}"
+          git -C vllm-upstream worktree list
 
-      - name: UT lane release (vllm @ release tag)
+      - name: Run dual-lane UT baseline (flow check_ut)
         env:
-          LANE: release
-        run: python "${RUNNER_TEMP}/ut_runner.py"
-
-      - name: Diff lanes and emit baseline
-        if: ${{ !cancelled() }}
+          RELEASE_TAG: ${{ steps.pins.outputs.release_tag }}
         run: |
           python - <<'PYEOF'
           import json
           import os
+          import re
+          import shutil
           from pathlib import Path
 
+          os.environ["MAIN2MAIN_RELEASE_UT_BASELINE"] = "0"
+
+          from main2main_flow.scripts.utils.ut_check import check_ut
+
+          ascend = Path(os.environ["GITHUB_WORKSPACE"])
+          vllm = ascend / "vllm-upstream"
+          release = Path("/tmp/vllm-release")
+          tag = os.environ["RELEASE_TAG"]
           art = Path(os.environ["ARTIFACT_DIR"])
-          main = json.loads((art / "ut_main_failures.json").read_text())
-          rel = json.loads((art / "ut_release_failures.json").read_text())
-          mset, rset = set(main["failures"]), set(rel["failures"])
-          release_only = sorted(rset - mset)
-          main_only = sorted(mset - rset)
-          both = sorted(mset & rset)
+          art.mkdir(exist_ok=True)
+
+          res = check_ut(ascend, vllm_path=vllm,
+                         vllm_release_path=release, release_tag=tag)
+
+          # Main-lane violations are bare node ids; release-lane ones carry
+          # a "[<tag>] " prefix.  Extract the node id (the token after
+          # FAILED/ERROR) for stable baseline keys.
+          node_re = re.compile(r"(?:FAILED|ERROR)\s+(\S+)")
+          main_fails, rel_fails, unparsed = [], [], []
+          for v in res["violations"]:
+              m = re.match(r"^\[.+?\]\s*(.*)$", v)
+              body, is_rel = (m.group(1), True) if m else (v, False)
+              nm = node_re.search(body)
+              if nm:
+                  (rel_fails if is_rel else main_fails).append(nm.group(1))
+              else:
+                  unparsed.append(v)
+          release_only = sorted(set(rel_fails) - set(main_fails))
+          both = sorted(set(rel_fails) & set(main_fails))
+          main_only = sorted(set(main_fails) - set(rel_fails))
+
           (art / "release_ut_baseline.json").write_text(
               json.dumps({"excluded": release_only}, indent=2) + "\n",
               encoding="utf-8")
+          (art / "ut_baseline_result.json").write_text(json.dumps({
+              "detail": res["detail"], "skipped": res.get("skipped", False),
+              "main_failures": main_fails, "release_failures": rel_fails,
+              "unparsed_violations": unparsed}, indent=2) + "\n",
+              encoding="utf-8")
+          log = res.get("log_path", "")
+          if log and Path(log).exists():
+              shutil.copy(log, art / "ut_full.log")
 
           def fmt(entries):
               return "\n".join(f"- `{e}`" for e in entries) or "- (none)"
 
           report = "\n".join([
-              "# UT baseline report (vllm-ascend @ main)",
-              f"- main lane: vllm {main['vllm_version']} — "
-              f"{len(mset)} failure(s), pytest rc={main['pytest_rc']}",
-              f"- release lane: vllm {rel['vllm_version']} — "
-              f"{len(rset)} failure(s), pytest rc={rel['pytest_rc']}",
+              "# UT baseline report (flow check_ut, clean vllm-ascend main)",
+              f"- detail: {res['detail']}",
               "",
               f"## Release-only failures ({len(release_only)}) — "
               f"release_ut_baseline.json candidates",
@@ -325,8 +210,12 @@ jobs:
               f"## Both lanes ({len(both)}) — env noise, NOT baseline candidates",
               fmt(both),
               "",
-              f"## Main-only failures ({len(main_only)}) — main-lane noise",
+              f"## Main-only failures ({len(main_only)}) — should be EMPTY "
+              f"(main lane is green in the flow env)",
               fmt(main_only),
+              "",
+              f"## Unparsed violations ({len(unparsed)})",
+              "\n".join(f"- {v}" for v in unparsed) or "- (none)",
           ]) + "\n"
           (art / "baseline_report.md").write_text(report, encoding="utf-8")
           print(report)
