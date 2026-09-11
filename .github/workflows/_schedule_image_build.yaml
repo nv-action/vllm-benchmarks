@@ -339,6 +339,20 @@ jobs:
         username: ${{ secrets.SWR_USERNAME }}
         password: ${{ secrets.SWR_PASSWORD }}
 
+    - name: Prepare tag pattern
+      id: tag_pattern
+      run: |
+        PATTERN="${{ inputs.schedule_tag_pattern }}"
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ -n "${{ inputs.workflow_dispatch_tag }}" ]; then
+            PATTERN="${{ inputs.workflow_dispatch_tag }}"
+          elif [ -n "${{ inputs.branch_ref }}" ]; then
+            PATTERN="${{ inputs.branch_ref }}"
+            PATTERN="${PATTERN//\//-}"
+          fi
+        fi
+        echo "pattern=${PATTERN}" >> $GITHUB_OUTPUT
+
     - name: Build and push
       uses: docker/build-push-action@v7
       id: build
