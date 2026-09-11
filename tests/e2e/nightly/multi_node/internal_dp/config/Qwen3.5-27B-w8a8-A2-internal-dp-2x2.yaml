@@ -1,0 +1,67 @@
+test_name: "Qwen3.5-27B-W8A8 internal DP profiling smoke test (2 nodes x 2 NPUs)"
+model: "Eco-Tech/Qwen3.5-27B-w8a8-mtp"
+num_nodes: 2
+npu_per_node: 2
+
+env_common: &env_common
+  VLLM_USE_MODELSCOPE: "true"
+  PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+  HCCL_BUFFSIZE: "1024"
+  HCCL_OP_EXPANSION_MODE: "AIV"
+  OMP_PROC_BIND: "false"
+  OMP_NUM_THREADS: "1"
+  TASK_QUEUE_ENABLE: "1"
+  VLLM_ASCEND_ENABLE_DENSE_OPTIMIZE: "1"
+  SERVER_PORT: "8080"
+
+deployment:
+  - envs:
+      <<: *env_common
+    server_cmd: >
+      vllm serve "Eco-Tech/Qwen3.5-27B-w8a8-mtp"
+      --host 0.0.0.0
+      --port $SERVER_PORT
+      --data-parallel-size 2
+      --data-parallel-size-local 1
+      --data-parallel-address $LOCAL_IP
+      --data-parallel-rpc-port 13389
+      --tensor-parallel-size 2
+      --quantization ascend
+      --max-num-seqs 8
+      --max-model-len 8192
+      --max-num-batched-tokens 2048
+      --trust-remote-code
+      --gpu-memory-utilization 0.9
+      --mm-processor-cache-gb 0
+
+  - envs:
+      <<: *env_common
+    server_cmd: >
+      vllm serve "Eco-Tech/Qwen3.5-27B-w8a8-mtp"
+      --headless
+      --data-parallel-size 2
+      --data-parallel-size-local 1
+      --data-parallel-start-rank 1
+      --data-parallel-address $MASTER_IP
+      --data-parallel-rpc-port 13389
+      --tensor-parallel-size 2
+      --quantization ascend
+      --max-num-seqs 8
+      --max-model-len 8192
+      --max-num-batched-tokens 2048
+      --trust-remote-code
+      --gpu-memory-utilization 0.9
+      --mm-processor-cache-gb 0
+
+benchmarks:
+  perf:
+    case_type: performance
+    dataset_path: vllm-ascend/GSM8K-in3500-bs8000-qwen3
+    request_conf: vllm_api_stream_chat
+    dataset_conf: gsm8k/gsm8k_gen_0_shot_cot_str_perf
+    num_prompts: 8
+    max_out_len: 128
+    batch_size: 4
+    request_rate: 0
+    baseline: 0
+    threshold: 0.1

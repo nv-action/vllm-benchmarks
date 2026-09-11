@@ -47,6 +47,27 @@ a2:
         tests: tests/e2e/nightly/single_node/ops/singlecard_ops/triton/test_rejection_sample.py
   multi_node:
     test_config:
+      # Temporary reduced-resource cases for validating multi-node profiling.
+      - name: profile-smoke-internal-dp-2x2
+        config_file_path: Qwen3.5-27B-w8a8-A2-internal-dp-2x2.yaml
+        config_base_path: tests/e2e/nightly/multi_node/internal_dp/config
+        size: 2
+        npu_per_node: 2
+        cpu_per_node: 32
+        memory_per_node: 160Gi
+        shared_memory_per_node: 128Gi
+        ephemeral_storage_per_node: 50Gi
+        require_distinct_nodes: true
+      - name: profile-smoke-external-dp-2x2
+        config_file_path: Qwen3.5-27B-w8a8-A2-external-dp-2x2.yaml
+        config_base_path: tests/e2e/nightly/multi_node/external_dp/config
+        size: 2
+        npu_per_node: 2
+        cpu_per_node: 32
+        memory_per_node: 160Gi
+        shared_memory_per_node: 128Gi
+        ephemeral_storage_per_node: 50Gi
+        require_distinct_nodes: true
       - name: multi-node-qwen3-235b-dp
         config_file_path: Qwen3-235B-A22B-A2.yaml
         config_base_path: tests/e2e/nightly/multi_node/internal_dp/config

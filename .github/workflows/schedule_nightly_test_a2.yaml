@@ -232,6 +232,12 @@ jobs:
       request_id: ${{ inputs.request_id || '' }}
       replicas: 1
       size: ${{ matrix.test_config.size }}
+      npu_per_node: ${{ matrix.test_config.npu_per_node || '' }}
+      cpu_per_node: ${{ matrix.test_config.cpu_per_node || '125' }}
+      memory_per_node: ${{ matrix.test_config.memory_per_node || '512Gi' }}
+      shared_memory_per_node: ${{ matrix.test_config.shared_memory_per_node || '512Gi' }}
+      ephemeral_storage_per_node: ${{ matrix.test_config.ephemeral_storage_per_node || '100Gi' }}
+      require_distinct_nodes: ${{ matrix.test_config.require_distinct_nodes || false }}
       config_file_path: ${{ matrix.test_config.config_file_path }}
       config_base_path: ${{ matrix.test_config.config_base_path }}
       name: ${{ matrix.test_config.name }}

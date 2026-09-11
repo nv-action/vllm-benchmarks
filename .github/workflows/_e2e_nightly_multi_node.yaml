@@ -40,6 +40,36 @@ on:
         default: "2"
         type: string
         description: how many pods will be pulled up via lws.yaml, indicates number of nodes we need
+      npu_per_node:
+        required: false
+        default: ''
+        type: string
+        description: NPU count requested by each pod; defaults to the full node capacity for the selected SoC
+      cpu_per_node:
+        required: false
+        default: '125'
+        type: string
+        description: CPU request for each pod
+      memory_per_node:
+        required: false
+        default: 512Gi
+        type: string
+        description: memory request and limit for each pod
+      shared_memory_per_node:
+        required: false
+        default: 512Gi
+        type: string
+        description: size of the in-memory /dev/shm volume for each pod
+      ephemeral_storage_per_node:
+        required: false
+        default: 100Gi
+        type: string
+        description: ephemeral storage request for each pod
+      require_distinct_nodes:
+        required: false
+        default: false
+        type: boolean
+        description: require every pod in the LWS group to run on a different Kubernetes node
       vllm_ascend_remote_url:
         required: false
         default: https://github.com/vllm-project/vllm-ascend.git
@@ -284,16 +314,31 @@ jobs:
           runner="${{ inputs.soc_version }}"
           echo "FAIL_TAG=${fail_tag}" >> $GITHUB_ENV
 
+          requested_npu_per_node="${{ inputs.npu_per_node }}"
           if [ "${{ inputs.soc_version }}" = "a5" ]; then
-              npu_per_node=8
+              max_npu_per_node=8
               npu_resource_name=huawei.com/npu
               shared_volume_path=/mnt/share
           elif [ "${{ inputs.soc_version }}" = "a3" ]; then
-              npu_per_node=16
+              max_npu_per_node=16
               pvc_name=gy005-az5-vllm-ascend
           else
-            npu_per_node=8
+            max_npu_per_node=8
             pvc_name=vllm-project-hk001
+          fi
+
+          if [ -n "$requested_npu_per_node" ]; then
+            if ! [[ "$requested_npu_per_node" =~ ^[1-9][0-9]*$ ]]; then
+              echo "npu_per_node must be a positive integer, got: $requested_npu_per_node" >&2
+              exit 1
+            fi
+            if (( requested_npu_per_node > max_npu_per_node )); then
+              echo "npu_per_node=$requested_npu_per_node exceeds the ${{ inputs.soc_version }} capacity $max_npu_per_node" >&2
+              exit 1
+            fi
+            npu_per_node="$requested_npu_per_node"
+          else
+            npu_per_node="$max_npu_per_node"
           fi
 
           benchmark_job_name="${{ steps.vars.outputs.benchmark_job_name }}"
@@ -307,6 +352,11 @@ jobs:
             -D config_file_path="$config_file_path" \
             -D config_base_path="$config_base_path" \
             -D npu_per_node="$npu_per_node" \
+            -D cpu_per_node="${{ inputs.cpu_per_node }}" \
+            -D memory_per_node="${{ inputs.memory_per_node }}" \
+            -D shared_memory_per_node="${{ inputs.shared_memory_per_node }}" \
+            -D ephemeral_storage_per_node="${{ inputs.ephemeral_storage_per_node }}" \
+            -D require_distinct_nodes="${{ inputs.require_distinct_nodes }}" \
             -D fail_tag="$fail_tag" \
             -D is_pr_test="$is_pr_test" \
             -D vllm_ascend_ref="$vllm_ascend_ref" \

@@ -12,12 +12,22 @@ spec:
       metadata:
         labels:
           role: leader
+          vllm-ascend-lws-group: {{ lws_name | default("vllm") }}
       spec:
         tolerations:
           - key: "dedicated"
             operator: "Equal"
             value: "night"
             effect: "NoSchedule"
+{% if require_distinct_nodes | default("false") | lower == "true" %}
+        affinity:
+          podAntiAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              - labelSelector:
+                  matchLabels:
+                    vllm-ascend-lws-group: {{ lws_name | default("vllm") }}
+                topologyKey: kubernetes.io/hostname
+{% endif %}
         containers:
           - name: vllm-leader
             imagePullPolicy: Always
@@ -90,12 +100,13 @@ spec:
                   "{{ max_good_age_days | default("3") }}"
             resources:
               limits:
-                memory: 512Gi
-                ephemeral-storage: 100Gi
+                memory: {{ memory_per_node | default("512Gi") }}
+                ephemeral-storage: {{ ephemeral_storage_per_node | default("100Gi") }}
                 huawei.com/ascend-1980: {{ npu_per_node | default("16") }}
               requests:
-                ephemeral-storage: 100Gi
-                cpu: 125
+                memory: {{ memory_per_node | default("512Gi") }}
+                ephemeral-storage: {{ ephemeral_storage_per_node | default("100Gi") }}
+                cpu: {{ cpu_per_node | default("125") }}
                 huawei.com/ascend-1980: {{ npu_per_node | default("16") }}
             ports:
               - containerPort: 8080
@@ -110,7 +121,7 @@ spec:
         - name: dshm
           emptyDir:
             medium: Memory
-            sizeLimit: 512Gi
+            sizeLimit: {{ shared_memory_per_node | default("512Gi") }}
 {% if shared_volume_path %}
         - name: shared-volume
           hostPath:
@@ -125,12 +136,24 @@ spec:
           hostPath:
             path: /usr/local/Ascend/driver/tools
     workerTemplate:
+      metadata:
+        labels:
+          vllm-ascend-lws-group: {{ lws_name | default("vllm") }}
       spec:
         tolerations:
           - key: "dedicated"
             operator: "Equal"
             value: "night"
             effect: "NoSchedule"
+{% if require_distinct_nodes | default("false") | lower == "true" %}
+        affinity:
+          podAntiAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              - labelSelector:
+                  matchLabels:
+                    vllm-ascend-lws-group: {{ lws_name | default("vllm") }}
+                topologyKey: kubernetes.io/hostname
+{% endif %}
         containers:
           - name: vllm-worker
             imagePullPolicy: Always
@@ -197,12 +220,13 @@ spec:
                   "{{ max_good_age_days | default("3") }}"
             resources:
               limits:
-                memory: 512Gi
-                ephemeral-storage: 100Gi
+                memory: {{ memory_per_node | default("512Gi") }}
+                ephemeral-storage: {{ ephemeral_storage_per_node | default("100Gi") }}
                 huawei.com/ascend-1980: {{ npu_per_node | default("16") }}
               requests:
-                ephemeral-storage: 100Gi
-                cpu: 125
+                memory: {{ memory_per_node | default("512Gi") }}
+                ephemeral-storage: {{ ephemeral_storage_per_node | default("100Gi") }}
+                cpu: {{ cpu_per_node | default("125") }}
                 huawei.com/ascend-1980: {{ npu_per_node | default("16") }}
             volumeMounts:
               - mountPath: /root/.cache
@@ -215,7 +239,7 @@ spec:
         - name: dshm
           emptyDir:
             medium: Memory
-            sizeLimit: 512Gi
+            sizeLimit: {{ shared_memory_per_node | default("512Gi") }}
 {% if shared_volume_path %}
         - name: shared-volume
           hostPath:
