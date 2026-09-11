@@ -34,7 +34,7 @@ SHELL ["/bin/bash", "-c"]
 # Install clang (for triton-ascend) and Mooncake
 ARG MOONCAKE_TAG=0.3.11.post1
 RUN yum update -y && \
-    yum install -y git vim wget curl protobuf-compiler net-tools gcc gcc-c++ make cmake numactl numactl-devel libibverbs-devel jemalloc hiredis-devel clang patch && \
+    yum install -y git vim wget curl protobuf-compiler protobuf-devel net-tools gcc gcc-c++ make cmake numactl numactl-devel libibverbs-devel jemalloc hiredis-devel clang patch && \
     source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
     python3 -m pip install mooncake-transfer-engine-npu==${MOONCAKE_TAG} --extra-index-url ${MOONCAKE_INDEX_URL} && \
     rm -rf /var/cache/yum/*
@@ -101,7 +101,18 @@ RUN if [ -n "$RUSTUP_DIST_SERVER" ]; then \
       . "$HOME/.cargo/env"; \
     fi
 ENV PATH="/root/.cargo/bin:$PATH"
+# Configure cargo: use the git CLI (so the GIT_PROXY url.insteadOf rewrite
+# applies to git dependencies) and optionally route the crates.io sparse index
+# through an internal mirror (public crates.io is unreachable from the build
+# containers).
+ARG CRATES_IO_INDEX=""
+RUN mkdir -p /root/.cargo && \
+    printf '[net]\ngit-fetch-with-cli = true\n' > /root/.cargo/config.toml && \
+    if [ -n "$CRATES_IO_INDEX" ]; then \
+      printf '[source.crates-io]\nreplace-with = "mirror"\n\n[source.mirror]\nregistry = "sparse+%s"\n' "$CRATES_IO_INDEX" >> /root/.cargo/config.toml; \
+    fi
 RUN cd /vllm-workspace/vllm && \
+    export PROTOC_INCLUDE=/usr/include && \
     python3 -m pip install setuptools-rust && \
     ./build_rust.sh
 
