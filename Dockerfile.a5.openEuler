@@ -92,7 +92,7 @@ RUN if [ -n "$RUSTUP_DIST_SERVER" ]; then \
       rm /tmp/rustup-init && \
       . "$HOME/.cargo/env"; \
     fi
-ENV PATH="$HOME/.cargo/bin:$PATH"
+ENV PATH="/root/.cargo/bin:$PATH"
 RUN cd /vllm-workspace/vllm && \
     python3 -m pip install setuptools-rust && \
     ./build_rust.sh
