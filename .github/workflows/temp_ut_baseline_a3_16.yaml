@@ -256,7 +256,9 @@ jobs:
           uv pip install -r requirements-dev.txt
           uv pip install --force-reinstall --no-deps triton-ascend==3.2.2
           uv pip install -e .
-          python -c "import vllm, vllm_ascend; print('vllm', vllm.__version__); print('vllm_ascend', vllm_ascend.__version__)"
+          # vllm_ascend has no __version__ attribute under editable install;
+          # the import itself is the verification (same as CI's cpu block).
+          python -c "import vllm, vllm_ascend; print('import ok, vllm', vllm.__version__)"
 
       - name: UT lane main (vllm @ main pin)
         env:
