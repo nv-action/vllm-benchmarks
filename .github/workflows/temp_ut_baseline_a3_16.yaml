@@ -115,16 +115,25 @@ jobs:
       - name: Install main2main_flow and runner deps
         run: |
           set -euxo pipefail
-          # Same system-site packages the flow's runner has.
+          # Same system-site packages the flow's runner has; order mirrors
+          # schedule_main2main.yaml.
           apt-get install -y --no-install-recommends \
             libibverbs1 ibverbs-providers librdmacm1 libcurl4
           ldconfig
           MOONCAKE_WHEEL="mooncake_transfer_engine_ascend-0.3.9-cp312-cp312-manylinux_2_35_aarch64.whl"
           pip install --no-cache-dir --no-deps \
             "https://vllm-ascend.obs.cn-north-4.myhuaweicloud.com/vllm-ascend/${MOONCAKE_WHEEL}"
+          # The vllm install provides the dependency closure (cbor2 etc.)
+          # for the UT venv — check_ut's PYTHONPATH shadows the package
+          # itself with the pinned checkout trees.
+          (cd vllm-upstream && VLLM_TARGET_DEVICE=empty uv pip install .)
+          pip uninstall -y triton
           pip install uc-manager
           uv pip install -r requirements-dev.txt
           uv pip install --force-reinstall --no-deps triton-ascend==3.2.2
+          # Registers vllm_ascend's platform-plugin entry points (production
+          # has them); the PYTHONPATH ascend tree shadows the package code.
+          SOC_VERSION=ascend910_9391 COMPILE_CUSTOM_KERNELS=0 uv pip install -e .
           # main2main_flow provides check_ut (the dual-lane UT runner).
           git clone --depth 1 https://github.com/vllm-ascend/main2main_flow.git \
             /tmp/main2main_flow
