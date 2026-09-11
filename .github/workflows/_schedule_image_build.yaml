@@ -631,7 +631,7 @@ jobs:
 
   merge-image-temp:
     name: merge-image-temp
-    runs-on: linux-amd64-cpu-4-buildkit-gy006
+    runs-on: linux-amd64-cpu-4
     needs: build-push-digest
     if: ${{ inputs.should_push && inputs.temp_only }}
     steps:
