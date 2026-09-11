@@ -225,8 +225,7 @@ jobs:
             echo "::warning::Both 'tag' ($tag) and 'branch' ($branch) provided. Using 'tag' ($tag) as the priority."
           fi
           if [[ -z "$tag" && -z "$branch" ]]; then
-            echo "Error: Either 'tag', 'branch', or (vllm_commit + vllm_ascend_commit) must be specified."
-            exit 1
+            echo "::warning::No tag/branch/commit specified. Falling back to the triggering branch: ${GITHUB_REF_NAME}."
           fi
         fi
 
