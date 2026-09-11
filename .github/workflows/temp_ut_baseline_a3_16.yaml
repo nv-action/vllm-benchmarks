@@ -191,9 +191,10 @@ jobs:
           env["TORCH_DEVICE_BACKEND_AUTOLOAD"] = "0"
           env["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
 
-          version = subprocess.run(
-              [sys.executable, "-c", "import vllm; print(vllm.__version__)"],
-              capture_output=True, text=True, check=True).stdout.strip()
+          # Version via package metadata: a real `import vllm` here would
+          # drag in torch/torch_npu outside pytest's mocked-conftest env.
+          from importlib.metadata import version as _pkg_version
+          version = _pkg_version("vllm")
 
           log = ART / f"ut_{LANE}.log"
           with log.open("w", encoding="utf-8") as lf:
@@ -273,6 +274,10 @@ jobs:
           uv pip uninstall vllm || true
           VLLM_TARGET_DEVICE=empty uv pip install .
           pip uninstall -y triton
+          # The vllm install re-pulled NVIDIA triton over triton-ascend's
+          # shared `triton/` files and the uninstall deleted them — restore
+          # triton-ascend or torch_npu sees a broken triton module.
+          uv pip install --force-reinstall --no-deps triton-ascend==3.2.2
           # No import verify here: under ucm's boot_patch the bare
           # `import vllm` from the vllm-upstream cwd can crash on
           # main-tree patches applied to 0.28.0 — the UT lane below runs
