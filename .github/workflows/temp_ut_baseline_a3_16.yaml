@@ -273,7 +273,10 @@ jobs:
           uv pip uninstall vllm || true
           VLLM_TARGET_DEVICE=empty uv pip install .
           pip uninstall -y triton
-          python -c "import vllm; print('vllm', vllm.__version__)"
+          # torch_npu is now installed: block its auto-load (it imports
+          # triton-ascend, which lacks the NVIDIA triton API) — same env the
+          # UT runner uses below.
+          TORCH_DEVICE_BACKEND_AUTOLOAD=0 python -c "import vllm; print('vllm', vllm.__version__)"
 
       - name: UT lane release (vllm @ release tag)
         env:
