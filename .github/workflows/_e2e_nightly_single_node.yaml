@@ -162,10 +162,6 @@ jobs:
     timeout-minutes: ${{ inputs.request_id != '' && 240 || fromJSON(inputs.testcase_timeout) }}
     container:
       image: ${{ inputs.image }}
-      # vLLM's shm mm-processor-cache requires > 64MiB /dev/shm (k8s pod default).
-      # Try to raise it via Docker-style container options; if the k8s runner
-      # does not honor them, the job will fail fast and we must set pod shmSize.
-      options: --shm-size=2g
     env:
       # Allow on-the-fly download from ModelScope when a model/dataset is not
       # yet cached on the runner (0 keeps HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE
