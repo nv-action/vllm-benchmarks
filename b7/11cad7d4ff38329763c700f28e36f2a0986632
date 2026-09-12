@@ -1,0 +1,35 @@
+PLAN-verify-single-node-a3.md
+  s_28039e37115309::t_075503f9881dee 1-3,5-72
+  s_28039e37115309::t_76e9804da04406 125-149
+  s_28039e37115309::t_3761785bd58d9e 4
+  s_28039e37115309::t_3bffa1d21d33a3 73-124
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.2",
+  "base_commit_sha": "b711cad7d4ff38329763c700f28e36f2a0986632",
+  "prompts": {},
+  "sessions": {
+    "s_28039e37115309": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a9676922397bca1f9dfe922",
+        "model": "deepseek_v4_flash_official__dev"
+      },
+      "human_author": "chenqi49 <479148871@qq.com>",
+      "custom_attributes": {
+        "dedupe_key": "6a9676922397bca1f9dfe922:6aa52c261c176cc28c04e1f2:afterEdit:0f48ae01",
+        "edit_kind": "file_edit",
+        "client_type": "ide",
+        "tool_type": "agent",
+        "runtime_client": "trae-tob-git-ai",
+        "operation_id": "6aa52c261c176cc28c04e1f2",
+        "tool_use_id": "6aa52c261c176cc28c04e1f2",
+        "session_id": "6a9676922397bca1f9dfe922",
+        "external_session_id": "6a9676922397bca1f9dfe922",
+        "source_scene": "unknown",
+        "tool_id": "Edit"
+      }
+    }
+  }
+}
