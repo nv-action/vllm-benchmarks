@@ -1,0 +1,43 @@
+.github/workflows/schedule_weekly_test_a3.yaml
+  s_28039e37115309::t_9c57fd9bf53ff0 223,275
+  s_28039e37115309::t_2b0c59313faa17 358
+  s_28039e37115309::t_6f9ca03ee648eb 106
+.github/workflows/configs/nightly_config.yaml
+  s_28039e37115309::t_a12df18151df85 175,178,181,184,187,190,193,196,199,202,205,208,211,214,217,220,223,226,229,232,235,238,241,244,253,257,260,263,266,269,272,275,278,283,286
+.github/workflows/configs/weekly_config.yaml
+  s_28039e37115309::t_6c7201ec8c25e1 270,273,276,279,282,285,288,291,294,297,300,303,306,309,312,315,318,321,324,327
+.github/workflows/schedule_nightly_test_a3.yaml
+  s_28039e37115309::t_080a6c2fc6f07c 405
+  s_28039e37115309::t_19556130813bec 106
+  s_28039e37115309::t_0722c397bf1c5e 439
+  s_28039e37115309::t_586e2f875ad5f8 223,275
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.2",
+  "base_commit_sha": "c78e0739b5841058d5aaec48330f2e3d7ae41a65",
+  "prompts": {},
+  "sessions": {
+    "s_28039e37115309": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a9676922397bca1f9dfe922",
+        "model": "deepseek_v4_flash_official__dev"
+      },
+      "human_author": "chenqi49 <479148871@qq.com>",
+      "custom_attributes": {
+        "session_id": "6a9676922397bca1f9dfe922",
+        "client_type": "ide",
+        "source_scene": "unknown",
+        "tool_id": "Edit",
+        "runtime_client": "trae-tob-git-ai",
+        "edit_kind": "file_edit",
+        "tool_type": "agent",
+        "tool_use_id": "6aa4a44a1c176cc28c04d281",
+        "dedupe_key": "6a9676922397bca1f9dfe922:6aa4a44a1c176cc28c04d281:afterEdit:698dca57",
+        "external_session_id": "6a9676922397bca1f9dfe922",
+        "operation_id": "6aa4a44a1c176cc28c04d281"
+      }
+    }
+  }
+}
