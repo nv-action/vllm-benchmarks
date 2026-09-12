@@ -1,0 +1,32 @@
+.github/workflows/_e2e_nightly_single_node.yaml
+  s_28039e37115309::t_04150c61baf5ce 245-251
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.2",
+  "base_commit_sha": "cc38552e4b10d2416e91bb6ea91bf7c0c6ece4a6",
+  "prompts": {},
+  "sessions": {
+    "s_28039e37115309": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a9676922397bca1f9dfe922",
+        "model": "deepseek_v4_flash_official__dev"
+      },
+      "human_author": "chenqi49 <479148871@qq.com>",
+      "custom_attributes": {
+        "tool_use_id": "6aa527541c176cc28c04e117",
+        "runtime_client": "trae-tob-git-ai",
+        "session_id": "6a9676922397bca1f9dfe922",
+        "source_scene": "unknown",
+        "external_session_id": "6a9676922397bca1f9dfe922",
+        "dedupe_key": "6a9676922397bca1f9dfe922:6aa527541c176cc28c04e117:afterEdit:6698715b",
+        "tool_id": "Edit",
+        "operation_id": "6aa527541c176cc28c04e117",
+        "edit_kind": "file_edit",
+        "tool_type": "agent",
+        "client_type": "ide"
+      }
+    }
+  }
+}
