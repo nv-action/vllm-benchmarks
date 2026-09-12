@@ -554,7 +554,41 @@ def _save_benchmark_results_json(config: SingleNodeConfig, benchmark_keys: list[
     )
 
 
-def _run_benchmarks(config: SingleNodeConfig, port: int) -> None:
+def _mock_benchmark_results(config: SingleNodeConfig) -> list[Any]:
+    """Fabricate benchmark results that satisfy the configured thresholds.
+
+    Used in mock mode (VLLM_ASCEND_MOCK_NPU=1) so the whole single-node
+    pipeline (results JSON, good_table, artifacts) can be validated without
+    starting a vLLM server on NPU.
+    """
+    results: list[Any] = []
+    for case_key, case_cfg in config.benchmarks.items():
+        if not case_cfg:
+            continue
+        case_type = case_cfg.get("case_type")
+        baseline = case_cfg.get("baseline")
+        if case_type == "accuracy" and isinstance(baseline, (int, float)):
+            # exact baseline -> within any non-negative threshold
+            results.append(float(baseline))
+        elif case_type == "performance" and isinstance(baseline, (int, float)):
+            # throughput equal to baseline -> passes threshold * baseline
+            results.append(
+                [
+                    None,
+                    {
+                        "Output Token Throughput": {"total": f"{float(baseline):.4f} token/s"},
+                        "Input Token Throughput": {"total": f"{float(baseline):.4f} token/s"},
+                        "Benchmark Duration": {"total": "1.0000s"},
+                    },
+                ]
+            )
+        else:
+            # unknown case type: emulate a passing run without metrics
+            results.append(float(baseline) if isinstance(baseline, (int, float)) else "")
+    return results
+
+
+async def _run_benchmarks(config: SingleNodeConfig, port: int) -> None:
     """Run Aisbench benchmarks and process benchmark-dependent custom assertions."""
     benchmark_keys = [k for k, v in config.benchmarks.items() if v]
     aisbench_cases = [config.benchmarks[k] for k in benchmark_keys]
@@ -587,6 +621,15 @@ async def test_single_node(config: SingleNodeConfig) -> None:
                 f"{k}=={v}",
             ]
             subprocess.call(command)
+
+    # Mock mode: validate the single-node pipeline without consuming NPU.
+    if os.environ.get("VLLM_ASCEND_MOCK_NPU", "0") in ("1", "true", "True"):
+        logger.info("MOCK NPU: skipping vLLM server and real benchmarks")
+        benchmark_keys = [k for k, v in config.benchmarks.items() if v]
+        if benchmark_keys:
+            _save_benchmark_results_json(config, benchmark_keys, _mock_benchmark_results(config))
+        return
+
     kv_pool_manager = create_single_node_kv_pool_manager(config.kv_pool, config.name)
     if config.service_mode == "epd":
         epd_server_cmds = [

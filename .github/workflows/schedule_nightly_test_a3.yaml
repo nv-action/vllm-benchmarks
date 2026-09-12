@@ -53,6 +53,11 @@ on:
         required: false
         default: false
         type: boolean
+      mock_npu:
+        description: 'Skip the real NPU benchmark and simulate passing results (pipeline validation only)'
+        required: false
+        default: false
+        type: boolean
       profile_enabled:
         description: 'Enable torch profiler and export profiling artifacts'
         required: false
@@ -339,6 +344,7 @@ jobs:
       request_id: ${{ inputs.request_id || '' }}
       vllm_ascend_ref: ${{ inputs.vllm_ascend_ref || '' }}
       aop_single_enabled: ${{ inputs.aop_enabled }}
+      mock_npu: ${{ inputs.mock_npu }}
       profile_enabled: ${{ inputs.profile_enabled }}
       profile_with_stack: ${{ fromJSON(inputs.bisect_args_json || '{}').profile_with_stack || false }}
       bisect_good_commit: ${{ fromJSON(inputs.bisect_args_json || '{}').good_commit || '' }}
@@ -385,6 +391,7 @@ jobs:
       request_id: ${{ inputs.request_id || '' }}
       vllm_ascend_ref: ${{ inputs.vllm_ascend_ref || '' }}
       aop_single_enabled: ${{ inputs.aop_enabled }}
+      mock_npu: ${{ inputs.mock_npu }}
       profile_enabled: ${{ inputs.profile_enabled }}
       profile_with_stack: ${{ fromJSON(inputs.bisect_args_json || '{}').profile_with_stack || false }}
       bisect_good_commit: ${{ fromJSON(inputs.bisect_args_json || '{}').good_commit || '' }}
