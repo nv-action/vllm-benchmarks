@@ -1,0 +1,53 @@
+name: Diag-OBS-403
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 临时诊断：直接用仓库 OBS secrets 对 ascend-ci-cache-hk 桶做访问测试，
+# 拿到精确错误码（AccessDenied / SignatureDoesNotMatch / InvalidAccessKeyId ...），
+# 排查 nightly/weekly 测试日志上传 403 的根因。用后即删。
+
+jobs:
+  diag-obs:
+    runs-on: linux-amd64-cpu-8-hk
+    steps:
+      - name: Setup obsutil
+        run: |
+          curl -sSL "https://obs-community.obs.cn-north-1.myhuaweicloud.com/obsutil/current/obsutil_linux_amd64.tar.gz" -o /tmp/obsutil.tar.gz
+          tar -xzf /tmp/obsutil.tar.gz -C /tmp
+          OBSUTIL_DIR=$(find /tmp -maxdepth 1 -name "obsutil_linux_amd64_*" -type d | head -1)
+          chmod +x "${OBSUTIL_DIR}/obsutil"
+          cp "${OBSUTIL_DIR}/obsutil" /usr/local/bin/obsutil
+          obsutil version
+
+      - name: Configure obsutil with repo OBS secrets
+        env:
+          AK: ${{ secrets.OBS_ACCESS_KEY_ID }}
+          SK: ${{ secrets.OBS_SECRET_ACCESS_KEY }}
+        run: |
+          obsutil config -i "$AK" -k "$SK" -e obs.ap-southeast-1.myhuaweicloud.com
+          echo "config done"
+
+      - name: HeadBucket / List objects (verbose error)
+        run: |
+          set +e
+          echo "===== [1/3] obsutil ls obs://ascend-ci-cache-hk/ ====="
+          obsutil ls obs://ascend-ci-cache-hk/ -e 2>&1 | tail -30
+          echo "EXIT=$?"
+
+      - name: List buckets
+        run: |
+          set +e
+          echo "===== [2/3] obsutil ls (all buckets) ====="
+          obsutil ls -e 2>&1 | tail -20
+          echo "EXIT=$?"
+
+      - name: mkdir test object
+        run: |
+          set +e
+          echo "===== [3/3] obsutil mkdir obs://ascend-ci-cache-hk/diag-403-test ====="
+          obsutil mkdir "obs://ascend-ci-cache-hk/diag-403-test-$(date +%s)" 2>&1 | tail -10
+          echo "EXIT=$?"
