@@ -1260,6 +1260,7 @@ class TestAscendMLAImpl(TestBase):
         speculative_config.num_speculative_tokens = 4
         vllm_config.speculative_config = speculative_config
         model_config.dtype = torch.float16
+        model_config.runner_type = "generate"
         vllm_config.model_config = model_config
         get_current_vllm_config.return_value = vllm_config
         vllm_config.additional_config = {"refresh": True}
@@ -1328,9 +1329,49 @@ class TestAscendMLAImpl(TestBase):
         self.assertIsNotNone(self.impl.kv_a_proj_with_mqa)
         self.assertIsNotNone(self.impl.kv_a_layernorm)
         self.assertEqual(self.impl.num_queries_per_kv, 32)
+        self.assertFalse(self.impl.is_draft_model)
         # 256 is power of 2, so padding should be 0
         self.assertEqual(self.impl.num_heads_padded, 256)
         self.assertEqual(self.impl.head_padding, 0)
+
+    @patch("vllm_ascend.attention.mla_v1.enabling_mlapo", return_value=True)
+    @patch("vllm_ascend.attention.mla_v1.get_current_vllm_config")
+    def test_draft_model_disables_mlapo_at_init(self, mock_get_current_vllm_config, mock_enabling_mlapo):
+        self.impl.vllm_config.model_config.runner_type = "draft"
+        mock_get_current_vllm_config.return_value = self.impl.vllm_config
+        impl = AscendMLAImpl(
+            num_heads=self.impl.num_heads,
+            head_size=self.impl.head_size,
+            scale=self.impl.scale,
+            num_kv_heads=self.impl.num_kv_heads,
+            alibi_slopes=None,
+            sliding_window=None,
+            kv_cache_dtype=self.impl.kv_cache_dtype,
+            blocksparse_params=None,
+            logits_soft_cap=None,
+            attn_type=None,
+            kv_sharing_target_layer_name=None,
+            kv_lora_rank=self.impl.kv_lora_rank,
+            qk_nope_head_dim=self.impl.qk_nope_head_dim,
+            qk_rope_head_dim=self.impl.qk_rope_head_dim,
+            qk_head_dim=self.impl.qk_head_dim,
+            v_head_dim=self.impl.v_head_dim,
+            q_lora_rank=self.impl.q_lora_rank,
+            q_proj=self.impl.q_proj,
+            q_b_proj=self.impl.q_proj,
+            kv_b_proj=self.impl.kv_b_proj,
+            o_proj=self.impl.o_proj,
+            kv_a_proj_with_mqa=self.impl.kv_a_proj_with_mqa,
+            fused_qkv_a_proj=self.impl.fused_qkv_a_proj,
+            kv_a_layernorm=self.impl.kv_a_layernorm,
+            rotary_emb=self.impl.rotary_emb,
+            g_proj=None,
+            use_mla_rope=True,
+        )
+
+        self.assertTrue(impl.is_draft_model)
+        self.assertFalse(impl.enable_mlapo)
+        mock_enabling_mlapo.assert_not_called()
 
     @patch("vllm_ascend.attention.mla_v1.get_current_vllm_config")
     def test_init_head_padding_for_non_power_of_two(self, mock_get_current_vllm_config):
@@ -2232,6 +2273,88 @@ class TestAscendMLAImpl(TestBase):
         self.assertEqual(result.shape[2], self.impl.v_head_dim)
         mock_up_proj.assert_called_once()
         mock_npu_fused_infer_attention_score_v2.assert_called_once()
+
+    def test_kvpp_waits_after_projection_before_cache_access(self):
+        from vllm_ascend.attention import mla_v1
+
+        hidden = torch.zeros(2, 4)
+        kv_cache = (torch.zeros(2, 1, 2), torch.zeros(2, 1, 2))
+        events: list[object] = []
+
+        def record_event(name, result):
+            events.append(name)
+            return result
+
+        width = self.impl.q_lora_rank + self.impl.kv_lora_rank + self.impl.qk_rope_head_dim
+        decode, prefill = object(), object()
+        for decodes, prefills in ((1, 0), (0, 1), (1, 1)):
+            with self.subTest(decodes=decodes, prefills=prefills):
+                events.clear()
+
+                def project(_hidden):
+                    events.append("projection")
+                    return (torch.zeros(2, width),)
+
+                self.impl.fused_qkv_a_proj = project
+                self.impl.q_a_layernorm = torch.nn.Identity()
+                self.impl.layerwise_kv_cache_hook = SimpleNamespace(
+                    wait_for_layer=lambda name: events.append(("wait", name))
+                )
+                self.impl.mla_preprocess_decode = MagicMock(
+                    side_effect=lambda *_args: record_event("decode_cache", decode)
+                )
+                self.impl.mla_preprocess_prefill = MagicMock(
+                    side_effect=lambda *_args: record_event("prefill_cache", prefill)
+                )
+                metadata = SimpleNamespace(num_decodes=decodes, num_prefills=prefills)
+                with (
+                    patch.object(mla_v1, "wait_for_kv_layer_from_connector"),
+                    patch.object(mla_v1, "notify_kv_cache_written"),
+                ):
+                    actual = self.impl._mla_preprocess("layer", hidden, kv_cache, metadata)
+                expected = ["projection", ("wait", "layer")]
+                if decodes:
+                    expected.append("decode_cache")
+                if prefills:
+                    expected.append("prefill_cache")
+                self.assertEqual(events, expected)
+                self.assertEqual(actual, (decode if decodes else None, prefill if prefills else None))
+
+    def test_kvpp_fused_decode_and_profile_hook(self):
+        from vllm_ascend.attention import mla_v1
+
+        events: list[object] = []
+
+        def record_event(name, result):
+            events.append(name)
+            return result
+
+        self.impl.num_heads = 1
+        self.impl.v_head_dim = 2
+        self.impl.use_output_gate = False
+        self.impl.fa_quant_layer = False
+        self.impl.enable_mlapo = True
+        self.impl.use_mla_rope = True
+        self.impl.layerwise_kv_cache_hook = SimpleNamespace(wait_for_layer=lambda name: events.append(("wait", name)))
+        result = SimpleNamespace(ql_nope=None, q_pe=None, k_nope=None, k_pe=None, dequant_scale_q_nope=None)
+        self.impl.mla_preprocess_only_decode = MagicMock(
+            side_effect=lambda *_args: record_event("fused_cache", (result, None))
+        )
+        self.impl._forward_decode = MagicMock(return_value=torch.ones(2, 2))
+        self.impl.o_proj = MagicMock(side_effect=lambda x, **_kwargs: (x,))
+        hidden, output = torch.zeros(2, 4), torch.empty(2, 2)
+        metadata = SimpleNamespace(num_actual_tokens=2, num_decodes=2, num_prefills=0, num_decode_tokens=2)
+        with (
+            patch.object(mla_v1, "_EXTRA_CTX", SimpleNamespace(num_tokens=2)),
+            patch.object(mla_v1, "maybe_save_kv_layer_to_connector"),
+        ):
+            self.assertIs(self.impl.forward("layer", hidden, (torch.zeros(2, 1, 2),), metadata, output), output)
+            self.assertTrue(torch.all(output == 1))
+            self.assertEqual(events, [("wait", "layer"), "fused_cache"])
+            events.clear()
+            self.impl.forward("layer", hidden, (), None, output)
+        self.assertEqual(events, [])
+        self.assertEqual(torch.count_nonzero(output).item(), 0)
 
     def test_mla_preprocess(self):
         batch_size = 4

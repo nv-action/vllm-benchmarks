@@ -5,7 +5,6 @@ from typing import Any
 
 import torch
 import torch.nn.functional as F
-import torch_npu
 from vllm.config import VllmConfig, get_current_vllm_config
 from vllm.distributed.kv_transfer import get_kv_transfer_group, has_kv_transfer_group, is_v1_kv_transfer_group
 from vllm.forward_context import ForwardContext, get_forward_context
@@ -21,18 +20,6 @@ from vllm_ascend.utils import (
 
 SFA_QSFA_TILE_SIZE = 128
 MLAPO_MAX_SUPPORTED_TOKENS = 1024
-
-_GLM5_NEXT_KPOOL_CACHE_TYPES = frozenset({"Glm5NextIndexerCache", "Glm5NextTailCache"})
-
-
-def is_glm5_next_kpool_cache(attn_module: Any) -> bool:
-    """Return True for GLM-5.3-Flash kpool indexer / tail cache layers.
-
-    Those classes subclass DeepseekV32IndexerCache but keep their own
-    ``compress_ratio`` / ``KpoolTailSpec`` layouts. The DeepSeek V3.2 SFA
-    rewrite must not replace them with ``AscendSFAIndexerCacheSpec``.
-    """
-    return type(attn_module).__name__ in _GLM5_NEXT_KPOOL_CACHE_TYPES
 
 
 def get_or_register_attention_buffer(
@@ -101,53 +88,6 @@ class PagedAttentionGraphParam:
 
     def __iter__(self):
         return iter(self.params)
-
-
-def update_paged_attention_graph_param(
-    update_stream,
-    handle,
-    event,
-    param: PagedAttentionGraphParam,
-    block_table: torch.Tensor,
-    seq_lens: torch.Tensor,
-) -> None:
-    (
-        query,
-        key_cache,
-        value_cache,
-        num_kv_heads,
-        num_heads,
-        scale,
-        _captured_block_table,
-        _captured_seq_lens,
-        output,
-    ) = param.params
-    workspace = torch_npu._npu_paged_attention_get_workspace(
-        query=query,
-        key_cache=key_cache,
-        value_cache=value_cache,
-        num_kv_heads=num_kv_heads,
-        num_heads=num_heads,
-        scale_value=scale,
-        block_table=block_table,
-        context_lens=seq_lens,
-        out=output,
-    )
-    torch.npu.graph_task_update_begin(update_stream, handle)
-    torch_npu._npu_paged_attention(
-        query=query,
-        key_cache=key_cache,
-        value_cache=value_cache,
-        num_kv_heads=num_kv_heads,
-        num_heads=num_heads,
-        scale_value=scale,
-        block_table=block_table,
-        context_lens=seq_lens,
-        out=output,
-        workspace=workspace,
-    )
-    torch.npu.graph_task_update_end(update_stream)
-    event.record(update_stream)
 
 
 def cache_graph_workspace(
@@ -240,7 +180,6 @@ def enable_dcp():
     return parallel_config.decode_context_parallel_size > 1
 
 
-@lru_cache(maxsize=1)
 def enable_pcp():
     parallel_config = get_current_vllm_config().parallel_config
     return parallel_config.prefill_context_parallel_size > 1
