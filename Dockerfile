@@ -34,7 +34,7 @@ RUN if [ -n "$APTMIRROR" ]; then \
         sed -Ei "s@(ports|archive).ubuntu.com@${APTMIRROR#http://}@g" /etc/apt/sources.list; \
     fi && \
     apt-get update -y && \
-    apt-get install -y git vim wget curl protobuf-compiler net-tools gcc g++ cmake numactl libnuma-dev libibverbs-dev libjemalloc2 libhiredis-dev clang-15 && \
+    apt-get install -y git vim wget curl protobuf-compiler libprotobuf-dev net-tools gcc g++ cmake numactl libnuma-dev libibverbs-dev libjemalloc2 libhiredis-dev clang-15 && \
     update-alternatives --install /usr/bin/clang clang /usr/bin/clang-15 20 && \
     update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-15 20 && \
     source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
@@ -85,7 +85,38 @@ RUN export PIP_EXTRA_INDEX_URL="${ASCEND_INDEX_URL}" && \
     python3 -m pip cache purge
 
 # Install _rust_tool_parser for the Rust frontend.
+ARG RUSTUP_DIST_SERVER
+ARG RUSTUP_UPDATE_ROOT
+ENV RUSTUP_DIST_SERVER=$RUSTUP_DIST_SERVER \
+    RUSTUP_UPDATE_ROOT=$RUSTUP_UPDATE_ROOT
+# When an internal RUSTUP_DIST_SERVER mirror is provided (CI builds), pre-install
+# rustup-init from the mirror so build_rust.sh doesn't reach the public
+# https://sh.rustup.rs (unreachable from build containers). External builds
+# without the mirror keep the original public install path.
+RUN if [ -n "$RUSTUP_DIST_SERVER" ]; then \
+      case $(uname -m) in \
+        x86_64) ARCH=x86_64-unknown-linux-gnu ;; \
+        aarch64) ARCH=aarch64-unknown-linux-gnu ;; \
+      esac && \
+      python3 -c "import urllib.request; urllib.request.urlretrieve('${RUSTUP_UPDATE_ROOT}/dist/${ARCH}/rustup-init', '/tmp/rustup-init')" && \
+      chmod +x /tmp/rustup-init && \
+      /tmp/rustup-init -y --default-toolchain "${RUSTUP_TOOLCHAIN:-1.95}" && \
+      rm /tmp/rustup-init && \
+      . "$HOME/.cargo/env"; \
+    fi
+ENV PATH="/root/.cargo/bin:$PATH"
+# Configure cargo: use the git CLI (so the GIT_PROXY url.insteadOf rewrite
+# applies to git dependencies) and optionally route the crates.io sparse index
+# through an internal mirror (public crates.io is unreachable from the build
+# containers).
+ARG CRATES_IO_INDEX=""
+RUN mkdir -p /root/.cargo && \
+    printf '[net]\ngit-fetch-with-cli = true\n' > /root/.cargo/config.toml && \
+    if [ -n "$CRATES_IO_INDEX" ]; then \
+      printf '[source.crates-io]\nreplace-with = "mirror"\n\n[source.mirror]\nregistry = "sparse+%s"\n' "$CRATES_IO_INDEX" >> /root/.cargo/config.toml; \
+    fi
 RUN cd /vllm-workspace/vllm && \
+    export PROTOC_INCLUDE=/usr/include && \
     python3 -m pip install setuptools-rust && \
     ./build_rust.sh
 

@@ -151,6 +151,9 @@ on:
       SWR_PASSWORD:
         description: 'SWR password for pushing images'
         required: false
+      SYNC_TOOLS_TOKEN:
+        description: 'GitHub token for dispatching quay.io sync workflow'
+        required: false
 
 defaults:
   run:
@@ -222,8 +225,7 @@ jobs:
             echo "::warning::Both 'tag' ($tag) and 'branch' ($branch) provided. Using 'tag' ($tag) as the priority."
           fi
           if [[ -z "$tag" && -z "$branch" ]]; then
-            echo "Error: Either 'tag', 'branch', or (vllm_commit + vllm_ascend_commit) must be specified."
-            exit 1
+            echo "::warning::No tag/branch/commit specified. Falling back to the triggering branch: ${GITHUB_REF_NAME}."
           fi
         fi
 
@@ -254,11 +256,10 @@ jobs:
     - uses: actions/checkout@v7
       if: ${{ github.event_name == 'workflow_dispatch' && inputs.workflow_dispatch_tag == '' && inputs.vllm_ascend_commit == '' }}
       with:
-        repository: vllm-project/vllm-ascend
         submodules: recursive
         fetch-depth: 0
         persist-credentials: false
-        ref: ${{ inputs.branch_ref }}
+        ref: ${{ inputs.branch_ref != '' && inputs.branch_ref || github.ref_name }}
 
     - name: Compute cache tag
       id: cache-tag
@@ -357,7 +358,11 @@ jobs:
           APTMIRROR=http://cache-service.nginx-pypi-cache.svc.cluster.local:8081
           YUM_MIRROR=http://cache-service.nginx-pypi-cache.svc.cluster.local:8083
           RUSTUP_DIST_SERVER=http://cache-service.nginx-pypi-cache.svc.cluster.local:8082/rustup
-          RUSTUP_UPDATE_ROOT=http://cache-service.nginx-pypi-cache.svc.cluster.local:8082/rustup
+          RUSTUP_UPDATE_ROOT=http://cache-service.nginx-pypi-cache.svc.cluster.local:8082/rustup/rustup
+          # crates.io sparse index mirror (port 8085 must be added to the
+          # nginx-pypi-cache Deployment, see cratescache.conf). Without it,
+          # cargo falls back to public crates.io and times out.
+          CRATES_IO_INDEX=http://cache-service.nginx-pypi-cache.svc.cluster.local:8085/index/
           PIP_INDEX_URL=http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
           PIP_TRUSTED_HOST=cache-service.nginx-pypi-cache.svc.cluster.local
           PYTORCH_INDEX_URL=http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu
@@ -613,9 +618,22 @@ jobs:
             echo "skopeo not available, skip temp tag cleanup"
           fi
 
+      - name: Dispatch quay.io sync
+        if: ${{ inputs.should_push }}
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.SYNC_TOOLS_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: 'ascend-gha-runners',
+              repo: 'sync-tools',
+              workflow_id: 'sync-vllm-ascend.yml',
+              ref: 'main',
+            });
+
   merge-image-temp:
     name: merge-image-temp
-    runs-on: linux-amd64-cpu-4-buildkit-gy006
+    runs-on: linux-amd64-cpu-4
     needs: build-push-digest
     if: ${{ inputs.should_push && inputs.temp_only }}
     steps:
@@ -733,3 +751,16 @@ jobs:
           else
             echo "skopeo not available, skip temp tag cleanup"
           fi
+
+      - name: Dispatch quay.io sync
+        if: ${{ inputs.should_push }}
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.SYNC_TOOLS_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: 'ascend-gha-runners',
+              repo: 'sync-tools',
+              workflow_id: 'sync-vllm-ascend.yml',
+              ref: 'main',
+            });
