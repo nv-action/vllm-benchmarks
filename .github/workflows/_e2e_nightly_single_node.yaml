@@ -242,9 +242,13 @@ jobs:
           # The nightly container ships the image's pre-built code. In mock mode
           # overlay the branch's pure-Python test/tools trees so no rebuild or
           # pip install is needed (compiled extensions stay untouched).
-          cp -r ./temp-mock-scripts/tests/e2e/. /vllm-workspace/vllm-ascend/tests/e2e/
-          cp -r ./temp-mock-scripts/tools/. /vllm-workspace/vllm-ascend/tools/
-          cp -r ./temp-mock-scripts/benchmark/. /vllm-workspace/vllm-ascend/benchmark/
+          # Sparse-checkout may skip some dirs; only copy what is present.
+          for src in tests/e2e tools benchmark; do
+            if [ -d "./temp-mock-scripts/$src" ]; then
+              mkdir -p "/vllm-workspace/vllm-ascend/$src"
+              cp -r "./temp-mock-scripts/$src/." "/vllm-workspace/vllm-ascend/$src/"
+            fi
+          done
           echo "Mock test scripts overlaid from ${{ inputs.vllm_ascend_ref }}"
 
       - name: Install vllm-project/vllm-ascend
