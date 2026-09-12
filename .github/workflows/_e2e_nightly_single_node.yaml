@@ -173,7 +173,7 @@ jobs:
       # models through the proxy are too slow and fill the node disk.
       HF_HUB_OFFLINE: 1
       VLLM_USE_MODELSCOPE: True
-      UV_INDEX_URL: https://repo.huaweicloud.com/repository/pypi/simple
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
       UV_EXTRA_INDEX_URL: "https://repo.huaweicloud.com/ascend/repos/pypi"
       UV_INDEX_STRATEGY: unsafe-best-match
       UV_NO_CACHE: 1
@@ -186,15 +186,10 @@ jobs:
         run: |
           npu-smi info
           cat /usr/local/Ascend/ascend-toolkit/latest/"$(uname -i)"-linux/ascend_toolkit_install.info
-          # cover both classic (sources.list) and deb822 (ubuntu.sources) formats,
-          # including security.ubuntu.com for aarch64; fail if no mirror applied
-          sed -Ei 's@(ports|archive|security)\.ubuntu\.com@mirrors.huaweicloud.com@g' \
-            /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null || true
-          grep -q "mirrors.huaweicloud.com" \
-            /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null
-          pip config set global.index-url https://repo.huaweicloud.com/repository/pypi/simple
-          pip config set global.trusted-host repo.huaweicloud.com
-          pip config set global.trusted-host files.pythonhosted.org
+          # TEMP comparison branch: old cache-service mirror (A/B duration test)
+          sed -Ei 's@(ports|archive).ubuntu.com@cache-service.nginx-pypi-cache.svc.cluster.local:8081@g' /etc/apt/sources.list
+          pip config set global.index-url http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+          pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
           pip install uv
 
       - name: uninstall vlm vllm-ascend and remove code (if pr test)
