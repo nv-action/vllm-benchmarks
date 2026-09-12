@@ -178,7 +178,12 @@ jobs:
         run: |
           npu-smi info
           cat /usr/local/Ascend/ascend-toolkit/latest/"$(uname -i)"-linux/ascend_toolkit_install.info
-          sed -Ei 's@(ports|archive).ubuntu.com@mirrors.huaweicloud.com@g' /etc/apt/sources.list
+          # cover both classic (sources.list) and deb822 (ubuntu.sources) formats,
+          # including security.ubuntu.com for aarch64; fail if no mirror applied
+          sed -Ei 's@(ports|archive|security)\.ubuntu\.com@mirrors.huaweicloud.com@g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null || true
+          grep -q "mirrors.huaweicloud.com" \
+            /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null
           pip config set global.index-url https://repo.huaweicloud.com/repository/pypi/simple
           pip config set global.trusted-host repo.huaweicloud.com
           pip config set global.trusted-host files.pythonhosted.org
