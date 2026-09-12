@@ -147,3 +147,19 @@ gh workflow run schedule_nightly_test_a3.yaml \
 
 ### 为什么 openEuler 的 yum 替换不在本次范围
 - 本次单测只跑 Ubuntu a3 容器；openEuler 的 `yum.repos.d/*.repo → cache-service:8081` 替换逻辑在 `_build_csrc_cache.yaml`（构建路径），未涉及。
+
+### A/B 实测对比（mock 单测，2026-09-12）
+- 方法：从 `feat/nightly-a3-verify` 派生临时分支 `feat/nightly-a3-verify-cs`，仅把 4 处镜像源改回 cache-service，其余（mock overlay、no_proxy、离线等）全部不变，跑同一个 `Qwen3.8-27B-w8a8-A3` mock job
+- 两个 run 均全绿
+
+| 步骤 | huaweicloud `34688322364` | cache-service `34689575957` |
+|---|---|---|
+| Check npu + pip config + pip install uv | 5s | 7s |
+| Install clang（apt） | 9s | 8s |
+| Run Pytest（YAML-driven, mock） | 46s | 51s |
+| Upload benchmark results（OBS） | 12s | 11s |
+| Upload（GitHub Artifacts） | 11s | 10s |
+| **Job 总耗时** | **149s** | **150s** |
+
+**结论**：mock 模式下镜像源差异属于噪声级别（每步 ±几秒，job 总量差 1s），替换不引入回退。原因：mock 不触发重下载（apt 只装 clang-15、pip 只装 uv，均为小包），cache-service（集群内缓存代理）与 huaweicloud（CDN）都足够快；真正吃镜像源带宽的 `pip install -r requirements-dev.txt` / vllm 编译 / 模型权重下载未被覆盖。
+**如需量化吞吐差异**：改用 PR 模式（`request_id` 非空）跑 `Install vllm-project/vllm-ascend` 步骤，或直接对比大文件（如 27B 模型权重）下载耗时。
