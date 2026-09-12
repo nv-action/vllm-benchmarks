@@ -177,7 +177,8 @@ jobs:
       # it via 0.0.0.0. The runner injects an HTTP(S)_PROXY (squid), so without
       # 0.0.0.0 in no_proxy every in-pod request is forwarded to the proxy and
       # fails with squid ERR_CONNECT_FAIL. Keep the injected bypass ranges too.
-      NO_PROXY: "0.0.0.0,localhost,127.0.0.1,.buildkitd,.svc.cluster.local,.cluster.local"
+      # Only lowercase no_proxy is used because the runner injects lowercase
+      # and GitHub Actions rejects defining both NO_PROXY and no_proxy.
       no_proxy: "0.0.0.0,localhost,127.0.0.1,.buildkitd,.svc.cluster.local,.cluster.local"
     steps:
       - name: Check npu and CANN info
