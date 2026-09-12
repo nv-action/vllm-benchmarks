@@ -554,6 +554,31 @@ def _save_benchmark_results_json(config: SingleNodeConfig, benchmark_keys: list[
     )
 
 
+def _run_mock_npu_pipeline(config: SingleNodeConfig) -> None:
+    """Mock mode (VLLM_ASCEND_MOCK_NPU=1): keep downloads and uploads, skip NPU.
+
+    Validates the whole single-node pipeline without consuming NPU:
+      - model/dataset still resolved via maybe_download_from_modelscope
+      - vLLM server and aisbench benchmarks skipped
+      - passing results fabricated and results JSON written (upload path)
+    """
+    from tools.aisbench import maybe_download_from_modelscope
+
+    model_path = maybe_download_from_modelscope(config.model)
+    logger.info("MOCK NPU: model %s resolved to %s", config.model, model_path)
+    for case_key, case_cfg in config.benchmarks.items():
+        if not case_cfg:
+            continue
+        dataset_path = case_cfg.get("dataset_path")
+        if dataset_path:
+            ds_path = maybe_download_from_modelscope(dataset_path, repo_type="dataset")
+            logger.info("MOCK NPU: dataset %s resolved to %s", dataset_path, ds_path)
+
+    benchmark_keys = [k for k, v in config.benchmarks.items() if v]
+    if benchmark_keys:
+        _save_benchmark_results_json(config, benchmark_keys, _mock_benchmark_results(config))
+
+
 def _mock_benchmark_results(config: SingleNodeConfig) -> list[Any]:
     """Fabricate benchmark results that satisfy the configured thresholds.
 
@@ -622,12 +647,9 @@ async def test_single_node(config: SingleNodeConfig) -> None:
             ]
             subprocess.call(command)
 
-    # Mock mode: validate the single-node pipeline without consuming NPU.
+    # Mock mode: keep downloads and uploads, skip the NPU test itself.
     if os.environ.get("VLLM_ASCEND_MOCK_NPU", "0") in ("1", "true", "True"):
-        logger.info("MOCK NPU: skipping vLLM server and real benchmarks")
-        benchmark_keys = [k for k, v in config.benchmarks.items() if v]
-        if benchmark_keys:
-            _save_benchmark_results_json(config, benchmark_keys, _mock_benchmark_results(config))
+        _run_mock_npu_pipeline(config)
         return
 
     kv_pool_manager = create_single_node_kv_pool_manager(config.kv_pool, config.name)
