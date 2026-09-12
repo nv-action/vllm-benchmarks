@@ -231,18 +231,20 @@ jobs:
           ref: ${{ inputs.vllm_ascend_ref }}
           path: ./temp-mock-scripts
           sparse-checkout: |
-            tests/e2e/nightly/single_node/models/scripts/
-            tools/aisbench.py
+            tests/e2e/
+            tools/
+            benchmark/
           fetch-depth: 1
 
       - name: Overlay mock test scripts onto image code (mock_npu only)
         if: ${{ inputs.mock_npu }}
         run: |
           # The nightly container ships the image's pre-built code. In mock mode
-          # only overlay the branch's test script so no rebuild/install is needed.
-          cp -f ./temp-mock-scripts/tests/e2e/nightly/single_node/models/scripts/test_single_node.py \
-                /vllm-workspace/vllm-ascend/tests/e2e/nightly/single_node/models/scripts/test_single_node.py
-          cp -f ./temp-mock-scripts/tools/aisbench.py /vllm-workspace/vllm-ascend/tools/aisbench.py
+          # overlay the branch's pure-Python test/tools trees so no rebuild or
+          # pip install is needed (compiled extensions stay untouched).
+          cp -r ./temp-mock-scripts/tests/e2e/. /vllm-workspace/vllm-ascend/tests/e2e/
+          cp -r ./temp-mock-scripts/tools/. /vllm-workspace/vllm-ascend/tools/
+          cp -r ./temp-mock-scripts/benchmark/. /vllm-workspace/vllm-ascend/benchmark/
           echo "Mock test scripts overlaid from ${{ inputs.vllm_ascend_ref }}"
 
       - name: Install vllm-project/vllm-ascend
