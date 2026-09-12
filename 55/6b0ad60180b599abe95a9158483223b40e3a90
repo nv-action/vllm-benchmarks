@@ -1,0 +1,33 @@
+tests/e2e/nightly/single_node/models/scripts/test_single_node.py
+  s_28039e37115309::t_c95a7f5a3af329 557-581
+  s_28039e37115309::t_54aae1067934ba 650,652
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.2",
+  "base_commit_sha": "556b0ad60180b599abe95a9158483223b40e3a90",
+  "prompts": {},
+  "sessions": {
+    "s_28039e37115309": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a9676922397bca1f9dfe922",
+        "model": "deepseek_v4_flash_official__dev"
+      },
+      "human_author": "chenqi49 <479148871@qq.com>",
+      "custom_attributes": {
+        "operation_id": "6aa519fd1c176cc28c04df72",
+        "edit_kind": "file_edit",
+        "runtime_client": "trae-tob-git-ai",
+        "dedupe_key": "6a9676922397bca1f9dfe922:6aa519fd1c176cc28c04df72:afterEdit:9d16407e",
+        "session_id": "6a9676922397bca1f9dfe922",
+        "tool_type": "agent",
+        "tool_use_id": "6aa519fd1c176cc28c04df72",
+        "tool_id": "Edit",
+        "external_session_id": "6a9676922397bca1f9dfe922",
+        "client_type": "ide",
+        "source_scene": "unknown"
+      }
+    }
+  }
+}
