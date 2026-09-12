@@ -180,7 +180,8 @@ jobs:
           cat /usr/local/Ascend/ascend-toolkit/latest/"$(uname -i)"-linux/ascend_toolkit_install.info
           sed -Ei 's@(ports|archive).ubuntu.com@mirrors.huaweicloud.com@g' /etc/apt/sources.list
           pip config set global.index-url https://repo.huaweicloud.com/repository/pypi/simple
-          pip config set global.trusted-host repo.huaweicloud.com files.pythonhosted.org
+          pip config set global.trusted-host repo.huaweicloud.com
+          pip config set global.trusted-host files.pythonhosted.org
           pip install uv
 
       - name: uninstall vlm vllm-ascend and remove code (if pr test)
