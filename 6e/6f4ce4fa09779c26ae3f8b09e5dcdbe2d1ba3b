@@ -1,0 +1,39 @@
+.github/workflows/test-squid-download-upload.yaml
+  s_d79adcd6a54818::t_a60b3636bb01c1 1-164,166-194
+  s_d79adcd6a54818::t_ac45f807f7d272 165
+test-squid/PLAN.md
+  s_d79adcd6a54818::t_ecac2f954e15c0 1-167
+test-squid/run-suite.sh
+  s_d79adcd6a54818::t_32a993afeeabb4 139-141
+  s_d79adcd6a54818::t_6d020f630fd75f 230-231,237-279
+  s_d79adcd6a54818::t_7046c0afa7142b 1-138,142-229,232-236,280-286
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.2",
+  "base_commit_sha": "6e6f4ce4fa09779c26ae3f8b09e5dcdbe2d1ba3b",
+  "prompts": {},
+  "sessions": {
+    "s_d79adcd6a54818": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a97619e2397bca1f9dff6c4",
+        "model": "deepseek_v4_flash_official__dev"
+      },
+      "human_author": "chenqi49 <479148871@qq.com>",
+      "custom_attributes": {
+        "tool_id": "Edit",
+        "tool_use_id": "6aa5291d1c176cc28c04e156",
+        "dedupe_key": "6a97619e2397bca1f9dff6c4:6aa5291d1c176cc28c04e156:afterEdit:15c9c3a4",
+        "edit_kind": "file_edit",
+        "tool_type": "agent",
+        "session_id": "6a97619e2397bca1f9dff6c4",
+        "operation_id": "6aa5291d1c176cc28c04e156",
+        "source_scene": "unknown",
+        "runtime_client": "trae-tob-git-ai",
+        "client_type": "ide",
+        "external_session_id": "6a97619e2397bca1f9dff6c4"
+      }
+    }
+  }
+}
