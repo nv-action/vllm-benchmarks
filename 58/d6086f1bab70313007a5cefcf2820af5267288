@@ -1,0 +1,32 @@
+PLAN-verify-single-node-a3.md
+  s_28039e37115309::t_e73b0e441c3a80 150-165
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.2",
+  "base_commit_sha": "58d6086f1bab70313007a5cefcf2820af5267288",
+  "prompts": {},
+  "sessions": {
+    "s_28039e37115309": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a9676922397bca1f9dfe922",
+        "model": "deepseek_v4_flash_official__dev"
+      },
+      "human_author": "chenqi49 <479148871@qq.com>",
+      "custom_attributes": {
+        "tool_type": "agent",
+        "session_id": "6a9676922397bca1f9dfe922",
+        "source_scene": "unknown",
+        "runtime_client": "trae-tob-git-ai",
+        "dedupe_key": "6a9676922397bca1f9dfe922:6aa5309a1c176cc28c04e2a9:afterEdit:0f48ae01",
+        "operation_id": "6aa5309a1c176cc28c04e2a9",
+        "external_session_id": "6a9676922397bca1f9dfe922",
+        "client_type": "ide",
+        "tool_id": "Edit",
+        "edit_kind": "file_edit",
+        "tool_use_id": "6aa5309a1c176cc28c04e2a9"
+      }
+    }
+  }
+}
