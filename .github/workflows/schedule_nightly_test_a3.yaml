@@ -103,7 +103,7 @@ jobs:
     name: Parse trigger and determine test scope
     if: >-
       github.event_name == 'workflow_dispatch'
-    runs-on: linux-aarch64-a3-800t-0
+    runs-on: linux-aarch64-a3-2
     outputs:
       run: ${{ steps.parse.outputs.run }}
       filter: ${{ steps.parse.outputs.filter }}
@@ -220,7 +220,7 @@ jobs:
     uses: ./.github/workflows/_e2e_nightly_multi_node.yaml
     with:
       soc_version: a3
-      runner: linux-aarch64-a3-800t-0
+      runner: linux-aarch64-a3-2
       image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a3'
       ascend_log_prefix: ${{ needs.setup-vars.outputs.ascend_log_prefix }}/${{ matrix.vllm_ascend_branch }}
       vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
@@ -272,7 +272,7 @@ jobs:
     uses: ./.github/workflows/_e2e_nightly_multi_node.yaml
     with:
       soc_version: a3
-      runner: linux-aarch64-a3-800t-0
+      runner: linux-aarch64-a3-2
       image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a3'
       ascend_log_prefix: ${{ needs.setup-vars.outputs.ascend_log_prefix }}/${{ matrix.vllm_ascend_branch }}
       vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
@@ -402,7 +402,7 @@ jobs:
       OPENLIBING_SECRET: ${{ secrets.OPENLIBING_SECRET }}
 
   clear-pre-logs:
-    runs-on: linux-aarch64-a3-800t-0
+    runs-on: linux-aarch64-a3-2
     needs: [multi-node-tests, double-node-tests]
     if: (needs.multi-node-tests.result != 'skipped' || needs.double-node-tests.result != 'skipped')
     steps:
@@ -436,7 +436,7 @@ jobs:
       always() &&
       inputs.request_id == '' &&
       (needs.multi-node-tests.result != 'skipped' || needs.double-node-tests.result != 'skipped')
-    runs-on: linux-aarch64-a3-800t-0
+    runs-on: linux-aarch64-a3-2
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-cpu
       env:
