@@ -182,19 +182,17 @@ jobs:
     name: Diag-OBS-403
     runs-on: linux-amd64-cpu-8-hk
     steps:
-      - name: Setup obsutil
+      - name: Diagnose OBS 403
+        env:
+          AK: ${{ secrets.OBS_ACCESS_KEY_ID }}
+          SK: ${{ secrets.OBS_SECRET_ACCESS_KEY }}
         run: |
           curl -sSL "https://obs-community.obs.cn-north-1.myhuaweicloud.com/obsutil/current/obsutil_linux_amd64.tar.gz" -o /tmp/obsutil.tar.gz
           tar -xzf /tmp/obsutil.tar.gz -C /tmp
           OBSUTIL_DIR=$(find /tmp -maxdepth 1 -name "obsutil_linux_amd64_*" -type d | head -1)
           chmod +x "${OBSUTIL_DIR}/obsutil"
-          cp "${OBSUTIL_DIR}/obsutil" /usr/local/bin/obsutil
+          export PATH="${OBSUTIL_DIR}:${PATH}"
           obsutil version
-      - name: Configure and test bucket access
-        env:
-          AK: ${{ secrets.OBS_ACCESS_KEY_ID }}
-          SK: ${{ secrets.OBS_SECRET_ACCESS_KEY }}
-        run: |
           obsutil config -i "$AK" -k "$SK" -e obs.ap-southeast-1.myhuaweicloud.com
           set +e
           echo "===== [1] obsutil ls obs://ascend-ci-cache-hk/ ====="
