@@ -198,14 +198,14 @@ jobs:
           pip install uv
 
       - name: uninstall vlm vllm-ascend and remove code (if pr test)
-        if: ${{ inputs.request_id != '' }}
+        if: ${{ inputs.request_id != '' && !inputs.mock_npu }}
         run: |
           pip uninstall -y vllm-ascend || true
           cp -r /vllm-workspace/vllm-ascend/benchmark /tmp/aisbench-backup || true
           rm -rf  /vllm-workspace/vllm-ascend
 
       - name: Checkout vllm-project/vllm-ascend repo
-        if: ${{ inputs.request_id != '' }}
+        if: ${{ inputs.request_id != '' && !inputs.mock_npu }}
         uses: actions/checkout@v7
         with:
           ref: ${{ inputs.vllm_ascend_ref }}
@@ -214,7 +214,7 @@ jobs:
           submodules: recursive
 
       - name: Move code to /vllm-workspace
-        if: ${{ inputs.request_id != '' }}
+        if: ${{ inputs.request_id != '' && !inputs.mock_npu }}
         run: |
           mv ./temp-vllm-ascend /vllm-workspace/vllm-ascend
           ls -R /vllm-workspace
@@ -224,8 +224,29 @@ jobs:
           CARDS=$(echo "${{ inputs.runner }}" | grep -oE '[0-9]+$')
           echo "MAX_JOBS=$((CARDS * 23))" >> $GITHUB_ENV
 
+      - name: Checkout mock test scripts (mock_npu only)
+        if: ${{ inputs.mock_npu }}
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.vllm_ascend_ref }}
+          path: ./temp-mock-scripts
+          sparse-checkout: |
+            tests/e2e/nightly/single_node/models/scripts/
+            tools/aisbench.py
+          fetch-depth: 1
+
+      - name: Overlay mock test scripts onto image code (mock_npu only)
+        if: ${{ inputs.mock_npu }}
+        run: |
+          # The nightly container ships the image's pre-built code. In mock mode
+          # only overlay the branch's test script so no rebuild/install is needed.
+          cp -f ./temp-mock-scripts/tests/e2e/nightly/single_node/models/scripts/test_single_node.py \
+                /vllm-workspace/vllm-ascend/tests/e2e/nightly/single_node/models/scripts/test_single_node.py
+          cp -f ./temp-mock-scripts/tools/aisbench.py /vllm-workspace/vllm-ascend/tools/aisbench.py
+          echo "Mock test scripts overlaid from ${{ inputs.vllm_ascend_ref }}"
+
       - name: Install vllm-project/vllm-ascend
-        if: ${{ inputs.request_id != '' }}
+        if: ${{ inputs.request_id != '' && !inputs.mock_npu }}
         working-directory: /vllm-workspace/vllm-ascend
         env:
           MAX_JOBS: ${{ env.MAX_JOBS }}
@@ -242,7 +263,7 @@ jobs:
           pip uninstall -y triton-ascend triton
 
       - name: Install aisbench
-        if: ${{ inputs.request_id != '' }}
+        if: ${{ inputs.request_id != '' && !inputs.mock_npu }}
         shell: bash -l {0}
         run: |
           cp -r /tmp/aisbench-backup /vllm-workspace/vllm-ascend/benchmark
