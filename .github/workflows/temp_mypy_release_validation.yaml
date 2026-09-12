@@ -1,0 +1,306 @@
+#
+# Copyright (c) 2025 Huawei Technologies Co., Ltd. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+# TEMPORARY workflow: validate mypy --follow-imports silent as a
+# release-lane contract checker.  The flow's dual-tree mypy uses
+# --follow-imports skip, which never opens vllm source files and was
+# blind to PR 16382 (vllm base class attribute drift).  "silent" DOES
+# type-check the followed vllm tree while suppressing ITS errors, so
+# vllm_ascend's cross-tree call sites get real checking.
+# Goal: CLEAN vllm-ascend main x the pinned vllm release tag => 0 errors.
+# Three runs: A = skip on release (control, CI-parity), B = silent on
+# release (the candidate), C = silent on the main pin (isolation).
+# Delete this file from both m2m-a3-16 and main after use.
+
+name: Temp mypy release validation (a3-16)
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash -el {0}
+
+concurrency:
+  group: temp-mypy-release-validation
+  cancel-in-progress: false
+
+env:
+  ARTIFACT_DIR: mypy_validation_artifacts
+
+jobs:
+  mypy-validation:
+    runs-on: linux-aarch64-a3-16-sh-001
+    timeout-minutes: 120
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-a3-ubuntu22.04-py3.12
+      env:
+        VLLM_LOGGING_LEVEL: ERROR
+        VLLM_USE_MODELSCOPE: True
+        HF_HUB_OFFLINE: 1
+        UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+        UV_EXTRA_INDEX_URL: "https://repo.huaweicloud.com/ascend/repos/pypi http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu/"
+        UV_INDEX_STRATEGY: unsafe-best-match
+        UV_INSECURE_HOST: cache-service.nginx-pypi-cache.svc.cluster.local
+        UV_HTTP_TIMEOUT: 120
+        UV_NO_CACHE: 1
+        UV_SYSTEM_PYTHON: 1
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - name: Checkout vllm-project/vllm-ascend main
+        uses: actions/checkout@v7
+        with:
+          repository: vllm-project/vllm-ascend
+          ref: main
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Read pinned vllm versions
+        id: pins
+        run: |
+          set -eu
+          MAIN_PIN=$(cat .github/vllm-main-verified.commit)
+          RELEASE_TAG=$(cat .github/vllm-release-tag.commit)
+          echo "main pin:    ${MAIN_PIN}"
+          echo "release tag: ${RELEASE_TAG}"
+          echo "main_pin=${MAIN_PIN}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout vllm at main pin
+        uses: actions/checkout@v7
+        with:
+          repository: vllm-project/vllm
+          ref: ${{ steps.pins.outputs.main_pin }}
+          path: vllm-upstream
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install dependencies
+        run: |
+          set -eu
+          sed -Ei 's@(ports|archive).ubuntu.com@cache-service.nginx-pypi-cache.svc.cluster.local:8081@g' /etc/apt/sources.list
+          pip config set global.index-url http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+          pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
+          apt-get update -y
+          if [ -s "$GITHUB_WORKSPACE/packages.txt" ]; then
+            xargs -r apt-get -y install < "$GITHUB_WORKSPACE/packages.txt"
+          fi
+          apt-get -y install git curl ca-certificates gcc g++ cmake libnuma-dev zstd
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/vllm-upstream"
+          pip install uv pytest
+          echo "vllm-upstream/" >> .git/info/exclude
+
+      - name: Install mypy env deps
+        run: |
+          set -euxo pipefail
+          # Same system-site base the flow's mypy venv inherits: vllm
+          # (empty target) provides the import closure, triton-ascend
+          # provides the numpy constraint read by the driver.
+          MOONCAKE_WHEEL="mooncake_transfer_engine_ascend-0.3.9-cp312-cp312-manylinux_2_35_aarch64.whl"
+          pip install --no-cache-dir --no-deps \
+            "https://vllm-ascend.obs.cn-north-4.myhuaweicloud.com/vllm-ascend/${MOONCAKE_WHEEL}"
+          (cd vllm-upstream && VLLM_TARGET_DEVICE=empty uv pip install .)
+          pip uninstall -y triton
+          pip install uc-manager
+          uv pip install -r requirements-dev.txt
+          uv pip install --force-reinstall --no-deps triton-ascend==3.2.2
+          # mypy version pinned to requirements-lint.txt (CI parity) plus
+          # the types-* stubs the CI lint job installs.
+          uv pip install "mypy==1.11.1" types-PyYAML types-regex \
+            types-requests types-setuptools
+          # Registers vllm_ascend's platform-plugin entry points; mypy
+          # checks the cwd source tree, not the installed package.
+          SOC_VERSION=ascend910_9391 COMPILE_CUSTOM_KERNELS=0 uv pip install -e .
+
+      - name: Prepare vllm release worktree
+        run: |
+          set -eu
+          RELEASE_TAG="${{ steps.pins.outputs.release_tag }}"
+          git -C vllm-upstream fetch --depth 1 origin \
+            "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}" || true
+          git -C vllm-upstream worktree add -f --detach \
+            /tmp/vllm-release "${RELEASE_TAG}"
+          git -C vllm-upstream worktree list
+
+      - name: Run three-run mypy validation
+        env:
+          RELEASE_TAG: ${{ steps.pins.outputs.release_tag }}
+          MAIN_PIN: ${{ steps.pins.outputs.main_pin }}
+        run: |
+          python - <<'PYEOF'
+          import collections
+          import importlib.metadata as md
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          import time
+          from pathlib import Path
+
+          ascend = Path(os.environ["GITHUB_WORKSPACE"])
+          vllm_main = ascend / "vllm-upstream"
+          release = Path("/tmp/vllm-release")
+          tag = os.environ["RELEASE_TAG"]
+          art = Path(os.environ["ARTIFACT_DIR"])
+          art.mkdir(exist_ok=True)
+
+          # Same numpy constraint parsing as pre_ci_check: compound
+          # specifiers from triton-ascend metadata via packaging.
+          from packaging.requirements import Requirement
+          numpy_spec = ""
+          for req in (md.requires("triton-ascend") or []):
+              if "extra" in req.lower():
+                  continue
+              try:
+                  r = Requirement(req)
+              except Exception:
+                  continue
+              if r.name.lower() == "numpy":
+                  numpy_spec = ",".join(
+                      f"{s.operator}{s.version}" for s in r.specifier)
+                  break
+          if not numpy_spec:
+              raise SystemExit("no triton-ascend numpy constraint found")
+
+          # CI-lint-equivalent venv: system site (mypy, mypy.ini,
+          # triton-ascend) + matching numpy, NO vllm in the venv itself
+          # (mypy resolves vllm via PYTHONPATH, which is the point).
+          venv = Path("/tmp/mypy_venv")
+          subprocess.run([sys.executable, "-m", "venv", str(venv),
+                          "--system-site-packages"], check=True)
+          vp = str(venv / "bin" / "python")
+          subprocess.run(["uv", "pip", "install", "--python", vp,
+                          f"numpy{numpy_spec}"], check=True)
+          numpy_ver = subprocess.run(
+              [vp, "-c", "import numpy; print(numpy.__version__)"],
+              capture_output=True, text=True, check=True).stdout.strip()
+          mypy_ver = subprocess.run(
+              [vp, "-m", "mypy", "--version"],
+              capture_output=True, text=True, check=True).stdout.strip()
+          print(f"numpy: {numpy_ver} (spec numpy{numpy_spec})")
+          print(f"mypy:  {mypy_ver}")
+
+          def run_mypy(label, pythonpath, follow, log_name):
+              env = os.environ.copy()
+              env["PYTHONPATH"] = pythonpath
+              env["MYPY_CACHE_DIR"] = "/tmp/mypy-cache"
+              env.pop("VLLM_VERSION", None)
+              t0 = time.time()
+              r = subprocess.run(
+                  [vp, "-m", "mypy", "--follow-imports", follow,
+                   "--check-untyped-defs", "--python-version", "3.10",
+                   "--exclude", "_cann_ops_custom/", "vllm_ascend"],
+                  cwd=str(ascend), capture_output=True, text=True, env=env)
+              dt = time.time() - t0
+              out = r.stdout + "\n" + r.stderr
+              (art / log_name).write_text(out, encoding="utf-8")
+              errs = [l for l in out.splitlines()
+                      if re.search(r":\d+:(?:\d+:)?\s*error:", l)]
+              codes = collections.Counter()
+              for line in errs:
+                  m = re.search(r"\[([a-z-]+)\]\s*$", line)
+                  if m:
+                      codes[m.group(1)] += 1
+              files = collections.Counter(
+                  l.split(":", 1)[0] for l in errs)
+              print(f"[{label}] exit={r.returncode} errors={len(errs)} "
+                    f"in {dt:.1f}s")
+              return {"label": label, "exit": r.returncode,
+                      "errors": len(errs), "seconds": round(dt, 1),
+                      "top_codes": codes.most_common(10),
+                      "top_files": files.most_common(10),
+                      "samples": errs[:30]}
+
+          # A: control — the flow/CI's current flag on the release tree.
+          a = run_mypy("A skip+release", str(release), "skip",
+                       "mypy_skip_release.log")
+          # B: the candidate — real cross-tree checking, vllm noise
+          # suppressed.  errors == 0 is the goal.
+          b = run_mypy("B silent+release", str(release), "silent",
+                       "mypy_silent_release.log")
+          # C: isolation — silent against the MAIN pin separates
+          # pre-existing type errors from release-specific drift.
+          c = run_mypy("C silent+main", str(vllm_main), "silent",
+                       "mypy_silent_main.log")
+
+          def section(title, res):
+              lines = [f"## {title}", ""]
+              lines.append(f"- exit {res['exit']}, "
+                           f"**{res['errors']} errors**, "
+                           f"{res['seconds']}s")
+              if res["top_codes"]:
+                  lines.append("- top error codes: " + ", ".join(
+                      f"`{c}` x{n}" for c, n in res["top_codes"]))
+              if res["top_files"]:
+                  lines.append("- top files:")
+                  lines += [f"  - `{f}` x{n}"
+                            for f, n in res["top_files"]]
+              if res["samples"]:
+                  lines.append("- first samples:")
+                  lines += [f"  ```", *[f"  {s}" for s in
+                                        res["samples"][:10]],
+                            f"  ```"]
+              return "\n".join(lines) + "\n"
+
+          verdict = ("YES - mypy --follow-imports silent fully passes on "
+                     "clean vllm-ascend main x release tag"
+                     if b["errors"] == 0 else
+                     f"NO - {b['errors']} errors remain; the list is the "
+                     f"baseline/fix work")
+          b_only = b["errors"] - c["errors"]
+
+          report = "\n".join([
+              "# mypy release-lane validation report",
+              "",
+              f"- mypy: {mypy_ver}  numpy: {numpy_ver} "
+              f"(spec numpy{numpy_spec})",
+              f"- release tag: {tag}  main pin: "
+              f"{os.environ['MAIN_PIN'][:12]}",
+              f"- targets: `vllm_ascend` --check-untyped-defs "
+              f"--python-version 3.10 --exclude _cann_ops_custom/",
+              "",
+              f"## Verdict: {verdict}",
+              "",
+              f"(Run C has {c['errors']} errors vs Run B "
+              f"{b['errors']} — {b_only} release-specific)",
+              "",
+              section("Run A — skip + release tree (control, must be 0)", a),
+              section("Run B — silent + release tree (candidate)", b),
+              section("Run C — silent + main pin tree (isolation)", c),
+          ]) + "\n"
+          (art / "validation_report.md").write_text(report,
+                                                    encoding="utf-8")
+          print(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a",
+                    encoding="utf-8") as f:
+              f.write(report)
+          PYEOF
+
+      - name: Upload validation artifacts
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: mypy-validation-${{ github.run_id }}
+          path: ${{ env.ARTIFACT_DIR }}
+          retention-days: 7
