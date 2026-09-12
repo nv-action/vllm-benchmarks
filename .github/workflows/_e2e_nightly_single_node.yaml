@@ -173,6 +173,12 @@ jobs:
       VLLM_ENGINE_READY_TIMEOUT_S: 1800
       OPENLIBING_SECRET: ${{ secrets.OPENLIBING_SECRET }}
       VLLM_ASCEND_BRANCH: ${{ inputs.vllm_ascend_branch }}
+      # The test harness starts vLLM with default bind 0.0.0.0 and also talks to
+      # it via 0.0.0.0. The runner injects an HTTP(S)_PROXY (squid), so without
+      # 0.0.0.0 in no_proxy every in-pod request is forwarded to the proxy and
+      # fails with squid ERR_CONNECT_FAIL. Keep the injected bypass ranges too.
+      NO_PROXY: "0.0.0.0,localhost,127.0.0.1,.buildkitd,.svc.cluster.local,.cluster.local"
+      no_proxy: "0.0.0.0,localhost,127.0.0.1,.buildkitd,.svc.cluster.local,.cluster.local"
     steps:
       - name: Check npu and CANN info
         run: |
