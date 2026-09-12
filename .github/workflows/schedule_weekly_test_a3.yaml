@@ -177,6 +177,36 @@ jobs:
           python3 -m pip install pyyaml -q
           python3 .github/workflows/scripts/resolve_nightly_tests.py --mode=matrix
 
+  # TEMP diag job (will be removed): root-cause OBS 403 on ascend-ci-cache-hk
+  diag-obs:
+    name: Diag-OBS-403
+    runs-on: linux-amd64-cpu-8-hk
+    steps:
+      - name: Setup obsutil
+        run: |
+          curl -sSL "https://obs-community.obs.cn-north-1.myhuaweicloud.com/obsutil/current/obsutil_linux_amd64.tar.gz" -o /tmp/obsutil.tar.gz
+          tar -xzf /tmp/obsutil.tar.gz -C /tmp
+          OBSUTIL_DIR=$(find /tmp -maxdepth 1 -name "obsutil_linux_amd64_*" -type d | head -1)
+          chmod +x "${OBSUTIL_DIR}/obsutil"
+          cp "${OBSUTIL_DIR}/obsutil" /usr/local/bin/obsutil
+          obsutil version
+      - name: Configure and test bucket access
+        env:
+          AK: ${{ secrets.OBS_ACCESS_KEY_ID }}
+          SK: ${{ secrets.OBS_SECRET_ACCESS_KEY }}
+        run: |
+          obsutil config -i "$AK" -k "$SK" -e obs.ap-southeast-1.myhuaweicloud.com
+          set +e
+          echo "===== [1] obsutil ls obs://ascend-ci-cache-hk/ ====="
+          obsutil ls obs://ascend-ci-cache-hk/ -e 2>&1 | tail -30
+          echo "EXIT1=$?"
+          echo "===== [2] obsutil ls (all buckets) ====="
+          obsutil ls -e 2>&1 | tail -20
+          echo "EXIT2=$?"
+          echo "===== [3] mkdir test ====="
+          obsutil mkdir "obs://ascend-ci-cache-hk/diag-403-test-$(date +%s)" 2>&1 | tail -10
+          echo "EXIT3=$?"
+
   build-image:
     name: Build weekly-a3 image
     if: >-
