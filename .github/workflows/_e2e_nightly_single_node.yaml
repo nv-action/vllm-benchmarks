@@ -163,10 +163,11 @@ jobs:
     container:
       image: ${{ inputs.image }}
     env:
-      # Allow on-the-fly download from ModelScope when a model/dataset is not
-      # yet cached on the runner (0 keeps HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE
-      # disabled so local_files_only defaults to False)
-      HF_HUB_OFFLINE: 0
+      # Offline mode: models/datasets must be pre-warmed in the runner cache
+      # (e.g. via the labeled download workflow). On-the-fly downloads of large
+      # models through the proxy are too slow and fill the node disk.
+      HF_HUB_OFFLINE: 1
+      TRANSFORMERS_OFFLINE: 1
       VLLM_USE_MODELSCOPE: True
       UV_INDEX_URL: https://repo.huaweicloud.com/repository/pypi/simple
       UV_EXTRA_INDEX_URL: "https://repo.huaweicloud.com/ascend/repos/pypi"

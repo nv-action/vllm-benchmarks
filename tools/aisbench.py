@@ -24,6 +24,7 @@ import time
 from pathlib import Path
 
 import filelock
+import huggingface_hub
 import pandas as pd
 import regex as re
 from modelscope import snapshot_download  # type: ignore
@@ -347,9 +348,7 @@ def maybe_download_from_modelscope(
                 model_id=model,
                 repo_type=repo_type,
                 cache_dir=download_dir,
-                # Always allow online download when the model is not cached,
-                # even if the runner/pod injects HF_HUB_OFFLINE=1.
-                local_files_only=False,
+                local_files_only=huggingface_hub.constants.HF_HUB_OFFLINE,
                 revision=revision,
                 ignore_file_pattern=ignore_patterns,
                 allow_patterns=allow_patterns,
