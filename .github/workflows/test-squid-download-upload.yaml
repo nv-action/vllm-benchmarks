@@ -1,0 +1,194 @@
+#
+# Copyright (c) 2026 Huawei Technologies Co., Ltd. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# This file is a part of the vllm-ascend project.
+#
+
+# test-squid：把 vllm-ascend CI 里所有「下载 / 上传」代码收敛到这一个 workflow，
+# 在 Squid 代理（已由 runner / 工作负载 pod 注入，本 workflow 不配置代理）环境下
+# 逐链路验证并输出各阶段耗时。方案见 test-squid/PLAN.md。
+name: test-squid-download-upload
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_squid_pip_modelscope:
+        description: '额外 pip install modelscope（真实大包）'
+        type: boolean
+        default: false
+      test_squid_model_download:
+        description: '额外 modelscope 下载极小模型'
+        type: boolean
+        default: false
+      test_squid_git_clone:
+        description: '浅克隆 github.com 极小仓库'
+        type: boolean
+        default: true
+      test_squid_obs_wget:
+        description: 'OBS/对象存储小文件 wget 下载探测'
+        type: boolean
+        default: true
+      test_squid_skopeo:
+        description: 'skopeo copy SWR 临时仓打 tag（需 SWR 凭据）'
+        type: boolean
+        default: false
+      test_squid_git_push:
+        description: 'git push 探测分支到 fork（需 PAT_TOKEN）'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-squid-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash -el {0}
+
+jobs:
+  download-upload-suite:
+    name: suite-${{ matrix.os }}
+    runs-on: linux-amd64-cpu-4
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu
+            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-a3-ubuntu22.04-py3.12
+          - os: openeuler
+            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-a3-openeuler24.03-py3.12
+    container:
+      image: ${{ matrix.image }}
+    env:
+      RESULTS_DIR: /tmp/test-squid-results
+      TEST_SQUID_PIP_MODELSCOPE: ${{ inputs.test_squid_pip_modelscope && '1' || '0' }}
+      TEST_SQUID_MODEL_DOWNLOAD: ${{ inputs.test_squid_model_download && '1' || '0' }}
+      TEST_SQUID_GIT_CLONE: ${{ inputs.test_squid_git_clone && '1' || '0' }}
+      TEST_SQUID_OBS_WGET: ${{ inputs.test_squid_obs_wget && '1' || '0' }}
+      TEST_SQUID_SKOPEO: ${{ inputs.test_squid_skopeo && '1' || '0' }}
+      TEST_SQUID_GIT_PUSH: ${{ inputs.test_squid_git_push && '1' || '0' }}
+      # skopeo / git push 上传链路所需凭据（可选）
+      SWR_USERNAME: ${{ secrets.SWR_USERNAME }}
+      SWR_PASSWORD: ${{ secrets.SWR_PASSWORD }}
+      GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+      # runs-on/cache 走 OBS 后端所需（同 push_build_precommit_cache.yaml）
+      RUNS_ON_S3_BUCKET_CACHE: ascend-ci-cache-hk
+      RUNS_ON_S3_BUCKET_ENDPOINT: https://obs.ap-southeast-1.myhuaweicloud.com
+      RUNS_ON_S3_FORCE_PATH_STYLE: "false"
+      AWS_S3_FORCE_PATH_STYLE: "false"
+      AWS_REGION: ap-southeast-1
+      RUNS_ON_RUNNER_NAME: ""
+      AWS_ACCESS_KEY_ID: ${{ secrets.HW_OBS_AK }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.HW_OBS_SK }}
+
+    steps:
+      # 下载链路：actions/checkout 本体（runner 从 github.com 拉取 Action）+ 仓库下载
+      - name: Checkout（即「下载 GitHub Action」验证点）
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: 确认 runner 注入的 squid 代理环境（只读）
+        run: |
+          echo "--- proxy / CA 相关 env ---"
+          env | grep -iE 'proxy|ssl_cert|pip_cert|curl_ca|git_ssl' | sort || echo "(无)"
+          echo "--- squid CA ---"
+          ls -l /etc/squid-ca/squid-ca.pem 2>/dev/null || echo "(未挂载)"
+
+      - name: 运行下载/上传测试套件（apt/yum、pip/uv、git、modelscope、OBS、curl 探测、skopeo、git push）
+        run: |
+          bash test-squid/run-suite.sh
+          echo "=========== timings ==========="
+          cat "$RESULTS_DIR/timings.tsv"
+          echo "=========== probes ==========="
+          cat "$RESULTS_DIR/probes.tsv"
+
+      # 缓存链路：restore(未命中) -> save -> restore(验证命中)，后端为 OBS
+      - name: 缓存 restore（首次，预期未命中）
+        id: cache-restore-1
+        uses: runs-on/cache/restore@v5
+        with:
+          path: /tmp/test-squid-cache
+          key: test-squid-cache-${{ matrix.os }}-${{ github.run_id }}
+        continue-on-error: true
+
+      - name: 准备缓存目录（小载荷）
+        run: |
+          mkdir -p /tmp/test-squid-cache
+          cp "$RESULTS_DIR/payload.bin" /tmp/test-squid-cache/
+
+      - name: 缓存 save（上传链路，runs-on/cache -> OBS）
+        uses: runs-on/cache/save@v5
+        with:
+          path: /tmp/test-squid-cache
+          key: test-squid-cache-${{ matrix.os }}-${{ github.run_id }}
+        continue-on-error: true
+
+      - name: 缓存 restore（二次，验证命中 + 下载链路）
+        id: cache-restore-2
+        uses: runs-on/cache/restore@v5
+        with:
+          path: /tmp/test-squid-cache-2
+          key: test-squid-cache-${{ matrix.os }}-${{ github.run_id }}
+        continue-on-error: true
+
+      - name: 校验缓存命中
+        run: |
+          if [ "${{ steps.cache-restore-2.outputs.cache-hit }}" = "true" ]; then
+            echo "cache-hit=true"
+            sha256sum /tmp/test-squid-cache-2/payload.bin
+          else
+            echo "cache-hit=false"
+            ls -l /tmp/test-squid-cache-2 2>/dev/null || true
+          fi
+
+      # 上传链路：artifact 上传（下载在 summary job 中验证）
+      - name: 上传结果 artifact（actions/upload-artifact）
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-squid-results-${{ matrix.os }}
+          path: /tmp/test-squid-results/
+          if-no-files-found: error
+          retention-days: 7
+
+  summary:
+    name: summary
+    needs: download-upload-suite
+    if: always()
+    runs-on: linux-amd64-cpu-4
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-a3-ubuntu22.04-py3.12
+    steps:
+      # 下载链路：actions/download-artifact
+      - name: Download 各 OS 结果（actions/download-artifact）
+        uses: actions/download-artifact@v8
+        with:
+          path: /tmp/results
+          pattern: test-squid-results-*
+          merge-multiple: true
+
+      - name: 汇总下载/上传阶段耗时
+        run: |
+          echo "===== 各阶段耗时 (phase<TAB>sec<TAB>status<TAB>category) ====="
+          cat /tmp/results/timings.tsv
+          echo
+          echo "===== 按类型汇总 ====="
+          awk -F '\t' 'NR>1 {t[$4]+=$2; n[$4]++} END {for (k in t) printf "%-10s runs=%d total=%ss\n", k, n[k], t[k]}' /tmp/results/timings.tsv | sort
+          echo
+          echo "===== 失败阶段 ====="
+          awk -F '\t' 'NR>1 && $3!=0 {print}' /tmp/results/timings.tsv || echo "(无失败)"
