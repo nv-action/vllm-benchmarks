@@ -1,0 +1,33 @@
+.github/workflows/_e2e_nightly_single_node.yaml
+  s_28039e37115309::t_de162f9853e924 176
+  s_28039e37115309::t_9c179340b7c60c 189-192
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.2",
+  "base_commit_sha": "a9031b5ddc8d1d0a59d328f02be70313ae8d4458",
+  "prompts": {},
+  "sessions": {
+    "s_28039e37115309": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a9676922397bca1f9dfe922",
+        "model": "deepseek_v4_flash_official__dev"
+      },
+      "human_author": "chenqi49 <479148871@qq.com>",
+      "custom_attributes": {
+        "edit_kind": "file_edit",
+        "client_type": "ide",
+        "external_session_id": "6a9676922397bca1f9dfe922",
+        "tool_id": "Edit",
+        "runtime_client": "trae-tob-git-ai",
+        "dedupe_key": "6a9676922397bca1f9dfe922:6aa52e241c176cc28c04e274:afterEdit:6698715b",
+        "source_scene": "unknown",
+        "operation_id": "6aa52e241c176cc28c04e274",
+        "session_id": "6a9676922397bca1f9dfe922",
+        "tool_type": "agent",
+        "tool_use_id": "6aa52e241c176cc28c04e274"
+      }
+    }
+  }
+}
