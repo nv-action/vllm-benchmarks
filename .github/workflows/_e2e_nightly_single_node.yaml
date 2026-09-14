@@ -183,6 +183,8 @@ jobs:
     steps:
       - name: Check npu and CANN info
         run: |
+          # DIAG: which proxy vars does the runner inject (upper/lower case)?
+          env | grep -i proxy || echo "NO_PROXY_VARS"
           npu-smi info
           cat /usr/local/Ascend/ascend-toolkit/latest/"$(uname -i)"-linux/ascend_toolkit_install.info
           # no mirror source: keep base image default sources (ports.ubuntu.com),
