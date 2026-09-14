@@ -22,8 +22,8 @@ name: Nightly-A3
 
 run-name: >-
   ${{ inputs.request_id != '' &&
-      (startsWith(inputs.request_id, 'hf-') &&
-        'Nightly-A3 (HF)' ||
+      (inputs.request_id == 'daily' &&
+        'Nightly-A3 (Daily)' ||
         format('Nightly-A3 (PR) {0}', inputs.request_id)) ||
       'Nightly-A3 (scheduled)' }}
 
