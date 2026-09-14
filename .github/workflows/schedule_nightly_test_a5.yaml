@@ -20,8 +20,8 @@ name: Nightly-A5
 
 run-name: >-
   ${{ inputs.request_id != '' &&
-      (startsWith(inputs.request_id, 'hf-') &&
-        'Nightly-A5 (HF)' ||
+      (inputs.request_id == 'daily' &&
+        'Nightly-A5 (Daily)' ||
         format('Nightly-A5 (PR) {0}', inputs.request_id)) ||
       'Nightly-A5 (scheduled)' }}
 

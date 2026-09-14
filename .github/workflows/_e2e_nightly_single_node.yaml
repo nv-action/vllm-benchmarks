@@ -184,6 +184,7 @@ jobs:
         if: ${{ inputs.request_id != '' }}
         uses: actions/checkout@v7
         with:
+          repository: vllm-project/vllm-ascend
           ref: ${{ inputs.vllm_ascend_ref }}
           path: ./temp-vllm-ascend
           fetch-depth: 1
