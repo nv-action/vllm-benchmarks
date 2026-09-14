@@ -185,6 +185,9 @@ jobs:
         run: |
           # DIAG: which proxy vars does the runner inject (upper/lower case)?
           env | grep -i proxy || echo "NO_PROXY_VARS"
+          echo "--- apt-config proxy ---"
+          apt-config dump | grep -i proxy || echo "no apt proxy config"
+          ls /etc/apt/apt.conf.d/ 2>/dev/null || echo "no apt.conf.d"
           npu-smi info
           cat /usr/local/Ascend/ascend-toolkit/latest/"$(uname -i)"-linux/ascend_toolkit_install.info
           # no mirror source: keep base image default sources (ports.ubuntu.com),
