@@ -163,3 +163,24 @@ gh workflow run schedule_nightly_test_a3.yaml \
 
 **结论**：mock 模式下镜像源差异属于噪声级别（每步 ±几秒，job 总量差 1s），替换不引入回退。原因：mock 不触发重下载（apt 只装 clang-15、pip 只装 uv，均为小包），cache-service（集群内缓存代理）与 huaweicloud（CDN）都足够快；真正吃镜像源带宽的 `pip install -r requirements-dev.txt` / vllm 编译 / 模型权重下载未被覆盖。
 **如需量化吞吐差异**：改用 PR 模式（`request_id` 非空）跑 `Install vllm-project/vllm-ascend` 步骤，或直接对比大文件（如 27B 模型权重）下载耗时。
+
+### 三方对比：镜像源 vs 裸源直连（2026-09-14）
+- 方法：从 `feat/nightly-a3-verify` 派生 `feat/nightly-a3-verify-nomirror`，去掉全部镜像改写（uv/pip 用 pypi.org 默认源、apt 用 ports.ubuntu.com 默认源），其余不变，跑同一 mock job
+- 三个 run 均全绿
+
+| 步骤 | huaweicloud `34688322364` | cache-service `34689575957` | no-mirror 冷 `34837119674` | no-mirror 热(pip) `34841058938` | no-mirror+apt走squid `34843983715` |
+|---|---|---|---|---|---|
+| Check npu + pip install uv | 5s | 7s | 725s | 47s | 9s |
+| Install clang（apt） | 9s | 8s | 57s | 60s | 13s |
+| Run Pytest（YAML-driven, mock） | 46s | 51s | 53s | 51s | 51s |
+| Upload benchmark results（OBS） | 12s | 11s | 12s | 11s | 12s |
+| Upload（GitHub Artifacts） | 11s | 10s | 9s | 8s | 10s |
+| **Job 总耗时** | **149s** | **150s** | **948s** | **242s** | **160s** |
+
+**关键发现**
+1. **裸源直连极慢**：pip 直连 pypi.org（经 squid MITM）单步 725s，apt 直连 ports.ubuntu.com 57s；裸源冷跑 948s，是镜像源的 6 倍
+2. **squid 缓存对 pip 生效**：第二次裸源跑 pip install uv 725s→47s（15 倍提速），证明 squid 缓存了 pypi.org 响应
+3. **apt 默认绕过 squid（用户判断正确）**：apt 不读取 `HTTP_PROXY`/`HTTPS_PROXY` 环境变量，此前裸源 apt 一直是直连，squid 拦不到 → 缓存无收益。修复：在 `Install clang` 步骤写 `/etc/apt/apt.conf.d/99squid-proxy`（`Acquire::http(s)::Proxy "$HTTPS_PROXY"`）
+4. **apt 走 squid 后 57s→13s**，裸源 + 全走 squid ≈ 160s，基本追平镜像源（~150s）
+
+**结论**：镜像源本质 = 源头近 + 稳定；squid = 被动缓存 + MITM，首访未缓存内容仍慢（725s 那次）。apt 代理配置是通用改进，已同步建议合入 `feat/nightly-a3-verify` 主分支 workflow（镜像源场景同样适用，apt 走 squid 有缓存收益）。
