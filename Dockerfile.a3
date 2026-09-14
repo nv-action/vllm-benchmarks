@@ -91,8 +91,6 @@ RUN export PIP_EXTRA_INDEX_URL="${ASCEND_INDEX_URL}" && \
 # Install _rust_tool_parser for the Rust frontend.
 ARG RUSTUP_DIST_SERVER
 ARG RUSTUP_UPDATE_ROOT
-ENV RUSTUP_DIST_SERVER=$RUSTUP_DIST_SERVER \
-    RUSTUP_UPDATE_ROOT=$RUSTUP_UPDATE_ROOT
 # When an internal RUSTUP_DIST_SERVER mirror is provided (CI builds), pre-install
 # rustup-init from the mirror so build_rust.sh doesn't reach the public
 # https://sh.rustup.rs (unreachable from build containers). External builds
@@ -100,12 +98,13 @@ ENV RUSTUP_DIST_SERVER=$RUSTUP_DIST_SERVER \
 # toolchain is read from vllm's rust-toolchain.toml (falling back to stable),
 # so it always matches the version vllm pins.
 RUN if [ -n "$RUSTUP_DIST_SERVER" ]; then \
+      export RUSTUP_DIST_SERVER="$RUSTUP_DIST_SERVER" RUSTUP_UPDATE_ROOT="$RUSTUP_UPDATE_ROOT" && \
       case $(uname -m) in \
         x86_64) ARCH=x86_64-unknown-linux-gnu ;; \
         aarch64) ARCH=aarch64-unknown-linux-gnu ;; \
       esac && \
       TOOLCHAIN=$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' /vllm-workspace/vllm/rust-toolchain.toml) && \
-      curl --retry 3 --retry-delay 2 -sSfL "${RUSTUP_UPDATE_ROOT}/dist/${ARCH}/rustup-init" -o /tmp/rustup-init && \
+      wget -q "${RUSTUP_UPDATE_ROOT}/dist/${ARCH}/rustup-init" -O /tmp/rustup-init && \
       chmod +x /tmp/rustup-init && \
       /tmp/rustup-init -y --default-toolchain "${TOOLCHAIN:-stable}" && \
       rm /tmp/rustup-init && \
