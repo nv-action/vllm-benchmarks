@@ -430,6 +430,37 @@ jobs:
           echo "vllm_ascend_hash=${HASH_vllm_ascend:-N/A}" >> "$GITHUB_OUTPUT"
           rm -f "$LEADER_TMP"
 
+      - name: Diagnose pod termination
+        # Capture WHY the pods ended, while the dead pods still exist (the
+        # LWS is only deleted later in the cleanup step): the live pod spec
+        # (a mutating webhook may inject activeDeadlineSeconds -- the exact
+        # 4h-from-creation kills suggest a per-pod duration deadline), each
+        # container's termination reason/exit code, and the pod events that
+        # name the killer (OOMKilled / deadline exceeded / eviction / signal).
+        if: always()
+        run: |
+          set +e
+          size="${{ inputs.size }}"
+          for i in $(seq 0 $((size - 1))); do
+            if [ "${i}" -eq 0 ]; then
+              POD="${LWS_NAME}-0"
+            else
+              POD="${LWS_NAME}-0-${i}"
+            fi
+            echo "==== ${POD}: deadline-related spec fields ===="
+            kubectl get pod "${POD}" -n "${NAMESPACE}" -o yaml \
+              | grep -iE "activeDeadlineSeconds|ttlSeconds|restartPolicy|terminationGrace" \
+              || echo "(pod gone or no deadline fields)"
+            echo "==== ${POD}: container states / termination reason ===="
+            kubectl get pod "${POD}" -n "${NAMESPACE}" \
+              -o jsonpath='{range .status.containerStatuses[*]}{.name}: state={.state} lastState={.lastState}{"\n"}{end}'
+            echo ""
+            echo "==== ${POD}: events ===="
+            kubectl get events -n "${NAMESPACE}" \
+              --field-selector involvedObject.name="${POD}" \
+              --sort-by=.lastTimestamp | tail -15
+          done
+
       - name: Update good_table.csv on success
         if: ${{ steps.stream_logs.outcome == 'success' && inputs.request_id == '' }}
         env:
