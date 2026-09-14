@@ -299,7 +299,13 @@ jobs:
 
           PR_SHA=$(gh api "$PR_URL" --jq '.head.sha')
           PR_NUMBER=$(gh api "$PR_URL" --jq '.number')
+          # The PR's base branch: the dispatched nightly runs its workflows
+          # (and the runner-side script checkout) from this ref, so a PR opened
+          # against a feature branch is tested with that branch's CI wiring
+          # instead of always main's.
+          PR_BASE=$(gh api "$PR_URL" --jq '.base.ref')
           echo "vllm_ascend_ref=$PR_SHA" >> "$GITHUB_OUTPUT"
+          echo "pr_base=$PR_BASE" >> "$GITHUB_OUTPUT"
           echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
 
           if [ "$TEST_CASES" = "all" ]; then
@@ -366,7 +372,7 @@ jobs:
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
           gh workflow run schedule_nightly_test_a2.yaml \
             --repo "$REPO" \
-            --ref main \
+            --ref '${{ needs.authorize.outputs.pr_base || 'main' }}' \
             -f test_cases='${{ needs.authorize.outputs.test_cases }}' \
             -f vllm_ascend_branch='${{ needs.authorize.outputs.branch }}' \
             -f request_id='${{ needs.authorize.outputs.pr_number }}' \
@@ -408,7 +414,7 @@ jobs:
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
           gh workflow run schedule_nightly_test_a3.yaml \
             --repo "$REPO" \
-            --ref main \
+            --ref '${{ needs.authorize.outputs.pr_base || 'main' }}' \
             -f test_cases='${{ needs.authorize.outputs.test_cases }}' \
             -f vllm_ascend_branch='${{ needs.authorize.outputs.branch }}' \
             -f request_id='${{ needs.authorize.outputs.pr_number }}' \
@@ -450,7 +456,7 @@ jobs:
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
           gh workflow run schedule_nightly_test_a3_560t.yaml \
             --repo "$REPO" \
-            --ref main \
+            --ref '${{ needs.authorize.outputs.pr_base || 'main' }}' \
             -f test_cases='${{ needs.authorize.outputs.test_cases }}' \
             -f vllm_ascend_branch='${{ needs.authorize.outputs.branch }}' \
             -f request_id='${{ needs.authorize.outputs.pr_number }}' \
@@ -491,7 +497,7 @@ jobs:
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
           gh workflow run schedule_nightly_test_a5.yaml \
             --repo "$REPO" \
-            --ref main \
+            --ref '${{ needs.authorize.outputs.pr_base || 'main' }}' \
             -f test_cases='${{ needs.authorize.outputs.test_cases }}' \
             -f vllm_ascend_branch='${{ needs.authorize.outputs.branch }}' \
             -f request_id='${{ needs.authorize.outputs.pr_number }}' \
@@ -531,7 +537,7 @@ jobs:
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
           gh workflow run schedule_nightly_test_310p.yaml \
             --repo "$REPO" \
-            --ref main \
+            --ref '${{ needs.authorize.outputs.pr_base || 'main' }}' \
             -f test_cases='${{ needs.authorize.outputs.test_cases }}' \
             -f vllm_ascend_branch='${{ needs.authorize.outputs.branch }}' \
             -f request_id='${{ needs.authorize.outputs.pr_number }}' \
@@ -571,7 +577,7 @@ jobs:
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
           gh workflow run schedule_weekly_test_a2.yaml \
             --repo "$REPO" \
-            --ref main \
+            --ref '${{ needs.authorize.outputs.pr_base || 'main' }}' \
             -f test_cases='${{ needs.authorize.outputs.test_cases }}' \
             -f vllm_ascend_branch='${{ needs.authorize.outputs.branch }}' \
             -f request_id='${{ needs.authorize.outputs.pr_number }}' \
@@ -612,7 +618,7 @@ jobs:
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
           gh workflow run schedule_weekly_test_a3.yaml \
             --repo "$REPO" \
-            --ref main \
+            --ref '${{ needs.authorize.outputs.pr_base || 'main' }}' \
             -f test_cases='${{ needs.authorize.outputs.test_cases }}' \
             -f vllm_ascend_branch='${{ needs.authorize.outputs.branch }}' \
             -f request_id='${{ needs.authorize.outputs.pr_number }}' \
@@ -654,7 +660,7 @@ jobs:
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
           gh workflow run schedule_weekly_test_a3_560t.yaml \
             --repo "$REPO" \
-            --ref main \
+            --ref '${{ needs.authorize.outputs.pr_base || 'main' }}' \
             -f test_cases='${{ needs.authorize.outputs.test_cases }}' \
             -f vllm_ascend_branch='${{ needs.authorize.outputs.branch }}' \
             -f request_id='${{ needs.authorize.outputs.pr_number }}' \
@@ -696,7 +702,7 @@ jobs:
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
           gh workflow run schedule_weekly_test_310p.yaml \
             --repo "$REPO" \
-            --ref main \
+            --ref '${{ needs.authorize.outputs.pr_base || 'main' }}' \
             -f test_cases='${{ needs.authorize.outputs.test_cases }}' \
             -f vllm_ascend_branch='${{ needs.authorize.outputs.branch }}' \
             -f request_id='${{ needs.authorize.outputs.pr_number }}' \
