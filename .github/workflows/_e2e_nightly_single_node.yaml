@@ -319,6 +319,13 @@ jobs:
       - name: Install clang
         shell: bash -l {0}
         run: |
+          # apt does not honor HTTP(S)_PROXY env vars; point it at squid so its
+          # traffic goes through the proxy (and benefits from the squid cache)
+          if command -v apt-get >/dev/null 2>&1 && [ -n "$HTTPS_PROXY" ]; then
+            mkdir -p /etc/apt/apt.conf.d
+            printf 'Acquire::http::Proxy "%s";\nAcquire::https::Proxy "%s";\n' \
+              "$HTTPS_PROXY" "$HTTPS_PROXY" > /etc/apt/apt.conf.d/99squid-proxy
+          fi
           apt-get update && apt-get -y install clang-15
           update-alternatives --install /usr/bin/clang clang /usr/bin/clang-15 20
           update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-15 20
