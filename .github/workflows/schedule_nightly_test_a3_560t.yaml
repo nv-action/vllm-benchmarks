@@ -21,8 +21,8 @@ name: Nightly-A3-560T
 
 run-name: >-
   ${{ inputs.request_id != '' &&
-      (startsWith(inputs.request_id, 'hf-') &&
-        'Nightly-A3-560T (HF)' ||
+      (inputs.request_id == 'daily' &&
+        'Nightly-A3-560T (Daily)' ||
         format('Nightly-A3-560T (PR) {0}', inputs.request_id)) ||
       'Nightly-A3-560T (scheduled)' }}
 
@@ -83,6 +83,7 @@ permissions:
   contents: read
   pull-requests: read
   issues: read
+  actions: write
 
 # Bash shells do not use ~/.profile or ~/.bashrc so these shells need to be explicitly
 # declared as "shell: bash -el {0}" on steps that need to be properly activated.

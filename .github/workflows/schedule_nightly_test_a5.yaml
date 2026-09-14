@@ -20,8 +20,8 @@ name: Nightly-A5
 
 run-name: >-
   ${{ inputs.request_id != '' &&
-      (startsWith(inputs.request_id, 'hf-') &&
-        'Nightly-A5 (HF)' ||
+      (inputs.request_id == 'daily' &&
+        'Nightly-A5 (Daily)' ||
         format('Nightly-A5 (PR) {0}', inputs.request_id)) ||
       'Nightly-A5 (scheduled)' }}
 
@@ -82,6 +82,7 @@ permissions:
   contents: read
   pull-requests: read
   issues: read
+  actions: write
 
 # Bash shells do not use ~/.profile or ~/.bashrc so these shells need to be explicitly
 # declared as "shell: bash -el {0}" on steps that need to be properly activated.
