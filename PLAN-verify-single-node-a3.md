@@ -188,6 +188,12 @@ gh workflow run schedule_nightly_test_a3.yaml \
 2. **57s vs 13s 的差异 = squid 冷/热缓存状态差异**，与 env-vs-conf 路径无关：两条路径都走 squid
 3. 显式 `Acquire::http::Proxy` conf **非必需，但建议保留**（对 sudo/env 清洗免疫、行为更确定性）
 
+### 逐文件明细复核（run `34927124526`）
+- 源清单：仅 ports.ubuntu.com，4 个 dist（jammy / jammy-updates / jammy-backports / jammy-security）；EXP2a 的 18 个 Get = **4 个 InRelease + 14 个 Packages 索引（共约 56MB）**，无隐藏源
+- EXP2a 冷：10s，18 Get / 0 Hit（列表被删，无 IMS 可发，全部 200 全量下载）
+- **EXP2b 热（env 路径）：2s，0 Get / 4 Hit——四个 InRelease 全部 Hit，与 EXP3（conf 路径，2s，4 Hit）逐字节一致**
+- 上一次 run 的 EXP2b 出现 3 Get + 1 Hit 属瞬态：要么 EXP2a 个别下载静默失败（W: 告警、rc=0 语义），apt 在 EXP2b 补拉（无本地文件 → 无 IMS → 200 → Get）；要么上游 InRelease 在 12s 窗口内被重新签名（实测 jammy-security InRelease 于当日 01:53 GMT 刚重新生成，紧邻实验窗口；上游头为 `Cache-Control: max-age=0, proxy-revalidate, s-maxage=3300`，squid 过期即回源 revalidate）。两条候选原因均与 env/conf 路径无关
+
 ### 运维教训（本次踩坑）
 - **runner label**：main 分支 `nightly_config.yaml` 的单测 `os` 已被上游改为 `linux-aarch64-nightly-a3-*`（未授权池，job 会永久排队）。实验 dispatch **必须**按 §2 配方传 `vllm_ascend_ref=<feature分支>`，让矩阵从分支 config 读到 `linux-aarch64-a3-2`
 - **僵尸 queued run 会占住 concurrency 组**（`ascend-nightly-<ref>-a3`，组键含 `request_id`）；GitHub 对 queued run 的取消可能不生效且 DELETE run 返回 403。实验 dispatch 统一带唯一 `request_id`（如 `apt-forensics-1`）即可隔离组；mock 模式下 request_id 相关的 PR 步骤均被 `!inputs.mock_npu` guard，无副作用
