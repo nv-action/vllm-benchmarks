@@ -48,12 +48,20 @@ Trigger specific nightly test cases on A2 and A3. Supports only PR comments. Tes
 | `/nightly <test_cases>` | Runs on `main` branch |
 | `/nightly <test_cases> --branch <branch>` | Runs on the specified branch |
 | `/nightly <test_cases> --aop_enabled` | Enable AOP hooks (bisect / classify) on failure |
+| `/nightly <test_cases> --profile` | Export parsed profiling output after the benchmark |
+| `/nightly <test_cases> --profile --profile-output raw` | Export raw profiling data |
+| `/nightly <test_cases> --profile --profile-with-stack` | Include Python stacks in profiling data |
 
 Use `--branch <name>` to specify a target branch. Without `--branch`, all arguments are treated as test cases (separated by commas or spaces) and the branch defaults to `main`.
 
 Use `--aop_enabled` to enable the AOP (Aspect-Oriented Programming) pipeline, which
 automatically captures test results, classifies failures (env vs. code), and triggers
 binary bisect for genuine failures. By default, AOP hooks are disabled.
+
+Use `--profile` to collect a bounded profiling trace. The default output mode is
+`--profile-output parsed`; choose `raw` when offline parsing is preferred. Parsing runs
+after the benchmark, and `--profile-with-stack` is optional because stack collection
+adds overhead and increases artifact size.
 
 > **Note**: When commenting on a PR, the tests run on the PR branch automatically in the triggered workflow; the `--branch` flag is primarily used in issue comments.
 
@@ -91,6 +99,12 @@ binary bisect for genuine failures. By default, AOP hooks are disabled.
 
 # Run specific test with AOP on a release branch
 /nightly test_custom_op --branch releases/v0.24.0 --aop_enabled
+
+# Profile one test and upload parsed output (default)
+/nightly Qwen3.5-27B-w8a8-A2 --profile
+
+# Profile one test and upload raw data
+/nightly Qwen3.5-27B-w8a8-A2 --profile --profile-output raw
 ```
 
 This triggers `workflow_dispatch` on both `schedule_nightly_test_a2.yaml` and `schedule_nightly_test_a3.yaml`.

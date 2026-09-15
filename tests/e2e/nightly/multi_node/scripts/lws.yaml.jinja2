@@ -64,6 +64,8 @@ spec:
                 value: "/root/.cache/profile_output/{{ benchmark_job_name | default("") }}"
               - name: VLLM_TORCH_PROFILER_WITH_STACK
                 value: "{{ '1' if profile_with_stack | default('false') | lower == 'true' else '0' }}"
+              - name: VLLM_ASCEND_PROFILE_OUTPUT
+                value: "{{ profile_output | default('parsed') }}"
 {% endif %}
               - name: GOOD_TABLE
                 value: "{{ good_table | default("/root/.cache/vllm-ascend/nightly/good_table.csv") }}"
@@ -188,6 +190,8 @@ spec:
                 value: "/root/.cache/profile_output/{{ benchmark_job_name | default("") }}"
               - name: VLLM_TORCH_PROFILER_WITH_STACK
                 value: "{{ '1' if profile_with_stack | default('false') | lower == 'true' else '0' }}"
+              - name: VLLM_ASCEND_PROFILE_OUTPUT
+                value: "{{ profile_output | default('parsed') }}"
 {% endif %}
               - name: GOOD_TABLE
                 value: "{{ good_table | default("/root/.cache/vllm-ascend/nightly/good_table.csv") }}"

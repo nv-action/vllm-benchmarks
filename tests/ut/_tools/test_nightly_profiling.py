@@ -1,8 +1,9 @@
 import json
+from pathlib import Path
 
 import pytest
 
-from tests.e2e.nightly.scripts import profiling
+from tests.e2e.nightly.scripts import profile_output, profiling
 
 
 class _Response:
@@ -18,6 +19,7 @@ def _enable_profiling(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(profiling.PROFILE_ENABLED_ENV, "true")
     monkeypatch.setenv(profiling.PROFILE_DIR_ENV, "/profile")
     monkeypatch.setenv(profiling.PROFILE_WITH_STACK_ENV, "false")
+    monkeypatch.setenv(profile_output.PROFILE_OUTPUT_ENV, profile_output.RAW_OUTPUT)
 
 
 def test_inject_profiler_config_is_disabled_by_default() -> None:
@@ -63,6 +65,19 @@ def test_inject_profiler_config_can_enable_python_stacks(monkeypatch: pytest.Mon
     assert config["torch_profiler_with_stack"] is True
 
 
+def test_profile_output_mode_defaults_to_parsed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(profile_output.PROFILE_OUTPUT_ENV, raising=False)
+
+    assert profile_output.get_profile_output_mode() == profile_output.PARSED_OUTPUT
+
+
+def test_profile_output_mode_rejects_invalid_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(profile_output.PROFILE_OUTPUT_ENV, "both")
+
+    with pytest.raises(ValueError, match=profile_output.PROFILE_OUTPUT_ENV):
+        profile_output.get_profile_output_mode()
+
+
 def test_inject_profiler_config_requires_output_directory(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(profiling.PROFILE_ENABLED_ENV, "true")
     monkeypatch.delenv(profiling.PROFILE_DIR_ENV, raising=False)
@@ -90,6 +105,32 @@ def test_profiling_session_starts_before_workload_and_stops_afterward(monkeypatc
         ("workload", None),
         ("http://server-1/stop_profile", profiling.PROFILE_STOP_TIMEOUT_SECONDS),
         ("http://server-0/stop_profile", profiling.PROFILE_STOP_TIMEOUT_SECONDS),
+    ]
+
+
+def test_profiling_session_parses_after_profiler_is_stopped(monkeypatch: pytest.MonkeyPatch) -> None:
+    _enable_profiling(monkeypatch)
+    monkeypatch.setenv(profile_output.PROFILE_OUTPUT_ENV, profile_output.PARSED_OUTPUT)
+    events: list[str] = []
+
+    def post(url: str, timeout: int) -> _Response:
+        events.append(url)
+        return _Response()
+
+    def analyse(path: str) -> None:
+        events.append(f"analyse:{path}")
+
+    monkeypatch.setattr(profiling.requests, "post", post)
+    monkeypatch.setattr(profiling, "analyse_profile_output", analyse)
+
+    with profiling.profiling_session(["http://server"]):
+        events.append("workload")
+
+    assert events == [
+        "http://server/start_profile",
+        "workload",
+        "http://server/stop_profile",
+        "analyse:/profile",
     ]
 
 
@@ -166,3 +207,87 @@ def test_profiling_session_does_not_hide_workload_failure(monkeypatch: pytest.Mo
         profiling.profiling_session(["http://server"]),
     ):
         raise ValueError("benchmark failed")
+
+
+def _write_raw_trace(root: Path, name: str = "worker_ascend_pt") -> Path:
+    trace = root / name
+    (trace / "PROF_1" / "device_0").mkdir(parents=True)
+    (trace / "PROF_1" / "device_0" / "raw.data").write_text("raw", encoding="utf-8")
+    return trace
+
+
+def _write_parsed_trace(trace: Path) -> None:
+    output = trace / profile_output.PARSED_OUTPUT_DIR
+    output.mkdir(parents=True, exist_ok=True)
+    (output / profile_output.TRACE_VIEW_FILE).write_text('{"traceEvents": []}', encoding="utf-8")
+    (trace / profile_output.ANALYSE_DONE_FILE).write_text("", encoding="utf-8")
+    (trace / "profiler_info_0.json").write_text("{}", encoding="utf-8")
+
+
+def test_analyse_profile_output_parses_and_validates_each_trace(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv(profile_output.PROFILE_OUTPUT_ENV, profile_output.PARSED_OUTPUT)
+    traces = [
+        _write_raw_trace(tmp_path, "node-0/worker_ascend_pt"),
+        _write_raw_trace(tmp_path, "node-1/worker_ascend_pt"),
+    ]
+    analysed: list[tuple[str, int]] = []
+
+    def analyser(path: str, *, max_process_number: int) -> None:
+        analysed.append((path, max_process_number))
+        _write_parsed_trace(Path(path))
+
+    profile_output.analyse_profile_output(tmp_path, analyser=analyser)
+
+    assert analysed == [(str(trace), 1) for trace in traces]
+    assert not (tmp_path / profile_output.ANALYSIS_ERROR_FILE).exists()
+
+
+def test_analyse_profile_output_records_validation_failure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv(profile_output.PROFILE_OUTPUT_ENV, profile_output.PARSED_OUTPUT)
+    _write_raw_trace(tmp_path)
+
+    with pytest.raises(RuntimeError, match="parsed trace validation failed"):
+        profile_output.analyse_profile_output(tmp_path, analyser=lambda *_args, **_kwargs: None)
+
+    assert "validation failed" in (tmp_path / profile_output.ANALYSIS_ERROR_FILE).read_text()
+
+
+def test_stage_parsed_output_excludes_raw_data(tmp_path: Path) -> None:
+    trace = _write_raw_trace(tmp_path / "source")
+    _write_parsed_trace(trace)
+
+    actual = profile_output.stage_profile_output(tmp_path / "source", tmp_path / "staged", "parsed")
+
+    staged_trace = tmp_path / "staged" / trace.relative_to(tmp_path / "source")
+    assert actual == profile_output.PARSED_OUTPUT
+    assert (staged_trace / profile_output.PARSED_OUTPUT_DIR / profile_output.TRACE_VIEW_FILE).is_file()
+    assert not (staged_trace / "PROF_1").exists()
+
+
+def test_stage_invalid_parsed_output_falls_back_to_raw_only(tmp_path: Path) -> None:
+    trace = _write_raw_trace(tmp_path / "source")
+    partial_output = trace / profile_output.PARSED_OUTPUT_DIR
+    partial_output.mkdir()
+    (partial_output / profile_output.TRACE_VIEW_FILE).write_text("invalid", encoding="utf-8")
+
+    actual = profile_output.stage_profile_output(tmp_path / "source", tmp_path / "staged", "parsed")
+
+    staged_trace = tmp_path / "staged" / trace.relative_to(tmp_path / "source")
+    assert actual == profile_output.RAW_FALLBACK_OUTPUT
+    assert (staged_trace / "PROF_1" / "device_0" / "raw.data").is_file()
+    assert not (staged_trace / profile_output.PARSED_OUTPUT_DIR).exists()
+    assert (tmp_path / "staged" / profile_output.ANALYSIS_ERROR_FILE).is_file()
+
+
+def test_stage_raw_output_excludes_existing_parsed_data(tmp_path: Path) -> None:
+    trace = _write_raw_trace(tmp_path / "source")
+    _write_parsed_trace(trace)
+
+    actual = profile_output.stage_profile_output(tmp_path / "source", tmp_path / "staged", "raw")
+
+    staged_trace = tmp_path / "staged" / trace.relative_to(tmp_path / "source")
+    assert actual == profile_output.RAW_OUTPUT
+    assert (staged_trace / "PROF_1" / "device_0" / "raw.data").is_file()
+    assert not (staged_trace / profile_output.PARSED_OUTPUT_DIR).exists()

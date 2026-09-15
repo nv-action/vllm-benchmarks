@@ -7,6 +7,13 @@ from pathlib import Path
 
 import requests
 
+from tests.e2e.nightly.scripts.profile_output import (
+    PARSED_OUTPUT,
+    analyse_profile_output,
+    get_profile_output_mode,
+    mark_analysis_failure,
+)
+
 logger = logging.getLogger(__name__)
 
 PROFILE_ENABLED_ENV = "VLLM_ASCEND_FORCE_PROFILE"
@@ -37,6 +44,7 @@ def inject_profiler_config(server_args: Sequence[str], *, output_subdir: str | N
     profile_root = os.environ.get(PROFILE_DIR_ENV, "")
     if not profile_root:
         raise ValueError(f"{PROFILE_ENABLED_ENV} is set but {PROFILE_DIR_ENV} is empty")
+    get_profile_output_mode()
 
     profile_dir = Path(profile_root)
     if output_subdir:
@@ -113,6 +121,17 @@ def profiling_session(base_urls: Iterable[str]) -> Iterator[None]:
             except Exception as exc:  # keep stopping the remaining profiler instances
                 logger.exception("Failed to stop profiler at %s", target)
                 stop_errors.append(f"{target}: {exc}")
+
+        profile_root = os.environ.get(PROFILE_DIR_ENV, "")
+        if stop_errors and get_profile_output_mode() == PARSED_OUTPUT:
+            mark_analysis_failure(profile_root, "profiling output could not be flushed: " + "; ".join(stop_errors))
+        elif started_targets and not stop_errors:
+            try:
+                analyse_profile_output(profile_root)
+            except Exception:
+                logger.exception("Failed to parse profiling output; raw output will be uploaded as fallback")
+                if workload_error is None:
+                    raise
 
         if stop_errors and workload_error is None:
             raise RuntimeError("Failed to flush profiling output: " + "; ".join(stop_errors))

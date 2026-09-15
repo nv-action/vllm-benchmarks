@@ -22,13 +22,16 @@ The comment itself triggers the workflow — no label is required.
 | `/nightly all` | Run **all** nightly tests (same as above) |
 | `/nightly test1 test2 ...` | Run only the **named** tests |
 | `/nightly <tests> --aop_enabled` | Run named tests with AOP bisect / classify enabled |
-| `/nightly <tests> --profile` | Export a bounded profiling trace without Python stacks |
+| `/nightly <tests> --profile` | Export parsed profiling output without Python stacks |
+| `/nightly <tests> --profile --profile-output raw` | Export raw profiling data instead of parsing it |
 | `/nightly <tests> --profile --profile-with-stack` | Export a profiling trace with Python stacks |
 
 Profiling is intended for diagnostic reruns after a performance regression is detected.
 Python stack collection is disabled by default because it adds overhead and increases
 artifact size. Profiled performance values should not be compared directly with the
-regular nightly baseline.
+regular nightly baseline. The default `--profile-output parsed` mode parses data after
+the benchmark and uploads only the parsed result. If parsing fails, CI uploads only the
+raw data as a fallback and reports the job as failed.
 
 !!! note
 

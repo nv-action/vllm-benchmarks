@@ -123,6 +123,11 @@ on:
         type: boolean
         default: false
         description: record Python stacks in torch profiler traces
+      profile_output:
+        required: false
+        type: string
+        default: parsed
+        description: profiling upload format (parsed or raw)
       bisect_good_commit:
         required: false
         type: string
@@ -375,6 +380,7 @@ jobs:
             -D aop_multi_enabled="${{ inputs.aop_multi_enabled }}" \
             -D profile_enabled="${{ inputs.profile_enabled }}" \
             -D profile_with_stack="${{ inputs.profile_with_stack }}" \
+            -D profile_output="${{ inputs.profile_output }}" \
             -D good_table="/root/.cache/vllm-ascend/${{ inputs.vllm_ascend_branch || 'main' }}/${{ inputs.test_frequency }}/good_table.csv" \
             -D openlibing_secret="${OPENLIBING_SECRET:-}" \
             -D vllm_ascend_branch="${{ inputs.vllm_ascend_branch }}" \
@@ -667,12 +673,19 @@ jobs:
       - name: Package profiling results
         if: ${{ always() && inputs.profile_enabled }}
         id: package_profile
+        env:
+          PROFILE_OUTPUT_MODE: ${{ inputs.profile_output }}
         run: |
           if [ -d /tmp/profile_results ] && [ "$(ls -A /tmp/profile_results 2>/dev/null)" ]; then
-            tar -czf /tmp/profile-results.tar.gz -C /tmp/profile_results .
+            ACTUAL_MODE=$(python tests/e2e/nightly/scripts/profile_output.py stage \
+              --profile-dir /tmp/profile_results \
+              --output-dir /tmp/profile_upload \
+              --mode "$PROFILE_OUTPUT_MODE")
+            tar -czf /tmp/profile-results.tar.gz -C /tmp/profile_upload .
             echo "Profiling results packaged:"
             du -sh /tmp/profile-results.tar.gz
             echo "profile_ready=true" >> "$GITHUB_OUTPUT"
+            echo "profile_mode=$ACTUAL_MODE" >> "$GITHUB_OUTPUT"
           else
             echo "profile_ready=false" >> "$GITHUB_OUTPUT"
             echo "::error::Profiling was requested but no results were found in /tmp/profile_results"
@@ -686,7 +699,7 @@ jobs:
         with:
           access_key: ${{ secrets.OBS_ACCESS_KEY_ID }}
           secret_key: ${{ secrets.OBS_SECRET_ACCESS_KEY }}
-          name: nightly-test-profiling-${{ inputs.name || inputs.config_file_path }}-${{ steps.profile_ts.outputs.artifact_ts }}
+          name: nightly-test-profiling-${{ inputs.name || inputs.config_file_path }}-${{ steps.package_profile.outputs.profile_mode }}-${{ steps.profile_ts.outputs.artifact_ts }}
           path: /tmp/profile-results.tar.gz
           if-no-files-found: warn
           retention-days: 14
@@ -695,7 +708,13 @@ jobs:
         if: ${{ always() && inputs.profile_enabled && steps.package_profile.outputs.profile_ready == 'true' }}
         uses: actions/upload-artifact@v7
         with:
-          name: nightly-test-profiling-${{ steps.vars.outputs.benchmark_job_name }}-${{ steps.profile_ts.outputs.artifact_ts }}
+          name: nightly-test-profiling-${{ steps.vars.outputs.benchmark_job_name }}-${{ steps.package_profile.outputs.profile_mode }}-${{ steps.profile_ts.outputs.artifact_ts }}
           path: /tmp/profile-results.tar.gz
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Fail when parsed profiling falls back to raw
+        if: ${{ always() && steps.package_profile.outputs.profile_mode == 'raw-fallback' }}
+        run: |
+          echo "::error::Parsed profiling output was invalid; raw profiling data was uploaded as fallback."
+          exit 1

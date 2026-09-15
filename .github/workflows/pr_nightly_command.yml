@@ -50,6 +50,7 @@ jobs:
       aop_enabled: ${{ steps.resolve.outputs.aop_enabled }}
       profile_enabled: ${{ steps.resolve.outputs.profile_enabled }}
       profile_with_stack: ${{ steps.resolve.outputs.profile_with_stack }}
+      profile_output: ${{ steps.resolve.outputs.profile_output }}
       bisect_args_json: ${{ steps.resolve.outputs.bisect_args_json }}
       command: ${{ steps.resolve.outputs.command }}
     steps:
@@ -136,6 +137,7 @@ jobs:
           AOP_ENABLED="false"
           PROFILE_ENABLED="false"
           PROFILE_WITH_STACK="false"
+          PROFILE_OUTPUT="parsed"
           IS_A3_560T="false"
           NEXT_IS_BRANCH=0
           NEXT_IS_GOOD_COMMIT=0
@@ -143,6 +145,7 @@ jobs:
           NEXT_IS_FAIL_CONFIRM_RETRIES=0
           NEXT_IS_TRIAL_TIMEOUT=0
           NEXT_IS_BARRIER_TIMEOUT=0
+          NEXT_IS_PROFILE_OUTPUT=0
           BISECT_GOOD_COMMIT=""
           BISECT_BAD_COMMIT="HEAD"
           BISECT_FAIL_CONFIRM_RETRIES=""
@@ -195,6 +198,16 @@ jobs:
               BISECT_BARRIER_TIMEOUT="$WORD"
               NEXT_IS_BARRIER_TIMEOUT=0
               PENDING_OPTION=""
+            elif [ "$NEXT_IS_PROFILE_OUTPUT" = "1" ]; then
+              case "$WORD" in
+                parsed|raw) PROFILE_OUTPUT="$WORD" ;;
+                *)
+                  echo "ERROR: --profile-output must be parsed or raw"
+                  exit 1
+                  ;;
+              esac
+              NEXT_IS_PROFILE_OUTPUT=0
+              PENDING_OPTION=""
             elif [ "$WORD" = "--branch" ]; then
               NEXT_IS_BRANCH=1
             elif [ "$WORD" = "--aop_enabled" ]; then
@@ -215,6 +228,13 @@ jobs:
                 exit 1
               fi
               PROFILE_WITH_STACK="true"
+            elif [ "$WORD" = "--profile-output" ]; then
+              if [ "$PROFILE_ENABLED" != "true" ]; then
+                echo "ERROR: --profile-output must appear after --profile"
+                exit 1
+              fi
+              NEXT_IS_PROFILE_OUTPUT=1
+              PENDING_OPTION="$WORD"
             elif [ "$WORD" = "--a3-560t" ]; then
               IS_A3_560T="true"
             elif [ "$WORD" = "--good-commit" ]; then
@@ -290,7 +310,7 @@ jobs:
 
 
           printf -v BISECT_ARGS_JSON \
-            '{"good_commit":"%s","bad_commit":"%s","fail_confirm_retries":"%s","trial_timeout":"%s","barrier_timeout":"%s","no_verify_good":%s,"no_verify_bad":%s,"force_initial_build":%s,"carry_pr":%s,"profile_with_stack":%s}' \
+            '{"good_commit":"%s","bad_commit":"%s","fail_confirm_retries":"%s","trial_timeout":"%s","barrier_timeout":"%s","no_verify_good":%s,"no_verify_bad":%s,"force_initial_build":%s,"carry_pr":%s,"profile_with_stack":%s,"profile_output":"%s"}' \
             "$BISECT_GOOD_COMMIT" \
             "$BISECT_BAD_COMMIT" \
             "$BISECT_FAIL_CONFIRM_RETRIES" \
@@ -300,7 +320,8 @@ jobs:
             "$BISECT_NO_VERIFY_BAD" \
             "$BISECT_FORCE_INITIAL_BUILD" \
             "$BISECT_CARRY_PR" \
-            "$PROFILE_WITH_STACK"
+            "$PROFILE_WITH_STACK" \
+            "$PROFILE_OUTPUT"
 
           {
             echo "test_cases=$TEST_CASES"
@@ -308,6 +329,7 @@ jobs:
             echo "aop_enabled=$AOP_ENABLED"
             echo "profile_enabled=$PROFILE_ENABLED"
             echo "profile_with_stack=$PROFILE_WITH_STACK"
+            echo "profile_output=$PROFILE_OUTPUT"
             echo "bisect_good_commit=$BISECT_GOOD_COMMIT"
             echo "bisect_bad_commit=$BISECT_BAD_COMMIT"
             echo "bisect_fail_confirm_retries=$BISECT_FAIL_CONFIRM_RETRIES"
