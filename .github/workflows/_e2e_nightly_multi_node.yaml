@@ -269,6 +269,7 @@ jobs:
           BISECT_FORCE_INITIAL_BUILD: ${{ inputs.bisect_force_initial_build }}
           BISECT_CONFIG_BASE_PATH: ${{ inputs.bisect_config_base_path }}
           BISECT_CARRY_PR: ${{ inputs.bisect_carry_pr }}
+          OPENLIBING_SECRET: ${{ secrets.OPENLIBING_SECRET }}
         run: |
           set -euo pipefail
 
