@@ -118,7 +118,6 @@ jobs:
 
       - name: Login to SWR
         id: login-swr
-        if: ${{ inputs.should_push }}
         uses: docker/login-action@v4
         with:
           registry: ${{ inputs.swr_registry }}
@@ -130,6 +129,7 @@ jobs:
         env:
           GITEE_USERNAME: ${{ vars.GITEE_USERNAME }}
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        shell: bash
         run: |
           BRANCH_TAG="${{ inputs.vllm_ascend_branch }}"
           BRANCH_TAG=$(echo "$BRANCH_TAG" | tr '/' '-')
