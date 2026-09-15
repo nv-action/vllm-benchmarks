@@ -47,6 +47,7 @@ jobs:
       dispatch_310p: ${{ steps.resolve.outputs.dispatch_310p }}
       dispatch_a5: ${{ steps.resolve.outputs.dispatch_a5 }}
       vllm_ascend_ref: ${{ steps.resolve.outputs.vllm_ascend_ref }}
+      pr_base: ${{ steps.resolve.outputs.pr_base }}
       aop_enabled: ${{ steps.resolve.outputs.aop_enabled }}
       bisect_args_json: ${{ steps.resolve.outputs.bisect_args_json }}
       command: ${{ steps.resolve.outputs.command }}
