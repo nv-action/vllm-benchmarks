@@ -79,7 +79,7 @@ on:
 
 jobs:
   generate-matrix:
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu-4
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
@@ -264,7 +264,7 @@ jobs:
 
   merge-image:
     name: Merge multi-arch nightly-${{ inputs.target }}
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu-4
     needs: build
     # Run even if some matrix instances failed. Each OS variant is merged independently,
     # only when BOTH arch images exist. Owner gate keeps it disabled in upstream forks.
