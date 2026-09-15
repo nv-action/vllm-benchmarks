@@ -232,7 +232,7 @@ jobs:
           fi
 
       - name: Push image to SWR
-        if: ${{ inputs.should_push && github.repository_owner == 'vllm-project' && steps.login-swr.conclusion == 'success' }}
+        if: ${{ inputs.should_push && steps.login-swr.conclusion == 'success' }}
         run: |
           PUSH_REGISTRY="${{ steps.build.outputs.push_registry }}"
           FULL_TAG="${{ steps.build.outputs.full_tag }}"
@@ -248,7 +248,7 @@ jobs:
           fi
 
       - name: Push ubuntu arm64 image to release SWR (no arch tag)
-        if: ${{ inputs.should_push && inputs.build_type == 'daily' && matrix.os == 'ubuntu' && matrix.arch_name == 'arm64' && github.repository_owner == 'vllm-project' && steps.login-swr.conclusion == 'success' }}
+        if: ${{ inputs.should_push && inputs.build_type == 'daily' && matrix.os == 'ubuntu' && matrix.arch_name == 'arm64' && steps.login-swr.conclusion == 'success' }}
         run: |
           BRANCH_TAG="${{ inputs.vllm_ascend_branch }}"
           BRANCH_TAG=$(echo "$BRANCH_TAG" | tr '/' '-')
@@ -267,7 +267,7 @@ jobs:
     needs: build
     # Run even if some matrix instances failed. Each OS variant is merged independently,
     # only when BOTH arch images exist. Owner gate keeps it disabled in upstream forks.
-    if: ${{ inputs.should_push && always() && github.repository_owner == 'vllm-project' && inputs.build_type == 'daily' }}
+    if: ${{ inputs.should_push && always() && inputs.build_type == 'daily' }}
     steps:
       - name: Login to SWR
         uses: docker/login-action@v4

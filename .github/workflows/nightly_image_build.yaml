@@ -69,7 +69,7 @@ jobs:
       target: a2
       vllm_ascend_branch: ${{ inputs.vllm_ascend_branch }}
       build_type: ${{ inputs.build_type }}
-      should_push: ${{ github.repository == 'vllm-project/vllm-ascend' && github.event_name != 'pull_request' }}
+      should_push: true
       soc: '910b'
       cann_version: ${{ fromJSON(inputs.base_image_tag).cann_version }}
       base_image_date: ${{ fromJSON(inputs.base_image_tag).base_image_date }}
@@ -85,7 +85,7 @@ jobs:
       target: a3
       vllm_ascend_branch: ${{ inputs.vllm_ascend_branch }}
       build_type: ${{ inputs.build_type }}
-      should_push: ${{ github.repository == 'vllm-project/vllm-ascend' && github.event_name != 'pull_request' }}
+      should_push: true
       soc: 'a3'
       cann_version: ${{ fromJSON(inputs.base_image_tag).cann_version }}
       base_image_date: ${{ fromJSON(inputs.base_image_tag).base_image_date }}
@@ -101,7 +101,7 @@ jobs:
       target: 310p
       vllm_ascend_branch: ${{ inputs.vllm_ascend_branch }}
       build_type: ${{ inputs.build_type }}
-      should_push: ${{ github.repository == 'vllm-project/vllm-ascend' && github.event_name != 'pull_request' }}
+      should_push: true
       soc: '310p'
       cann_version: ${{ fromJSON(inputs.base_image_tag).cann_version }}
       base_image_date: ${{ fromJSON(inputs.base_image_tag).base_image_date }}
@@ -116,7 +116,7 @@ jobs:
       target: a5
       vllm_ascend_branch: ${{ inputs.vllm_ascend_branch }}
       build_type: ${{ inputs.build_type }}
-      should_push: ${{ github.repository == 'vllm-project/vllm-ascend' && github.event_name != 'pull_request' }}
+      should_push: true
       soc: '950'
       cann_version: ${{ fromJSON(inputs.base_image_tag).cann_version }}
       base_image_date: ${{ fromJSON(inputs.base_image_tag).base_image_date }}
@@ -127,7 +127,7 @@ jobs:
 
   trigger-image-sync:
     name: Trigger quay.io sync
-    if: ${{ !cancelled() && github.repository == 'vllm-project/vllm-ascend' && github.event_name != 'pull_request' && (needs.build-a2.result == 'success' || needs.build-a3.result == 'success' || needs.build-310p.result == 'success' || needs.build-a5.result == 'success') }}
+    if: ${{ !cancelled() && github.repository == 'nv-action/vllm-benchmarks' && github.event_name != 'pull_request' && (needs.build-a2.result == 'success' || needs.build-a3.result == 'success' || needs.build-310p.result == 'success' || needs.build-a5.result == 'success') }}
     needs: [build-a2, build-a3, build-310p, build-a5]
     runs-on: linux-amd64-cpu-4
     steps:
