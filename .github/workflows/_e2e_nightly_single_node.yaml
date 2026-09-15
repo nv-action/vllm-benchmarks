@@ -326,7 +326,7 @@ jobs:
         run: |
           apt-get --version | head -1
           echo "=== F1: apt sources ==="
-          grep -rh '^deb ' /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null
+          grep -rEh '^\s*(deb|deb-src) ' /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null
           echo "=== EXP1 (corrected): does apt honor lowercase env proxy? ==="
           # NOTE: apt-get update exits 0 even when ALL fetches fail (W: warnings,
           # old lists reused) - the exit code CANNOT discriminate. The decisive
@@ -345,13 +345,19 @@ jobs:
           rm -rf /var/lib/apt/lists/*
           t0=$(date +%s); apt-get update >/tmp/exp2a.log 2>&1; t1=$(date +%s)
           echo "EXP2a cold via env(squid): $((t1-t0))s (fetches=$(grep -c 'Get:' /tmp/exp2a.log || true), hits=$(grep -c 'Hit:' /tmp/exp2a.log || true))"
+          echo "--- EXP2a per-file lines ---"
+          grep -E '^(Hit|Get|Ign|Err)|^(W|E): ' /tmp/exp2a.log | head -30
           t0=$(date +%s); apt-get update >/tmp/exp2b.log 2>&1; t1=$(date +%s)
           echo "EXP2b warm via env(squid): $((t1-t0))s (fetches=$(grep -c 'Get:' /tmp/exp2b.log || true), hits=$(grep -c 'Hit:' /tmp/exp2b.log || true))"
+          echo "--- EXP2b per-file lines ---"
+          grep -E '^(Hit|Get|Ign|Err)|^(W|E): ' /tmp/exp2b.log | head -30
           echo "=== EXP3: conf-file path parity (no lowercase env) ==="
           printf 'Acquire::http::Proxy "%s";\nAcquire::https::Proxy "%s";\n' \
             "$HTTPS_PROXY" "$HTTPS_PROXY" > /etc/apt/apt.conf.d/99squid-proxy
           t0=$(date +%s); env -u http_proxy -u https_proxy apt-get update >/tmp/exp3.log 2>&1; t1=$(date +%s)
           echo "EXP3 conf-file only (lowercase env stripped): $((t1-t0))s (fetches=$(grep -c 'Get:' /tmp/exp3.log || true), hits=$(grep -c 'Hit:' /tmp/exp3.log || true))"
+          echo "--- EXP3 per-file lines ---"
+          grep -E '^(Hit|Get|Ign|Err)|^(W|E): ' /tmp/exp3.log | head -30
           apt-get -y install clang-15
           update-alternatives --install /usr/bin/clang clang /usr/bin/clang-15 20
           update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-15 20
