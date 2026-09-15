@@ -186,7 +186,6 @@ jobs:
           fi
 
           BUILD_ARGS=(
-            --network host
             --platform ${{ matrix.arch_platform }}
             -f .github/workflows/dockerfiles/Dockerfile.nightly.${{ inputs.target }}
             --build-arg VLLM_ASCEND_BRANCH="${BRANCH_TAG}"
