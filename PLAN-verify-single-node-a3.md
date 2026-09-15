@@ -163,3 +163,32 @@ gh workflow run schedule_nightly_test_a3.yaml \
 
 **结论**：mock 模式下镜像源差异属于噪声级别（每步 ±几秒，job 总量差 1s），替换不引入回退。原因：mock 不触发重下载（apt 只装 clang-15、pip 只装 uv，均为小包），cache-service（集群内缓存代理）与 huaweicloud（CDN）都足够快；真正吃镜像源带宽的 `pip install -r requirements-dev.txt` / vllm 编译 / 模型权重下载未被覆盖。
 **如需量化吞吐差异**：改用 PR 模式（`request_id` 非空）跑 `Install vllm-project/vllm-ascend` 步骤，或直接对比大文件（如 27B 模型权重）下载耗时。
+
+---
+
+## 9. apt 环境变量代理路径复核（2026-09-15，run `34919123339`）
+
+### 背景
+此前的死端口实验曾得出「CANN 镜像里 apt 忽略小写 `http_proxy` env」的结论（与 manpage 矛盾），并以此解释 57s(env) vs 13s(conf) 的差异。**该结论是假阴性，已推翻。**
+
+### 假阴性的根因
+`apt-get update` 在**全部拉取失败**时只产生 `W:` 警告（"old ones used instead"），**退出码仍为 0**（冷/热列表两种状态下均实测为 0）。因此旧实验的 `if apt-get update; then "IGNORES"` 判定无效——apt 实际尝试了死端口代理并全部失败，只是退出码骗过了 if 分支。
+
+### 修正版实验（判定改为 grep 更新日志中的死端口连接记录）
+
+| 实验 | 结果 |
+|---|---|
+| EXP1 死端口 env（`http_proxy=127.0.0.1:9`） | **apt HONORS env proxy**：日志出现 `Could not connect to 127.0.0.1:9`，`rc=0`（失败但退出 0，再次印证退出码不可用作信号） |
+| EXP2a 冷缓存走 env(squid) | **12s**（18 个 fetch，0 hit） |
+| EXP2b 热缓存走 env(squid) | **6s**（3 fetch，1 hit） |
+| EXP3 conf-file（`env -u` 剥离小写 env） | **2s**（0 fetch，4 hit，全 Hit=热缓存） |
+
+### 修正后的结论
+1. **apt 2.4.14 认小写 `http_proxy`/`https_proxy` env**（manpage / 源码 http.cc `getenv` 回退 / 本地 docker 复现 / 线上实测四方一致）；大写变量被忽略——fact-check 本身是对的
+2. **57s vs 13s 的差异 = squid 冷/热缓存状态差异**，与 env-vs-conf 路径无关：两条路径都走 squid
+3. 显式 `Acquire::http::Proxy` conf **非必需，但建议保留**（对 sudo/env 清洗免疫、行为更确定性）
+
+### 运维教训（本次踩坑）
+- **runner label**：main 分支 `nightly_config.yaml` 的单测 `os` 已被上游改为 `linux-aarch64-nightly-a3-*`（未授权池，job 会永久排队）。实验 dispatch **必须**按 §2 配方传 `vllm_ascend_ref=<feature分支>`，让矩阵从分支 config 读到 `linux-aarch64-a3-2`
+- **僵尸 queued run 会占住 concurrency 组**（`ascend-nightly-<ref>-a3`，组键含 `request_id`）；GitHub 对 queued run 的取消可能不生效且 DELETE run 返回 403。实验 dispatch 统一带唯一 `request_id`（如 `apt-forensics-1`）即可隔离组；mock 模式下 request_id 相关的 PR 步骤均被 `!inputs.mock_npu` guard，无副作用
+- 遗留：僵尸 run `34915899094` 卡在 queued（错误的 nightly-a3-2 池），需集群侧或 admin 清理
