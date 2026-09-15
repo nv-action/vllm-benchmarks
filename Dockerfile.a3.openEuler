@@ -92,6 +92,37 @@ ARG RUSTUP_DIST_SERVER
 ARG RUSTUP_UPDATE_ROOT
 ENV RUSTUP_DIST_SERVER=$RUSTUP_DIST_SERVER \
     RUSTUP_UPDATE_ROOT=$RUSTUP_UPDATE_ROOT
+# When an internal RUSTUP_DIST_SERVER mirror is provided (CI builds), pre-install
+# rustup via the rustup-init.sh bootstrap from the mirror so build_rust.sh
+# doesn't reach the public https://sh.rustup.rs (unreachable from build
+# containers). The bootstrap downloader hardcodes --proto '=https' (curl) and
+# --https-only (wget), so strip them via sed to allow the internal http mirror.
+# External builds without the mirror keep the original public install path. The
+# default toolchain is read from vllm's rust-toolchain.toml (falling back to
+# stable).
+RUN if [ -n "$RUSTUP_DIST_SERVER" ]; then \
+      TOOLCHAIN=$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' /vllm-workspace/vllm/rust-toolchain.toml) && \
+      curl -fsSL "${RUSTUP_UPDATE_ROOT}/rustup-init.sh" -o /tmp/rustup-init.sh && \
+      sed -i "s/--proto '=https'//g; s/--https-only//g" /tmp/rustup-init.sh && \
+      sh /tmp/rustup-init.sh -y --default-toolchain "${TOOLCHAIN:-stable}" && \
+      rm /tmp/rustup-init.sh; \
+    fi
+ENV PATH="/root/.cargo/bin:$PATH"
+# Configure cargo only for internal (CI) builds: route git dependencies through
+# GIT_PROXY and the crates.io sparse index through an internal mirror. External
+# builds leave these build-args empty and keep the default public endpoints.
+ARG CRATES_IO_INDEX=""
+RUN if [ -n "$GIT_PROXY" ] || [ -n "$CRATES_IO_INDEX" ]; then \
+      mkdir -p $HOME/.cargo; \
+      if [ -n "$GIT_PROXY" ]; then \
+        printf '[net]\ngit-fetch-with-cli = true\n' > $HOME/.cargo/config.toml; \
+      else \
+        : > $HOME/.cargo/config.toml; \
+      fi; \
+      if [ -n "$CRATES_IO_INDEX" ]; then \
+        printf '[source.crates-io]\nreplace-with = "mirror"\n\n[source.mirror]\nregistry = "sparse+%s"\n' "$CRATES_IO_INDEX" >> $HOME/.cargo/config.toml; \
+      fi; \
+    fi
 RUN cd /vllm-workspace/vllm && \
     export PROTOC_INCLUDE=/usr/include && \
     python3 -m pip install setuptools-rust && \
