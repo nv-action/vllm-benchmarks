@@ -173,7 +173,12 @@ jobs:
       # models through the proxy are too slow and fill the node disk.
       HF_HUB_OFFLINE: 1
       VLLM_USE_MODELSCOPE: True
-      # no mirror source: keep base image defaults (pypi.org / ports.ubuntu.com)
+      # no mirror source: force upstream (pypi.org / ports.ubuntu.com).
+      # NOTE: since 2026-09-16 the base image bakes internal cache-service
+      # mirrors into apt/pip config, so we must explicitly restore upstream
+      # sources in the first step to keep the "direct upstream" experiment valid.
+      PIP_INDEX_URL: https://pypi.org/simple
+      UV_DEFAULT_INDEX: https://pypi.org/simple
       UV_INDEX_STRATEGY: unsafe-best-match
       UV_NO_CACHE: 1
       UV_SYSTEM_PYTHON: 1
@@ -190,8 +195,14 @@ jobs:
           ls /etc/apt/apt.conf.d/ 2>/dev/null || echo "no apt.conf.d"
           npu-smi info
           cat /usr/local/Ascend/ascend-toolkit/latest/"$(uname -i)"-linux/ascend_toolkit_install.info
-          # no mirror source: keep base image default sources (ports.ubuntu.com),
-          # pip/uv default index (pypi.org) - nothing rewritten here
+          # no mirror source: force TRUE upstream for ALL sources.
+          # The base image now bakes cache-service into apt sources, so revert
+          # to ports.ubuntu.com; pip/uv go to pypi.org via PIP_INDEX_URL /
+          # UV_DEFAULT_INDEX set in the env block above.
+          sed -Ei 's@http://cache-service\.nginx-pypi-cache\.svc\.cluster\.local:8081@http://ports.ubuntu.com@g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null || true
+          echo "--- apt sources after revert ---"
+          grep -rEh '^\s*deb ' /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null | head -3
           pip install uv
 
       - name: uninstall vlm vllm-ascend and remove code (if pr test)
