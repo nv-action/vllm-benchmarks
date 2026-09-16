@@ -23,7 +23,7 @@ PROFILE_WITH_STACK_ENV = "VLLM_TORCH_PROFILER_WITH_STACK"
 PROFILER_CONFIG_OPTION = "--profiler-config"
 PROFILE_START_TIMEOUT_SECONDS = 120
 PROFILE_STOP_TIMEOUT_SECONDS = 900
-# Profiling is stopped by the client after one complete request. Keep the
+# Profiling is stopped by the client after one complete request batch. Keep the
 # worker-side iteration limit disabled so long decode requests are not cut off.
 PROFILE_MAX_ITERATIONS = 0
 
@@ -57,8 +57,8 @@ def inject_profiler_config(server_args: Sequence[str], *, output_subdir: str | N
         "profiler": "torch",
         "torch_profiler_dir": str(profile_dir),
         "torch_profiler_with_stack": with_stack,
-        # The profiling workload contains exactly one request and stops the
-        # profiler when that request completes.
+        # The profiling workload contains exactly one request batch and stops
+        # the profiler when that batch completes.
         "ignore_frontend": True,
         "max_iterations": PROFILE_MAX_ITERATIONS,
     }

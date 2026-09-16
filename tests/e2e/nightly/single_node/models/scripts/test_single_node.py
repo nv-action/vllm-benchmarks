@@ -24,7 +24,7 @@ from tests.e2e.nightly.single_node.models.scripts.single_node_config import (
     SingleNodeConfig,
     SingleNodeConfigLoader,
 )
-from tools.aisbench import run_aisbench_cases, run_aisbench_profile_request
+from tools.aisbench import run_aisbench_cases, run_aisbench_profile_batch
 
 logger = logging.getLogger(__name__)
 
@@ -582,17 +582,18 @@ def _run_benchmarks(config: SingleNodeConfig, port: int) -> None:
         run_benchmark_comparisons(config, result)
 
 
-def _run_profile_request(config: SingleNodeConfig, port: int) -> None:
-    """Profile one complete request, separately from the measured benchmark."""
+def _run_profile_batch(config: SingleNodeConfig, port: int, profile_targets: list[str]) -> None:
+    """Warm up, then profile one complete batch outside the measured benchmark."""
     if not profiling_enabled():
         return
     aisbench_cases = [case for case in config.benchmarks.values() if case]
     if not aisbench_cases:
         return
-    run_aisbench_profile_request(
+    run_aisbench_profile_batch(
         model=config.model,
         port=port,
         aisbench_cases=aisbench_cases,
+        profile_context=profiling_session(profile_targets),
     )
 
 
@@ -626,8 +627,7 @@ async def test_single_node(config: SingleNodeConfig) -> None:
         ):
             await _dispatch_tests(config, proxy)
             profile_targets = [health_url.removesuffix("/health") for health_url in epd_server.health_url_list]
-            with profiling_session(profile_targets):
-                _run_profile_request(config, proxy.port)
+            _run_profile_batch(config, proxy.port, profile_targets)
             await _run_benchmarks_and_spec_decode(config, proxy, proxy.port)
         return
 
@@ -648,8 +648,7 @@ async def test_single_node(config: SingleNodeConfig) -> None:
         except Exception as e:
             errors.append(e)
             logger.error("dispatch_tests failed: %s", e)
-        with profiling_session([server.url_root]):
-            _run_profile_request(config, config.server_port)
+        _run_profile_batch(config, config.server_port, [server.url_root])
         await _run_benchmarks_and_spec_decode(config, server, config.server_port)
         if errors:
             raise errors[0]

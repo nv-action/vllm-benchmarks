@@ -22,6 +22,7 @@ import os
 import subprocess
 import tempfile
 import time
+from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 
 import filelock
@@ -72,7 +73,15 @@ class AisbenchRunner:
         print(f"running aisbench cmd: {aisbench_cmd}")
         self.proc: subprocess.Popen = subprocess.Popen(aisbench_cmd, shell=True)
 
-    def __init__(self, model: str, port: int, aisbench_config: dict, host_ip: str = "localhost", verify=True):
+    def __init__(
+        self,
+        model: str,
+        port: int,
+        aisbench_config: dict,
+        host_ip: str = "localhost",
+        verify=True,
+        task_context: AbstractContextManager | None = None,
+    ):
         self.model = model
         self.dataset_path = aisbench_config.get("dataset_path_local")
         if not self.dataset_path:
@@ -116,8 +125,10 @@ class AisbenchRunner:
 
             self.metrics_server = _MetricsServer(self.host_ip, self.port)
             self.metrics_baseline = capture_baseline(self.metrics_server, len(self.spec_decode_baseline))
-        self._run_aisbench_task()
-        self._wait_for_task()
+        effective_task_context = task_context if task_context is not None else nullcontext()
+        with effective_task_context:
+            self._run_aisbench_task()
+            self._wait_for_task()
         if verify:
             self.baseline = aisbench_config.get("baseline", 1)
             if self.task_type == "accuracy":
@@ -347,27 +358,56 @@ def run_aisbench_cases(model, port, aisbench_cases, server_args="", host_ip="loc
     return aisbench_results
 
 
-def run_aisbench_profile_request(model, port, aisbench_cases, host_ip="localhost"):
-    """Run one complete request without AISBench's additional warmup request."""
+def run_aisbench_profile_batch(
+    model,
+    port,
+    aisbench_cases,
+    host_ip="localhost",
+    *,
+    profile_context: AbstractContextManager,
+):
+    """Warm up outside profiling, then profile one complete request batch."""
     profile_case = next((case for case in aisbench_cases if case), None)
     if profile_case is None:
         raise ValueError("profiling requires at least one AISBench case")
 
-    profile_case = copy.deepcopy(profile_case)
-    profile_case.update(
+    batch_size = profile_case.get("batch_size")
+    if not isinstance(batch_size, int) or batch_size < 1:
+        raise ValueError("profiling requires a positive AISBench batch_size")
+
+    warmup_case = copy.deepcopy(profile_case)
+    warmup_case.update(
         {
             "num_prompts": 1,
             "num_warmups": 0,
             "batch_size": 1,
         }
     )
-    logging.info("Running one-request AISBench profiling workload")
+    logging.info("Warming up AISBench with one request before profiling")
+    with AisbenchRunner(
+        model=model,
+        port=port,
+        host_ip=host_ip,
+        aisbench_config=warmup_case,
+        verify=False,
+    ):
+        pass
+
+    profile_case = copy.deepcopy(profile_case)
+    profile_case.update(
+        {
+            "num_prompts": batch_size,
+            "num_warmups": 0,
+        }
+    )
+    logging.info("Running one-batch AISBench profiling workload with %d requests", batch_size)
     with AisbenchRunner(
         model=model,
         port=port,
         host_ip=host_ip,
         aisbench_config=profile_case,
         verify=False,
+        task_context=profile_context,
     ):
         pass
 
