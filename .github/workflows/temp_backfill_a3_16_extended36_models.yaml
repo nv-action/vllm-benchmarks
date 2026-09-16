@@ -48,6 +48,9 @@
 # Delete this file once all repos are confirmed offline-readable.
 name: 'temp: backfill a3-16 cache (36-case extended set)'
 
+on:
+  workflow_dispatch:
+
 defaults:
   run:
     shell: bash -el {0}
