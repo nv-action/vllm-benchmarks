@@ -35,7 +35,7 @@ def discover_trace_directories(profile_dir: str | Path) -> list[Path]:
 def _parsed_trace_is_valid(trace_dir: Path) -> bool:
     output_dir = trace_dir / PARSED_OUTPUT_DIR
     trace_view = output_dir / TRACE_VIEW_FILE
-    analyse_done = trace_dir / ANALYSE_DONE_FILE
+    analyse_done = output_dir / ANALYSE_DONE_FILE
     if not analyse_done.is_file() or not trace_view.is_file() or trace_view.stat().st_size == 0:
         return False
     try:
@@ -100,7 +100,6 @@ def _copy_parsed_output(root: Path, destination: Path, trace_dirs: Sequence[Path
         target = destination / trace_dir.relative_to(root)
         target.mkdir(parents=True, exist_ok=True)
         shutil.copytree(trace_dir / PARSED_OUTPUT_DIR, target / PARSED_OUTPUT_DIR)
-        shutil.copy2(trace_dir / ANALYSE_DONE_FILE, target / ANALYSE_DONE_FILE)
         for pattern in ("profiler_info*.json", "profiler_metadata.json"):
             for metadata in trace_dir.glob(pattern):
                 shutil.copy2(metadata, target / metadata.name)

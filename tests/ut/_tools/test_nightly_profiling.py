@@ -220,7 +220,7 @@ def _write_parsed_trace(trace: Path) -> None:
     output = trace / profile_output.PARSED_OUTPUT_DIR
     output.mkdir(parents=True, exist_ok=True)
     (output / profile_output.TRACE_VIEW_FILE).write_text('{"traceEvents": []}', encoding="utf-8")
-    (trace / profile_output.ANALYSE_DONE_FILE).write_text("", encoding="utf-8")
+    (output / profile_output.ANALYSE_DONE_FILE).write_text("", encoding="utf-8")
     (trace / "profiler_info_0.json").write_text("{}", encoding="utf-8")
 
 
@@ -263,6 +263,7 @@ def test_stage_parsed_output_excludes_raw_data(tmp_path: Path) -> None:
     staged_trace = tmp_path / "staged" / trace.relative_to(tmp_path / "source")
     assert actual == profile_output.PARSED_OUTPUT
     assert (staged_trace / profile_output.PARSED_OUTPUT_DIR / profile_output.TRACE_VIEW_FILE).is_file()
+    assert (staged_trace / profile_output.PARSED_OUTPUT_DIR / profile_output.ANALYSE_DONE_FILE).is_file()
     assert not (staged_trace / "PROF_1").exists()
 
 
@@ -279,6 +280,18 @@ def test_stage_invalid_parsed_output_falls_back_to_raw_only(tmp_path: Path) -> N
     assert (staged_trace / "PROF_1" / "device_0" / "raw.data").is_file()
     assert not (staged_trace / profile_output.PARSED_OUTPUT_DIR).exists()
     assert (tmp_path / "staged" / profile_output.ANALYSIS_ERROR_FILE).is_file()
+
+
+def test_stage_requires_analyse_done_inside_parsed_output(tmp_path: Path) -> None:
+    trace = _write_raw_trace(tmp_path / "source")
+    output = trace / profile_output.PARSED_OUTPUT_DIR
+    output.mkdir()
+    (output / profile_output.TRACE_VIEW_FILE).write_text('{"traceEvents": []}', encoding="utf-8")
+    (trace / profile_output.ANALYSE_DONE_FILE).write_text("", encoding="utf-8")
+
+    actual = profile_output.stage_profile_output(tmp_path / "source", tmp_path / "staged", "parsed")
+
+    assert actual == profile_output.RAW_FALLBACK_OUTPUT
 
 
 def test_stage_raw_output_excludes_existing_parsed_data(tmp_path: Path) -> None:
