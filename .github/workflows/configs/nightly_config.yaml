@@ -407,16 +407,12 @@ a3-560t:
         config_file_path: Qwen3.6-35B-A3B-w8a8-310p-MTP.yaml
 
 a5:
-#   multi_node:
-#     test_config:
-#       - name: Qwen3-235B-W8A8-EPLB
-#         size: 2
-#         config_file_path: Qwen3-235B-W8A8-EPLB.yaml
-#   single_node:
-#     test_config:
-#       - name: Qwen3.5-397B-A17B-w4a8-mtp
-#         os: linux-aarch64-a5-8
-#         config_file_path: Qwen3.5-397B-A17B-w4a8-mtp.yaml
+  multi_node:
+    test_config:
+      - name: DeepSeek_V4_Flash_A5_PD
+        config_file_path: DeepSeek_V4_Flash_A5_PD.yaml
+        config_base_path: tests/e2e/weekly/multi_node/external_dp/config
+        size: 2
   single_node:
     test_config:
       - name: Qwen3_235b_w8a8_A5
