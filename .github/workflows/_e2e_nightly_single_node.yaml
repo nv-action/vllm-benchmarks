@@ -195,14 +195,40 @@ jobs:
           ls /etc/apt/apt.conf.d/ 2>/dev/null || echo "no apt.conf.d"
           npu-smi info
           cat /usr/local/Ascend/ascend-toolkit/latest/"$(uname -i)"-linux/ascend_toolkit_install.info
-          # no mirror source: force TRUE upstream for ALL sources.
-          # The base image now bakes cache-service into apt sources, so revert
-          # to ports.ubuntu.com; pip/uv go to pypi.org via PIP_INDEX_URL /
-          # UV_DEFAULT_INDEX set in the env block above.
+          # no mirror source: audit ALL package-manager sources inside the image,
+          # then normalize every non-upstream source back to the original one.
+          echo "===== SOURCES AUDIT (before) ====="
+          echo "--- apt sources ---"
+          grep -rEh '^\s*(deb|deb-src) ' /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null || echo "(none)"
+          echo "--- pip config files ---"
+          for f in /etc/pip.conf ~/.pip/pip.conf ~/.config/pip/pip.conf; do [ -f "$f" ] && echo "[$f]" && cat "$f"; done
+          pip config list 2>/dev/null || echo "(no pip config)"
+          echo "--- uv config ---"
+          for f in /etc/uv/uv.toml ~/.config/uv/uv.toml; do [ -f "$f" ] && echo "[$f]" && cat "$f"; done
+          env | grep -E '^(UV_|PIP_)' | sort || true
+          echo "--- cargo config ---"
+          for f in /etc/cargo/config /etc/cargo/config.toml ~/.cargo/config ~/.cargo/config.toml; do [ -f "$f" ] && echo "[$f]" && cat "$f"; done
+          env | grep -E '^CARGO_' | sort || true
+
+          echo "===== NORMALIZE: revert non-upstream sources ====="
+          # apt: cache-service -> ports.ubuntu.com
           sed -Ei 's@http://cache-service\.nginx-pypi-cache\.svc\.cluster\.local:8081@http://ports.ubuntu.com@g' \
             /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null || true
-          echo "--- apt sources after revert ---"
-          grep -rEh '^\s*deb ' /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null | head -3
+          # pip: drop baked config so env-forced pypi.org applies (PIP_INDEX_URL in env block)
+          rm -f /etc/pip.conf ~/.pip/pip.conf ~/.config/pip/pip.conf 2>/dev/null || true
+          # uv: drop baked config so UV_DEFAULT_INDEX=pypi.org applies
+          rm -f /etc/uv/uv.toml ~/.config/uv/uv.toml 2>/dev/null || true
+          # cargo: drop baked mirror config so default crates.io applies
+          rm -f /etc/cargo/config /etc/cargo/config.toml ~/.cargo/config ~/.cargo/config.toml 2>/dev/null || true
+
+          echo "===== SOURCES AUDIT (after) ====="
+          echo "--- apt sources ---"
+          grep -rEh '^\s*(deb|deb-src) ' /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null || echo "(none)"
+          echo "--- pip config ---"
+          pip config list 2>/dev/null || echo "(no pip config)"
+          env | grep -E '^(UV_|PIP_)' | sort || true
+          echo "--- cargo config ---"
+          ls ~/.cargo/config* /etc/cargo/config* 2>/dev/null || echo "(no cargo config)"
           pip install uv
 
       - name: uninstall vlm vllm-ascend and remove code (if pr test)
