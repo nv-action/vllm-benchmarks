@@ -74,7 +74,7 @@ on:
         required: false
       SWR_PASSWORD:
         required: false
-      GITEE_TOKEN:
+      SYNC_TOOLS_TOKEN:
         required: false
 
 jobs:
@@ -118,6 +118,7 @@ jobs:
 
       - name: Login to SWR
         id: login-swr
+        if: ${{ inputs.should_push }}
         uses: docker/login-action@v4
         with:
           registry: ${{ inputs.swr_registry }}
@@ -127,8 +128,6 @@ jobs:
       - name: Build nightly-${{ inputs.target }} image
         id: build
         env:
-          GITEE_USERNAME: ${{ vars.GITEE_USERNAME }}
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
           GIT_PROXY: https://gh-proxy.test.osinfra.cn/
         shell: bash
         run: |
@@ -144,7 +143,7 @@ jobs:
             SWR_REGISTRY="${{ inputs.swr_registry }}/ascend/vllm-ascend"
             SWR_TEMP_REGISTRY="${{ inputs.swr_registry }}/atlas_ci/vllm-atlas-temp"
             TAG_PREFIX="nightly-ci"
-            BASE_IMAGE=""
+            BASE_IMAGE="${{ inputs.swr_registry }}/ascend/vllm-ascend"
           fi
 
           CANN_VERSION_LOWER=$(echo "${{ inputs.cann_version }}" | tr '[:upper:]' '[:lower:]')
@@ -190,8 +189,6 @@ jobs:
             --platform ${{ matrix.arch_platform }}
             -f .github/workflows/dockerfiles/Dockerfile.nightly.${{ inputs.target }}
             --build-arg VLLM_ASCEND_BRANCH="${BRANCH_TAG}"
-            --build-arg GITEE_USERNAME="${GITEE_USERNAME}"
-            --build-arg GITEE_TOKEN="${GITEE_TOKEN}"
             --build-arg GIT_PROXY="${GIT_PROXY}"
           )
 
@@ -227,7 +224,7 @@ jobs:
             echo "push_registry=${SWR_REGISTRY}"
           fi
 
-          if [ "${{ github.repository_owner }}" = "vllm-project" ] && [ "${{ steps.login-swr.outcome == 'success' }}" = "true" ]; then
+          if [ "${{ steps.login-swr.outcome == 'success' }}" = "true" ]; then
             echo "swr_logged_in=true"
           else
             echo "swr_logged_in=false"
@@ -333,3 +330,15 @@ jobs:
           if [ "${MISSING_VARIANT}" = "1" ]; then
             echo "::warning::Some variants were skipped due to missing arch images."
           fi
+
+      - name: Dispatch quay.io sync
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.SYNC_TOOLS_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: 'ascend-gha-runners',
+              repo: 'sync-tools',
+              workflow_id: 'sync-vllm-ascend.yml',
+              ref: 'main',
+            });
