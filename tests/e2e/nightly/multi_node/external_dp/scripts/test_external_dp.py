@@ -35,8 +35,8 @@ from tests.e2e.nightly.multi_node.external_dp.scripts.utils import (
     write_benchmark_results_json,
 )
 from tests.e2e.nightly.multi_node.scripts.utils import ProxyServer
-from tests.e2e.nightly.scripts.profiling import profiling_session
-from tools.aisbench import run_aisbench_cases
+from tests.e2e.nightly.scripts.profiling import profiling_enabled, profiling_session
+from tools.aisbench import run_aisbench_cases, run_aisbench_profile_request
 
 logging.basicConfig(
     level=logging.INFO,
@@ -295,12 +295,19 @@ def test_external_dp() -> None:
                 ):
                     profile_targets = [f"http://{rank.host}:{rank.port}" for rank in ranks]
                     with profiling_session(profile_targets):
-                        results = run_aisbench_cases(
-                            model=config.model,
-                            port=config.routing.proxy_port,
-                            aisbench_cases=config.benchmark_cases,
-                            host_ip=config.routing.proxy_host,
-                        )
+                        if profiling_enabled():
+                            run_aisbench_profile_request(
+                                model=config.model,
+                                port=config.routing.proxy_port,
+                                aisbench_cases=config.benchmark_cases,
+                                host_ip=config.routing.proxy_host,
+                            )
+                    results = run_aisbench_cases(
+                        model=config.model,
+                        port=config.routing.proxy_port,
+                        aisbench_cases=config.benchmark_cases,
+                        host_ip=config.routing.proxy_host,
+                    )
                 logger.info("AISBench completed: results=%d", len(results or []))
                 write_benchmark_results_json(
                     config=config,

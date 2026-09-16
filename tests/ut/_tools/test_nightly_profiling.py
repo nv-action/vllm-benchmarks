@@ -51,7 +51,7 @@ def test_inject_profiler_config_replaces_both_option_forms(monkeypatch: pytest.M
         "torch_profiler_dir": "/profile/node-0",
         "torch_profiler_with_stack": False,
         "ignore_frontend": True,
-        "max_iterations": profiling.PROFILE_MAX_ITERATIONS,
+        "max_iterations": 0,
     }
 
 

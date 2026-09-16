@@ -15,7 +15,7 @@ import requests
 import vllm
 
 from tests.e2e.conftest import DisaggEpdProxy, RemoteEPDServer, RemoteOpenAIServer
-from tests.e2e.nightly.scripts.profiling import inject_profiler_config, profiling_session
+from tests.e2e.nightly.scripts.profiling import inject_profiler_config, profiling_enabled, profiling_session
 from tests.e2e.nightly.scripts.result_postprocess import postprocess_benchmark_results
 from tests.e2e.nightly.single_node.models.scripts.kv_pool_runtime import (
     create_single_node_kv_pool_manager,
@@ -24,7 +24,7 @@ from tests.e2e.nightly.single_node.models.scripts.single_node_config import (
     SingleNodeConfig,
     SingleNodeConfigLoader,
 )
-from tools.aisbench import run_aisbench_cases
+from tools.aisbench import run_aisbench_cases, run_aisbench_profile_request
 
 logger = logging.getLogger(__name__)
 
@@ -582,6 +582,20 @@ def _run_benchmarks(config: SingleNodeConfig, port: int) -> None:
         run_benchmark_comparisons(config, result)
 
 
+def _run_profile_request(config: SingleNodeConfig, port: int) -> None:
+    """Profile one complete request, separately from the measured benchmark."""
+    if not profiling_enabled():
+        return
+    aisbench_cases = [case for case in config.benchmarks.values() if case]
+    if not aisbench_cases:
+        return
+    run_aisbench_profile_request(
+        model=config.model,
+        port=port,
+        aisbench_cases=aisbench_cases,
+    )
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("config", configs, ids=[config.name for config in configs])
 async def test_single_node(config: SingleNodeConfig) -> None:
@@ -613,7 +627,8 @@ async def test_single_node(config: SingleNodeConfig) -> None:
             await _dispatch_tests(config, proxy)
             profile_targets = [health_url.removesuffix("/health") for health_url in epd_server.health_url_list]
             with profiling_session(profile_targets):
-                await _run_benchmarks_and_spec_decode(config, proxy, proxy.port)
+                _run_profile_request(config, proxy.port)
+            await _run_benchmarks_and_spec_decode(config, proxy, proxy.port)
         return
 
     # Standard OpenAI service mode
@@ -634,6 +649,7 @@ async def test_single_node(config: SingleNodeConfig) -> None:
             errors.append(e)
             logger.error("dispatch_tests failed: %s", e)
         with profiling_session([server.url_root]):
-            await _run_benchmarks_and_spec_decode(config, server, config.server_port)
+            _run_profile_request(config, config.server_port)
+        await _run_benchmarks_and_spec_decode(config, server, config.server_port)
         if errors:
             raise errors[0]

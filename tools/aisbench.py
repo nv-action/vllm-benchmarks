@@ -14,6 +14,7 @@
 # limitations under the License.
 # This file is a part of the vllm-ascend project.
 #
+import copy
 import hashlib
 import json
 import logging
@@ -64,6 +65,8 @@ class AisbenchRunner:
             ]
         if self.num_prompts:
             aisbench_cmd.extend(["--num-prompts", str(self.num_prompts)])
+        if self.num_warmups is not None:
+            aisbench_cmd.extend(["--num-warmups", str(self.num_warmups)])
         self.stdout_file = f"output_{self.task_type}.txt"
         aisbench_cmd = " ".join(aisbench_cmd) + f" --debug > {self.stdout_file} 2>&1 &"
         print(f"running aisbench cmd: {aisbench_cmd}")
@@ -86,6 +89,7 @@ class AisbenchRunner:
         self.request_conf = aisbench_config["request_conf"]
         self.dataset_conf = aisbench_config.get("dataset_conf")
         self.num_prompts = aisbench_config.get("num_prompts")
+        self.num_warmups = aisbench_config.get("num_warmups")
         self.max_out_len = aisbench_config["max_out_len"]
         self.batch_size = aisbench_config["batch_size"]
         self.request_rate = aisbench_config.get("request_rate", 0)
@@ -341,6 +345,31 @@ def run_aisbench_cases(model, port, aisbench_cases, server_args="", host_ip="loc
         logging.error(error_msg)
     assert not aisbench_errors, "some aisbench cases failed, info were shown above."
     return aisbench_results
+
+
+def run_aisbench_profile_request(model, port, aisbench_cases, host_ip="localhost"):
+    """Run one complete request without AISBench's additional warmup request."""
+    profile_case = next((case for case in aisbench_cases if case), None)
+    if profile_case is None:
+        raise ValueError("profiling requires at least one AISBench case")
+
+    profile_case = copy.deepcopy(profile_case)
+    profile_case.update(
+        {
+            "num_prompts": 1,
+            "num_warmups": 0,
+            "batch_size": 1,
+        }
+    )
+    logging.info("Running one-request AISBench profiling workload")
+    with AisbenchRunner(
+        model=model,
+        port=port,
+        host_ip=host_ip,
+        aisbench_config=profile_case,
+        verify=False,
+    ):
+        pass
 
 
 def get_TTFT(results):
