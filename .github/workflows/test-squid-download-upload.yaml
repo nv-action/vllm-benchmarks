@@ -21,6 +21,9 @@
 name: test-squid-download-upload
 
 on:
+  # PR 测试：创建/更新 PR 时自动跑一遍 squid 下载/上传套件
+  pull_request:
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
     inputs:
       test_squid_pip_modelscope:
