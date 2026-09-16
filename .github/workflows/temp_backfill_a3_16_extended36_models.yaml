@@ -1,0 +1,233 @@
+# TEMPORARY: backfill the a3-16 model cache for the 36-case extended e2e set.
+#
+# Purpose 2026-09-16: the gate's wide e2e (run 34994732545, tree b7e0cdac)
+# lost 10 suites to offline-cache misses — modelscope ValueError / HF
+# LocalEntryNotFoundError, all "Cannot find the requested files in the
+# cached path and outgoing traffic has been disabled".  Repo ids are pinned
+# from the suite errors and the test sources themselves:
+#
+#   modelscope, FULL weights (the engine loads them):
+#     allenai/OLMoE-1B-7B-0125-Instruct    lora/test_olmoe_lora.py MODEL_PATH
+#     vllm-ascend/olmoe-instruct-text2sql-spider
+#                                          conftest.py olmoe_lora_files fixture
+#     Howeee/Qwen2.5-1.5B-apeach           pooling/test_classification.py
+#                                          (HfRunner loads real weights)
+#     deepseek-ai/dspark_qwen3_8b_block7   spec_decode/utils.py DSPARK["spec"]
+#                                          (test_dspark, test_dynamic)
+#     Qwen/Qwen3.5-0.8B                    spec_decode/test_extract_hidden_states.py
+#                                          HYBRID_MODEL (load_format=dummy, but
+#                                          0.8B is ~2GB — take the full repo)
+#
+#   modelscope, CONFIG ONLY (backend-level tests: _test_mla_attention_
+#   correctness / SFA precision build VllmConfig directly and never load
+#   weights — the failure happens at ModelConfig parse.  DeepSeek-V3.2-Exp
+#   is a 671B repo; a full fetch is infeasible and unnecessary):
+#     deepseek-ai/DeepSeek-V2              one_card/test_mla_precision.py
+#     deepseek-ai/DeepSeek-V3.2-Exp        one_card/test_sfa_v1_precision.py
+#
+#   HF hub (test patches VLLM_USE_MODELSCOPE=False, or the repo is
+#   HF-only; HF cache /root/.cache/huggingface shares the same NFS):
+#     charent/self_cognition_Alice         lora/test_qwen3_multi_loras.py (required)
+#     charent/self_cognition_Bob           same file (required)
+#     RedHatAI/Qwen3-8B-speculator.eagle3  spec_decode/utils.py EAGLE["spec"]
+#                                          (optional: today a graceful
+#                                          get_safetensors_params_metadata
+#                                          warning only — downloading it
+#                                          removes recurring triage noise)
+#
+# Excluded on purpose (not model misses):
+#   one_card/compile/test_graphex_qknorm_rope_fusion.py — EADDRINUSE port
+#     12345 (suite-scheduling collision);
+#   four_card/test_minimax_m3.py — NPU free memory 56.59 < 58.21 GiB
+#     (device contention; Eco-Tech/MiniMax-M3-w8a8-0626 IS cached).
+#
+# Same shape as the 09-10 backfill: cann container, modelscope<1.38 in an
+# isolated venv, dots in repo names stored as triple underscores.
+# HF downloads try huggingface.co then fall back to hf-mirror.com; they are
+# best-effort for the optional repo and fatal for the charent adapters.
+# Delete this file once all repos are confirmed offline-readable.
+name: 'temp: backfill a3-16 cache (36-case extended set)'
+
+defaults:
+  run:
+    shell: bash -el {0}
+
+env:
+  MS_MODELS_FULL: |
+    allenai/OLMoE-1B-7B-0125-Instruct
+    vllm-ascend/olmoe-instruct-text2sql-spider
+    Howeee/Qwen2.5-1.5B-apeach
+    deepseek-ai/dspark_qwen3_8b_block7
+    Qwen/Qwen3.5-0.8B
+  # Backend-level tests parse the model config only; weights never load.
+  MS_MODELS_CONFIG_ONLY: |
+    deepseek-ai/DeepSeek-V2
+    deepseek-ai/DeepSeek-V3.2-Exp
+  HF_MODELS_REQUIRED: |
+    charent/self_cognition_Alice
+    charent/self_cognition_Bob
+  HF_MODELS_OPTIONAL: |
+    RedHatAI/Qwen3-8B-speculator.eagle3
+
+jobs:
+  backfill:
+    name: Download models on a3-16
+    runs-on: linux-aarch64-a3-16-sh-001
+    timeout-minutes: 240
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-a3-ubuntu22.04-py3.12
+    steps:
+      - name: Pre-check cache state (fs + node fingerprint)
+        env:
+          MS_FULL: ${{ env.MS_MODELS_FULL }}
+          MS_CFG: ${{ env.MS_MODELS_CONFIG_ONLY }}
+        run: |
+          echo "runner=$(hostname)"
+          echo "fs-of-cache: $(df -T /root/.cache 2>/dev/null | tail -1)"
+          du -sh /root/.cache/modelscope 2>/dev/null || echo "(no modelscope cache yet)"
+          du -sh /root/.cache/huggingface 2>/dev/null || echo "(no HF cache yet)"
+          for m in $MS_FULL $MS_CFG; do
+            d="/root/.cache/modelscope/hub/models/${m}"
+            if [ -d "$d" ]; then du -sh "$d"; else echo "MISSING $d"; fi
+          done
+          for m in $HF_MODELS_REQUIRED $HF_MODELS_OPTIONAL; do
+            [ -z "$m" ] && continue
+            d="/root/.cache/huggingface/hub/models--${m%%/*}--${m##*/}"
+            if [ -d "$d" ]; then du -sh "$d"; else echo "MISSING $d"; fi
+          done
+
+      - name: Install modelscope<1.38 + huggingface_hub in an isolated venv
+        run: |
+          set -euxo pipefail
+          python3 -m venv /tmp/msdl_venv
+          /tmp/msdl_venv/bin/pip install -q \
+            -i https://repo.huaweicloud.com/repository/pypi/simple \
+            "modelscope<1.38" "huggingface_hub"
+          /tmp/msdl_venv/bin/python -c \
+            "import modelscope, huggingface_hub; \
+             print('modelscope', modelscope.__version__, \
+                   '| hf_hub', huggingface_hub.__version__)"
+
+      - name: Download modelscope models (full weights)
+        env:
+          MS_FULL: ${{ env.MS_MODELS_FULL }}
+        run: |
+          set -euo pipefail
+          failed=""
+          while read -r model; do
+            [ -z "$model" ] && continue
+            echo "▶ Downloading model $model (full)"
+            t0=$SECONDS
+            if ! /tmp/msdl_venv/bin/modelscope download "$model"; then
+              failed="$failed $model"
+            fi
+            echo "[took $((SECONDS - t0))s] $model"
+          done <<< "$MS_FULL"
+          if [ -n "$failed" ]; then echo "download failed:$failed"; exit 1; fi
+
+      - name: Download modelscope models (config only)
+        env:
+          MS_CFG: ${{ env.MS_MODELS_CONFIG_ONLY }}
+        run: |
+          set -euo pipefail
+          failed=""
+          while read -r model; do
+            [ -z "$model" ] && continue
+            echo "▶ Downloading model $model (config/tokenizer files only)"
+            t0=$SECONDS
+            if ! /tmp/msdl_venv/bin/modelscope download "$model" \
+                 --include '*.json' '*.model' '*.py'; then
+              failed="$failed $model"
+            fi
+            echo "[took $((SECONDS - t0))s] $model"
+          done <<< "$MS_CFG"
+          if [ -n "$failed" ]; then echo "download failed:$failed"; exit 1; fi
+
+      - name: Download HF-hub models (huggingface.co, then hf-mirror.com)
+        env:
+          HF_REQ: ${{ env.HF_MODELS_REQUIRED }}
+          HF_OPT: ${{ env.HF_MODELS_OPTIONAL }}
+        run: |
+          set -uo pipefail
+          failed=""
+          while IFS=: read -r model required; do
+            [ -z "$model" ] && continue
+            echo "▶ Downloading HF model $model (required=${required})"
+            t0=$SECONDS
+            ok=""
+            # an EMPTY HF_ENDPOINT string breaks huggingface_hub (it would
+            # build relative URLs) — always pass a full endpoint URL
+            for endpoint in "https://huggingface.co" "https://hf-mirror.com"; do
+              echo "  endpoint: $endpoint"
+              if HF_ENDPOINT="$endpoint" \
+                 /tmp/msdl_venv/bin/python -c \
+                 "from huggingface_hub import snapshot_download; \
+                  import sys; \
+                  p = snapshot_download(sys.argv[1]); print('->', p)" \
+                 "$model"; then
+                ok=1
+                break
+              fi
+              echo "  endpoint failed, trying next"
+            done
+            if [ -z "$ok" ]; then
+              if [ "$required" = "required" ]; then
+                failed="$failed $model"
+              else
+                echo "⚠ optional repo $model failed on every endpoint (non-fatal)"
+              fi
+            fi
+            echo "[took $((SECONDS - t0))s] $model"
+          done <<EOF
+          $(while read -r m; do [ -z "$m" ] || echo "$m:required"; done <<< "$HF_REQ")
+          $(while read -r m; do [ -z "$m" ] || echo "$m:optional"; done <<< "$HF_OPT")
+          EOF
+          if [ -n "$failed" ]; then echo "download failed:$failed"; exit 1; fi
+
+      - name: Reproduce the e2e offline read (no network)
+        env:
+          MS_FULL: ${{ env.MS_MODELS_FULL }}
+          MS_CFG: ${{ env.MS_MODELS_CONFIG_ONLY }}
+        run: |
+          set -uxo pipefail
+          # the e2e installs modelscope<1.38 via requirements-dev.txt
+          # (resolved 1.37.1 in run 34084313012) — the isolated venv above
+          # carries the same family, so its offline scan is faithful
+          HF_HUB_OFFLINE=1 /tmp/msdl_venv/bin/python - <<'PY'
+          import os
+          import traceback
+          from modelscope import snapshot_download
+          from huggingface_hub import snapshot_download as hf_snapshot
+          ms_models = [m for m in os.environ.get("MS_FULL", "").split()
+                       + os.environ.get("MS_CFG", "").split() if m]
+          hf_models = [m for m in os.environ.get("HF_MODELS_REQUIRED", "").split()
+                       + os.environ.get("HF_MODELS_OPTIONAL", "").split() if m]
+          for m in ms_models:
+              try:
+                  p = snapshot_download(m, local_files_only=True)
+                  print(f"[OFFLINE-OK modelscope] {m} -> {p}", flush=True)
+              except Exception as e:
+                  print(f"[OFFLINE-FAIL modelscope] {m}: "
+                        f"{type(e).__name__}: {e}", flush=True)
+                  traceback.print_exc()
+          for m in hf_models:
+              try:
+                  p = hf_snapshot(m, local_files_only=True)
+                  print(f"[OFFLINE-OK hf] {m} -> {p}", flush=True)
+              except Exception as e:
+                  print(f"[OFFLINE-FAIL hf] {m}: {type(e).__name__}: {e}",
+                        flush=True)
+                  traceback.print_exc()
+          PY
+
+      - name: Verify cache layout
+        if: always()
+        run: |
+          du -sh /root/.cache/modelscope /root/.cache/huggingface 2>/dev/null
+          find /root/.cache/modelscope/hub -maxdepth 3 \
+            \( -iname "*OLMoE*" -o -iname "*apeach*" -o -iname "*dspark*" \
+               -o -iname "*Qwen3___5*" -o -iname "*DeepSeek-V3___2-Exp*" \
+               -o -iname "*DeepSeek-V2*" \) | sort
+          find /root/.cache/modelscope/hub/models/vllm-ascend \
+            -maxdepth 1 -iname "*olmoe*" 2>/dev/null
+          ls /root/.cache/huggingface/hub/ 2>/dev/null | grep -i "charent\|RedHatAI" || true
