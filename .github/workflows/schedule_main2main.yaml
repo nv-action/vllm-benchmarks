@@ -505,7 +505,7 @@ jobs:
       - name: Run baseline PCP probe
         id: run-main2main
         working-directory: ${{ github.workspace }}
-        timeout-minutes: 90
+        timeout-minutes: 120
         env:
           RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES: True
         run: |
@@ -518,8 +518,13 @@ jobs:
           for NODE in "${NODES[@]}"; do
             NAME=$(basename "${NODE%%::*}")__$(echo "${NODE##*::}" | cut -c1-40)
             echo "::group::BASELINE ${NODE} (devs=0,1,2,3)"
+            # faulthandler dumps all thread stacks after 300s of silence;
+            # per-test wall clock cap 1500s so one hang cannot eat the step.
             ASCEND_RT_VISIBLE_DEVICES=0,1,2,3 \
-              pytest "${NODE}" -v --tb=short 2>&1 | tee "/tmp/baseline_${NAME}.log"
+              timeout --signal=KILL 1500 \
+              env VLLM_LOGGING_LEVEL=INFO PYTHONFAULTHANDLER=1 \
+              pytest "${NODE}" -v -s --tb=short --faulthandler-timeout=300 \
+              2>&1 | tee "/tmp/baseline_${NAME}.log"
             RC["${NODE}"]="${PIPESTATUS[0]}"
             echo "::endgroup::"
             echo "BASELINE_RESULT: ${NODE} exit=${RC[${NODE}]}"
