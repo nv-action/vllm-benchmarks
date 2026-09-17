@@ -59,7 +59,7 @@ jobs:
     # During rollout, cache preparation is observational and must not block the
     # existing NPU build path. Remove this tolerance once CPU caching is stable.
     continue-on-error: true
-    runs-on: linux-amd64-cpu-2-hk
+    runs-on: linux-amd64-cpu-8-hk
     container:
       image: quay.io/ascend-ci/vllm-ascend:lint
     outputs:
