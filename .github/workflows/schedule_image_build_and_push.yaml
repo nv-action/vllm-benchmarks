@@ -155,7 +155,7 @@ jobs:
       swr_temp_repo: ${{ inputs.build_type == 'daily' && 'swr.cn-north-12.myhuaweicloud.com/atlas_inference/vllm-atlas-temp' || 'swr.cn-north-12.myhuaweicloud.com/atlas_ci/vllm-atlas-temp' }}
       # ======================================================================
       
-      should_push: true
+      should_push: false
       workflow_dispatch_tag: ${{ inputs.tag != 'none' && inputs.tag || '' }}
       branch_ref: ${{ inputs.branch != 'none' && inputs.branch || '' }}
       schedule_tag_pattern: 'main'
@@ -201,7 +201,7 @@ jobs:
       cann_swr_url: ${{ inputs.build_type == 'daily' && fromJSON(inputs.cann || '["swr.cn-north-12.myhuaweicloud.com/atlas_inference/cann", "9.1.0_20260731131545"]')[0] || 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/cann' }}
       swr_registry: 'swr.cn-north-12.myhuaweicloud.com'
       swr_temp_repo: ${{ inputs.build_type == 'daily' && 'swr.cn-north-12.myhuaweicloud.com/atlas_inference/vllm-atlas-temp' || 'swr.cn-north-12.myhuaweicloud.com/atlas_ci/vllm-atlas-temp' }}
-      should_push: true
+      should_push: false
       temp_only: true
       vllm_commit: ${{ inputs.vllm_commit }}
       vllm_ascend_commit: ${{ inputs.vllm_ascend_commit }}
