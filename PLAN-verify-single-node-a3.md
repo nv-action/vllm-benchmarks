@@ -204,12 +204,13 @@ gh workflow run schedule_nightly_test_a3.yaml \
 ## 10. 基础镜像烤入镜像源 + 真 no-mirror 复测（2026-09-17，run `35101175467`）
 
 ### 发现：nightly-ci-main-a3 镜像已内置 cache-service
-`_schedule_image_build.yaml` 自 2026-08/09 起（wenshun88 / hfadzxy）向构建传入 `APTMIRROR=cache-service:8081`（及 YUM 8083 / RUSTUP 8082），Dockerfile 构建期把 `ports.ubuntu.com` sed 成内网 cache-service。2026-09-16 的每日重建使 `nightly-ci-main-a3` tag 生效该配置——**镜像默认 apt 源变为 cache-service**，pip/uv/cargo 无烤入配置（已实测确认）。
+`_schedule_image_build.yaml` 自 2026-08/09 起（wenshun88 / hfadzxy）向构建传入 `APTMIRROR=cache-service:8081`（及 YUM 8083 / RUSTUP 8082），Dockerfile 构建期把 `ports.ubuntu.com` sed 成内网 cache-service。2026-09-16 的每日重建使 `nightly-ci-main-a3` tag 生效该配置——**镜像默认 apt 源变为 cache-service**。此外 `Dockerfile.nightly.a3` L24/L35 构建期执行 `pip config set global.index-url ${PIP_INDEX_URL}`（构建传入 cache-service），**烤入 `/root/.config/pip/pip.conf`**（uv/cargo 无烤入配置）。
+两个坑：① GH Actions job 容器把 HOME 覆盖为 /github/home，job 内 pip 不读 /root 下的配置 → 之前的 188s 测量仍有效（且 env `PIP_INDEX_URL=pypi.org` 优先级最高）；② 审计若只查 `~` 会漏掉 /root 下的烤入文件——审计必须同时显式检查 `/root/.config/pip/pip.conf`。
 影响：nightly 测试 workflow 里的 `sed ports.ubuntu.com→cache-service` 从此空转（终点不变、无行为影响）；但"no-mirror 对照实验"的前提（镜像默认=上游）失效。
 
-### nomirror 分支的修正（commit `a4e255d06` / `f788c7ff9`）
+### nomirror 分支的修正（commit `a4e255d06` / `f788c7ff9` / 后续审计补丁）
 - env 强制 `PIP_INDEX_URL` / `UV_DEFAULT_INDEX = https://pypi.org/simple`
-- 首步审计并归一化全部源：apt sed 回 `ports.ubuntu.com`；删除烤入的 pip/uv/cargo 配置（实测镜像内仅 apt 被烤入，pip/uv/cargo 本来就没有配置文件）
+- 首步审计并归一化全部源：apt sed 回 `ports.ubuntu.com`；显式检查并删除 `/root` 与 `$HOME` 两处的 pip/uv/cargo 烤入配置（pip 用 `pip config debug` 展示实际读取链）
 
 ### 真 no-mirror 复测结果（Qwen3.8-27B-w8a8-A3，mock）
 | 配置 | job 时长 |

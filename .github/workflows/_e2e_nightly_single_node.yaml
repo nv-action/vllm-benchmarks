@@ -201,25 +201,39 @@ jobs:
           echo "--- apt sources ---"
           grep -rEh '^\s*(deb|deb-src) ' /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null || echo "(none)"
           echo "--- pip config files ---"
-          for f in /etc/pip.conf ~/.pip/pip.conf ~/.config/pip/pip.conf; do [ -f "$f" ] && echo "[$f]" && cat "$f"; done
-          pip config list 2>/dev/null || echo "(no pip config)"
+          # NOTE: GH Actions overrides HOME=/github/home for job containers, but
+          # the image bakes config under /root (build-time HOME) - check BOTH.
+          for f in /etc/pip.conf /root/.pip/pip.conf /root/.config/pip/pip.conf \
+                   "$HOME/.pip/pip.conf" "$HOME/.config/pip/pip.conf"; do
+            [ -f "$f" ] && echo "[$f]" && cat "$f"
+          done
+          pip config debug 2>/dev/null || pip config list 2>/dev/null || echo "(no pip config)"
           echo "--- uv config ---"
-          for f in /etc/uv/uv.toml ~/.config/uv/uv.toml; do [ -f "$f" ] && echo "[$f]" && cat "$f"; done
+          for f in /etc/uv/uv.toml /root/.config/uv/uv.toml "$HOME/.config/uv/uv.toml"; do
+            [ -f "$f" ] && echo "[$f]" && cat "$f"
+          done
           env | grep -E '^(UV_|PIP_)' | sort || true
           echo "--- cargo config ---"
-          for f in /etc/cargo/config /etc/cargo/config.toml ~/.cargo/config ~/.cargo/config.toml; do [ -f "$f" ] && echo "[$f]" && cat "$f"; done
+          for f in /etc/cargo/config /etc/cargo/config.toml /root/.cargo/config /root/.cargo/config.toml \
+                   "$HOME/.cargo/config" "$HOME/.cargo/config.toml"; do
+            [ -f "$f" ] && echo "[$f]" && cat "$f"
+          done
           env | grep -E '^CARGO_' | sort || true
 
           echo "===== NORMALIZE: revert non-upstream sources ====="
           # apt: cache-service -> ports.ubuntu.com
           sed -Ei 's@http://cache-service\.nginx-pypi-cache\.svc\.cluster\.local:8081@http://ports.ubuntu.com@g' \
             /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null || true
-          # pip: drop baked config so env-forced pypi.org applies (PIP_INDEX_URL in env block)
-          rm -f /etc/pip.conf ~/.pip/pip.conf ~/.config/pip/pip.conf 2>/dev/null || true
+          # pip: drop baked config (image bakes /root/.config/pip/pip.conf ->
+          # cache-service at build time, see Dockerfile.nightly.a3 L24/L35) so
+          # env-forced pypi.org applies (PIP_INDEX_URL in env block)
+          rm -f /etc/pip.conf /root/.pip/pip.conf /root/.config/pip/pip.conf \
+                "$HOME/.pip/pip.conf" "$HOME/.config/pip/pip.conf" 2>/dev/null || true
           # uv: drop baked config so UV_DEFAULT_INDEX=pypi.org applies
-          rm -f /etc/uv/uv.toml ~/.config/uv/uv.toml 2>/dev/null || true
+          rm -f /etc/uv/uv.toml /root/.config/uv/uv.toml "$HOME/.config/uv/uv.toml" 2>/dev/null || true
           # cargo: drop baked mirror config so default crates.io applies
-          rm -f /etc/cargo/config /etc/cargo/config.toml ~/.cargo/config ~/.cargo/config.toml 2>/dev/null || true
+          rm -f /etc/cargo/config /etc/cargo/config.toml /root/.cargo/config /root/.cargo/config.toml \
+                "$HOME/.cargo/config" "$HOME/.cargo/config.toml" 2>/dev/null || true
 
           echo "===== SOURCES AUDIT (after) ====="
           echo "--- apt sources ---"
