@@ -69,7 +69,7 @@ jobs:
       target: a2
       vllm_ascend_branch: ${{ inputs.vllm_ascend_branch || 'main' }}
       build_type: ${{ inputs.build_type || 'release' }}
-      should_push: true
+      should_push: false
       soc: '910b'
       cann_version: ${{ fromJSON(inputs.base_image_tag || '{"cann_version":"9.1.0_20260731131545","base_image_date":"auto"}').cann_version }}
       base_image_date: ${{ fromJSON(inputs.base_image_tag || '{"cann_version":"9.1.0_20260731131545","base_image_date":"auto"}').base_image_date }}
@@ -85,7 +85,7 @@ jobs:
       target: a3
       vllm_ascend_branch: ${{ inputs.vllm_ascend_branch || 'main' }}
       build_type: ${{ inputs.build_type || 'release' }}
-      should_push: true
+      should_push: false
       soc: 'a3'
       cann_version: ${{ fromJSON(inputs.base_image_tag || '{"cann_version":"9.1.0_20260731131545","base_image_date":"auto"}').cann_version }}
       base_image_date: ${{ fromJSON(inputs.base_image_tag || '{"cann_version":"9.1.0_20260731131545","base_image_date":"auto"}').base_image_date }}
@@ -101,7 +101,7 @@ jobs:
       target: 310p
       vllm_ascend_branch: ${{ inputs.vllm_ascend_branch || 'main' }}
       build_type: ${{ inputs.build_type || 'release' }}
-      should_push: true
+      should_push: false
       soc: '310p'
       cann_version: ${{ fromJSON(inputs.base_image_tag || '{"cann_version":"9.1.0_20260731131545","base_image_date":"auto"}').cann_version }}
       base_image_date: ${{ fromJSON(inputs.base_image_tag || '{"cann_version":"9.1.0_20260731131545","base_image_date":"auto"}').base_image_date }}
@@ -116,7 +116,7 @@ jobs:
       target: a5
       vllm_ascend_branch: ${{ inputs.vllm_ascend_branch || 'main' }}
       build_type: ${{ inputs.build_type || 'release' }}
-      should_push: true
+      should_push: false
       soc: '950'
       cann_version: ${{ fromJSON(inputs.base_image_tag || '{"cann_version":"9.1.0_20260731131545","base_image_date":"auto"}').cann_version }}
       base_image_date: ${{ fromJSON(inputs.base_image_tag || '{"cann_version":"9.1.0_20260731131545","base_image_date":"auto"}').base_image_date }}
