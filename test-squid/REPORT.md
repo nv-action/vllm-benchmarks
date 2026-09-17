@@ -25,7 +25,8 @@
 |---|---|---|---|---|
 | [35099852972](https://github.com/nv-action/vllm-benchmarks/actions/runs/35099852972) | PR #336 创建 | success | 5m11s | 首轮，暴露 4 个问题（见第 4 节） |
 | [35166115990](https://github.com/nv-action/vllm-benchmarks/actions/runs/35166115990) | commit `43bc6442e` | success | 5m47s | 修复验证，pip/缓存/汇总已通过，但 PR 默认值表达式仍失效 |
-| [35166661315](https://github.com/nv-action/vllm-benchmarks/actions/runs/35166661315) | commit `04668c280` | **success** | 5m40s | **最终验收 run，全部链路通过** |
+| [35166661315](https://github.com/nv-action/vllm-benchmarks/actions/runs/35166661315) | commit `04668c280` | success | 5m40s | 全部链路通过，但事后复查发现系统包链路未覆盖 yum 路径 |
+| [35168526996](https://github.com/nv-action/vllm-benchmarks/actions/runs/35168526996) | commit `65f2aa7e7` | **success** | ~5m | **最终验收 run：yum 路径生效，阶段拆分完成** |
 
 ## 4. 发现的问题与修复
 
@@ -36,41 +37,48 @@
 | 3 | runs-on/cache 报 `CredentialsProviderError: Could not load credentials from any providers` | repo 未配置 `HW_OBS_AK`/`HW_OBS_SK` secrets（PLAN 第 7 节预判的风险成真） | 凭据缺失时整体跳过缓存链路并明确记录 `[skip]`，不视为失败 | `43bc6442e` |
 | 4 | summary 只有 5 行数据、probes 未纳入汇总 | 两矩阵同名 `timings.tsv` 被 `merge-multiple` 覆盖 | 结果文件加 OS 后缀（`timings-ubuntu.tsv` 等），summary 逐文件展示 + 全矩阵合计 | `43bc6442e` |
 | 5 | openeuler 节点 `https://github.com` HEAD 探测 30s 超时（exit 28），但 `git ls-remote` 1s 即通过 | squid MITM 下部分站点对 HEAD 响应异常，数据面正常 | probe 由 HEAD 改 GET | `43bc6442e` |
+| 6 | **没有 `yum install` 阶段，且 PLAN 中列出的 yum 路径从未被执行** | ① `detect_pkgmgr` 依次探测 `apt→dnf→yum`，openEuler 同时有 dnf/yum，永远命中 dnf，yum 分支为死代码；② dnf/yum 分支把「刷元数据 + 装包」合并成一条，阶段名却叫 `$PKGMGR-update`，实际执行 `$PKGMGR install` | 探测顺序改为 `apt→yum→dnf`（真实 CI `_build_csrc_cache.yaml` L108/L164 写的就是 `yum install`），并把该分支拆成 `$PKGMGR-makecache` + `$PKGMGR-install-zstd`，与 apt 分支对称 | `65f2aa7e7` |
 
-## 5. 最终结果（Run 35166661315）
+> 问题 6 的影响：此前 `dnf-update`(21s) 实际是 install 操作，与 `apt-update`(5s) 的纯元数据刷新不可比，
+> 原报告第 7.4 条的耗时对比结论已作废，见下方更正。
+
+## 5. 最终结果（Run 35168526996）
 
 ### 5.1 各阶段耗时（phase / seconds / status，0 = 成功）
 
-**timings-ubuntu.tsv**
+**timings-ubuntu.tsv**（`pkgmgr=apt`）
 
 | phase | seconds | status | category |
 |---|---|---|---|
-| apt-update | 5 | 0 | download |
-| apt-install-zstd | 2 | 0 | download |
-| pip-bootstrap | 11 | 0 | download |
-| pip-install-small | 1 | 0 | download |
+| apt-update | 4 | 0 | download |
+| apt-install-zstd | 1 | 0 | download |
+| pip-bootstrap | 8 | 0 | download |
+| pip-install-small | 0 | 0 | download |
 | pytorch-index-probe | 2 | 0 | download |
-| git-ls-remote-github | 2 | 0 | download |
-| git-shallow-clone-tiny | 3 | 0 | download |
-| wget-small-object | 0 | 0 | download |
-| obs-head-probe | 0 | 0 | probe |
-
-**timings-openeuler.tsv**
-
-| phase | seconds | status | category |
-|---|---|---|---|
-| dnf-update | 21 | 0 | download |
-| pip-bootstrap | 2 | 0 | download |
-| pip-install-small | 1 | 0 | download |
-| pytorch-index-probe | 2 | 0 | download |
-| git-ls-remote-github | 2 | 0 | download |
+| git-ls-remote-github | 1 | 0 | download |
 | git-shallow-clone-tiny | 2 | 0 | download |
 | wget-small-object | 0 | 0 | download |
 | obs-head-probe | 0 | 0 | probe |
 
-**按类型汇总（双矩阵合计）**：`download runs=15 total=56s`、`probe runs=2 total=0s`；**失败阶段：无**。
+**timings-openeuler.tsv**（`pkgmgr=yum`）
 
-### 5.2 直连探测（13 域名，双矩阵一致）
+| phase | seconds | status | category |
+|---|---|---|---|
+| yum-makecache | 17 | 0 | download |
+| yum-install-zstd | 2 | 0 | download |
+| pip-bootstrap | 3 | 0 | download |
+| pip-install-small | 1 | 0 | download |
+| pytorch-index-probe | 2 | 0 | download |
+| git-ls-remote-github | 1 | 0 | download |
+| git-shallow-clone-tiny | 2 | 0 | download |
+| wget-small-object | 0 | 0 | download |
+| obs-head-probe | 0 | 0 | probe |
+
+**按类型汇总（双矩阵合计）**：`download runs=16 total=46s`、`probe runs=2 total=0s`；**失败阶段：无**。
+
+### 5.2 直连探测（13 域名）
+
+数据取自 Run 35166661315（双矩阵完整采集）：
 
 | url | status | seconds | 说明 |
 |---|---|---|---|
@@ -88,6 +96,10 @@
 | https://mirrors.tuna.tsinghua.edu.cn | 200 | 0 | |
 | https://download.pytorch.org | 403 | 0~1 | |
 
+> 探测结果存在 run 间波动：Run 35168526996 中 openeuler 节点 `https://github.com` 返回 `503`（5s），
+> 而同 run 的 `git-ls-remote` / `git-shallow-clone` 仍全部成功，说明该 503 属边缘节点瞬时抖动，
+> 不影响实际 git 数据面。评估时应以「链路阶段是否成功」为准，探测状态码仅作参考。
+
 ### 5.3 上传链路
 
 - **artifact**：upload-artifact（双矩阵）→ download-artifact（summary）拉回成功，数据完整；
@@ -99,7 +111,7 @@
 | 验收项 | 结论 |
 |---|---|
 | workflow 在 squid runner 跑通、阶段级隔离 | ✅ 双矩阵全绿，无阶段失败 |
-| 下载链路 A/B/C/E（系统包、pip、git、OBS 对象） | ✅ 全部 OK，耗时见 5.1 |
+| 下载链路 A/B/C/E（系统包、pip、git、OBS 对象） | ✅ 全部 OK；A 已按真实 CI 命令分别覆盖 `apt-*` 与 `yum-*`（含 makecache/install 两阶段） |
 | 直连探测 I（13 域名） | ✅ 全部有响应，无超时 |
 | 上传链路 F（artifact） | ✅ 上传/下载闭环 |
 | 结果 TSV / summary 汇总 | ✅ 按矩阵分文件 + 全矩阵合计 + 失败清单 |
@@ -112,4 +124,8 @@
 1. **OBS 缓存链路**：需在 repo 补配 `HW_OBS_AK` / `HW_OBS_SK` 两个 secrets，然后手动 `workflow_dispatch` 一次即可完成 cache save→restore 命中闭环验证；
 2. **skopeo copy / git push**：需 SWR / PAT_TOKEN 凭据时用 workflow_dispatch 勾选对应开关执行；
 3. **大载荷验证**：当前为 mock 小载荷（1MB），pip 大包（`TEST_SQUID_PIP_MODELSCOPE=1`）与 modelscope 模型下载默认关闭，可在 dispatch 时开启做真实大包链路压测；
-4. **体验数据**：squid MITM 下 `dnf-update`(21s) 明显慢于 `apt-update`(5s)，`pip-bootstrap` 在 ubuntu 首次 21s（属镜像缺件，非代理问题），后续迁移评估时可参考。
+4. **体验数据（已更正）**：修正阶段拆分后，两条系统包链路口径已对齐可横向比较——
+   openeuler 的 `yum-makecache` 17s + `yum-install-zstd` 2s（合计 19s），ubuntu 的
+   `apt-update` 4s + `apt-install-zstd` 1s（合计 5s）。即在 squid MITM 下 **yum/dnf 的元数据刷新明显慢于 apt**（17s vs 4s），
+   而实际装小包的耗时接近（2s vs 1s）——瓶颈在元数据刷新阶段。
+   （原报告曾用 `dnf-update` 21s 与 `apt-update` 5s 对比，因两者操作语义不同，该结论已作废。）
