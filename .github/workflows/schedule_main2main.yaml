@@ -174,7 +174,7 @@ jobs:
     runs-on: linux-aarch64-a3-16-sh-001
     timeout-minutes: 2880
     concurrency:
-      group: main2main
+      group: main2main-baseline-probe
       cancel-in-progress: false
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-a3-ubuntu22.04-py3.12
@@ -226,11 +226,13 @@ jobs:
           print_group "${title}" "${path}"
         }
     steps:
-      - name: Checkout vllm-project/vllm-ascend repo
+      # Baseline probe: clean upstream main, NO main2main adaptations
+      # (deliberately ignores resolve-source's baseline-fork outputs).
+      - name: Checkout clean vllm-project/vllm-ascend main
         uses: actions/checkout@v7
         with:
-          repository: ${{ needs.resolve-source.outputs.source_repository }}
-          ref: ${{ needs.resolve-source.outputs.source_ref }}
+          repository: vllm-project/vllm-ascend
+          ref: main
           fetch-depth: 0
           submodules: recursive
           persist-credentials: false
@@ -304,6 +306,7 @@ jobs:
           fi
 
       - name: Install opencode + main2main-flow
+        if: false  # baseline probe: no flow, no opencode
         env:
           NODE_VERSION: 24.18.0
         run: |
@@ -498,74 +501,37 @@ jobs:
             vllm_ascend/include
           key: vllm-ascend-build-v2-${{ steps.get_arch.outputs.arch }}-${{ env.MAIN2MAIN_IMAGE_TAG }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
 
-      - name: Run main2main flow
-        id: run-main2main
+      # Baseline probe: run the two PCP suites that blocked the 09-16 runs,
+      # on the CLEAN tree (no m2m adaptations). Target vllm commit is pinned
+      # via the workflow_dispatch target_commit input for exact parity with
+      # run 35116948755 (cf1584f373d06f03c5662608fb80cf66c03fcb1d).
+      - name: Run baseline PCP e2e
+        id: run-baseline
         working-directory: ${{ github.workspace }}
+        timeout-minutes: 90
         env:
           RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES: True
         run: |
-          set -euo pipefail
-          export PATH="$HOME/.opencode/bin:$PATH"
-          eval "${MAIN2MAIN_LOG_HELPERS}"
-
-          rm -rf /tmp/main2main
-          mkdir -p /tmp/main2main
-
-          cat > /tmp/main2main/heartbeat.sh <<'HEARTBEAT'
-          trap "exit 0" TERM INT
-          printf '\n::notice::main2main heartbeat %s\n' "$(date -Is)"
-          while sleep 300; do
-            printf '\n::notice::main2main heartbeat %s\n' "$(date -Is)"
+          CASE_FILE="tests/e2e/pull_request/four_card/context_parallel/test_accuracy_v2.py"
+          NODES=(
+            "${CASE_FILE}::test_eagle3_gqa_spec_decode_with_pcp"
+            "${CASE_FILE}::test_mtp_mla_spec_decode_with_pcp"
+          )
+          declare -A RC
+          for NODE in "${NODES[@]}"; do
+            NAME=$(basename "${NODE%%::*}")__$(echo "${NODE##*::}" | cut -c1-40)
+            echo "::group::BASELINE ${NODE} (devs=0,1,2,3)"
+            ASCEND_RT_VISIBLE_DEVICES=0,1,2,3 \
+              pytest "${NODE}" -v --tb=short 2>&1 | tee "/tmp/baseline_${NAME}.log"
+            RC["${NODE}"]="${PIPESTATUS[0]}"
+            echo "::endgroup::"
+            echo "BASELINE_RESULT: ${NODE} exit=${RC[${NODE}]}"
           done
-          HEARTBEAT
-          setsid bash /tmp/main2main/heartbeat.sh &
-          HEARTBEAT_PID="$!"
-          cleanup_heartbeat() {
-            if [ -n "${HEARTBEAT_PID:-}" ]; then
-              kill -TERM -- "-${HEARTBEAT_PID}" 2>/dev/null || true
-              wait "${HEARTBEAT_PID}" 2>/dev/null || true
-            fi
-          }
-          trap cleanup_heartbeat EXIT
-
-          set +e
-          kickoff \
-            --vllm-path "$GITHUB_WORKSPACE/vllm-upstream" \
-            --vllm-ascend-path "$GITHUB_WORKSPACE" \
-            --target-commit "${TARGET_COMMIT}" \
-            2> /tmp/main2main/kickoff.err \
-            | tee /tmp/main2main/kickoff.log
-          KICKOFF_STATUS="${PIPESTATUS[0]}"
-          set -e
-          cleanup_heartbeat
-          trap - EXIT
-
-          echo "::notice::after kickoff: $(date -Is)"
-          echo "KICKOFF_STATUS=${KICKOFF_STATUS}"
-          ls -la /tmp/main2main || true
-          find /tmp/main2main -maxdepth 3 -type f -print || true
-
-          print_group "main2main kickoff output" /tmp/main2main/kickoff.log
-          print_group_if_nonempty "main2main kickoff stderr" /tmp/main2main/kickoff.err
-
-          if [ "${KICKOFF_STATUS}" -ne 0 ]; then
-            echo "::error::kickoff exited with status ${KICKOFF_STATUS}"
-            exit "${KICKOFF_STATUS}"
-          fi
-
-          # Copy final summary from workspace
-          FINAL_SUMMARY="${MAIN2MAIN_WORKSPACE}/final_summary.md"
-          if [ -f "${FINAL_SUMMARY}" ]; then
-            cp "${FINAL_SUMMARY}" /tmp/main2main/final-summary.md
-          fi
-
-          if [ -s /tmp/main2main/final-summary.md ]; then
-            print_group "main2main final summary" /tmp/main2main/final-summary.md
-          else
-            echo "::warning::final-summary.md not found, generating stub"
-            echo "Status: completed" > /tmp/main2main/final-summary.md
-            echo "Steps: 0/0" >> /tmp/main2main/final-summary.md
-          fi
+          echo "=========== BASELINE SUMMARY ==========="
+          for NODE in "${NODES[@]}"; do
+            if [ "${RC[${NODE}]}" = "0" ]; then VERDICT=PASS; else VERDICT=FAIL; fi
+            echo "BASELINE_SUMMARY: ${VERDICT} exit=${RC[${NODE}]} ${NODE}"
+          done
 
       - name: Upload workspace
         if: ${{ !cancelled() }}
