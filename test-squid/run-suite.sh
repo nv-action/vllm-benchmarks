@@ -74,10 +74,12 @@ run_timed() {
 }
 
 # 判定包管理器：apt / yum / dnf
+# 注意：openEuler 同时提供 dnf 与 yum（yum 为兼容壳），而真实 CI
+# （_build_csrc_cache.yaml openeuler 分支）用的是 `yum install`，故优先 yum 以对齐真实命令路径。
 detect_pkgmgr() {
     if command -v apt-get >/dev/null 2>&1; then echo apt
-    elif command -v dnf >/dev/null 2>&1; then echo dnf
     elif command -v yum >/dev/null 2>&1; then echo yum
+    elif command -v dnf >/dev/null 2>&1; then echo dnf
     else echo none; fi
 }
 
@@ -108,8 +110,11 @@ case "$PKGMGR" in
         run_timed apt-install-zstd download apt-get install -y zstd
         ;;
     dnf|yum)
+        # 与 apt 分支对称：拆成「刷元数据」+「装包」两个阶段
+        # _build_csrc_cache.yaml openeuler 分支的真实命令为 `yum install -y git zstd`
         log "== $PKGMGR 下载链路 =="
-        run_timed "$PKGMGR-update" download "$PKGMGR" install -y zstd
+        run_timed "$PKGMGR-makecache" download "$PKGMGR" makecache
+        run_timed "$PKGMGR-install-zstd" download "$PKGMGR" install -y zstd
         ;;
     *)
         log "[skip] 未识别包管理器"
