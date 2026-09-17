@@ -81,9 +81,10 @@ jobs:
       RESULTS_DIR: /tmp/test-squid-results
       TEST_SQUID_PIP_MODELSCOPE: ${{ inputs.test_squid_pip_modelscope && '1' || '0' }}
       TEST_SQUID_MODEL_DOWNLOAD: ${{ inputs.test_squid_model_download && '1' || '0' }}
-      # PR 事件无 inputs，此处用「默认开，显式传 false 才关」的表达式兜底
-      TEST_SQUID_GIT_CLONE: ${{ inputs.test_squid_git_clone == false && '0' || '1' }}
-      TEST_SQUID_OBS_WGET: ${{ inputs.test_squid_obs_wget == false && '0' || '1' }}
+      # PR 事件无 inputs：默认开这两个轻量链路；workflow_dispatch 时按输入开关
+      # 注意：空字符串在 GitHub 表达式里 `== false` 为真，不能直接用 `inputs.x == false` 判断
+      TEST_SQUID_GIT_CLONE: ${{ github.event_name == 'pull_request' && '1' || (inputs.test_squid_git_clone && '1' || '0') }}
+      TEST_SQUID_OBS_WGET: ${{ github.event_name == 'pull_request' && '1' || (inputs.test_squid_obs_wget && '1' || '0') }}
       # OBS 凭据是否存在（决定缓存链路是否执行；runs-on/cache 后端走 OBS）
       HW_OBS_AK_PRESENT: ${{ secrets.HW_OBS_AK != '' }}
       TEST_SQUID_SKOPEO: ${{ inputs.test_squid_skopeo && '1' || '0' }}
