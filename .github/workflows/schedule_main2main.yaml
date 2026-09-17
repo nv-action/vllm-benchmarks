@@ -518,12 +518,13 @@ jobs:
           for NODE in "${NODES[@]}"; do
             NAME=$(basename "${NODE%%::*}")__$(echo "${NODE##*::}" | cut -c1-40)
             echo "::group::BASELINE ${NODE} (devs=0,1,2,3)"
-            # faulthandler dumps all thread stacks after 300s of silence;
-            # per-test wall clock cap 1500s so one hang cannot eat the step.
+            # On SIGABRT, PYTHONFAULTHANDLER=1 dumps all thread stacks before
+            # dying; per-test wall clock cap 1500s so one hang cannot eat the
+            # step (flow runs these suites to a verdict within minutes).
             ASCEND_RT_VISIBLE_DEVICES=0,1,2,3 \
-              timeout --signal=KILL 1500 \
+              timeout --signal=ABRT --kill-after=30 1500 \
               env VLLM_LOGGING_LEVEL=INFO PYTHONFAULTHANDLER=1 \
-              pytest "${NODE}" -v -s --tb=short --faulthandler-timeout=300 \
+              pytest "${NODE}" -v -s --tb=short \
               2>&1 | tee "/tmp/baseline_${NAME}.log"
             RC["${NODE}"]="${PIPESTATUS[0]}"
             echo "::endgroup::"
