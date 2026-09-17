@@ -7,6 +7,7 @@ test_cases:
     model: "Eco-Tech/Qwen3.5-27B-w8a8-mtp"
     envs:
       VLLM_USE_MODELSCOPE: "true"
+      VLLM_DISABLE_COMPILE_CACHE: "1"
       PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
       HCCL_BUFFSIZE: "1024"
       HCCL_OP_EXPANSION_MODE: "AIV"
