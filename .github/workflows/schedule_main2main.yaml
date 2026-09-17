@@ -58,7 +58,7 @@ jobs:
       base_sha: ${{ steps.source.outputs.base_sha }}
     env:
       TARGET_COMMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.target_commit || '' }}
-      HEAD_FORK: vllm-ascend-ci/vllm-ascend
+      HEAD_FORK: dev-submitter/vllm-ascend
     steps:
       - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v7
@@ -82,8 +82,8 @@ jobs:
             exit 1
           fi
 
-          git config user.name "main2main-bot"
-          git config user.email "main2main-bot@users.noreply.github.com"
+          git config user.name "dev-submitter"
+          git config user.email "330005789+dev-submitter@users.noreply.github.com"
           # This fetch gates the whole run; retry transient failures.
           attempt=0
           until git fetch "https://github.com/${UPSTREAM_REPO}.git" main; do
@@ -171,10 +171,10 @@ jobs:
 
   main2main:
     needs: [resolve-source, ensure-csrc-cache]
-    runs-on: linux-amd64-cpu-8-hk
+    runs-on: linux-aarch64-a3-16-sh-001
     timeout-minutes: 2880
     concurrency:
-      group: main2main-baseline-probe
+      group: main2main
       cancel-in-progress: false
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-a3-ubuntu22.04-py3.12
@@ -199,12 +199,12 @@ jobs:
       run:
         shell: bash -el {0}
     env:
-      GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+      GH_TOKEN: ${{ secrets.DEV_SUBMITTER_TOKEN }}
       MAIN2MAIN_IMAGE_TAG: 9.1.0-a3-ubuntu22.04-py3.12
       TARGET_COMMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.target_commit || '' }}
       PUSH_TO_GITHUB: 'true'
       GITHUB_REPO: vllm-project/vllm-ascend
-      HEAD_FORK: vllm-ascend-ci/vllm-ascend
+      HEAD_FORK: dev-submitter/vllm-ascend
       MAIN2MAIN_KEEP_BRANCH: 'true'
       MAIN2MAIN_WORKSPACE: /tmp/main2main_flow/workspace
       MAIN2MAIN_CASES_FILE: .github/workflows/scripts/main2main_tests.json
@@ -226,13 +226,11 @@ jobs:
           print_group "${title}" "${path}"
         }
     steps:
-      # Baseline probe: clean upstream main, NO main2main adaptations
-      # (deliberately ignores resolve-source's baseline-fork outputs).
-      - name: Checkout clean vllm-project/vllm-ascend main
+      - name: Checkout vllm-project/vllm-ascend repo
         uses: actions/checkout@v7
         with:
-          repository: vllm-project/vllm-ascend
-          ref: main
+          repository: ${{ needs.resolve-source.outputs.source_repository }}
+          ref: ${{ needs.resolve-source.outputs.source_ref }}
           fetch-depth: 0
           submodules: recursive
           persist-credentials: false
@@ -276,8 +274,8 @@ jobs:
             fi
           fi
 
-          git config user.name "main2main-bot"
-          git config user.email "main2main-bot@users.noreply.github.com"
+          git config user.name "dev-submitter"
+          git config user.email "330005789+dev-submitter@users.noreply.github.com"
           gh --version
 
       - name: Load main2main test cases
@@ -306,7 +304,6 @@ jobs:
           fi
 
       - name: Install opencode + main2main-flow
-        if: false  # baseline probe: no flow, no opencode
         env:
           NODE_VERSION: 24.18.0
         run: |
@@ -501,12 +498,12 @@ jobs:
             vllm_ascend/include
           key: vllm-ascend-build-v2-${{ steps.get_arch.outputs.arch }}-${{ env.MAIN2MAIN_IMAGE_TAG }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
 
-      # Baseline probe: run the two PCP suites that blocked the 09-16 runs,
-      # on the CLEAN tree (no m2m adaptations). Target vllm commit is pinned
-      # via the workflow_dispatch target_commit input for exact parity with
-      # run 35116948755 (cf1584f373d06f03c5662608fb80cf66c03fcb1d).
-      - name: Run baseline PCP e2e
-        id: run-baseline
+      # TEMP PROBE: everything upstream-identical except this step — the
+      # main2main flow is replaced by a direct run of the two PCP suites that
+      # blocked the 09-16 runs, on the resolved source tree (m2m baseline
+      # rebase, NO step-1 adaptation for the current target).
+      - name: Run baseline PCP probe
+        id: run-main2main
         working-directory: ${{ github.workspace }}
         timeout-minutes: 90
         env:
