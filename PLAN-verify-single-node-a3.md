@@ -198,3 +198,27 @@ gh workflow run schedule_nightly_test_a3.yaml \
 - **runner label**：main 分支 `nightly_config.yaml` 的单测 `os` 已被上游改为 `linux-aarch64-nightly-a3-*`（未授权池，job 会永久排队）。实验 dispatch **必须**按 §2 配方传 `vllm_ascend_ref=<feature分支>`，让矩阵从分支 config 读到 `linux-aarch64-a3-2`
 - **僵尸 queued run 会占住 concurrency 组**（`ascend-nightly-<ref>-a3`，组键含 `request_id`）；GitHub 对 queued run 的取消可能不生效且 DELETE run 返回 403。实验 dispatch 统一带唯一 `request_id`（如 `apt-forensics-1`）即可隔离组；mock 模式下 request_id 相关的 PR 步骤均被 `!inputs.mock_npu` guard，无副作用
 - 遗留：僵尸 run `34915899094` 卡在 queued（错误的 nightly-a3-2 池），需集群侧或 admin 清理
+
+---
+
+## 10. 基础镜像烤入镜像源 + 真 no-mirror 复测（2026-09-17，run `35101175467`）
+
+### 发现：nightly-ci-main-a3 镜像已内置 cache-service
+`_schedule_image_build.yaml` 自 2026-08/09 起（wenshun88 / hfadzxy）向构建传入 `APTMIRROR=cache-service:8081`（及 YUM 8083 / RUSTUP 8082），Dockerfile 构建期把 `ports.ubuntu.com` sed 成内网 cache-service。2026-09-16 的每日重建使 `nightly-ci-main-a3` tag 生效该配置——**镜像默认 apt 源变为 cache-service**，pip/uv/cargo 无烤入配置（已实测确认）。
+影响：nightly 测试 workflow 里的 `sed ports.ubuntu.com→cache-service` 从此空转（终点不变、无行为影响）；但"no-mirror 对照实验"的前提（镜像默认=上游）失效。
+
+### nomirror 分支的修正（commit `a4e255d06` / `f788c7ff9`）
+- env 强制 `PIP_INDEX_URL` / `UV_DEFAULT_INDEX = https://pypi.org/simple`
+- 首步审计并归一化全部源：apt sed 回 `ports.ubuntu.com`；删除烤入的 pip/uv/cargo 配置（实测镜像内仅 apt 被烤入，pip/uv/cargo 本来就没有配置文件）
+
+### 真 no-mirror 复测结果（Qwen3.8-27B-w8a8-A3，mock）
+| 配置 | job 时长 |
+|---|---|
+| huaweicloud mirror | 149s |
+| cache-service mirror | 150s |
+| no-mirror 冷（09-16 旧镜像） | 948s |
+| no-mirror 热（09-16 旧镜像） | 242s |
+| **no-mirror（09-17 强制上游）** | **188s** |
+
+结论：直连上游 + squid 代理（热缓存）约 188s，比镜像源慢 ~38s（~25%），差距来自 squid 对上游的重验证往返（cache-service 是集群内 LAN 直连）。镜像源方案仍然必要；审计与归一化逻辑已固化在 nomirror 分支，后续重跑不受镜像烤入影响。
+运维备注：本次连续两次失败均为集群出网抖动（github.com 443 连接超时 / Export job 卡 50min），与改动无关，重试即恢复。
