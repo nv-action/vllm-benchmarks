@@ -127,6 +127,17 @@ export PYTORCH_INDEX_URL
 export ASCEND_INDEX_URL
 python3 -m pip config set global.index-url "$PIP_INDEX_URL" >/dev/null 2>&1 || true
 
+# 2.0 python3/pip 引导：部分镜像缺 python3 或缺 pip 模块，先补齐再测 pip 链路
+pip_bootstrap() {
+    python3 -m pip --version >/dev/null 2>&1 && return 0
+    case "$PKGMGR" in
+        apt) apt-get update -y && apt-get install -y python3 python3-pip ;;
+        dnf|yum) "$PKGMGR" install -y python3 python3-pip ;;
+        *) return 1 ;;
+    esac
+}
+run_timed pip-bootstrap download pip_bootstrap
+
 # 2.1 pip 安装小轮子（mock 掉 requirements-dev.txt 全量）
 run_timed pip-install-small download python3 -m pip install --no-cache-dir zstandard
 
@@ -197,7 +208,9 @@ probe() {
     local url="$1"
     local start end sec
     start=$(date +%s)
-    code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 -I "$url" 2>/dev/null)
+    # 用 GET 而非 HEAD：实测经 squid 代理时部分站点（github.com）对 HEAD
+    # 响应缓慢/超时，但 GET 数据面正常（git ls-remote 1s 即通过）
+    code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "$url" 2>/dev/null)
     status=$?
     end=$(date +%s)
     sec=$((end - start))

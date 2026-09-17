@@ -81,8 +81,11 @@ jobs:
       RESULTS_DIR: /tmp/test-squid-results
       TEST_SQUID_PIP_MODELSCOPE: ${{ inputs.test_squid_pip_modelscope && '1' || '0' }}
       TEST_SQUID_MODEL_DOWNLOAD: ${{ inputs.test_squid_model_download && '1' || '0' }}
-      TEST_SQUID_GIT_CLONE: ${{ inputs.test_squid_git_clone && '1' || '0' }}
-      TEST_SQUID_OBS_WGET: ${{ inputs.test_squid_obs_wget && '1' || '0' }}
+      # PR 事件无 inputs，此处用「默认开，显式传 false 才关」的表达式兜底
+      TEST_SQUID_GIT_CLONE: ${{ inputs.test_squid_git_clone == false && '0' || '1' }}
+      TEST_SQUID_OBS_WGET: ${{ inputs.test_squid_obs_wget == false && '0' || '1' }}
+      # OBS 凭据是否存在（决定缓存链路是否执行；runs-on/cache 后端走 OBS）
+      HW_OBS_AK_PRESENT: ${{ secrets.HW_OBS_AK != '' }}
       TEST_SQUID_SKOPEO: ${{ inputs.test_squid_skopeo && '1' || '0' }}
       TEST_SQUID_GIT_PUSH: ${{ inputs.test_squid_git_push && '1' || '0' }}
       # skopeo / git push 上传链路所需凭据（可选）
@@ -121,8 +124,16 @@ jobs:
           echo "=========== probes ==========="
           cat "$RESULTS_DIR/probes.tsv"
 
+      # 结果文件标注 OS：避免两个矩阵同名 timings.tsv 在 merge-multiple 时互相覆盖
+      - name: 结果文件标注 OS
+        run: |
+          mv "$RESULTS_DIR/timings.tsv" "$RESULTS_DIR/timings-${{ matrix.os }}.tsv"
+          mv "$RESULTS_DIR/probes.tsv" "$RESULTS_DIR/probes-${{ matrix.os }}.tsv"
+
       # 缓存链路：restore(未命中) -> save -> restore(验证命中)，后端为 OBS
+      # 无 OBS 凭据（HW_OBS_AK/HW_OBS_SK secrets 缺失）时整体跳过，避免 CredentialsProviderError
       - name: 缓存 restore（首次，预期未命中）
+        if: env.HW_OBS_AK_PRESENT == 'true'
         id: cache-restore-1
         uses: runs-on/cache/restore@v5
         with:
@@ -130,12 +141,18 @@ jobs:
           key: test-squid-cache-${{ matrix.os }}-${{ github.run_id }}
         continue-on-error: true
 
+      - name: 缓存链路跳过（无 OBS 凭据）
+        if: env.HW_OBS_AK_PRESENT != 'true'
+        run: echo "[skip] 未配置 HW_OBS_AK/HW_OBS_SK secrets，跳过 runs-on/cache 链路（不视为失败）"
+
       - name: 准备缓存目录（小载荷）
+        if: env.HW_OBS_AK_PRESENT == 'true'
         run: |
           mkdir -p /tmp/test-squid-cache
           cp "$RESULTS_DIR/payload.bin" /tmp/test-squid-cache/
 
       - name: 缓存 save（上传链路，runs-on/cache -> OBS）
+        if: env.HW_OBS_AK_PRESENT == 'true'
         uses: runs-on/cache/save@v5
         with:
           path: /tmp/test-squid-cache
@@ -143,6 +160,7 @@ jobs:
         continue-on-error: true
 
       - name: 缓存 restore（二次，验证命中 + 下载链路）
+        if: env.HW_OBS_AK_PRESENT == 'true'
         id: cache-restore-2
         uses: runs-on/cache/restore@v5
         with:
@@ -151,6 +169,7 @@ jobs:
         continue-on-error: true
 
       - name: 校验缓存命中
+        if: env.HW_OBS_AK_PRESENT == 'true'
         run: |
           if [ "${{ steps.cache-restore-2.outputs.cache-hit }}" = "true" ]; then
             echo "cache-hit=true"
@@ -188,10 +207,19 @@ jobs:
       - name: 汇总下载/上传阶段耗时
         run: |
           echo "===== 各阶段耗时 (phase<TAB>sec<TAB>status<TAB>category) ====="
-          cat /tmp/results/timings.tsv
+          for f in /tmp/results/timings-*.tsv; do
+            echo "----- $(basename "$f") -----"
+            cat "$f"
+          done
           echo
-          echo "===== 按类型汇总 ====="
-          awk -F '\t' 'NR>1 {t[$4]+=$2; n[$4]++} END {for (k in t) printf "%-10s runs=%d total=%ss\n", k, n[k], t[k]}' /tmp/results/timings.tsv | sort
+          echo "===== 按类型汇总（全部矩阵合计） ====="
+          awk -F '\t' 'FNR>1 {t[$4]+=$2; n[$4]++} END {for (k in t) printf "%-10s runs=%d total=%ss\n", k, n[k], t[k]}' /tmp/results/timings-*.tsv | sort
           echo
           echo "===== 失败阶段 ====="
-          awk -F '\t' 'NR>1 && $3!=0 {print}' /tmp/results/timings.tsv || echo "(无失败)"
+          awk -F '\t' 'FNR>1 && $3!=0 {print FILENAME": "$0}' /tmp/results/timings-*.tsv || true
+          echo
+          echo "===== 直连探测 (url<TAB>status<TAB>seconds) ====="
+          for f in /tmp/results/probes-*.tsv; do
+            echo "----- $(basename "$f") -----"
+            cat "$f"
+          done
