@@ -69,6 +69,60 @@ def test_profile_batch_uses_one_full_batch_without_warmup(monkeypatch: pytest.Mo
     assert original_case["batch_size"] == 32
 
 
+def test_profile_batch_prefers_performance_case_and_caps_requests(monkeypatch: pytest.MonkeyPatch) -> None:
+    aisbench = _import_aisbench(monkeypatch)
+    captured: list[dict] = []
+
+    class FakeRunner:
+        def __init__(self, **kwargs):
+            captured.append(kwargs)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            return None
+
+    monkeypatch.setattr(aisbench, "AisbenchRunner", FakeRunner)
+    cases = [
+        {
+            "case_type": "accuracy",
+            "batch_size": 32,
+            "max_out_len": 65536,
+        },
+        {
+            "case_type": "performance",
+            "num_prompts": 140,
+            "batch_size": 35,
+            "max_out_len": 1500,
+        },
+    ]
+
+    aisbench.run_aisbench_profile_batch(
+        model="model",
+        port=8000,
+        aisbench_cases=cases,
+        profile_context=object(),
+    )
+
+    assert captured[0]["aisbench_config"] == {
+        "case_type": "performance",
+        "num_prompts": 1,
+        "num_warmups": 0,
+        "batch_size": 1,
+        "max_out_len": 1500,
+    }
+    assert captured[1]["aisbench_config"] == {
+        "case_type": "performance",
+        "num_prompts": aisbench.PROFILE_BATCH_REQUESTS,
+        "num_warmups": 0,
+        "batch_size": aisbench.PROFILE_BATCH_REQUESTS,
+        "max_out_len": 1500,
+    }
+    assert cases[1]["num_prompts"] == 140
+    assert cases[1]["batch_size"] == 35
+
+
 def test_aisbench_enters_task_context_after_initialization(monkeypatch: pytest.MonkeyPatch) -> None:
     aisbench = _import_aisbench(monkeypatch)
     events: list[str] = []

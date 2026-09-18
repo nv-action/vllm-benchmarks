@@ -215,13 +215,15 @@ async def test_multi_node() -> None:
                     host_ip=host,
                     profile_context=profiling_session(profile_targets),
                 )
-            results = run_aisbench_cases(
-                model=config.model,
-                port=port,
-                aisbench_cases=config.benchmark_cases,
-                host_ip=host,
-            )
-            _save_benchmark_results_json(config, results)
+                logger.info("Profiling batch completed; skipping the full benchmark run")
+            else:
+                results = run_aisbench_cases(
+                    model=config.model,
+                    port=port,
+                    aisbench_cases=config.benchmark_cases,
+                    host_ip=host,
+                )
+                _save_benchmark_results_json(config, results)
         else:
             # We should keep listening on the master node's server url determining when to exit.
             server.hang_until_terminated(f"http://{host}:{config.server_port}/health")

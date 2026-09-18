@@ -35,6 +35,7 @@ BENCHMARK_HOME = os.getenv("BENCHMARK_HOME", os.path.abspath("./benchmark"))
 DATASET_CONF_DIR = os.path.join(BENCHMARK_HOME, "ais_bench", "benchmark", "configs", "datasets")
 REQUEST_CONF_DIR = os.path.join(BENCHMARK_HOME, "ais_bench", "benchmark", "configs", "models", "vllm_api")
 DATASET_DIR = os.path.join(BENCHMARK_HOME, "ais_bench", "datasets")
+PROFILE_BATCH_REQUESTS = 32
 
 
 class AisbenchRunner:
@@ -366,14 +367,18 @@ def run_aisbench_profile_batch(
     *,
     profile_context: AbstractContextManager,
 ):
-    """Warm up outside profiling, then profile one complete request batch."""
-    profile_case = next((case for case in aisbench_cases if case), None)
+    """Warm up outside profiling, then profile up to 32 concurrent performance requests."""
+    profile_case = next(
+        (case for case in aisbench_cases if case and case.get("case_type") == "performance"),
+        next((case for case in aisbench_cases if case), None),
+    )
     if profile_case is None:
         raise ValueError("profiling requires at least one AISBench case")
 
     batch_size = profile_case.get("batch_size")
     if not isinstance(batch_size, int) or batch_size < 1:
         raise ValueError("profiling requires a positive AISBench batch_size")
+    profile_batch_size = min(batch_size, PROFILE_BATCH_REQUESTS)
 
     warmup_case = copy.deepcopy(profile_case)
     warmup_case.update(
@@ -396,11 +401,12 @@ def run_aisbench_profile_batch(
     profile_case = copy.deepcopy(profile_case)
     profile_case.update(
         {
-            "num_prompts": batch_size,
+            "num_prompts": profile_batch_size,
             "num_warmups": 0,
+            "batch_size": profile_batch_size,
         }
     )
-    logging.info("Running one-batch AISBench profiling workload with %d requests", batch_size)
+    logging.info("Running one-batch AISBench profiling workload with %d requests", profile_batch_size)
     with AisbenchRunner(
         model=model,
         port=port,

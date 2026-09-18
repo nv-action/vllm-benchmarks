@@ -627,8 +627,11 @@ async def test_single_node(config: SingleNodeConfig) -> None:
         ):
             await _dispatch_tests(config, proxy)
             profile_targets = [health_url.removesuffix("/health") for health_url in epd_server.health_url_list]
-            _run_profile_batch(config, proxy.port, profile_targets)
-            await _run_benchmarks_and_spec_decode(config, proxy, proxy.port)
+            if profiling_enabled():
+                _run_profile_batch(config, proxy.port, profile_targets)
+                logger.info("Profiling batch completed; skipping the full benchmark run")
+            else:
+                await _run_benchmarks_and_spec_decode(config, proxy, proxy.port)
         return
 
     # Standard OpenAI service mode
@@ -648,7 +651,10 @@ async def test_single_node(config: SingleNodeConfig) -> None:
         except Exception as e:
             errors.append(e)
             logger.error("dispatch_tests failed: %s", e)
-        _run_profile_batch(config, config.server_port, [server.url_root])
-        await _run_benchmarks_and_spec_decode(config, server, config.server_port)
+        if profiling_enabled():
+            _run_profile_batch(config, config.server_port, [server.url_root])
+            logger.info("Profiling batch completed; skipping the full benchmark run")
+        else:
+            await _run_benchmarks_and_spec_decode(config, server, config.server_port)
         if errors:
             raise errors[0]

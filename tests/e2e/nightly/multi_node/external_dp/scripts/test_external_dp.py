@@ -302,23 +302,25 @@ def test_external_dp() -> None:
                             host_ip=config.routing.proxy_host,
                             profile_context=profiling_session(profile_targets),
                         )
-                    results = run_aisbench_cases(
-                        model=config.model,
-                        port=config.routing.proxy_port,
-                        aisbench_cases=config.benchmark_cases,
-                        host_ip=config.routing.proxy_host,
-                    )
-                logger.info("AISBench completed: results=%d", len(results or []))
-                write_benchmark_results_json(
-                    config=config,
-                    ranks=ranks,
-                    commands=all_commands,
-                    results=results,
-                )
+                        logger.info("Profiling batch completed; skipping the full benchmark run")
+                    else:
+                        results = run_aisbench_cases(
+                            model=config.model,
+                            port=config.routing.proxy_port,
+                            aisbench_cases=config.benchmark_cases,
+                            host_ip=config.routing.proxy_host,
+                        )
+                        logger.info("AISBench completed: results=%d", len(results or []))
+                        write_benchmark_results_json(
+                            config=config,
+                            ranks=ranks,
+                            commands=all_commands,
+                            results=results,
+                        )
 
-                if "spec_decode_acceptance" in config.test_content:
-                    logger.info("Validating spec_decode acceptance rate")
-                    _run_spec_decode_acceptance_ext(config, metrics_server, first_server_cmd, spec_baseline)
+                        if "spec_decode_acceptance" in config.test_content:
+                            logger.info("Validating spec_decode acceptance rate")
+                            _run_spec_decode_acceptance_ext(config, metrics_server, first_server_cmd, spec_baseline)
 
                 wait_ranks_ready(ranks, timeout=30)
             else:

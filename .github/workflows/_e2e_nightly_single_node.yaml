@@ -143,6 +143,10 @@ on:
         required: false
       OBS_SECRET_ACCESS_KEY:
         required: false
+      AWS_ACCESS_KEY_ID:
+        required: false
+      AWS_SECRET_ACCESS_KEY:
+        required: false
       OPENLIBING_SECRET:
         required: false
 
@@ -565,8 +569,47 @@ jobs:
             exit 1
           fi
 
+      - name: Save profiling artifacts to OBS cache (A2/A3)
+        if: ${{ always() && inputs.profile_enabled && steps.package_profile.outputs.profile_ready == 'true' && (inputs.soc_version == 'a2' || inputs.soc_version == 'a3') }}
+        continue-on-error: true
+        uses: runs-on/cache/save@v5
+        env:
+          RUNS_ON_S3_BUCKET_CACHE: obs-guiiyang1-ascend-test
+          RUNS_ON_S3_BUCKET_ENDPOINT: https://obs.cn-southwest-2.myhuaweicloud.com
+          RUNS_ON_S3_FORCE_PATH_STYLE: "false"
+          AWS_S3_FORCE_PATH_STYLE: "false"
+          AWS_REGION: cn-southwest-2
+          RUNS_ON_RUNNER_NAME: ""
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        with:
+          path: /tmp/profile-output.tar.gz
+          key: nightly-test-profiling-${{ inputs.vllm_ascend_branch }}-${{ inputs.name }}-${{ steps.package_profile.outputs.profile_mode }}-${{ steps.profile_ts.outputs.artifact_ts }}
+
+      - name: Upload profiling archive directly to OBS (A2/A3)
+        if: ${{ always() && inputs.profile_enabled && steps.package_profile.outputs.profile_ready == 'true' && (inputs.soc_version == 'a2' || inputs.soc_version == 'a3') }}
+        continue-on-error: true
+        working-directory: /vllm-workspace/vllm-ascend
+        env:
+          RUNS_ON_S3_BUCKET_CACHE: obs-guiiyang1-ascend-test
+          RUNS_ON_S3_BUCKET_ENDPOINT: https://obs.cn-southwest-2.myhuaweicloud.com
+          AWS_REGION: cn-southwest-2
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          PROFILE_ARCHIVE: /tmp/profile-output.tar.gz
+          OBS_OBJECT_KEY: nightly-profiling/${{ github.repository }}/${{ github.run_id }}/${{ github.run_attempt }}/nightly-test-profiling-${{ inputs.vllm_ascend_branch }}-${{ inputs.name }}-${{ steps.package_profile.outputs.profile_mode }}-${{ steps.profile_ts.outputs.artifact_ts }}.tar.gz
+        run: |
+          python3 -c 'import boto3' 2>/dev/null || python3 -m pip install --quiet boto3
+          python3 tests/e2e/nightly/scripts/upload_profile_to_obs.py \
+            --source "$PROFILE_ARCHIVE" \
+            --bucket "$RUNS_ON_S3_BUCKET_CACHE" \
+            --key "$OBS_OBJECT_KEY" \
+            --endpoint "$RUNS_ON_S3_BUCKET_ENDPOINT" \
+            --region "$AWS_REGION"
+
       - name: Upload profiling artifacts (OBS)
-        if: ${{ always() && inputs.profile_enabled && steps.package_profile.outputs.profile_ready == 'true' }}
+        # A2/A3 use the OBS-backed cache step above; keep the legacy uploader for other SoCs.
+        if: ${{ always() && inputs.profile_enabled && steps.package_profile.outputs.profile_ready == 'true' && inputs.soc_version != 'a2' && inputs.soc_version != 'a3' }}
         continue-on-error: true
         uses: ascend-gha-runners/artifact/upload@v0.3
         with:
@@ -578,7 +621,8 @@ jobs:
           retention-days: 14
 
       - name: Upload profiling artifacts (GitHub Artifacts)
-        if: ${{ always() && inputs.profile_enabled && steps.package_profile.outputs.profile_ready == 'true' }}
+        # Temporarily disabled for A2/A3 while the OBS-backed cache path is evaluated.
+        if: ${{ always() && inputs.profile_enabled && steps.package_profile.outputs.profile_ready == 'true' && inputs.soc_version != 'a2' && inputs.soc_version != 'a3' }}
         uses: actions/upload-artifact@v7
         with:
           name: nightly-test-profiling-${{ inputs.vllm_ascend_branch }}-${{ inputs.name }}-${{ steps.package_profile.outputs.profile_mode }}-${{ steps.profile_ts.outputs.artifact_ts }}
