@@ -186,7 +186,7 @@ jobs:
     uses: ./.github/workflows/_nightly_image_build.yaml
     with:
       target: a5
-      vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
+      vllm_ascend_branch: main
       build_type: ${{ inputs.build_type }}
       quay_daily_username: ${{ vars.QUAY_DAILY_USERNAME }}
       cann_version: ${{ fromJSON(inputs.base_image_tag).cann_version }}
@@ -216,9 +216,9 @@ jobs:
     with:
       soc_version: a5
       runner: linux-aarch64-a5-0
-      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a5'
-      ascend_log_prefix: ${{ needs.setup-vars.outputs.ascend_log_prefix }}/${{ matrix.vllm_ascend_branch }}
-      vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
+      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-main-a5'
+      ascend_log_prefix: ${{ needs.setup-vars.outputs.ascend_log_prefix }}/mian
+      vllm_ascend_branch: mian
       replicas: 1
       size: ${{ matrix.test_config.size }}
       config_file_path: ${{ matrix.test_config.config_file_path }}
