@@ -43,7 +43,12 @@ def main() -> None:
         config=Config(
             signature_version="s3v4",
             retries={"max_attempts": 5, "mode": "standard"},
-            s3={"addressing_style": "virtual"},
+            request_checksum_calculation="when_required",
+            response_checksum_validation="when_required",
+            s3={
+                "addressing_style": "virtual",
+                "payload_signing_enabled": False,
+            },
         ),
     )
     transfer_config = TransferConfig(

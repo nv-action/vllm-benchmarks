@@ -55,7 +55,7 @@ def _load_workflow(path: str) -> dict:
         ),
     ],
 )
-def test_a2_a3_profiling_uses_serial_obs_uploads(
+def test_a2_a3_profiling_uses_direct_obs_upload_only(
     workflow_path: str,
     job_name: str,
     archive_path: str,
@@ -74,7 +74,7 @@ def test_a2_a3_profiling_uses_serial_obs_uploads(
     assert cache_step["continue-on-error"] is True
     assert cache_step["env"] == OBS_CACHE_ENV
     assert cache_step["with"]["path"] == archive_path
-    assert OBS_CACHE_CONDITION in cache_step["if"]
+    assert cache_step["if"] == "${{ false }}"
 
     direct_step = steps[direct_step_name]
     assert direct_step["continue-on-error"] is True
@@ -99,6 +99,14 @@ def test_a2_a3_profiling_uses_serial_obs_uploads(
     github_step = steps[github_step_name]
     assert github_step["uses"] == "actions/upload-artifact@v7"
     assert LEGACY_UPLOAD_CONDITION in github_step["if"]
+
+
+def test_direct_obs_upload_uses_s3_compatible_checksum_settings() -> None:
+    uploader = Path("tests/e2e/nightly/scripts/upload_profile_to_obs.py").read_text()
+
+    assert 'request_checksum_calculation="when_required"' in uploader
+    assert 'response_checksum_validation="when_required"' in uploader
+    assert '"payload_signing_enabled": False' in uploader
 
 
 @pytest.mark.parametrize(

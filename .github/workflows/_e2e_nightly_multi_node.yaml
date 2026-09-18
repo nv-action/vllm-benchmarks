@@ -697,7 +697,8 @@ jobs:
           fi
 
       - name: Save profiling results to OBS cache (A2/A3)
-        if: ${{ always() && inputs.profile_enabled && steps.package_profile.outputs.profile_ready == 'true' && (inputs.soc_version == 'a2' || inputs.soc_version == 'a3') }}
+        # Temporarily skipped after the OBS-backed cache path was validated.
+        if: ${{ false }}
         continue-on-error: true
         uses: runs-on/cache/save@v5
         env:
