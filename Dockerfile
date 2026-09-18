@@ -31,6 +31,7 @@ WORKDIR /workspace
 # Install clang-15 (for triton-ascend) and Mooncake
 ARG MOONCAKE_TAG=0.3.11.post1
 RUN if [ -n "$APTMIRROR" ]; then \
+        cp /etc/apt/sources.list /etc/apt/sources.list.bak && \
         sed -Ei "s@(ports|archive).ubuntu.com@${APTMIRROR#http://}@g" /etc/apt/sources.list; \
     fi && \
     apt-get update -y && \
@@ -39,6 +40,7 @@ RUN if [ -n "$APTMIRROR" ]; then \
     update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-15 20 && \
     source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
     python3 -m pip install mooncake-transfer-engine-npu==${MOONCAKE_TAG} --extra-index-url ${MOONCAKE_INDEX_URL} && \
+    if [ -n "$APTMIRROR" ]; then mv /etc/apt/sources.list.bak /etc/apt/sources.list; fi && \
     rm -rf /var/cache/apt/* && \
     rm -rf /var/lib/apt/lists/*
 
@@ -88,8 +90,6 @@ RUN export PIP_EXTRA_INDEX_URL="${ASCEND_INDEX_URL}" && \
 # Install _rust_tool_parser for the Rust frontend.
 ARG RUSTUP_DIST_SERVER
 ARG RUSTUP_UPDATE_ROOT
-ENV RUSTUP_DIST_SERVER=$RUSTUP_DIST_SERVER \
-    RUSTUP_UPDATE_ROOT=$RUSTUP_UPDATE_ROOT
 # When an internal RUSTUP_DIST_SERVER mirror is provided (CI builds), pre-install
 # rustup via the rustup-init.sh bootstrap from the mirror so build_rust.sh
 # doesn't reach the public https://sh.rustup.rs (unreachable from build
@@ -123,6 +123,8 @@ RUN if [ -n "$GIT_PROXY" ] || [ -n "$CRATES_IO_INDEX" ]; then \
     fi
 RUN cd /vllm-workspace/vllm && \
     export PROTOC_INCLUDE=/usr/include && \
+    export RUSTUP_DIST_SERVER="${RUSTUP_DIST_SERVER}" && \
+    export RUSTUP_UPDATE_ROOT="${RUSTUP_UPDATE_ROOT}" && \
     python3 -m pip install setuptools-rust && \
     ./build_rust.sh
 
@@ -144,11 +146,12 @@ ARG TRITON_ASCEND_PACKAGE_VERSION
 ARG DAILY_DEPS_MODE="full"
 
 # Install daily packages via shared script
-COPY .github/workflows/scripts/install_daily_deps.sh /tmp/
+COPY .github/workflows/scripts/install_daily_deps.sh .github/workflows/scripts/restore_public_sources.sh /tmp/
 RUN if [ "$BUILD_TYPE" = "daily" ]; then \
         bash /tmp/install_daily_deps.sh; \
     else \
         echo "Building release version without daily packages"; \
-    fi && rm -f /tmp/install_daily_deps.sh
+    fi && rm -f /tmp/install_daily_deps.sh && \
+    bash /tmp/restore_public_sources.sh && rm -f /tmp/restore_public_sources.sh
 
 CMD ["/bin/bash"]
