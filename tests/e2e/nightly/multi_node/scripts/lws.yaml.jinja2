@@ -47,12 +47,6 @@ spec:
                 value: {{ vllm_ascend_ref | default("main") }}
               - name: AOP_MULTI_ENABLED
                 value: "{{ aop_multi_enabled | default("false") }}"
-{% if profile_enabled | default("false") | lower == "true" %}
-              - name: VLLM_ASCEND_FORCE_PROFILE
-                value: "true"
-              - name: VLLM_ASCEND_PROFILE_DIR
-                value: "/root/.cache/profile_output/{{ benchmark_job_name | default("") }}"
-{% endif %}
               - name: GOOD_TABLE
                 value: "{{ good_table | default("/root/.cache/vllm-ascend/nightly/good_table.csv") }}"
               - name: BISECT_GOOD_COMMIT
@@ -167,12 +161,6 @@ spec:
                 value: {{ runner | default("linux-aarch64-a3-800t-0") }}
               - name: AOP_MULTI_ENABLED
                 value: "{{ aop_multi_enabled | default("false") }}"
-{% if profile_enabled | default("false") | lower == "true" %}
-              - name: VLLM_ASCEND_FORCE_PROFILE
-                value: "true"
-              - name: VLLM_ASCEND_PROFILE_DIR
-                value: "/root/.cache/profile_output/{{ benchmark_job_name | default("") }}"
-{% endif %}
               - name: GOOD_TABLE
                 value: "{{ good_table | default("/root/.cache/vllm-ascend/nightly/good_table.csv") }}"
               - name: BISECT_GOOD_COMMIT
@@ -193,10 +181,6 @@ spec:
                 value: {{ bisect_force_initial_build | default("") | tojson }}
               - name: BISECT_CONFIG_BASE_PATH
                 value: {{ bisect_config_base_path | default("") | tojson }}
-              - name: VLLM_ASCEND_BRANCH
-                value: "{{ vllm_ascend_branch | default("") }}"
-              - name: OPENLIBING_SECRET
-                value: "{{ openlibing_secret | default("") }}"
             command:
               - sh
               - -c
@@ -204,7 +188,6 @@ spec:
                 bash /root/.cache/tests/run.sh \
                   "{{ soc_version | default("") }}" \
                   "{{ max_good_age_days | default("3") }}"
-            resources:
 {% set soc = soc_version | default("a3") | lower %}
 {% if soc in ["a2","a3"] %}
             resources:
@@ -227,7 +210,6 @@ spec:
                 ephemeral-storage: 100Gi
                 cpu: 125
 {% endif %}
-
             volumeMounts:
               - mountPath: /root/.cache
                 name: shared-volume
