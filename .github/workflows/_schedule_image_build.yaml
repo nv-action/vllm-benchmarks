@@ -170,20 +170,28 @@ jobs:
     permissions:
       packages: write
       contents: read
-
+    # ============ 新增：job‑level container 带credentials ============
+    container:
+      image: ${{ format('{0}:{1}-{2}-{3}', inputs.cann_swr_url, inputs.cann_image_version, inputs.soc, inputs.base_os) }}
+      env:
+        SOC: ${{ inputs.soc }}
+      credentials:
+        username: ${{ secrets.SWR_USERNAME }}
+        password: ${{ secrets.SWR_PASSWORD }}
+    # =================================================================
     strategy:
       max-parallel: 2
       matrix:
         runner_info:
           - {runner: linux-aarch64-cpu-4-gy006, tag: arm64}
           - {runner: linux-amd64-cpu-4-gy006, tag: amd64}
-
     steps:
-
     - name: Install zstd
       run: |
         if [ -n "$APTMIRROR" ]; then
-          sed -Ei "s@(ports|archive).ubuntu.com@${APTMIRROR#http://}@g" /etc/apt/sources.list
+          # 修复sed -i 在/etc/apt目录生成临时文件权限拒绝；改用/tmp中转
+          sed "s@(ports\|archive).ubuntu.com@${APTMIRROR#http://}@g" /etc/apt/sources.list > /tmp/sources.list
+          cp /tmp/sources.list /etc/apt/sources.list
         fi
         apt-get update -y
         apt-get install -y zstd
