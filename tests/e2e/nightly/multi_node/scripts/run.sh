@@ -171,6 +171,26 @@ install_extra_components() {
     echo "====> Extra components installation completed"
 }
 
+checkout_and_install_vllm() {
+    echo "====> Checkout and install vllm from ref: ${VLLM_REF}"
+    # The nightly image ships an editable vllm checkout at /vllm-workspace/vllm.
+    # Fetch the requested ref into it and refresh the editable install.
+    # Mirrors tools/bisect/version_compat.py (_switch_vllm).
+    cd "$WORKSPACE/vllm" || {
+        echo "ERROR: $WORKSPACE/vllm not found in image, cannot override vllm ref"
+        return 1
+    }
+    git remote add origin https://github.com/vllm-project/vllm.git 2>/dev/null || \
+        git remote set-url origin https://github.com/vllm-project/vllm.git
+    if ! git fetch --depth 1 origin "$VLLM_REF"; then
+        git fetch --depth 1 origin "refs/heads/$VLLM_REF" || \
+            git fetch --depth 1 origin "refs/tags/$VLLM_REF" || \
+            { echo "ERROR: cannot fetch vllm ref '$VLLM_REF' (use a full commit SHA, tag, or branch name)"; return 1; }
+    fi
+    git checkout FETCH_HEAD
+    VLLM_TARGET_DEVICE=empty pip install -e . --no-deps --no-input --disable-pip-version-check
+}
+
 checkout_src() {
     echo "====> Checkout source code"
     mkdir -p "$WORKSPACE"
@@ -500,6 +520,9 @@ main() {
     check_npu_info
     clear_logs
     check_and_config
+    if [ -n "${VLLM_REF:-}" ]; then
+        checkout_and_install_vllm
+    fi
     if [[ "$IS_PR_TEST" == "true" ]]; then
         checkout_src
         install_vllm_ascend
