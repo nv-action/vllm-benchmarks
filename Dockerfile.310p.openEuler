@@ -19,30 +19,19 @@ ARG CANN_QUAY_URL="quay.io/ascend/cann"
 ARG CANN_VERSION="9.1.0"
 FROM ${CANN_QUAY_URL}:${CANN_VERSION}-310p-openeuler24.03-py3.12
 
-ARG PIP_INDEX_URL="https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
-ARG MOONCAKE_INDEX_URL="https://mirrors.aliyun.com/pypi/web/simple"
 ARG PYTORCH_INDEX_URL="https://download.pytorch.org/whl/cpu/"
 ARG ASCEND_INDEX_URL="https://mirrors.huaweicloud.com/ascend/repos/pypi"
-ARG APTMIRROR=""
-ARG YUM_MIRROR=""
-ARG GIT_PROXY=""
-ARG PIP_TRUSTED_HOST=""
 
 WORKDIR /workspace
 
-RUN if [ -n "$YUM_MIRROR" ]; then \
-        sed -Ei "s@https?://[^/]+@${YUM_MIRROR}@g" /etc/yum.repos.d/*.repo; \
-    fi && \
-    yum update -y && \
+RUN yum update -y && \
         yum install -y python3-pip git vim wget protobuf protobuf-devel protobuf-compiler curl net-tools gcc gcc-c++ make cmake numactl numactl-devel jemalloc patch && \
     rm -rf /var/cache/yum
 
 
 
 # Install modelscope (for fast download) and ray (for multinode)
-RUN pip config set global.index-url ${PIP_INDEX_URL} && \
-    if [ -n "$PIP_TRUSTED_HOST" ]; then pip config set global.trusted-host "$PIP_TRUSTED_HOST"; fi && \
-    python3 -m pip install 'modelscope<1.38' 'ray>=2.47.1,<=2.48.0' 'protobuf>3.20.0' && \
+RUN python3 -m pip install 'modelscope<1.38' 'ray>=2.47.1,<=2.48.0' 'protobuf>3.20.0' && \
     python3 -m pip cache purge
 
 # Install vLLM
@@ -54,7 +43,6 @@ RUN if [ -n "$VLLM_COMMIT" ]; then \
       git -C /vllm-workspace/vllm fetch --depth 1 $VLLM_REPO "$VLLM_COMMIT" && \
       git -C /vllm-workspace/vllm checkout FETCH_HEAD; \
     else \
-      if [ -n "$GIT_PROXY" ]; then git config --global url."${GIT_PROXY}https://github.com/".insteadOf https://github.com/; fi && \
       git clone --depth 1 -b $VLLM_TAG $VLLM_REPO /vllm-workspace/vllm; \
     fi
 
@@ -99,21 +87,6 @@ RUN if [ -n "$RUSTUP_DIST_SERVER" ]; then \
       rm /tmp/rustup-init.sh; \
     fi
 ENV PATH="/root/.cargo/bin:$PATH"
-# Configure cargo only for internal (CI) builds: route git dependencies through
-# GIT_PROXY and the crates.io sparse index through an internal mirror. External
-# builds leave these build-args empty and keep the default public endpoints.
-ARG CRATES_IO_INDEX=""
-RUN if [ -n "$GIT_PROXY" ] || [ -n "$CRATES_IO_INDEX" ]; then \
-      mkdir -p $HOME/.cargo; \
-      if [ -n "$GIT_PROXY" ]; then \
-        printf '[net]\ngit-fetch-with-cli = true\n' > $HOME/.cargo/config.toml; \
-      else \
-        : > $HOME/.cargo/config.toml; \
-      fi; \
-      if [ -n "$CRATES_IO_INDEX" ]; then \
-        printf '[source.crates-io]\nreplace-with = "mirror"\n\n[source.mirror]\nregistry = "sparse+%s"\n' "$CRATES_IO_INDEX" >> $HOME/.cargo/config.toml; \
-      fi; \
-    fi
 RUN cd /vllm-workspace/vllm && \
     export PROTOC_INCLUDE=/usr/include && \
     python3 -m pip install setuptools-rust && \
