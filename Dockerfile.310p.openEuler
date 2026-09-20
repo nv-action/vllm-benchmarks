@@ -24,8 +24,14 @@ ARG ASCEND_INDEX_URL="https://mirrors.huaweicloud.com/ascend/repos/pypi"
 
 WORKDIR /workspace
 
-RUN yum update -y && \
-        yum install -y python3-pip git vim wget protobuf protobuf-devel protobuf-compiler curl net-tools gcc gcc-c++ make cmake numactl numactl-devel jemalloc patch && \
+# Keep `yum update` in its own RUN: the ca-certificates upgrade it performs
+# regenerates the system trust bundle, dropping the CA BuildKit injects for the
+# squid proxy. Anything after it in the same RUN then fails with
+# "Curl error (60) ... unable to get local issuer certificate". BuildKit
+# re-injects the CA at the start of every RUN, so the next layer is fine.
+RUN yum update -y
+
+RUN yum install -y python3-pip git vim wget protobuf protobuf-devel protobuf-compiler curl net-tools gcc gcc-c++ make cmake numactl numactl-devel jemalloc patch && \
     rm -rf /var/cache/yum
 
 
