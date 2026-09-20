@@ -212,6 +212,7 @@ jobs:
 
       - name: Prepare scripts
         run: |
+          rm -f /root/.cache/tests/run.sh /root/.cache/tests/bisect_args.sh
           install -D tests/e2e/nightly/multi_node/scripts/run.sh /root/.cache/tests/run.sh
           install -D tests/e2e/nightly/scripts/bisect_args.sh /root/.cache/tests/bisect_args.sh
 
