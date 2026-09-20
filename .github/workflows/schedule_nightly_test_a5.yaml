@@ -216,7 +216,7 @@ jobs:
     with:
       soc_version: a5
       runner: linux-aarch64-a5-0
-      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-main-a5'
+      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-main-a5'
       ascend_log_prefix: ${{ needs.setup-vars.outputs.ascend_log_prefix }}/mian
       vllm_ascend_branch: mian
       replicas: 1
