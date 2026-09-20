@@ -35,12 +35,14 @@ SHELL ["/bin/bash", "-c"]
 # Install clang (for triton-ascend) and Mooncake
 ARG MOONCAKE_TAG=0.3.11.post1
 RUN if [ -n "$YUM_MIRROR" ]; then \
+        cp -r /etc/yum.repos.d /etc/yum.repos.d.bak && \
         sed -Ei "s@https?://[^/]+@${YUM_MIRROR}@g" /etc/yum.repos.d/*.repo; \
     fi && \
     yum update -y && \
     yum install -y git vim wget curl protobuf protobuf-devel protobuf-compiler net-tools gcc gcc-c++ make cmake numactl numactl-devel libibverbs-devel jemalloc hiredis-devel clang patch && \
     source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
     python3 -m pip install mooncake-transfer-engine-npu==${MOONCAKE_TAG} --extra-index-url ${MOONCAKE_INDEX_URL} && \
+    if [ -n "$YUM_MIRROR" ]; then rm -rf /etc/yum.repos.d && mv /etc/yum.repos.d.bak /etc/yum.repos.d; fi && \
     rm -rf /var/cache/yum/*
 
 # Install modelscope (for fast download) and ray (for multinode)
@@ -53,12 +55,12 @@ RUN pip config set global.index-url ${PIP_INDEX_URL} && \
 ARG VLLM_REPO=https://github.com/vllm-project/vllm.git
 ARG VLLM_TAG=v0.28.0
 ARG VLLM_COMMIT=""
-RUN if [ -n "$VLLM_COMMIT" ]; then \
+RUN if [ -n "$GIT_PROXY" ]; then git config --global url."${GIT_PROXY}https://github.com/".insteadOf https://github.com/; fi && \
+    if [ -n "$VLLM_COMMIT" ]; then \
       git init /vllm-workspace/vllm && \
       git -C /vllm-workspace/vllm fetch --depth 1 $VLLM_REPO "$VLLM_COMMIT" && \
       git -C /vllm-workspace/vllm checkout FETCH_HEAD; \
     else \
-      if [ -n "$GIT_PROXY" ]; then git config --global url."${GIT_PROXY}https://github.com/".insteadOf https://github.com/; fi && \
       git clone --depth 1 -b $VLLM_TAG $VLLM_REPO /vllm-workspace/vllm; \
     fi
 # In x86, triton will be installed by vllm. But in Ascend, triton doesn't work correctly. we need to uninstall it.
@@ -87,8 +89,6 @@ RUN export PIP_EXTRA_INDEX_URL="${ASCEND_INDEX_URL}" && \
 # Install _rust_tool_parser for the Rust frontend.
 ARG RUSTUP_DIST_SERVER
 ARG RUSTUP_UPDATE_ROOT
-ENV RUSTUP_DIST_SERVER=$RUSTUP_DIST_SERVER \
-    RUSTUP_UPDATE_ROOT=$RUSTUP_UPDATE_ROOT
 # When an internal RUSTUP_DIST_SERVER mirror is provided (CI builds), pre-install
 # rustup via the rustup-init.sh bootstrap from the mirror so build_rust.sh
 # doesn't reach the public https://sh.rustup.rs (unreachable from build
@@ -122,6 +122,8 @@ RUN if [ -n "$GIT_PROXY" ] || [ -n "$CRATES_IO_INDEX" ]; then \
     fi
 RUN cd /vllm-workspace/vllm && \
     export PROTOC_INCLUDE=/usr/include && \
+    export RUSTUP_DIST_SERVER="${RUSTUP_DIST_SERVER}" && \
+    export RUSTUP_UPDATE_ROOT="${RUSTUP_UPDATE_ROOT}" && \
     python3 -m pip install setuptools-rust && \
     ./build_rust.sh
 
@@ -148,5 +150,14 @@ RUN if [ "$BUILD_TYPE" = "daily" ]; then \
     else \
         echo "Building release version without daily packages"; \
     fi && rm -f /tmp/install_daily_deps.sh
+
+RUN if [ -n "$GIT_PROXY" ] || [ -n "$CRATES_IO_INDEX" ] || [ -n "$RUSTUP_DIST_SERVER" ]; then \
+        pip config set global.index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple && \
+        { pip config unset global.trusted-host 2>/dev/null || true; } && \
+        rm -f "$HOME/.cargo/config.toml" && \
+        for key in $(git config --global --name-only --get-regexp '^url\..*\.insteadof$' 2>/dev/null); do \
+            git config --global --unset-all "$key"; \
+        done; \
+    fi
 
 CMD ["/bin/bash"]
