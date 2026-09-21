@@ -31,18 +31,10 @@ on:
   workflow_dispatch:
     inputs:
       vllm_ascend_branch:
-        description: 'Branch to nightly test'
+        description: 'Branch or commit SHA to nightly test'
         required: true
         default: 'main'
-        type: choice
-        options:
-          - main
-          - releases/v0.26.0rc
-          - releases/v0.25.1rc
-          - releases/v0.24.0rc
-          - releases/v0.23.0
-          - releases/v0.22.1rc
-          - releases/v0.18.0
+        type: string
       build_type:
         description: 'Build type: daily or release'
         required: false
