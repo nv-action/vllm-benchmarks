@@ -62,7 +62,7 @@ RUN VLLM_TARGET_DEVICE="empty" python3 -m pip install -e /vllm-workspace/vllm/[a
     python3 -m pip cache purge
 
 # Install vllm-ascend
-ARG SOC_VERSION="ascend310p1"
+ARG SOC_VERSION="ascend310p"
 ARG COMPILE_CUSTOM_KERNELS=1
 ENV DEBIAN_FRONTEND=noninteractive
 ENV SOC_VERSION=$SOC_VERSION \
