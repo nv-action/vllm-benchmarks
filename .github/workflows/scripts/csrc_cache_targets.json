@@ -21,7 +21,7 @@
     "runner": "linux-arm64-cpu-16",
     "os": "ubuntu",
     "image": "swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-310p-ubuntu22.04-py3.12",
-    "soc_version": "ascend310p1"
+    "soc_version": "ascend310p"
   },
   "a2-arm64-openeuler": {
     "device": "a2",
@@ -45,7 +45,7 @@
     "runner": "linux-arm64-cpu-16",
     "os": "openeuler",
     "image": "swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-310p-openeuler24.03-py3.12",
-    "soc_version": "ascend310p1"
+    "soc_version": "ascend310p"
   },
   "a2-x86-ubuntu": {
     "device": "a2",
@@ -69,7 +69,7 @@
     "runner": "linux-amd64-cpu-16-hk",
     "os": "ubuntu",
     "image": "swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-310p-ubuntu22.04-py3.12",
-    "soc_version": "ascend310p1"
+    "soc_version": "ascend310p"
   },
   "a2-x86-openeuler": {
     "device": "a2",
@@ -93,6 +93,6 @@
     "runner": "linux-amd64-cpu-16-hk",
     "os": "openeuler",
     "image": "swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-310p-openeuler24.03-py3.12",
-    "soc_version": "ascend310p1"
+    "soc_version": "ascend310p"
   }
 }
