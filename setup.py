@@ -147,7 +147,7 @@ if not envs.SOC_VERSION:
             "Please set the 'SOC_VERSION' environment variable to specify the target chip, for example:\n"
             '  - Atlas A2: export SOC_VERSION="ascend910b1"\n'
             '  - Atlas A3: export SOC_VERSION="ascend910_9391"\n'
-            '  - Atlas 300I: export SOC_VERSION="ascend310p1"\n'
+            '  - Atlas 300I: export SOC_VERSION="ascend310p"\n'
             '  - Atlas A5: export SOC_VERSION="<value starting with ascend950>"\n'
             "You can also refer to the SOC_VERSION defaults in Dockerfile*."
         )
@@ -291,7 +291,7 @@ class cmake_build_ext(build_ext):
         soc_version_map = {
             "910b": "ascend910b1",
             "910c": "ascend910_9392",
-            "310p": "ascend310p1",
+            "310p": "ascend310p",
         }
         CANN_SOC_VERSION = soc_version_map.get(envs.SOC_VERSION, envs.SOC_VERSION)
         cmake_args += [f"-DSOC_VERSION={CANN_SOC_VERSION}"]
