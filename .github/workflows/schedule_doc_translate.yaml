@@ -23,7 +23,7 @@ on:
   workflow_dispatch:
     inputs:
       target_branch:
-        description: 'Target branch for the upstream PR'
+        description: 'Branch that contains the documentation to translate'
         required: false
         default: 'main'
         type: string
@@ -31,6 +31,11 @@ on:
         description: 'Force full regeneration of ALL .po files (discard existing translations)'
         required: false
         default: false
+        type: boolean
+      preview:
+        description: 'Temporary preview build: stay in THIS repo (nv-action), push translated .po files to a temporary branch, open a preview PR and upload artifacts. Disable to run the full upstream PR pipeline.'
+        required: false
+        default: true
         type: boolean
 
 concurrency:
@@ -42,7 +47,7 @@ jobs:
     runs-on: linux-amd64-cpu-8-hk
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     permissions:
-      contents: read
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -54,13 +59,25 @@ jobs:
         run: |
           TARGET_BRANCH="${{ inputs.target_branch || 'main' }}"
           echo "TARGET_BRANCH=${TARGET_BRANCH}" >> $GITHUB_ENV
-          BRANCH_NAME="auto-pr/doc-translate-$(date +%Y%m%d%H%M%S)"
+
+          PREVIEW="false"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.preview }}" = "true" ]; then
+            PREVIEW="true"
+          fi
+          echo "PREVIEW=${PREVIEW}" >> "$GITHUB_ENV"
+
+          if [ "$PREVIEW" = "true" ]; then
+            BRANCH_PREFIX="preview/doc-translate"
+          else
+            BRANCH_PREFIX="auto-pr/doc-translate"
+          fi
+          BRANCH_NAME="${BRANCH_PREFIX}-$(date +%Y%m%d%H%M%S)"
           echo "BRANCH_NAME=${BRANCH_NAME}" >> $GITHUB_ENV
 
           git config user.name "${{ github.actor }}"
           git config user.email "${{ github.actor }}@users.noreply.github.com"
           git checkout -B "${BRANCH_NAME}"
-          git remote add fork "https://github.com/vllm-ascend-ci/vllm-ascend.git"
+          git remote add fork "https://github.com/vllm-ascend-ci/vllm-ascend.git" || true
 
       - name: Setup Python
         uses: actions/setup-python@v7
@@ -139,6 +156,7 @@ jobs:
               count=$((count + 1))
               file_list="${file_list}- <code>${file}</code>"$'\n'
               git add "$file"
+              cp --parents "$file" /tmp/translated_po_files/
             }
           done <<< "$success_files"
 
@@ -151,8 +169,114 @@ jobs:
             echo "EOF"
           } >> $GITHUB_OUTPUT
 
-      - name: Commit and push
+      - name: Upload translation artifacts
         if: steps.translate.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: translated-po-${{ github.run_id }}
+          path: |
+            /tmp/translation_results.json
+            /tmp/po_changes.json
+            /tmp/translated_po_files
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Verify new prompt terminology (preview only)
+        if: steps.translate.outcome == 'success' && env.PREVIEW == 'true'
+        run: |
+          po_files=$(git diff --cached --name-only | grep '\.po$' || true)
+          if [ -z "$po_files" ]; then
+            echo "No translated PO files staged for terminology check"
+            exit 0
+          fi
+          python3 - "$po_files" <<'PY'
+          import sys
+          from polib import pofile
+
+          bad_token = "升腾"
+          spacing_violations = [
+              "950PR&950DT 系列产品",
+              "950PR&950DT系列 产品",
+              "950DT 系列产品",
+              "950DT系列 产品",
+              "950PR 系列产品",
+              "950PR系列 产品",
+              "A2 系列产品",
+              "A3 系列产品",
+          ]
+          problems = []
+          correct_uses = 0
+          for f in sys.argv[1].split():
+              po = pofile(f)
+              for e in po:
+                  if not e.msgstr:
+                      continue
+                  if bad_token in e.msgstr:
+                      problems.append((f, "wrong_token 升腾", e.msgid[:60]))
+                  for s in spacing_violations:
+                      if s in e.msgstr:
+                          problems.append((f, "spacing violation", s))
+                  correct_uses += e.msgstr.count("昇腾")
+          if problems:
+              print("TERMINOLOGY CHECK WARNINGS:")
+              for p in problems[:50]:
+                  print("  ", p[0], p[1], repr(p[2]))
+              print(f"  total: {len(problems)} problem(s)")
+          else:
+              print(f"TERMINOLOGY CHECK OK: no wrong '升腾' and no spacing violations (correct '昇腾' uses: {correct_uses})")
+          PY
+          exit 0
+
+      - name: Commit and push (preview)
+        if: steps.translate.outcome == 'success' && env.PREVIEW == 'true'
+        id: commit
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git diff --cached --quiet && echo "Nothing to commit" && exit 1
+          count=$(git diff --cached --name-only | wc -l)
+          git commit -s -m "[Doc] Auto-translate preview ${count} file(s)"
+          git push -u "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${BRANCH_NAME}"
+          echo "preview_branch=${BRANCH_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Create preview PR in this repo
+        if: steps.translate.outcome == 'success' && env.PREVIEW == 'true'
+        uses: actions/github-script@v9
+        env:
+          FILE_LIST: ${{ steps.results.outputs.file_list }}
+          FILE_COUNT: ${{ steps.results.outputs.file_count }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          PR_HEAD: ${{ env.BRANCH_NAME }}
+          PR_BASE: ${{ env.TARGET_BRANCH }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            try {
+              const branchLabel = process.env.PR_BASE.split('/').pop();
+              const date = new Date().toISOString().slice(0, 10);
+              const prTitle = branchLabel === 'main'
+                ? '[Doc][Preview] Translated Doc files ' + date
+                : '[' + branchLabel + '][Doc][Preview] Translated Doc files ' + date;
+              const prBody = '## Temporary Preview Translation (new prompt verification)\n\n' +
+                'Translated **' + process.env.FILE_COUNT + '** file(s) incrementally with the updated prompt:\n\n' +
+                process.env.FILE_LIST + '\n---\n\n' +
+                '[Workflow run](' + process.env.RUN_URL + ')\n\n' +
+                'This PR is generated by a temporary preview build in this repo to verify the new translation prompt. ' +
+                'It can be closed after review.';
+              const pr = await github.rest.pulls.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                head: process.env.PR_HEAD, base: process.env.PR_BASE,
+                title: prTitle, body: prBody
+              });
+              core.info('Created preview PR #' + pr.data.number + ' in ' + context.repo.owner + '/' + context.repo.repo);
+            } catch (error) {
+              if (error.message.includes('A pull request already exists')) {
+                core.warning('Preview PR already exists');
+              } else { throw error; }
+            }
+
+      - name: Commit and push (upstream)
+        if: steps.translate.outcome == 'success' && env.PREVIEW != 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
@@ -162,7 +286,7 @@ jobs:
           git push -f fork "${{ env.BRANCH_NAME }}"
 
       - name: Create PR in upstream
-        if: steps.translate.outcome == 'success'
+        if: steps.translate.outcome == 'success' && env.PREVIEW != 'true'
         uses: actions/github-script@v9
         env:
           FILE_LIST: ${{ steps.results.outputs.file_list }}
