@@ -132,6 +132,14 @@ jobs:
           BRANCH_TAG="${{ inputs.vllm_ascend_branch }}"
           BRANCH_TAG=$(echo "$BRANCH_TAG" | tr '/' '-')
 
+          # When dispatching with a commit SHA (PR head testing), the base
+          # image lineage must be an existing branch tag (main); the checkout
+          # ref keeps the SHA so the PR's Dockerfile is what gets built.
+          FROM_BRANCH="$BRANCH_TAG"
+          if echo "$BRANCH_TAG" | grep -qE '^[0-9a-f]{40}$'; then
+            FROM_BRANCH="main"
+          fi
+
           if [ "${{ inputs.build_type }}" = "daily" ]; then
             SWR_REGISTRY="${{ inputs.swr_registry }}/atlas_inference/vllm-ascend"
             SWR_TEMP_REGISTRY="${{ inputs.swr_registry }}/atlas_inference/vllm-atlas-temp"
@@ -158,7 +166,7 @@ jobs:
               DATE=""
               for i in $(seq 0 30); do
                 CANDIDATE_DATE=$(date -d "$i days ago" +'%Y%m%d')
-                CANDIDATE_TAG="nightly-${BRANCH_TAG}${OS_MARK}-cann${CANN_VERSION_LOWER}-${CANDIDATE_DATE}"
+                CANDIDATE_TAG="nightly-${FROM_BRANCH}${OS_MARK}-cann${CANN_VERSION_LOWER}-${CANDIDATE_DATE}"
                 if docker buildx imagetools inspect "${{ inputs.swr_registry }}/atlas_inference/vllm-ascend:${CANDIDATE_TAG}" > /dev/null 2>&1; then
                   DATE="$CANDIDATE_DATE"
                   echo "Found base image date: $DATE (tag: $CANDIDATE_TAG)"
@@ -186,7 +194,7 @@ jobs:
           BUILD_ARGS=(
             --platform ${{ matrix.arch_platform }}
             -f .github/workflows/dockerfiles/Dockerfile.nightly.${{ inputs.target }}
-            --build-arg VLLM_ASCEND_BRANCH="${BRANCH_TAG}"
+            --build-arg VLLM_ASCEND_BRANCH="${FROM_BRANCH}"
           )
 
           if [ -n "$TAG_SUFFIX" ]; then
