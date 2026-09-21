@@ -28,14 +28,8 @@ SHELL ["/bin/bash", "-c"]
 
 # Install clang (for triton-ascend) and Mooncake
 ARG MOONCAKE_TAG=0.3.11.post1
-# Keep `yum update` in its own RUN: the ca-certificates upgrade it performs
-# regenerates the system trust bundle, dropping the CA BuildKit injects for the
-# squid proxy. Anything after it in the same RUN then fails with
-# "Curl error (60) ... unable to get local issuer certificate". BuildKit
-# re-injects the CA at the start of every RUN, so the next layer is fine.
-RUN yum update -y
-
-RUN yum install -y git vim wget curl protobuf protobuf-compiler protobuf-devel net-tools gcc gcc-c++ make cmake numactl numactl-devel libibverbs-devel jemalloc hiredis-devel clang patch && \
+RUN yum update -y && \
+    yum install -y git vim wget curl protobuf protobuf-compiler protobuf-devel net-tools gcc gcc-c++ make cmake numactl numactl-devel libibverbs-devel jemalloc hiredis-devel clang patch && \
     source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
     python3 -m pip install mooncake-transfer-engine-npu==${MOONCAKE_TAG} && \
     rm -rf /var/cache/yum/*
