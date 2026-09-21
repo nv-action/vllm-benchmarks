@@ -397,7 +397,7 @@ a5:
     test_config:
       - name: DeepSeek_V4_Flash_A5_PD
         config_file_path: DeepSeek_V4_Flash_A5_PD.yaml
-        config_base_path: tests/e2e/weekly/multi_node/external_dp/config
+        config_base_path: tests/e2e/nightly/multi_node/external_dp/config
         size: 2
 #   single_node:
 #     test_config:
