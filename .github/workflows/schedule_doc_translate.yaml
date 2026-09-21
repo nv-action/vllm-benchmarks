@@ -48,6 +48,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     permissions:
       contents: write
+      pull-requests: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
