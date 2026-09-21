@@ -152,7 +152,9 @@ if not envs.SOC_VERSION:
             "You can also refer to the SOC_VERSION defaults in Dockerfile*."
         )
     envs.SOC_VERSION = soc_version
-
+# SOC版本兼容映射：把 ascend310p1 强制转为 ascend310p
+if envs.SOC_VERSION == "ascend310p1":
+    envs.SOC_VERSION = "ascend310p"
 
 def gen_build_info():
     soc_version = envs.SOC_VERSION
