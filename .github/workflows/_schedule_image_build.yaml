@@ -164,6 +164,12 @@ jobs:
   build-push-digest:
     name: build
     runs-on: ${{ matrix.runner_info.runner }}
+    container:
+      image: ${{ format('{0}:{1}-{2}-ubuntu22.04-py3.12', inputs.cann_swr_url, inputs.cann_image_version, inputs.soc) }}
+      env:
+        SOC: ${{ inputs.soc }}
+      volumes:
+        - /var/run/docker.sock:/var/run/docker.sock
     permissions:
       packages: write
       contents: read
