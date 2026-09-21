@@ -17,7 +17,7 @@
 ARG PY_VERSION=3.12
 FROM quay.io/ascend/manylinux:9.1.0-310p-manylinux_2_34-py${PY_VERSION}
 
-ARG SOC_VERSION="ascend310p1"
+ARG SOC_VERSION="ascend310p"
 
 # Define environments
 ENV DEBIAN_FRONTEND=noninteractive
