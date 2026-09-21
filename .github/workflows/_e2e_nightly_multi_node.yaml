@@ -376,6 +376,7 @@ jobs:
         run: |
           set -euo pipefail
 
+          echo "==== DEBUG config_base_path=${{ inputs.config_base_path }} ===="
           size="${{ inputs.size }}"
           pids=()
 
