@@ -58,7 +58,7 @@ def test_request_config_reasoning_effort(tmp_path: Path, monkeypatch: pytest.Mon
 
 
 def test_try_analyze_steady_state_writes_summary_without_changing_result(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ):
     runner = aisbench.AisbenchRunner.__new__(aisbench.AisbenchRunner)
     original_result = [object(), {"Output Token Throughput": {"total": "1 token/s"}}]
@@ -80,6 +80,10 @@ def test_try_analyze_steady_state_writes_summary_without_changing_result(
 
     runner._try_analyze_steady_state()
 
+    output = capsys.readouterr().out
+    assert "Starting Steady State Analysis: perf/example" in output
+    assert f"Timing directory: {tmp_path}" in output
+    assert "Target concurrency: 2 | Request rate: 0" in output
     assert runner.result is original_result
     assert runner.steady_state_result.status == "found"
     summary_path = tmp_path / "steady_state" / "perf_example" / "summary.json"

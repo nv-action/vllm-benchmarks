@@ -35,11 +35,15 @@ class TimingDataUnavailable(RuntimeError):
     """Raised when no unambiguous AISBench timing artifact can be selected."""
 
 
+class InvalidTimingRecord(ValueError):
+    """Raised when one AISBench request record cannot produce a timing."""
+
+
 class AisbenchTimingAdapter:
     """Convert AISBench detail records into benchmark-agnostic timings."""
 
     def __init__(self, result_dir: str | Path, dataset_type: str) -> None:
-        self.result_dir = Path(result_dir)
+        self.result_dir = Path(result_dir).resolve()
         self.dataset_type = dataset_type
         self._connections: dict[str, sqlite3.Connection] = {}
 
@@ -58,78 +62,114 @@ class AisbenchTimingAdapter:
 
     def _connection(self, db_name: str) -> sqlite3.Connection:
         if Path(db_name).name != db_name:
-            raise ValueError(f"invalid AISBench database name: {db_name!r}")
+            raise InvalidTimingRecord(f"invalid AISBench database name: {db_name!r}")
         if db_name not in self._connections:
-            db_path = self.result_dir / "db_data" / db_name
+            db_path = (self.result_dir / "db_data" / db_name).resolve()
             if not db_path.is_file():
-                raise FileNotFoundError(f"AISBench timing database does not exist: {db_path}")
-            self._connections[db_name] = sqlite3.connect(f"{db_path.as_uri()}?mode=ro", uri=True)
+                raise TimingDataUnavailable(f"AISBench timing database does not exist: {db_path}")
+            try:
+                self._connections[db_name] = sqlite3.connect(f"{db_path.as_uri()}?mode=ro", uri=True)
+            except sqlite3.Error as exc:
+                raise TimingDataUnavailable(f"cannot open AISBench timing database {db_path}: {exc}") from exc
         return self._connections[db_name]
 
     def _resolve_time_points(self, record: dict[str, object]) -> list[float]:
         value = record.get("time_points")
         if isinstance(value, list):
-            return [float(point) for point in value]
+            try:
+                return [float(point) for point in value]
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise InvalidTimingRecord(f"time_points contains a non-numeric value: {exc}") from exc
         if not isinstance(value, dict) or "__db_ref__" not in value:
-            raise ValueError("time_points is neither a list nor an AISBench database reference")
+            raise InvalidTimingRecord("time_points is neither a list nor an AISBench database reference")
 
         db_name = record.get("db_name")
         if not isinstance(db_name, str) or not db_name:
-            raise ValueError("database-backed time_points has no db_name")
-        row = (
-            self._connection(db_name)
-            .execute(
-                "SELECT arr_blob FROM numpy_store WHERE id = ?",
-                (value["__db_ref__"],),
+            raise InvalidTimingRecord("database-backed time_points has no db_name")
+        try:
+            row = (
+                self._connection(db_name)
+                .execute(
+                    "SELECT arr_blob FROM numpy_store WHERE id = ?",
+                    (value["__db_ref__"],),
+                )
+                .fetchone()
             )
-            .fetchone()
-        )
+        except sqlite3.Error as exc:
+            db_path = (self.result_dir / "db_data" / db_name).resolve()
+            raise TimingDataUnavailable(f"cannot read AISBench timing database {db_path}: {exc}") from exc
         if row is None:
-            raise ValueError(f"numpy_store row {value['__db_ref__']!r} does not exist in {db_name}")
-        array = np.load(BytesIO(row[0]), allow_pickle=False)
-        return [float(point) for point in np.asarray(array).reshape(-1)]
+            raise InvalidTimingRecord(f"numpy_store row {value['__db_ref__']!r} does not exist in {db_name}")
+        try:
+            array = np.load(BytesIO(row[0]), allow_pickle=False)
+            return [float(point) for point in np.asarray(array).reshape(-1)]
+        except (TypeError, ValueError, OSError) as exc:
+            raise InvalidTimingRecord(
+                f"numpy_store row {value['__db_ref__']!r} in {db_name} is not a valid NumPy array"
+            ) from exc
 
     def load_request_timings(self) -> list[RequestTiming]:
         """Read valid records, warning and skipping malformed request entries."""
 
         details_file = self._find_details_file()
         timings: list[RequestTiming] = []
+        records_read = 0
+        invalid_records = 0
         try:
-            with details_file.open(encoding="utf-8") as file:
-                for line_number, line in enumerate(file, start=1):
-                    if not line.strip():
-                        continue
-                    try:
-                        record = json.loads(line)
-                        if not isinstance(record, dict):
-                            raise ValueError("detail record is not a JSON object")
-                        time_points = self._resolve_time_points(record)
-                        if len(time_points) < 2:
-                            raise ValueError("time_points contains fewer than two entries")
-                        start_time = time_points[0]
-                        end_time = time_points[-1]
-                        if not math.isfinite(start_time) or not math.isfinite(end_time):
-                            raise ValueError("time_points contains a non-finite endpoint")
-                        if end_time < start_time:
-                            raise ValueError("request end time precedes its start time")
-                        request_id = str(record.get("uuid", record.get("id", line_number)))
-                        timings.append(
-                            RequestTiming(
-                                request_id=request_id,
-                                start_time=start_time,
-                                end_time=end_time,
-                                success=record.get("success") is True,
+            try:
+                with details_file.open(encoding="utf-8") as file:
+                    for line_number, line in enumerate(file, start=1):
+                        if not line.strip():
+                            continue
+                        records_read += 1
+                        try:
+                            try:
+                                record = json.loads(line)
+                            except json.JSONDecodeError as exc:
+                                raise InvalidTimingRecord(f"invalid JSON: {exc}") from exc
+                            if not isinstance(record, dict):
+                                raise InvalidTimingRecord("detail record is not a JSON object")
+                            time_points = self._resolve_time_points(record)
+                            if len(time_points) < 2:
+                                raise InvalidTimingRecord("time_points contains fewer than two entries")
+                            start_time = time_points[0]
+                            end_time = time_points[-1]
+                            if not math.isfinite(start_time) or not math.isfinite(end_time):
+                                raise InvalidTimingRecord("time_points contains a non-finite endpoint")
+                            if end_time < start_time:
+                                raise InvalidTimingRecord("request end time precedes its start time")
+                            request_id = str(record.get("uuid", record.get("id", line_number)))
+                            timings.append(
+                                RequestTiming(
+                                    request_id=request_id,
+                                    start_time=start_time,
+                                    end_time=end_time,
+                                    success=record.get("success") is True,
+                                )
                             )
-                        )
-                    except Exception as exc:
-                        logger.warning(
-                            "Skipping invalid AISBench timing record %s:%d: %s",
-                            details_file,
-                            line_number,
-                            exc,
-                        )
+                        except InvalidTimingRecord as exc:
+                            invalid_records += 1
+                            logger.warning(
+                                "Skipping invalid AISBench timing record %s:%d: %s",
+                                details_file,
+                                line_number,
+                                exc,
+                            )
+            except (OSError, UnicodeError) as exc:
+                raise TimingDataUnavailable(f"cannot read AISBench timing details {details_file}: {exc}") from exc
         finally:
             for connection in self._connections.values():
                 connection.close()
             self._connections.clear()
+        logger.info(
+            "AISBench Timing Data\n"
+            "  Records read:        %d\n"
+            "  Valid timings:       %d\n"
+            "  Successful timings:  %d\n"
+            "  Invalid records:      %d",
+            records_read,
+            len(timings),
+            sum(timing.success for timing in timings),
+            invalid_records,
+        )
         return timings
