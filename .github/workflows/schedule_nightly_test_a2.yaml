@@ -192,7 +192,7 @@ jobs:
     uses: ./.github/workflows/_nightly_image_build.yaml
     with:
       target: a2
-      vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
+      vllm_ascend_branch: main
       build_type: ${{ inputs.build_type }}
       quay_daily_username: ${{ vars.QUAY_DAILY_USERNAME }}
       cann_version: ${{ fromJSON(inputs.base_image_tag).cann_version }}
