@@ -114,7 +114,7 @@ jobs:
       - name: Filter build matrix by chips
         id: filter
         run: |
-          CHIPS='${{ inputs.chips || '["a3"]' }}'
+          CHIPS='${{ inputs.chips || '["310p"]' }}'
           ALL_MATRIX=$(jq -nc '[
             {name: "A2 Ubuntu",      dockerfile: "Dockerfile",              suffix: "",               chip: "a2", soc: "910b", base_os: "ubuntu22.04"},
             {name: "A3 Ubuntu",      dockerfile: "Dockerfile.a3",            suffix: "a3",             chip: "a3", soc: "a3",   base_os: "ubuntu22.04"},
