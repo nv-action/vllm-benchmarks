@@ -335,17 +335,72 @@ def time_to_column(time_s: float, duration_s: float, width: int) -> int:
     return round(bounded_time / duration_s * (width - 1))
 
 
-def _chart_levels(max_value: int, highlighted_value: int | None = None) -> list[int]:
-    candidates = {0, max_value}
-    candidates.update(round(max_value * ratio) for ratio in (0.25, 0.5, 0.75))
-    if highlighted_value is not None:
-        candidates.add(highlighted_value)
-    return sorted(candidates, reverse=True)
-
-
-def _value_to_row(value: int, max_value: int, height: int) -> int:
+def _linear_value_to_row(value: int, max_value: int, height: int) -> int:
     bounded_value = max(0, min(value, max_value))
     return (height - 1) - round(bounded_value / max_value * (height - 1))
+
+
+def _assign_chart_levels(
+    *,
+    max_value: int,
+    height: int,
+    mandatory_levels: Sequence[int],
+    optional_levels: Sequence[int],
+) -> dict[int, int]:
+    """Assign important Y values to distinct rows before adding optional ticks."""
+
+    if height <= 0:
+        raise ValueError("chart height must be greater than zero")
+    if max_value <= 0:
+        raise ValueError("chart max value must be greater than zero")
+
+    bounded_mandatory = {max(0, min(level, max_value)) for level in (*mandatory_levels, 0, max_value)}
+    mandatory = sorted(bounded_mandatory, reverse=True)
+    if len(mandatory) > height:
+        raise ValueError(f"{len(mandatory)} mandatory Y levels cannot fit in {height} chart rows")
+
+    levels_by_row: dict[int, int] = {}
+    previous_row = -1
+    for index, level in enumerate(mandatory):
+        rows_remaining = len(mandatory) - index - 1
+        first_available_row = previous_row + 1
+        last_available_row = height - rows_remaining - 1
+        preferred_row = _linear_value_to_row(level, max_value, height)
+        row = max(first_available_row, min(preferred_row, last_available_row))
+        levels_by_row[row] = level
+        previous_row = row
+
+    for level in sorted({max(0, min(value, max_value)) for value in optional_levels}, reverse=True):
+        if level in levels_by_row.values():
+            continue
+        rows_above = [row for row, assigned in levels_by_row.items() if assigned > level]
+        rows_below = [row for row, assigned in levels_by_row.items() if assigned < level]
+        first_available_row = max(rows_above, default=-1) + 1
+        last_available_row = min(rows_below, default=height) - 1
+        available_rows = [row for row in range(first_available_row, last_available_row + 1) if row not in levels_by_row]
+        if not available_rows:
+            continue
+        preferred_row = _linear_value_to_row(level, max_value, height)
+        row = min(available_rows, key=lambda candidate: (abs(candidate - preferred_row), candidate))
+        levels_by_row[row] = level
+
+    return levels_by_row
+
+
+def _value_to_row(value: int, max_value: int, height: int, levels_by_row: dict[int, int]) -> int:
+    """Map a value using piecewise interpolation through the displayed Y levels."""
+
+    bounded_value = max(0, min(value, max_value))
+    rows_by_level = {level: row for row, level in levels_by_row.items()}
+    if bounded_value in rows_by_level:
+        return rows_by_level[bounded_value]
+
+    anchors = sorted(rows_by_level.items())
+    for (lower_level, lower_row), (upper_level, upper_row) in zip(anchors, anchors[1:]):
+        if lower_level < bounded_value < upper_level:
+            ratio = (bounded_value - lower_level) / (upper_level - lower_level)
+            return round(lower_row + ratio * (upper_row - lower_row))
+    return _linear_value_to_row(bounded_value, max_value, height)
 
 
 _CONNECTION_CHARACTERS = {
@@ -362,9 +417,14 @@ _CONNECTION_CHARACTERS = {
 }
 
 
-def _draw_step_line(values: Sequence[int], max_value: int, height: int) -> list[list[str]]:
+def _draw_step_line(
+    values: Sequence[int],
+    max_value: int,
+    height: int,
+    levels_by_row: dict[int, int],
+) -> list[list[str]]:
     connections = [[set() for _ in values] for _ in range(height)]
-    rows = [_value_to_row(value, max_value, height) for value in values]
+    rows = [_value_to_row(value, max_value, height, levels_by_row) for value in values]
     if len(values) == 1:
         connections[rows[0]][0].update(("left", "right"))
     for column in range(1, len(values)):
@@ -388,6 +448,17 @@ def _draw_step_line(values: Sequence[int], max_value: int, height: int) -> list[
             if cell:
                 canvas[row][column] = _CONNECTION_CHARACTERS.get(cell, "┼")
     return canvas
+
+
+def _draw_horizontal_guide(canvas: list[list[str]], row: int, marker_column: int) -> None:
+    for column in range(marker_column + 1):
+        character = canvas[row][column]
+        canvas[row][column] = "─" if character in (" ", "─") else "┼"
+
+
+def _draw_vertical_boundary(canvas: list[list[str]], column: int) -> None:
+    for row in range(len(canvas)):
+        canvas[row][column] = "┆" if canvas[row][column] == " " else "┼"
 
 
 def _nice_tick_interval(duration_s: float) -> float:
@@ -449,35 +520,52 @@ def _render_chart(
     end_s: float | None = None,
     start_value: int | None = None,
     end_value: int | None = None,
+    mandatory_levels: Sequence[int] = (),
+    height: int = DEFAULT_CHART_HEIGHT,
 ) -> list[str]:
     if not values:
         return [title, "  unavailable"]
     max_value = max(max_value, 1)
-    height = DEFAULT_CHART_HEIGHT
-    canvas = _draw_step_line(values, max_value, height)
+    mandatory = [*mandatory_levels]
+    if highlighted_value is not None:
+        mandatory.append(highlighted_value)
+    mandatory.extend(value for value in (start_value, end_value) if value is not None)
+    optional = [round(max_value * ratio) for ratio in (0.25, 0.5, 0.75)]
+    labels = _assign_chart_levels(
+        max_value=max_value,
+        height=height,
+        mandatory_levels=mandatory,
+        optional_levels=optional,
+    )
+    canvas = _draw_step_line(values, max_value, height, labels)
     threshold_row = None
     if highlighted_value is not None:
-        threshold_row = _value_to_row(highlighted_value, max_value, height)
+        threshold_row = _value_to_row(highlighted_value, max_value, height, labels)
         for column, character in enumerate(canvas[threshold_row]):
             canvas[threshold_row][column] = "─" if character in (" ", "─") else "┼"
-
-    for marker_time in (start_s, end_s):
-        if marker_time is None:
-            continue
-        column = time_to_column(marker_time, duration_s, len(values))
-        for row in range(height):
-            canvas[row][column] = "┆" if canvas[row][column] == " " else "┼"
 
     for marker_time, marker_value in ((start_s, start_value), (end_s, end_value)):
         if marker_time is None or marker_value is None:
             continue
         column = time_to_column(marker_time, duration_s, len(values))
-        row = _value_to_row(marker_value, max_value, height)
+        row = _value_to_row(marker_value, max_value, height, labels)
+        _draw_horizontal_guide(canvas, row, column)
+
+    for marker_time in (start_s, end_s):
+        if marker_time is None:
+            continue
+        column = time_to_column(marker_time, duration_s, len(values))
+        _draw_vertical_boundary(canvas, column)
+
+    for marker_time, marker_value in ((start_s, start_value), (end_s, end_value)):
+        if marker_time is None or marker_value is None:
+            continue
+        column = time_to_column(marker_time, duration_s, len(values))
+        row = _value_to_row(marker_value, max_value, height, labels)
         canvas[row][column] = "●"
 
     lines = [title]
     label_width = len(str(max(max_value, highlighted_value or 0)))
-    labels = {_value_to_row(level, max_value, height): level for level in _chart_levels(max_value, highlighted_value)}
     for row in range(height):
         label = str(labels[row]) if row in labels else ""
         suffix = " threshold" if row == threshold_row else ""
@@ -588,6 +676,7 @@ def render_terminal(
                     highlighted_value=result.threshold_concurrency,
                     start_s=result.steady_start_s,
                     end_s=result.steady_end_s,
+                    mandatory_levels=(result.observed_peak,),
                 ),
                 "",
                 *_render_chart(

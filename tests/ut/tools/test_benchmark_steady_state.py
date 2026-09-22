@@ -17,7 +17,10 @@ import pytest
 
 from tools.benchmark_steady_state import (
     RequestTiming,
+    SteadyStateResult,
+    TimelinePoint,
     TimingLoadStats,
+    _assign_chart_levels,
     analyze_steady_state,
     render_terminal,
     steady_state_summary,
@@ -224,8 +227,124 @@ def test_renderer_uses_skipped_group_title():
 
 
 def _chart_rows(output: str, title: str) -> list[str]:
-    section = output.split(f"{title}\n", maxsplit=1)[1]
+    section = output.split(f"{title}\n", maxsplit=1)[1].split("\n\n", maxsplit=1)[0]
     return [line for line in section.splitlines() if " |" in line]
+
+
+def _synthetic_renderer_result() -> SteadyStateResult:
+    return SteadyStateResult(
+        status="found",
+        total_requests=140,
+        successful_requests=140,
+        target_concurrency=35,
+        threshold_ratio=0.95,
+        threshold_concurrency=34,
+        observed_peak=35,
+        steady_start_s=0.19,
+        steady_end_s=196.56,
+        steady_duration_s=196.37,
+        completed_at_start=0,
+        completed_at_end=107,
+        warning=None,
+        reason=None,
+        timeline=(
+            TimelinePoint(time_s=0, running_requests=35, completed_requests=0),
+            TimelinePoint(time_s=100, running_requests=34, completed_requests=70),
+            TimelinePoint(time_s=196.56, running_requests=34, completed_requests=107),
+            TimelinePoint(time_s=200, running_requests=0, completed_requests=140),
+        ),
+    )
+
+
+def test_renderer_keeps_peak_and_threshold_when_values_are_adjacent():
+    output = render_terminal("perf", _synthetic_renderer_result())
+    rows = _chart_rows(output, "Concurrency Timeline")
+    peak_row = next(index for index, line in enumerate(rows) if line.lstrip().startswith("35 |"))
+    threshold_row = next(index for index, line in enumerate(rows) if line.lstrip().startswith("34 |"))
+
+    assert peak_row != threshold_row
+    assert "threshold" in rows[threshold_row]
+
+
+def test_renderer_keeps_not_found_peak_below_threshold():
+    result = analyze_steady_state(
+        [_request("a", 0, 3), _request("b", 0, 3), _request("c", 0, 3)],
+        target_concurrency=5,
+        threshold_ratio=0.8,
+    )
+    output = render_terminal("not-found", result)
+    rows = _chart_rows(output, "Concurrency Timeline")
+    peak_row = next(index for index, line in enumerate(rows) if line.lstrip().startswith("3 |"))
+    threshold_row = next(index for index, line in enumerate(rows) if line.lstrip().startswith("4 |"))
+
+    assert threshold_row < peak_row
+    assert "threshold" in rows[threshold_row]
+
+
+def test_completed_chart_keeps_exact_completed_boundary_level():
+    output = render_terminal("perf", _synthetic_renderer_result())
+    rows = _chart_rows(output, "Completed Requests")
+    end_row = next(line for line in rows if line.lstrip().startswith("107 |"))
+
+    assert "●" in end_row
+
+
+def test_completed_chart_draws_horizontal_guides_to_steady_markers():
+    result = SteadyStateResult(
+        status="found",
+        total_requests=100,
+        successful_requests=100,
+        target_concurrency=10,
+        threshold_ratio=1,
+        threshold_concurrency=10,
+        observed_peak=10,
+        steady_start_s=20,
+        steady_end_s=80,
+        steady_duration_s=60,
+        completed_at_start=10,
+        completed_at_end=80,
+        warning=None,
+        reason=None,
+        timeline=(
+            TimelinePoint(time_s=0, running_requests=10, completed_requests=0),
+            TimelinePoint(time_s=100, running_requests=0, completed_requests=100),
+        ),
+    )
+    width = 40
+    output = render_terminal("guides", result, width=width)
+    rows = _chart_rows(output, "Completed Requests")
+
+    for value, time_s in ((10, 20), (80, 80)):
+        row = next(line for line in rows if line.lstrip().startswith(f"{value} |"))
+        cells = row.split("|", maxsplit=1)[1]
+        marker_column = time_to_column(time_s, 100, width)
+        assert cells[marker_column] == "●"
+        assert all(character != " " for character in cells[:marker_column])
+
+
+def test_mandatory_levels_take_priority_at_low_chart_height():
+    levels = _assign_chart_levels(
+        max_value=35,
+        height=4,
+        mandatory_levels=(35, 34, 0),
+        optional_levels=(26, 18, 9),
+    )
+
+    assert set(levels.values()) >= {0, 34, 35}
+    assert len({row for row, level in levels.items() if level in {0, 34, 35}}) == 3
+    assert next(row for row, level in levels.items() if level == 35) < next(
+        row for row, level in levels.items() if level == 34
+    )
+
+
+def test_chart_rejects_more_mandatory_levels_than_rows():
+    with pytest.raises(ValueError, match="mandatory Y levels"):
+        _assign_chart_levels(
+            max_value=4,
+            height=4,
+            mandatory_levels=(0, 1, 2, 3, 4),
+            optional_levels=(),
+        )
 
 
 def test_renderer_draws_vertical_steady_boundaries_through_both_charts():
