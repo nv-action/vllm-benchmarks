@@ -43,6 +43,7 @@ DATASET_CONF_DIR = os.path.join(BENCHMARK_HOME, "ais_bench", "benchmark", "confi
 REQUEST_CONF_DIR = os.path.join(BENCHMARK_HOME, "ais_bench", "benchmark", "configs", "models", "vllm_api")
 DATASET_DIR = os.path.join(BENCHMARK_HOME, "ais_bench", "datasets")
 STEADY_STATE_OUTPUT_DIR = Path("steady_state")
+STEADY_STATE_BANNER_WIDTH = 80
 
 
 class AisbenchRunner:
@@ -281,6 +282,16 @@ class AisbenchRunner:
         logging.info("Steady-state summary saved to %s", output_file)
 
     def _try_analyze_steady_state(self) -> None:
+        separator = "=" * STEADY_STATE_BANNER_WIDTH
+        print(
+            f"\n{separator}\n"
+            f"Starting Steady State Analysis: {self.case_name}\n"
+            "AISBench benchmark has completed; analyzing saved request timings.\n"
+            f"Timing directory: {self.performance_result_dir}\n"
+            f"Target concurrency: {self.batch_size} | Request rate: {self.request_rate}\n"
+            f"{separator}",
+            flush=True,
+        )
         try:
             if self.request_rate > 0:
                 result = analyze_steady_state(
