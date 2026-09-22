@@ -43,6 +43,8 @@ def test_po_translate_has_new_system_prompt_rules():
     assert "'950PR Products'        -> 'Ascend 950PR系列产品'" in SOURCE
     assert "'Atlas A2 Products'     -> 'Atlas A2系列产品'" in SOURCE
     assert "'Atlas A3 Products'     -> 'Atlas A3系列产品'" in SOURCE
+    assert "SOURCE MATCHING IS CASE-INSENSITIVE for these five product-line names." in SOURCE
+    assert "'Atlas A3 products', '950DT products', or any other capitalization" in SOURCE
     assert "MUST be NO space between the model" in SOURCE
     assert "'950DT 系列产品' (with a space) or '950DT系列 产品' (split)" in SOURCE
 
@@ -55,6 +57,9 @@ def test_po_translate_has_terminology_translation_section():
     assert "16. '950PR Products'       → 'Ascend 950PR系列产品'" in SOURCE
     assert "17. 'Atlas A2 Products'    → 'Atlas A2系列产品'" in SOURCE
     assert "18. 'Atlas A3 Products'    → 'Atlas A3系列产品'" in SOURCE
+    assert "Source matching for all five product-line names above is CASE-INSENSITIVE." in SOURCE
+    assert "- 'Atlas A3 products' → 'Atlas A3系列产品'" in SOURCE
+    assert "- '950DT products'    → 'Ascend 950DT系列产品'" in SOURCE
 
 
 def test_po_translate_prompt_still_format_compatible():

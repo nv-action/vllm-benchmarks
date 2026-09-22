@@ -48,6 +48,9 @@ SYSTEM_PROMPT = (
     "- '950PR Products'        -> 'Ascend 950PR系列产品'"
     "- 'Atlas A2 Products'     -> 'Atlas A2系列产品'"
     "- 'Atlas A3 Products'     -> 'Atlas A3系列产品'"
+    "SOURCE MATCHING IS CASE-INSENSITIVE for these five product-line names."
+    "Variants such as 'Atlas A3 products', '950DT products', or any other capitalization"
+    "MUST use exactly the same target translations shown above."
     "IMPORTANT: In all five cases there MUST be NO space between the model"
     "number (e.g. '950DT', 'A2', 'A3') and '系列产品'. The '&' in '950PR&950DT'"
     "has NO surrounding spaces. Do NOT output '950DT 系列产品' (with a space) or '950DT系列 产品' (split)."
@@ -120,6 +123,14 @@ CRITICAL RULES — violations will cause the translation to be rejected:
 16. '950PR Products'       → 'Ascend 950PR系列产品'
 17. 'Atlas A2 Products'    → 'Atlas A2系列产品'
 18. 'Atlas A3 Products'    → 'Atlas A3系列产品'
+
+Source matching for all five product-line names above is CASE-INSENSITIVE.
+`Products`, `products`, `PRODUCTS`, and any other capitalization MUST produce
+exactly the same target translation shown above. Keep the target capitalization
+exactly as shown and never insert a space before or inside `系列产品`.
+Examples:
+- 'Atlas A3 products' → 'Atlas A3系列产品'
+- '950DT products'    → 'Ascend 950DT系列产品'
 
 --- MkDocs MATERIAL EXTENSIONS ---
 19. ADMONITIONS (!!! type): Keep "!!!" and type keyword (note, warning, tip)
