@@ -42,6 +42,7 @@ def _write_jsonl(path: Path, records: list[object]) -> None:
 
 
 def test_adapter_reads_inline_and_database_backed_time_points(tmp_path: Path, caplog: pytest.LogCaptureFixture):
+    caplog.set_level("INFO", logger="tools.aisbench_perf_data")
     _write_numpy_store(tmp_path / "db_data" / "worker.db", [np.array([20.0, 21.0, 25.0])])
     _write_jsonl(
         tmp_path / "gsm8k_details.jsonl",
@@ -66,6 +67,10 @@ def test_adapter_reads_inline_and_database_backed_time_points(tmp_path: Path, ca
         ("3", 30.0, 31.0, False),
     ]
     assert "fewer than two entries" in caplog.text
+    assert "Records read:        4" in caplog.text
+    assert "Valid timings:       3" in caplog.text
+    assert "Successful timings:  2" in caplog.text
+    assert "Invalid records:      1" in caplog.text
 
 
 def test_adapter_reuses_one_read_only_connection_per_database(tmp_path: Path):
@@ -91,6 +96,29 @@ def test_adapter_reuses_one_read_only_connection_per_database(tmp_path: Path):
 
     assert len(timings) == 2
     assert connect.call_count == 1
+
+
+def test_adapter_resolves_relative_result_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    result_dir = tmp_path / "outputs" / "performances" / "model"
+    _write_numpy_store(result_dir / "db_data" / "worker.db", [np.array([1.0, 2.0])])
+    _write_jsonl(
+        result_dir / "dataset_details.jsonl",
+        [
+            {
+                "id": 1,
+                "success": True,
+                "time_points": {"__db_ref__": 1},
+                "db_name": "worker.db",
+            }
+        ],
+    )
+    monkeypatch.chdir(tmp_path)
+
+    adapter = AisbenchTimingAdapter(Path("outputs/performances/model"), "dataset")
+    timings = adapter.load_request_timings()
+
+    assert adapter.result_dir == result_dir
+    assert [(timing.start_time, timing.end_time) for timing in timings] == [(1.0, 2.0)]
 
 
 def test_adapter_uses_only_fallback_details_file(tmp_path: Path):
@@ -129,3 +157,73 @@ def test_adapter_skips_invalid_timing_records(tmp_path: Path, record: dict[str, 
     _write_jsonl(tmp_path / "dataset_details.jsonl", [record])
 
     assert AisbenchTimingAdapter(tmp_path, "dataset").load_request_timings() == []
+
+
+def test_adapter_skips_one_invalid_record_and_keeps_remaining_records(tmp_path: Path):
+    _write_jsonl(
+        tmp_path / "dataset_details.jsonl",
+        [
+            {"id": "bad", "success": True, "time_points": [2.0, 1.0]},
+            {"id": "good", "success": True, "time_points": [3.0, 4.0]},
+        ],
+    )
+
+    timings = AisbenchTimingAdapter(tmp_path, "dataset").load_request_timings()
+
+    assert [(timing.request_id, timing.start_time, timing.end_time, timing.success) for timing in timings] == [
+        ("good", 3.0, 4.0, True)
+    ]
+
+
+def test_adapter_skips_malformed_json_and_keeps_remaining_records(tmp_path: Path, caplog: pytest.LogCaptureFixture):
+    (tmp_path / "dataset_details.jsonl").write_text(
+        '{"id": "bad"\n' + json.dumps({"id": "good", "success": True, "time_points": [3.0, 4.0]}) + "\n",
+        encoding="utf-8",
+    )
+
+    timings = AisbenchTimingAdapter(tmp_path, "dataset").load_request_timings()
+
+    assert [timing.request_id for timing in timings] == ["good"]
+    assert "invalid JSON" in caplog.text
+
+
+def test_adapter_reports_missing_database_once_as_artifact_failure(tmp_path: Path, caplog: pytest.LogCaptureFixture):
+    _write_jsonl(
+        tmp_path / "dataset_details.jsonl",
+        [
+            {
+                "id": index,
+                "success": True,
+                "time_points": {"__db_ref__": index},
+                "db_name": "missing.db",
+            }
+            for index in (1, 2)
+        ],
+    )
+
+    with pytest.raises(TimingDataUnavailable, match="database does not exist"):
+        AisbenchTimingAdapter(tmp_path, "dataset").load_request_timings()
+
+    assert "Skipping invalid AISBench timing record" not in caplog.text
+
+
+def test_adapter_reports_invalid_sqlite_as_artifact_failure(tmp_path: Path, caplog: pytest.LogCaptureFixture):
+    db_path = tmp_path / "db_data" / "worker.db"
+    db_path.parent.mkdir()
+    db_path.write_text("not a sqlite database", encoding="utf-8")
+    _write_jsonl(
+        tmp_path / "dataset_details.jsonl",
+        [
+            {
+                "id": 1,
+                "success": True,
+                "time_points": {"__db_ref__": 1},
+                "db_name": "worker.db",
+            }
+        ],
+    )
+
+    with pytest.raises(TimingDataUnavailable, match="cannot read AISBench timing database"):
+        AisbenchTimingAdapter(tmp_path, "dataset").load_request_timings()
+
+    assert "Skipping invalid AISBench timing record" not in caplog.text

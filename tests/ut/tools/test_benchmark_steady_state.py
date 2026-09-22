@@ -20,6 +20,7 @@ from tools.benchmark_steady_state import (
     analyze_steady_state,
     render_terminal,
     steady_state_summary,
+    time_to_column,
 )
 
 
@@ -176,12 +177,77 @@ def test_renderer_keeps_time_and_completed_coordinates():
     output = render_terminal("perf", result, width=24)
 
     assert "::group::Steady State Analysis: perf" in output
-    assert "Running Requests" in output
+    assert "Concurrency Timeline" in output
     assert "Completed Requests" in output
+    assert "█" not in output
+    assert any(character in output for character in "┌┐└┘")
     assert "3.00s" in output
     assert "completed=0" in output
     assert "20.00s" in output
     assert "completed=1" in output
+
+
+def _chart_rows(output: str, title: str) -> list[str]:
+    section = output.split(f"{title}\n", maxsplit=1)[1]
+    return [line for line in section.splitlines() if " |" in line]
+
+
+def test_renderer_draws_vertical_steady_boundaries_through_both_charts():
+    requests = [
+        _request("long", 0, 80),
+        _request("steady", 20, 60),
+    ]
+    result = analyze_steady_state(requests, target_concurrency=2, threshold_ratio=1)
+
+    output = render_terminal("boundaries", result, width=40)
+    start_col = time_to_column(20, 80, 40)
+    end_col = time_to_column(60, 80, 40)
+
+    for title in ("Concurrency Timeline", "Completed Requests"):
+        rows = _chart_rows(output, title)
+        assert len(rows) >= 3
+        cells = [row.split("|", maxsplit=1)[1] for row in rows]
+        assert sum(row[start_col] in "┆┼●" for row in cells) >= 3
+        assert sum(row[end_col] in "┆┼●" for row in cells) >= 3
+
+
+def test_renderer_uses_shared_time_axis_and_multiple_ticks():
+    result = analyze_steady_state(
+        [_request("long", 0, 80), _request("steady", 20, 60)],
+        target_concurrency=2,
+        threshold_ratio=1,
+    )
+
+    output = render_terminal("axes", result, width=40)
+    concurrency = output.split("Concurrency Timeline\n", maxsplit=1)[1].split("\n\n", maxsplit=1)[0]
+    completed = output.split("Completed Requests\n", maxsplit=1)[1].split("\n\n", maxsplit=1)[0]
+    concurrency_axis = [line.lstrip() for line in concurrency.splitlines() if "┬" in line or "0s" in line]
+    completed_axis = [line.lstrip() for line in completed.splitlines() if "┬" in line or "0s" in line]
+
+    assert concurrency_axis == completed_axis
+    assert concurrency_axis[0].count("┬") >= 5
+
+
+def test_renderer_preserves_a_middle_dip_in_thin_step_line():
+    result = analyze_steady_state(
+        [
+            _request("base-1", 0, 80),
+            _request("base-2", 0, 80),
+            _request("before-dip", 0, 30),
+            _request("after-dip", 40, 80),
+        ],
+        target_concurrency=4,
+        threshold_ratio=1,
+    )
+
+    output = render_terminal("dip", result, width=40)
+    chart = output.split("Concurrency Timeline\n", maxsplit=1)[1].split("\n\n", maxsplit=1)[0]
+
+    assert "█" not in chart
+    assert "┐" in chart
+    assert "└" in chart
+    assert "┘" in chart
+    assert "┌" in chart
 
 
 def test_summary_keeps_nested_time_and_completed_coordinates():

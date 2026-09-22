@@ -26,6 +26,7 @@ from typing import Literal
 DEFAULT_STEADY_STATE_THRESHOLD = 0.95
 MIN_STEADY_STATE_WINDOW_S = 10.0
 DEFAULT_TIMELINE_WIDTH = 64
+DEFAULT_CHART_HEIGHT = 8
 
 SteadyStateStatus = Literal["found", "not_found", "skipped", "unavailable"]
 
@@ -312,12 +313,118 @@ def _sample_timeline(result: SteadyStateResult, width: int) -> tuple[list[int], 
     return running, completed, duration_s
 
 
+def time_to_column(time_s: float, duration_s: float, width: int) -> int:
+    """Map a benchmark-relative time to a shared zero-based chart column."""
+
+    if width <= 0:
+        raise ValueError("timeline width must be greater than zero")
+    if duration_s <= 0:
+        return 0
+    bounded_time = max(0.0, min(time_s, duration_s))
+    return round(bounded_time / duration_s * (width - 1))
+
+
 def _chart_levels(max_value: int, highlighted_value: int | None = None) -> list[int]:
     candidates = {0, max_value}
     candidates.update(round(max_value * ratio) for ratio in (0.25, 0.5, 0.75))
     if highlighted_value is not None:
         candidates.add(highlighted_value)
     return sorted(candidates, reverse=True)
+
+
+def _value_to_row(value: int, max_value: int, height: int) -> int:
+    bounded_value = max(0, min(value, max_value))
+    return (height - 1) - round(bounded_value / max_value * (height - 1))
+
+
+_CONNECTION_CHARACTERS = {
+    frozenset({"left"}): "─",
+    frozenset({"right"}): "─",
+    frozenset({"left", "right"}): "─",
+    frozenset({"up"}): "│",
+    frozenset({"down"}): "│",
+    frozenset({"up", "down"}): "│",
+    frozenset({"right", "down"}): "┌",
+    frozenset({"left", "down"}): "┐",
+    frozenset({"right", "up"}): "└",
+    frozenset({"left", "up"}): "┘",
+}
+
+
+def _draw_step_line(values: Sequence[int], max_value: int, height: int) -> list[list[str]]:
+    connections = [[set() for _ in values] for _ in range(height)]
+    rows = [_value_to_row(value, max_value, height) for value in values]
+    if len(values) == 1:
+        connections[rows[0]][0].update(("left", "right"))
+    for column in range(1, len(values)):
+        previous_row = rows[column - 1]
+        current_row = rows[column]
+        connections[previous_row][column - 1].add("right")
+        connections[previous_row][column].add("left")
+        if current_row > previous_row:
+            for row in range(previous_row, current_row):
+                connections[row][column].add("down")
+                connections[row + 1][column].add("up")
+        elif current_row < previous_row:
+            for row in range(previous_row, current_row, -1):
+                connections[row][column].add("up")
+                connections[row - 1][column].add("down")
+
+    canvas = [[" " for _ in values] for _ in range(height)]
+    for row in range(height):
+        for column in range(len(values)):
+            cell = frozenset(connections[row][column])
+            if cell:
+                canvas[row][column] = _CONNECTION_CHARACTERS.get(cell, "┼")
+    return canvas
+
+
+def _nice_tick_interval(duration_s: float) -> float:
+    if duration_s <= 0:
+        return 1.0
+    raw_interval = duration_s / 6
+    magnitude = 10 ** math.floor(math.log10(raw_interval))
+    fraction = raw_interval / magnitude
+    if fraction <= 1:
+        nice_fraction = 1
+    elif fraction <= 2:
+        nice_fraction = 2
+    elif fraction <= 5:
+        nice_fraction = 5
+    else:
+        nice_fraction = 10
+    return nice_fraction * magnitude
+
+
+def _format_tick(time_s: float) -> str:
+    if math.isclose(time_s, round(time_s)):
+        return f"{round(time_s)}s"
+    return f"{time_s:g}s"
+
+
+def _render_time_axis(duration_s: float, width: int) -> tuple[str, str]:
+    interval = _nice_tick_interval(duration_s)
+    tick_times = [0.0]
+    tick = interval
+    while tick < duration_s:
+        tick_times.append(tick)
+        tick += interval
+    if duration_s > 0:
+        tick_times.append(duration_s)
+
+    tick_columns = {time_to_column(tick_time, duration_s, width): tick_time for tick_time in tick_times}
+    axis = ["─"] * width
+    labels = [" "] * width
+    occupied = [False] * width
+    for column, tick_time in sorted(tick_columns.items()):
+        axis[column] = "┬"
+        label = _format_tick(tick_time)
+        start = min(max(0, column - len(label) // 2), width - len(label))
+        if any(occupied[start : start + len(label)]):
+            continue
+        labels[start : start + len(label)] = label
+        occupied[start : start + len(label)] = [True] * len(label)
+    return "".join(axis), "".join(labels).rstrip()
 
 
 def _render_chart(
@@ -329,30 +436,44 @@ def _render_chart(
     highlighted_value: int | None = None,
     start_s: float | None = None,
     end_s: float | None = None,
+    start_value: int | None = None,
+    end_value: int | None = None,
 ) -> list[str]:
     if not values:
         return [title, "  unavailable"]
-    lines = [title]
-    label_width = len(str(max_value))
-    for level in _chart_levels(max_value, highlighted_value):
-        if level == 0:
-            cells = "─" * len(values)
-        else:
-            background = "─" if level == highlighted_value else " "
-            cells = "".join("█" if value >= level else background for value in values)
-        suffix = " threshold" if level == highlighted_value else ""
-        lines.append(f"{level:>{label_width}} |{cells}|{suffix}")
-    lines.append(" " * (label_width + 1) + "+" + "─" * len(values) + "+")
-    lines.append(f"{' ' * (label_width + 2)}0s{' ' * max(1, len(values) - 9)}{duration_s:>7.2f}s")
+    max_value = max(max_value, 1)
+    height = DEFAULT_CHART_HEIGHT
+    canvas = _draw_step_line(values, max_value, height)
+    threshold_row = None
+    if highlighted_value is not None:
+        threshold_row = _value_to_row(highlighted_value, max_value, height)
+        for column, character in enumerate(canvas[threshold_row]):
+            canvas[threshold_row][column] = "─" if character in (" ", "─") else "┼"
 
-    markers = [" "] * len(values)
-    for marker_time, marker in ((start_s, "S"), (end_s, "E")):
+    for marker_time in (start_s, end_s):
         if marker_time is None:
             continue
-        column = 0 if duration_s <= 0 else round(marker_time / duration_s * (len(values) - 1))
-        markers[max(0, min(column, len(markers) - 1))] = marker
-    if "S" in markers or "E" in markers:
-        lines.append(" " * (label_width + 2) + "".join(markers))
+        column = time_to_column(marker_time, duration_s, len(values))
+        for row in range(height):
+            canvas[row][column] = "┆" if canvas[row][column] == " " else "┼"
+
+    for marker_time, marker_value in ((start_s, start_value), (end_s, end_value)):
+        if marker_time is None or marker_value is None:
+            continue
+        column = time_to_column(marker_time, duration_s, len(values))
+        row = _value_to_row(marker_value, max_value, height)
+        canvas[row][column] = "●"
+
+    lines = [title]
+    label_width = len(str(max(max_value, highlighted_value or 0)))
+    labels = {_value_to_row(level, max_value, height): level for level in _chart_levels(max_value, highlighted_value)}
+    for row in range(height):
+        label = str(labels[row]) if row in labels else ""
+        suffix = " threshold" if row == threshold_row else ""
+        lines.append(f"{label:>{label_width}} |{''.join(canvas[row])}{suffix}")
+    axis, tick_labels = _render_time_axis(duration_s, len(values))
+    prefix = " " * (label_width + 2)
+    lines.extend((f"{prefix}{axis}", f"{prefix}{tick_labels}"))
     return lines
 
 
@@ -366,6 +487,9 @@ def render_terminal(case_name: str, result: SteadyStateResult, width: int = DEFA
     lines = [
         f"::group::Steady State Analysis: {case_name}",
         f"Status: {result.status.upper()}",
+        "",
+        f"Total requests:          {result.total_requests}",
+        f"Successful requests:     {result.successful_requests}",
         "",
         f"Target concurrency:       {result.target_concurrency}",
         f"Threshold:                {result.threshold_concurrency} ({ratio_percent:g}%)",
@@ -402,7 +526,7 @@ def render_terminal(case_name: str, result: SteadyStateResult, width: int = DEFA
             [
                 "",
                 *_render_chart(
-                    title="Running Requests",
+                    title="Concurrency Timeline",
                     values=running,
                     duration_s=duration_s,
                     max_value=max(result.target_concurrency, result.observed_peak, 1),
@@ -418,6 +542,8 @@ def render_terminal(case_name: str, result: SteadyStateResult, width: int = DEFA
                     max_value=max(result.successful_requests, 1),
                     start_s=result.steady_start_s,
                     end_s=result.steady_end_s,
+                    start_value=result.completed_at_start,
+                    end_value=result.completed_at_end,
                 ),
             ]
         )
@@ -425,8 +551,8 @@ def render_terminal(case_name: str, result: SteadyStateResult, width: int = DEFA
             lines.extend(
                 [
                     "",
-                    f"S steady start: {result.steady_start_s:.2f}s / completed={result.completed_at_start}",
-                    f"E steady end:   {result.steady_end_s:.2f}s / completed={result.completed_at_end}",
+                    f"steady start: {result.steady_start_s:.2f}s / completed={result.completed_at_start}",
+                    f"steady end:   {result.steady_end_s:.2f}s / completed={result.completed_at_end}",
                 ]
             )
     lines.append("::endgroup::")
