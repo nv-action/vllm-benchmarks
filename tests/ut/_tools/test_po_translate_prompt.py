@@ -43,8 +43,6 @@ def test_po_translate_has_new_system_prompt_rules():
     assert "'950PR Products'        -> 'Ascend 950PR系列产品'" in SOURCE
     assert "'Atlas A2 Products'     -> 'Atlas A2系列产品'" in SOURCE
     assert "'Atlas A3 Products'     -> 'Atlas A3系列产品'" in SOURCE
-    assert "SOURCE MATCHING IS CASE-INSENSITIVE for these five product-line names." in SOURCE
-    assert "'Atlas A3 products', '950DT products', or any other capitalization" in SOURCE
     assert "MUST be NO space between the model" in SOURCE
     assert "'950DT 系列产品' (with a space) or '950DT系列 产品' (split)" in SOURCE
 
@@ -57,9 +55,6 @@ def test_po_translate_has_terminology_translation_section():
     assert "16. '950PR Products'       → 'Ascend 950PR系列产品'" in SOURCE
     assert "17. 'Atlas A2 Products'    → 'Atlas A2系列产品'" in SOURCE
     assert "18. 'Atlas A3 Products'    → 'Atlas A3系列产品'" in SOURCE
-    assert "Source matching for all five product-line names above is CASE-INSENSITIVE." in SOURCE
-    assert "- 'Atlas A3 products' → 'Atlas A3系列产品'" in SOURCE
-    assert "- '950DT products'    → 'Ascend 950DT系列产品'" in SOURCE
 
 
 def test_po_translate_prompt_still_format_compatible():
@@ -70,13 +65,12 @@ def test_po_translate_prompt_still_format_compatible():
     assert "{{}}, {{{{}}}}, {{name}}" in SOURCE
 
 
-def test_simplified_conversion_preserves_ascend_brand_name():
+def test_simplified_conversion_preserves_multiple_terms():
     tree = ast.parse(SOURCE)
     selected_nodes = []
     for node in tree.body:
         if isinstance(node, ast.Assign) and any(
-            isinstance(target, ast.Name)
-            and target.id in {"_ASCEND_BRAND_NAME", "_ASCEND_BRAND_PLACEHOLDER"}
+            isinstance(target, ast.Name) and target.id == "_SIMPLIFIED_CONVERSION_PROTECTED_TERMS"
             for target in node.targets
         ):
             selected_nodes.append(node)
@@ -86,13 +80,15 @@ def test_simplified_conversion_preserves_ascend_brand_name():
     namespace = {
         "zhconv": SimpleNamespace(
             convert=lambda text, _locale: text.replace("昇", "升")
+            .replace("專有詞", "专有词")
             .replace("繁體", "繁体")
             .replace("文檔", "文档")
         )
     }
     exec(compile(ast.Module(body=selected_nodes, type_ignores=[]), str(PO_TRANSLATE_PATH), "exec"), namespace)
 
-    entries = [SimpleNamespace(msgstr="昇腾平台使用繁體文檔")]
+    namespace["_SIMPLIFIED_CONVERSION_PROTECTED_TERMS"] = ("昇腾", "專有詞")
+    entries = [SimpleNamespace(msgstr="昇腾平台使用專有詞和繁體文檔")]
     namespace["_convert_po_to_simplified"](entries)
 
-    assert entries[0].msgstr == "昇腾平台使用繁体文档"
+    assert entries[0].msgstr == "昇腾平台使用專有詞和繁体文档"

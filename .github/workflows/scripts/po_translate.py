@@ -48,9 +48,6 @@ SYSTEM_PROMPT = (
     "- '950PR Products'        -> 'Ascend 950PR系列产品'"
     "- 'Atlas A2 Products'     -> 'Atlas A2系列产品'"
     "- 'Atlas A3 Products'     -> 'Atlas A3系列产品'"
-    "SOURCE MATCHING IS CASE-INSENSITIVE for these five product-line names."
-    "Variants such as 'Atlas A3 products', '950DT products', or any other capitalization"
-    "MUST use exactly the same target translations shown above."
     "IMPORTANT: In all five cases there MUST be NO space between the model"
     "number (e.g. '950DT', 'A2', 'A3') and '系列产品'. The '&' in '950PR&950DT'"
     "has NO surrounding spaces. Do NOT output '950DT 系列产品' (with a space) or '950DT系列 产品' (split)."
@@ -124,14 +121,6 @@ CRITICAL RULES — violations will cause the translation to be rejected:
 17. 'Atlas A2 Products'    → 'Atlas A2系列产品'
 18. 'Atlas A3 Products'    → 'Atlas A3系列产品'
 
-Source matching for all five product-line names above is CASE-INSENSITIVE.
-`Products`, `products`, `PRODUCTS`, and any other capitalization MUST produce
-exactly the same target translation shown above. Keep the target capitalization
-exactly as shown and never insert a space before or inside `系列产品`.
-Examples:
-- 'Atlas A3 products' → 'Atlas A3系列产品'
-- '950DT products'    → 'Ascend 950DT系列产品'
-
 --- MkDocs MATERIAL EXTENSIONS ---
 19. ADMONITIONS (!!! type): Keep "!!!" and type keyword (note, warning, tip)
     in English. Only translate the title text after type.
@@ -168,8 +157,7 @@ Examples:
 
 {content}"""
 
-_ASCEND_BRAND_NAME = "昇腾"
-_ASCEND_BRAND_PLACEHOLDER = "__VLLM_ASCEND_BRAND_ZH_CN__"
+_SIMPLIFIED_CONVERSION_PROTECTED_TERMS = ("昇腾",)
 
 
 def _normalize_msgid(text: str) -> str:
@@ -192,14 +180,21 @@ def _convert_po_to_simplified(po):
 
     This is a safety net to catch any Traditional Chinese characters that the
     translation model may have produced despite the prompt requesting Simplified
-    Chinese only. Preserve the required Ascend brand spelling because zhconv
-    otherwise normalizes ``昇腾`` to ``升腾``.
+    Chinese only. Preserve configured terms during conversion, including
+    spellings such as ``昇腾`` that zhconv would otherwise normalize to ``升腾``.
     """
     for entry in po:
         if entry.msgstr:
-            protected = entry.msgstr.replace(_ASCEND_BRAND_NAME, _ASCEND_BRAND_PLACEHOLDER)
+            protected = entry.msgstr
+            placeholders = []
+            for index, term in enumerate(_SIMPLIFIED_CONVERSION_PROTECTED_TERMS):
+                placeholder = f"__VLLM_DOC_PROTECTED_TERM_{index}__"
+                protected = protected.replace(term, placeholder)
+                placeholders.append((placeholder, term))
             converted = zhconv.convert(protected, "zh-cn")
-            entry.msgstr = converted.replace(_ASCEND_BRAND_PLACEHOLDER, _ASCEND_BRAND_NAME)
+            for placeholder, term in placeholders:
+                converted = converted.replace(placeholder, term)
+            entry.msgstr = converted
 
 
 class POTranslator:

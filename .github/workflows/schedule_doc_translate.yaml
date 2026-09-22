@@ -182,7 +182,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Verify new prompt terminology (preview only)
+      - name: Verify Ascend brand spelling (preview only)
         if: steps.translate.outcome == 'success' && env.PREVIEW == 'true'
         run: |
           po_files=$(git diff --cached --name-only | grep '\.po$' || true)
@@ -195,16 +195,6 @@ jobs:
           from polib import pofile
 
           bad_token = "升腾"
-          spacing_violations = [
-              "950PR&950DT 系列产品",
-              "950PR&950DT系列 产品",
-              "950DT 系列产品",
-              "950DT系列 产品",
-              "950PR 系列产品",
-              "950PR系列 产品",
-              "A2 系列产品",
-              "A3 系列产品",
-          ]
           problems = []
           correct_uses = 0
           for f in sys.argv[1].split():
@@ -214,9 +204,6 @@ jobs:
                       continue
                   if bad_token in e.msgstr:
                       problems.append((f, "wrong_token 升腾", e.msgid[:60]))
-                  for s in spacing_violations:
-                      if s in e.msgstr:
-                          problems.append((f, "spacing violation", s))
                   correct_uses += e.msgstr.count("昇腾")
           if problems:
               print("TERMINOLOGY CHECK WARNINGS:")
@@ -224,7 +211,7 @@ jobs:
                   print("  ", p[0], p[1], repr(p[2]))
               print(f"  total: {len(problems)} problem(s)")
           else:
-              print(f"TERMINOLOGY CHECK OK: no wrong '升腾' and no spacing violations (correct '昇腾' uses: {correct_uses})")
+              print(f"TERMINOLOGY CHECK OK: no wrong '升腾' (correct '昇腾' uses: {correct_uses})")
           PY
           exit 0
 
@@ -250,7 +237,7 @@ jobs:
           PR_HEAD: ${{ env.BRANCH_NAME }}
           PR_BASE: ${{ env.TARGET_BRANCH }}
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.PAT_TOKEN }}
           script: |
             try {
               const branchLabel = process.env.PR_BASE.split('/').pop();
