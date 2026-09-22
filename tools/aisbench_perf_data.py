@@ -21,12 +21,13 @@ import json
 import logging
 import math
 import sqlite3
+from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 
 import numpy as np
 
-from tools.benchmark_steady_state import RequestTiming
+from tools.benchmark_steady_state import RequestTiming, TimingLoadStats
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,14 @@ class TimingDataUnavailable(RuntimeError):
 
 class InvalidTimingRecord(ValueError):
     """Raised when one AISBench request record cannot produce a timing."""
+
+
+@dataclass(frozen=True)
+class TimingLoadResult:
+    """Valid request timings and the statistics collected while loading them."""
+
+    timings: list[RequestTiming]
+    stats: TimingLoadStats
 
 
 class AisbenchTimingAdapter:
@@ -108,7 +117,7 @@ class AisbenchTimingAdapter:
                 f"numpy_store row {value['__db_ref__']!r} in {db_name} is not a valid NumPy array"
             ) from exc
 
-    def load_request_timings(self) -> list[RequestTiming]:
+    def load_request_timings(self) -> TimingLoadResult:
         """Read valid records, warning and skipping malformed request entries."""
 
         details_file = self._find_details_file()
@@ -161,15 +170,12 @@ class AisbenchTimingAdapter:
             for connection in self._connections.values():
                 connection.close()
             self._connections.clear()
-        logger.info(
-            "AISBench Timing Data\n"
-            "  Records read:        %d\n"
-            "  Valid timings:       %d\n"
-            "  Successful timings:  %d\n"
-            "  Invalid records:      %d",
-            records_read,
-            len(timings),
-            sum(timing.success for timing in timings),
-            invalid_records,
+        return TimingLoadResult(
+            timings=timings,
+            stats=TimingLoadStats(
+                records_read=records_read,
+                valid_timings=len(timings),
+                successful_timings=sum(timing.success for timing in timings),
+                invalid_records=invalid_records,
+            ),
         )
-        return timings

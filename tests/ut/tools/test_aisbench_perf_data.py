@@ -59,7 +59,8 @@ def test_adapter_reads_inline_and_database_backed_time_points(tmp_path: Path, ca
         ],
     )
 
-    timings = AisbenchTimingAdapter(tmp_path, "gsm8k").load_request_timings()
+    load_result = AisbenchTimingAdapter(tmp_path, "gsm8k").load_request_timings()
+    timings = load_result.timings
 
     assert [(timing.request_id, timing.start_time, timing.end_time, timing.success) for timing in timings] == [
         ("1", 10.0, 12.0, True),
@@ -67,10 +68,11 @@ def test_adapter_reads_inline_and_database_backed_time_points(tmp_path: Path, ca
         ("3", 30.0, 31.0, False),
     ]
     assert "fewer than two entries" in caplog.text
-    assert "Records read:        4" in caplog.text
-    assert "Valid timings:       3" in caplog.text
-    assert "Successful timings:  2" in caplog.text
-    assert "Invalid records:      1" in caplog.text
+    assert "AISBench Timing Data" not in caplog.text
+    assert load_result.stats.records_read == 4
+    assert load_result.stats.valid_timings == 3
+    assert load_result.stats.successful_timings == 2
+    assert load_result.stats.invalid_records == 1
 
 
 def test_adapter_reuses_one_read_only_connection_per_database(tmp_path: Path):
@@ -92,9 +94,9 @@ def test_adapter_reuses_one_read_only_connection_per_database(tmp_path: Path):
     )
 
     with patch("tools.aisbench_perf_data.sqlite3.connect", wraps=sqlite3.connect) as connect:
-        timings = AisbenchTimingAdapter(tmp_path, "dataset").load_request_timings()
+        load_result = AisbenchTimingAdapter(tmp_path, "dataset").load_request_timings()
 
-    assert len(timings) == 2
+    assert len(load_result.timings) == 2
     assert connect.call_count == 1
 
 
@@ -115,10 +117,10 @@ def test_adapter_resolves_relative_result_directory(tmp_path: Path, monkeypatch:
     monkeypatch.chdir(tmp_path)
 
     adapter = AisbenchTimingAdapter(Path("outputs/performances/model"), "dataset")
-    timings = adapter.load_request_timings()
+    load_result = adapter.load_request_timings()
 
     assert adapter.result_dir == result_dir
-    assert [(timing.start_time, timing.end_time) for timing in timings] == [(1.0, 2.0)]
+    assert [(timing.start_time, timing.end_time) for timing in load_result.timings] == [(1.0, 2.0)]
 
 
 def test_adapter_uses_only_fallback_details_file(tmp_path: Path):
@@ -127,9 +129,9 @@ def test_adapter_uses_only_fallback_details_file(tmp_path: Path):
         [{"id": 1, "success": True, "time_points": [1.0, 2.0]}],
     )
 
-    timings = AisbenchTimingAdapter(tmp_path, "expected").load_request_timings()
+    load_result = AisbenchTimingAdapter(tmp_path, "expected").load_request_timings()
 
-    assert len(timings) == 1
+    assert len(load_result.timings) == 1
 
 
 def test_adapter_reports_missing_details_file(tmp_path: Path):
@@ -156,7 +158,7 @@ def test_adapter_refuses_to_guess_between_multiple_details_files(tmp_path: Path)
 def test_adapter_skips_invalid_timing_records(tmp_path: Path, record: dict[str, object]):
     _write_jsonl(tmp_path / "dataset_details.jsonl", [record])
 
-    assert AisbenchTimingAdapter(tmp_path, "dataset").load_request_timings() == []
+    assert AisbenchTimingAdapter(tmp_path, "dataset").load_request_timings().timings == []
 
 
 def test_adapter_skips_one_invalid_record_and_keeps_remaining_records(tmp_path: Path):
@@ -168,7 +170,7 @@ def test_adapter_skips_one_invalid_record_and_keeps_remaining_records(tmp_path: 
         ],
     )
 
-    timings = AisbenchTimingAdapter(tmp_path, "dataset").load_request_timings()
+    timings = AisbenchTimingAdapter(tmp_path, "dataset").load_request_timings().timings
 
     assert [(timing.request_id, timing.start_time, timing.end_time, timing.success) for timing in timings] == [
         ("good", 3.0, 4.0, True)
@@ -181,7 +183,7 @@ def test_adapter_skips_malformed_json_and_keeps_remaining_records(tmp_path: Path
         encoding="utf-8",
     )
 
-    timings = AisbenchTimingAdapter(tmp_path, "dataset").load_request_timings()
+    timings = AisbenchTimingAdapter(tmp_path, "dataset").load_request_timings().timings
 
     assert [timing.request_id for timing in timings] == ["good"]
     assert "invalid JSON" in caplog.text

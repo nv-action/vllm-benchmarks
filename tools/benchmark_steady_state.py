@@ -21,6 +21,7 @@ import math
 from bisect import bisect_right
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 DEFAULT_STEADY_STATE_THRESHOLD = 0.95
@@ -39,6 +40,16 @@ class RequestTiming:
     start_time: float
     end_time: float
     success: bool
+
+
+@dataclass(frozen=True)
+class TimingLoadStats:
+    """Counts collected while loading request timing artifacts."""
+
+    records_read: int
+    valid_timings: int
+    successful_timings: int
+    invalid_records: int
 
 
 @dataclass(frozen=True)
@@ -477,24 +488,68 @@ def _render_chart(
     return lines
 
 
-def render_terminal(case_name: str, result: SteadyStateResult, width: int = DEFAULT_TIMELINE_WIDTH) -> str:
-    """Render a compact GitHub Actions log group without performing I/O."""
+def _group_title(case_name: str, result: SteadyStateResult) -> str:
+    if result.status == "found":
+        assert result.steady_start_s is not None
+        assert result.steady_end_s is not None
+        detail = (
+            f"peak={result.observed_peak}/{result.target_concurrency} | "
+            f"{result.steady_start_s:.2f}s→{result.steady_end_s:.2f}s"
+        )
+        return f"🟢 [STEADY STATE] {case_name} | FOUND | {detail}"
+    if result.status == "not_found":
+        return (
+            f"🟡 [STEADY STATE] {case_name} | NOT_FOUND | "
+            f"peak={result.observed_peak}<threshold={result.threshold_concurrency}"
+        )
+    if result.status == "unavailable":
+        return f"🔴 [STEADY STATE] {case_name} | UNAVAILABLE | timing data unavailable"
+    return f"⚪ [STEADY STATE] {case_name} | SKIPPED | {result.reason or 'analysis skipped'}"
+
+
+def render_terminal(
+    case_name: str,
+    result: SteadyStateResult,
+    width: int = DEFAULT_TIMELINE_WIDTH,
+    *,
+    timing_stats: TimingLoadStats | None = None,
+    timing_directory: str | Path | None = None,
+    request_rate: float = 0,
+    summary_path: str | Path | None = None,
+) -> str:
+    """Render the complete steady-state GitHub Actions group without I/O."""
 
     if width < 20:
         raise ValueError("timeline width must be at least 20 columns")
 
     ratio_percent = result.threshold_ratio * 100
-    lines = [
-        f"::group::Steady State Analysis: {case_name}",
-        f"Status: {result.status.upper()}",
-        "",
-        f"Total requests:          {result.total_requests}",
-        f"Successful requests:     {result.successful_requests}",
-        "",
-        f"Target concurrency:       {result.target_concurrency}",
-        f"Threshold:                {result.threshold_concurrency} ({ratio_percent:g}%)",
-        f"Observed peak:            {result.observed_peak}",
-    ]
+    lines = [f"::group::{_group_title(case_name, result)}"]
+    if timing_directory is not None or timing_stats is not None:
+        lines.extend(["", "Timing Data"])
+        if timing_directory is not None:
+            lines.append(f"  Directory:             {timing_directory}")
+        if timing_stats is not None:
+            lines.extend(
+                [
+                    f"  Records read:          {timing_stats.records_read}",
+                    f"  Valid timings:         {timing_stats.valid_timings}",
+                    f"  Successful timings:    {timing_stats.successful_timings}",
+                    f"  Invalid records:       {timing_stats.invalid_records}",
+                ]
+            )
+    lines.extend(
+        [
+            "",
+            "Benchmark",
+            f"  Total requests:        {result.total_requests}",
+            f"  Target concurrency:    {result.target_concurrency}",
+            f"  Request rate:          {request_rate:g}",
+            "",
+            "Steady State",
+            f"  Threshold:             {result.threshold_concurrency} ({ratio_percent:g}%)",
+            f"  Observed peak:         {result.observed_peak}",
+        ]
+    )
     if result.status == "found":
         assert result.steady_start_s is not None
         assert result.steady_end_s is not None
@@ -504,11 +559,11 @@ def render_terminal(case_name: str, result: SteadyStateResult, width: int = DEFA
         lines.extend(
             [
                 "",
-                "Steady Start:",
+                "Steady Start",
                 f"  Time:                   {result.steady_start_s:.2f}s",
                 f"  Completed requests:     {result.completed_at_start}",
                 "",
-                "Steady End:",
+                "Steady End",
                 f"  Time:                   {result.steady_end_s:.2f}s",
                 f"  Completed requests:     {result.completed_at_end}",
                 "",
@@ -516,7 +571,7 @@ def render_terminal(case_name: str, result: SteadyStateResult, width: int = DEFA
             ]
         )
     if result.reason:
-        lines.extend(["", f"Reason: {result.reason}"])
+        lines.extend(["", "Reason:", f"  {result.reason}"])
     if result.warning:
         lines.extend(["", f"WARNING: {result.warning}"])
 
@@ -555,5 +610,7 @@ def render_terminal(case_name: str, result: SteadyStateResult, width: int = DEFA
                     f"steady end:   {result.steady_end_s:.2f}s / completed={result.completed_at_end}",
                 ]
             )
+    if summary_path is not None:
+        lines.extend(["", "Summary:", f"  {summary_path}"])
     lines.append("::endgroup::")
     return "\n".join(lines)

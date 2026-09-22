@@ -5,7 +5,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from tools import aisbench
-from tools.benchmark_steady_state import RequestTiming
+from tools.aisbench_perf_data import TimingLoadResult
+from tools.benchmark_steady_state import RequestTiming, TimingLoadStats
 
 
 @pytest.mark.parametrize("reasoning_effort", [None, "low"])
@@ -57,8 +58,8 @@ def test_request_config_reasoning_effort(tmp_path: Path, monkeypatch: pytest.Mon
         assert 'reasoning_effort="low"' in content
 
 
-def test_try_analyze_steady_state_writes_summary_without_changing_result(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_try_analyze_steady_state_writes_one_flushed_group_without_changing_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     runner = aisbench.AisbenchRunner.__new__(aisbench.AisbenchRunner)
     original_result = [object(), {"Output Token Throughput": {"total": "1 token/s"}}]
@@ -76,14 +77,25 @@ def test_try_analyze_steady_state_writes_summary_without_changing_result(
         RequestTiming("b", 1, 11, True),
     ]
     monkeypatch.setattr(aisbench, "STEADY_STATE_OUTPUT_DIR", tmp_path / "steady_state")
-    monkeypatch.setattr(aisbench.AisbenchTimingAdapter, "load_request_timings", lambda self: timings)
+    monkeypatch.setattr(
+        aisbench.AisbenchTimingAdapter,
+        "load_request_timings",
+        lambda self: TimingLoadResult(timings, TimingLoadStats(2, 2, 2, 0)),
+    )
+    print_output = MagicMock()
+    monkeypatch.setattr("builtins.print", print_output)
 
     runner._try_analyze_steady_state()
 
-    output = capsys.readouterr().out
-    assert "Starting Steady State Analysis: perf/example" in output
-    assert f"Timing directory: {tmp_path}" in output
-    assert "Target concurrency: 2 | Request rate: 0" in output
+    print_output.assert_called_once()
+    output = print_output.call_args.args[0]
+    assert print_output.call_args.kwargs == {"flush": True}
+    assert output.startswith("::group::🟢 [STEADY STATE] perf/example | FOUND |")
+    assert output.endswith("::endgroup::")
+    assert "Starting Steady State Analysis" not in output
+    assert f"Directory:             {tmp_path}" in output
+    assert "Records read:          2" in output
+    assert "Request rate:          0" in output
     assert runner.result is original_result
     assert runner.steady_state_result.status == "found"
     summary_path = tmp_path / "steady_state" / "perf_example" / "summary.json"
@@ -113,7 +125,9 @@ def test_try_analyze_steady_state_is_non_fatal(tmp_path: Path, monkeypatch: pyte
     assert runner.steady_state_result is None
 
 
-def test_rate_controlled_workload_is_skipped_without_reading_timings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_rate_controlled_workload_is_skipped_without_reading_timings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
     runner = aisbench.AisbenchRunner.__new__(aisbench.AisbenchRunner)
     runner.__dict__.update(
         case_name="fixed-qps",
@@ -131,11 +145,14 @@ def test_rate_controlled_workload_is_skipped_without_reading_timings(tmp_path: P
 
     assert not load_timings.called
     assert runner.steady_state_result.status == "skipped"
+    assert "::group::⚪ [STEADY STATE] fixed-qps | SKIPPED | rate-controlled workload" in capsys.readouterr().out
     summary_path = tmp_path / "steady_state" / "fixed-qps" / "summary.json"
     assert json.loads(summary_path.read_text(encoding="utf-8"))["reason"] == "rate-controlled workload"
 
 
-def test_missing_details_writes_unavailable_summary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_missing_details_writes_unavailable_summary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
     runner = aisbench.AisbenchRunner.__new__(aisbench.AisbenchRunner)
     runner.__dict__.update(
         case_name="perf",
@@ -150,6 +167,9 @@ def test_missing_details_writes_unavailable_summary(tmp_path: Path, monkeypatch:
     runner._try_analyze_steady_state()
 
     assert runner.steady_state_result.status == "unavailable"
+    output = capsys.readouterr().out
+    assert "::group::🔴 [STEADY STATE] perf | UNAVAILABLE | timing data unavailable" in output
+    assert "Reason:" in output
     summary_path = tmp_path / "steady_state" / "perf" / "summary.json"
     assert json.loads(summary_path.read_text(encoding="utf-8"))["status"] == "unavailable"
 
