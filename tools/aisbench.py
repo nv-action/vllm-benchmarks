@@ -29,10 +29,20 @@ import pandas as pd
 import regex as re
 from modelscope import snapshot_download  # type: ignore
 
+from tools.aisbench_perf_data import AisbenchTimingAdapter, TimingDataUnavailable
+from tools.benchmark_steady_state import (
+    SteadyStateResult,
+    analyze_steady_state,
+    render_terminal,
+    steady_state_summary,
+    unavailable_steady_state,
+)
+
 BENCHMARK_HOME = os.getenv("BENCHMARK_HOME", os.path.abspath("./benchmark"))
 DATASET_CONF_DIR = os.path.join(BENCHMARK_HOME, "ais_bench", "benchmark", "configs", "datasets")
 REQUEST_CONF_DIR = os.path.join(BENCHMARK_HOME, "ais_bench", "benchmark", "configs", "models", "vllm_api")
 DATASET_DIR = os.path.join(BENCHMARK_HOME, "ais_bench", "datasets")
+STEADY_STATE_OUTPUT_DIR = Path("steady_state")
 
 
 class AisbenchRunner:
@@ -71,6 +81,7 @@ class AisbenchRunner:
 
     def __init__(self, model: str, port: int, aisbench_config: dict, host_ip: str = "localhost", verify=True):
         self.model = model
+        self.case_name = str(aisbench_config.get("case_name", "unknown"))
         self.dataset_path = aisbench_config.get("dataset_path_local")
         if not self.dataset_path:
             self.dataset_path = maybe_download_from_modelscope(aisbench_config["dataset_path"], repo_type="dataset")
@@ -105,6 +116,9 @@ class AisbenchRunner:
         self.spec_decode_baseline = aisbench_config.get("baseline", [])
         self.exp_folder = None
         self.result_line = None
+        self.performance_result_dir: Path | None = None
+        self.performance_dataset_type: str | None = None
+        self.steady_state_result: SteadyStateResult | None = None
         self._init_dataset_conf()
         self._init_request_conf()
         if self.task_type == "spec_decode":
@@ -244,6 +258,8 @@ class AisbenchRunner:
     def _get_result_performance(self):
         result_dir = re.search(r"Performance Result files located in (.*)", self.result_line).group(1)[:-1]
         dataset_type = self.dataset_conf.split("/")[0]
+        self.performance_result_dir = Path(result_dir)
+        self.performance_dataset_type = dataset_type
         result_csv_file = os.path.join(result_dir, f"{dataset_type}.csv")
         result_json_file = os.path.join(result_dir, f"{dataset_type}.json")
         self.result_csv = pd.read_csv(result_csv_file, index_col=0)
@@ -251,6 +267,42 @@ class AisbenchRunner:
         with open(result_json_file, encoding="utf-8") as f:
             self.result_json = json.load(f)
         self.result = [self.result_csv, self.result_json]
+
+    def _emit_steady_state(self, result: SteadyStateResult) -> None:
+        self.steady_state_result = result
+        print(render_terminal(self.case_name, result))
+
+        safe_case_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(self.case_name)).strip("._") or "unknown"
+        output_dir = STEADY_STATE_OUTPUT_DIR / safe_case_name
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_file = output_dir / "summary.json"
+        with output_file.open("w", encoding="utf-8") as file:
+            json.dump(steady_state_summary(self.case_name, result), file, indent=2, ensure_ascii=False)
+        logging.info("Steady-state summary saved to %s", output_file)
+
+    def _try_analyze_steady_state(self) -> None:
+        try:
+            if self.request_rate > 0:
+                result = analyze_steady_state(
+                    [],
+                    target_concurrency=self.batch_size,
+                    request_rate=self.request_rate,
+                )
+            else:
+                assert self.performance_result_dir is not None
+                assert self.performance_dataset_type is not None
+                try:
+                    requests = AisbenchTimingAdapter(
+                        self.performance_result_dir,
+                        self.performance_dataset_type,
+                    ).load_request_timings()
+                    result = analyze_steady_state(requests, target_concurrency=self.batch_size)
+                except TimingDataUnavailable as exc:
+                    logging.warning("Steady-state timing data is unavailable: %s", exc)
+                    result = unavailable_steady_state(target_concurrency=self.batch_size, reason=str(exc))
+            self._emit_steady_state(result)
+        except Exception:
+            logging.exception("Failed to analyze steady state; benchmark result is unchanged")
 
     def _get_result_accuracy(self):
         acc_file = re.search(r"write csv to (.*)", self.result_line).group(1)
@@ -264,6 +316,7 @@ class AisbenchRunner:
 
     def _performance_verify(self):
         self._get_result_performance()
+        self._try_analyze_steady_state()
         output_throughput = self.result_json["Output Token Throughput"]["total"].replace("token/s", "")
         assert float(output_throughput) >= self.threshold * self.baseline, (
             "Performance verification failed. "

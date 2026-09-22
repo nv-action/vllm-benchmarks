@@ -1,8 +1,11 @@
+import json
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
 from tools import aisbench
+from tools.benchmark_steady_state import RequestTiming
 
 
 @pytest.mark.parametrize("reasoning_effort", [None, "low"])
@@ -52,3 +55,117 @@ def test_request_config_reasoning_effort(tmp_path: Path, monkeypatch: pytest.Mon
         assert "reasoning_effort=" not in content
     else:
         assert 'reasoning_effort="low"' in content
+
+
+def test_try_analyze_steady_state_writes_summary_without_changing_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    runner = aisbench.AisbenchRunner.__new__(aisbench.AisbenchRunner)
+    original_result = [object(), {"Output Token Throughput": {"total": "1 token/s"}}]
+    runner.__dict__.update(
+        case_name="perf/example",
+        batch_size=2,
+        request_rate=0,
+        performance_result_dir=tmp_path,
+        performance_dataset_type="dataset",
+        steady_state_result=None,
+        result=original_result,
+    )
+    timings = [
+        RequestTiming("a", 0, 12, True),
+        RequestTiming("b", 1, 11, True),
+    ]
+    monkeypatch.setattr(aisbench, "STEADY_STATE_OUTPUT_DIR", tmp_path / "steady_state")
+    monkeypatch.setattr(aisbench.AisbenchTimingAdapter, "load_request_timings", lambda self: timings)
+
+    runner._try_analyze_steady_state()
+
+    assert runner.result is original_result
+    assert runner.steady_state_result.status == "found"
+    summary_path = tmp_path / "steady_state" / "perf_example" / "summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["steady_state"]["start"] == {"time_s": 1, "completed_requests": 0}
+    assert summary["steady_state"]["end"] == {"time_s": 11, "completed_requests": 1}
+
+
+def test_try_analyze_steady_state_is_non_fatal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    runner = aisbench.AisbenchRunner.__new__(aisbench.AisbenchRunner)
+    runner.__dict__.update(
+        case_name="perf",
+        batch_size=2,
+        request_rate=0,
+        performance_result_dir=tmp_path,
+        performance_dataset_type="dataset",
+        steady_state_result=None,
+    )
+    monkeypatch.setattr(
+        aisbench.AisbenchTimingAdapter,
+        "load_request_timings",
+        MagicMock(side_effect=RuntimeError("broken timing artifact")),
+    )
+
+    runner._try_analyze_steady_state()
+
+    assert runner.steady_state_result is None
+
+
+def test_rate_controlled_workload_is_skipped_without_reading_timings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    runner = aisbench.AisbenchRunner.__new__(aisbench.AisbenchRunner)
+    runner.__dict__.update(
+        case_name="fixed-qps",
+        batch_size=2,
+        request_rate=10,
+        performance_result_dir=tmp_path,
+        performance_dataset_type="dataset",
+        steady_state_result=None,
+    )
+    load_timings = MagicMock(side_effect=AssertionError("adapter must not run"))
+    monkeypatch.setattr(aisbench.AisbenchTimingAdapter, "load_request_timings", load_timings)
+    monkeypatch.setattr(aisbench, "STEADY_STATE_OUTPUT_DIR", tmp_path / "steady_state")
+
+    runner._try_analyze_steady_state()
+
+    assert not load_timings.called
+    assert runner.steady_state_result.status == "skipped"
+    summary_path = tmp_path / "steady_state" / "fixed-qps" / "summary.json"
+    assert json.loads(summary_path.read_text(encoding="utf-8"))["reason"] == "rate-controlled workload"
+
+
+def test_missing_details_writes_unavailable_summary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    runner = aisbench.AisbenchRunner.__new__(aisbench.AisbenchRunner)
+    runner.__dict__.update(
+        case_name="perf",
+        batch_size=2,
+        request_rate=0,
+        performance_result_dir=tmp_path,
+        performance_dataset_type="dataset",
+        steady_state_result=None,
+    )
+    monkeypatch.setattr(aisbench, "STEADY_STATE_OUTPUT_DIR", tmp_path / "steady_state")
+
+    runner._try_analyze_steady_state()
+
+    assert runner.steady_state_result.status == "unavailable"
+    summary_path = tmp_path / "steady_state" / "perf" / "summary.json"
+    assert json.loads(summary_path.read_text(encoding="utf-8"))["status"] == "unavailable"
+
+
+def test_performance_analysis_runs_before_baseline_assertion(monkeypatch: pytest.MonkeyPatch):
+    runner = aisbench.AisbenchRunner.__new__(aisbench.AisbenchRunner)
+    runner.threshold = 1
+    runner.baseline = 100
+    runner.input_throughput_threshold = None
+    runner.tpot_threshold = None
+    calls: list[str] = []
+
+    def get_result() -> None:
+        calls.append("result")
+        runner.result_json = {"Output Token Throughput": {"total": "1 token/s"}}
+
+    monkeypatch.setattr(runner, "_get_result_performance", get_result)
+    monkeypatch.setattr(runner, "_try_analyze_steady_state", lambda: calls.append("steady"))
+
+    with pytest.raises(AssertionError):
+        runner._performance_verify()
+
+    assert calls == ["result", "steady"]
