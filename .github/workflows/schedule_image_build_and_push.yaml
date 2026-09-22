@@ -97,7 +97,7 @@ on:
       chips:
         description: 'Chips to build (JSON array: ["a2","a3","310p","a5"]). Default builds all.'
         required: false
-        default: '["a3"]'
+        default: '["310p"]'
         type: string
 
 permissions:
