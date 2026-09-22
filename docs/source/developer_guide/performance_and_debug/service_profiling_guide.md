@@ -114,6 +114,76 @@ After analysis, the `*ascend_pt` directory will contain many files, with the mai
 
 - `trace_view.json`: Chrome tracing format data, can be opened with [MindStudio Insight](https://www.hiascend.com/document/detail/zh/mindstudio/81RC1/GUI_baseddevelopmenttool/msascendinsightug/Insight_userguide_0002.html)
 
+### Download CI Profiling Artifacts
+
+CI accepts a `profile_options_json` object, for example `{"enabled":true,"start_after":40,"duration":8,"benchmark_names":"perf_TPOT50_16k_1"}`. `benchmark_names` is a comma-separated filter of names under the test YAML's `benchmarks` section; an empty string selects all performance benchmarks. The corresponding slash-command option is `--profile-benchmark-names`, and the environment variable is `ASCEND_PROFILE_BENCHMARK_NAMES`. Defaults and validation are defined by `ProfileSpec`; workflows pass the options through as JSON and expand them to `ASCEND_PROFILE_*` variables at the test boundary. Boolean values accept JSON booleans or case-insensitive `true`/`false` strings. Removed JSON options such as `cases`, `scope`, and `max_size` are rejected.
+
+Profiling captures all serving instances. Every worker, including internal DP headless nodes, receives a profiler configuration and a separate trace directory. Start/stop requests go to each distinct serving API endpoint once; a headless node is controlled through its group's API endpoint. P/D deployments capture both groups.
+
+Both ordinary performance runs and profiling runs record their first formal AISBench request, after warmup, as time zero using AISBench's `perf_counter` clock. The marker is written when the inferencer dispatches that request, after request-rate and concurrency waits. Warmup still runs normally but neither starts the profiling timer nor adds an empty interval to the charts. The steady-state chart and `start_after` use the same marker: a stable region beginning at 40 seconds suggests `start_after=40`. Failed requests do not move time zero. Timing/chart failures only warn during ordinary benchmarks. For a selected profiling case, missing timing markers, setup/control errors, incomplete capture windows, and artifact failures fail the task. Available artifacts and capture status are saved before reporting collection failures.
+
+Each CI job initializes its profiling results once in a fresh, run-specific directory. `benchmark_name` identifies a key under the YAML's `benchmarks` section. `benchmark_artifact_name` combines the service configuration name and benchmark key (`<configuration>__<benchmark>`) for artifact and timing-marker paths, in both ordinary and profiling runs. Each selected benchmark saves its own `serve_manifest.json` snapshot before capture. Starting another service configuration updates the active inventory without overwriting those snapshots or earlier traces; reusing the same artifact name within a job fails instead of overwriting it. For manual runs, choose a directory that does not exist and initialize it before starting the tests:
+
+```bash
+export ASCEND_PROFILE_ENABLED=true
+export ASCEND_PROFILE_ROOT=/tmp/my-profile-run
+python3 -m tools.profiling.capture initialize --root "$ASCEND_PROFILE_ROOT"
+# Run the YAML-driven benchmark tests with the same environment.
+```
+
+If no profiling cases are selected, upload succeeds with a `skipped` manifest and no offline parsing jobs are started. Missing expected manifests or incomplete artifacts are failures, not skips. Offline analysis requires the parser to return successfully, `analyse.done` to exist, and `trace_view.json` to be non-empty; the tools do not load the entire trace just to validate its JSON syntax.
+
+Offline planning and finalization use 4-core CPU runners and the `nightly-cpu-py3.12` image. Both read metadata downloaded from GitHub Artifacts and require only Python's standard library, without OBS credentials or SDK installation. Actual parsing retains the 16-core runner and the matching nightly image for `torch_npu`, with separate jobs for each node. Finalization runs after all node shards finish, including failed shards, to summarize available results. OBS dependency installation for raw upload and parsing uses the Huawei Cloud public PyPI mirror (`https://repo.huaweicloud.com/repository/pypi/simple/`), including on A2 in Hong Kong. These settings do not change the benchmark's pip/uv configuration.
+
+Each node parses one rank at a time with torch_npu's default analysis settings, overlapping parsing with compression/upload of the previous rank. At most one parsed rank waits for publication. Finished and failed parsing attempts release their temporary output; raw inputs remain in OBS. There is no fixed trace-size limit or disk-capacity prediction. If a runner runs out of space, reduce `duration` and retry. Transfers rely on the SDK's error handling without additional application-level HEAD size checks. Bucket capacity can be inspected separately in the OBS console.
+
+Download the `profile-artifact-<job-key>` GitHub Artifact from the workflow run and extract it into `profile_artifact/`. It contains the metadata, download links, and a download script, without the large trace files:
+
+```text
+profile_artifact/
+├── profile_manifest.json
+├── benchmarks/
+│   └── <benchmark_artifact_name>/
+│       └── serve_manifest.json
+├── raw/
+│   └── downloads.md
+├── parsed/
+│   └── downloads.md
+├── summary.txt
+└── download.sh
+```
+
+The `parsed/` index is omitted when `output` is `raw`. OBS stores only raw and parsed `.tar.gz` archives; manifests and node results stay in GitHub Artifacts. Artifact names include the repository, run ID, attempt, deployment scene, branch, and job name to separate concurrent jobs and reruns. Parsed runs also retain a `profile-capture-<job-key>` intermediate index and `profile-shard-<job-key>-node-<N>` results. All these GitHub Artifacts have a 90-day retention setting.
+
+The final job's **Profiling summary** step prints an overview, quick-download commands, and separate RAW/PARSED sections with blank lines, short rank labels, and numeric rank ordering. Full links are grouped by benchmark and serving instance in collapsible log sections. Raw-only runs print the summary in the capture job; capture/upload failures also print the available raw links there. The summary runs even if uploading the GitHub Artifact fails. Partial failures retain links to confirmed uploads and report the failed targets; they still fail the profiling job.
+
+Profiling artifacts use the public-read bucket `ascend-profile-artifacts` in `cn-southwest-2`. The bucket, endpoint, and region are defined once in `tools/profiling/storage.py`. CI authenticates OBS operations using the GitHub secrets `HW_OBS_PROFILE_AK` and `HW_OBS_PROFILE_SK`; other benchmark artifacts retain their existing storage credentials. Uploading does not change bucket policies or object ACLs.
+
+The bundled script uses Bash and curl to download confirmed uploads through unsigned HTTPS links, preserving the `raw/` and `parsed/` directory structure. Public objects need no AK/SK or temporary signed URLs. Choose `all` (the default), `raw`, or `parsed`, with an optional destination:
+
+```bash
+bash ./profile_artifact/download.sh all
+bash ./profile_artifact/download.sh raw ./my-profiles
+bash ./profile_artifact/download.sh parsed ./my-profiles
+```
+
+The script downloads sequentially, retries failed transfers, and exits with an error if a download fails. A file is moved from its `.part` path to the final name only after a successful transfer. For a single file, copy its link from the summary or `downloads.md`:
+
+```bash
+curl -fL '<HTTPS link from the download summary>' -o profile.tar.gz
+```
+
+The links use `https://ascend-profile-artifacts.obs.cn-southwest-2.myhuaweicloud.com/<object-key>`. For batch downloads with [obsutil](https://support.huaweicloud.com/utiltg-obs/obs_11_0023.html), recursive copying also needs permission to list objects. Public access to an individual object does not by itself guarantee that permission. If using authenticated obsutil, configure your own authorized credentials interactively, then copy the commands from the summary (do not distribute CI credentials):
+
+```bash
+obsutil config -interactive
+obsutil cp "obs://ascend-profile-artifacts/<job-prefix>/" ./profile-download/ -r -j=4
+obsutil cp "obs://ascend-profile-artifacts/<job-prefix>/raw/" ./profile-download/raw/ -r -j=4
+obsutil cp "obs://ascend-profile-artifacts/<job-prefix>/parsed/" ./profile-download/parsed/ -r -j=4
+```
+
+Choose the command for all files, raw files, or parsed files. `obsutil` downloads with up to four concurrent object transfers. Neither download method extracts or parses archives. The Python parsing tool performs analysis and upload: `python -m tools.profiling.parse parse --manifest profile_artifact/profile_manifest.json --root /tmp/profile_parse --node-index 0`. Its `plan` and `finalize` commands operate on local metadata.
+
 ### Supplementary: Profiling in PD Disaggregation Scenarios
 
 In PD (Prefill-Decode) disaggregation deployments, the Prefiller and Decoder are **separate vLLM instances**, each with its own API server. Profiling must be configured and controlled **independently** on each node:
