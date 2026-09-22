@@ -190,7 +190,7 @@ def _run_postprocess_script(script_path: Path, output_path: Path) -> None:
         "--label",
         UPLOAD_LABEL,
         "--files",
-        str(output_path),
+        str(output_path.resolve()),
     ]
     env = os.environ.copy()
     try:
