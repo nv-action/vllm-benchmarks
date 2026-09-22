@@ -17,6 +17,7 @@ import pytest
 
 from tools.benchmark_steady_state import (
     RequestTiming,
+    TimingLoadStats,
     analyze_steady_state,
     render_terminal,
     steady_state_summary,
@@ -174,9 +175,20 @@ def test_renderer_keeps_time_and_completed_coordinates():
         target_concurrency=4,
     )
 
-    output = render_terminal("perf", result, width=24)
+    output = render_terminal(
+        "perf",
+        result,
+        width=24,
+        timing_stats=TimingLoadStats(4, 4, 4, 0),
+        timing_directory="outputs/perf",
+        request_rate=0,
+        summary_path="steady_state/perf/summary.json",
+    )
 
-    assert "::group::Steady State Analysis: perf" in output
+    assert "::group::🟢 [STEADY STATE] perf | FOUND | peak=4/4 | 3.00s→20.00s" in output
+    assert "Timing Data" in output
+    assert "Records read:          4" in output
+    assert "Summary:\n  steady_state/perf/summary.json" in output
     assert "Concurrency Timeline" in output
     assert "Completed Requests" in output
     assert "█" not in output
@@ -185,6 +197,30 @@ def test_renderer_keeps_time_and_completed_coordinates():
     assert "completed=0" in output
     assert "20.00s" in output
     assert "completed=1" in output
+
+
+def test_renderer_uses_unavailable_group_title():
+    result = analyze_steady_state([], target_concurrency=4)
+
+    output = render_terminal("perf", result)
+
+    assert "::group::🔴 [STEADY STATE] perf | UNAVAILABLE | timing data unavailable" in output
+
+
+def test_renderer_uses_not_found_group_title():
+    result = analyze_steady_state([_request("a", 0, 3), _request("b", 1, 2)], target_concurrency=3)
+
+    output = render_terminal("perf", result)
+
+    assert "::group::🟡 [STEADY STATE] perf | NOT_FOUND | peak=2<threshold=3" in output
+
+
+def test_renderer_uses_skipped_group_title():
+    result = analyze_steady_state([_request("a", 0, 1)], target_concurrency=1, request_rate=10)
+
+    output = render_terminal("fixed-qps", result, request_rate=10)
+
+    assert "::group::⚪ [STEADY STATE] fixed-qps | SKIPPED | rate-controlled workload" in output
 
 
 def _chart_rows(output: str, title: str) -> list[str]:
