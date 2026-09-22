@@ -22,7 +22,9 @@ static test keeps those rules from being accidentally dropped or regressing
 (the prompts would otherwise only be exercised by a live DeepSeek run).
 """
 
+import ast
 from pathlib import Path
+from types import SimpleNamespace
 
 PO_TRANSLATE_PATH = Path(__file__).resolve().parents[3] / ".github" / "workflows" / "scripts" / "po_translate.py"
 
@@ -61,3 +63,31 @@ def test_po_translate_prompt_still_format_compatible():
     # braces escape the literal format specifiers shown to the model.
     assert SOURCE.count('{content}"""') == 1
     assert "{{}}, {{{{}}}}, {{name}}" in SOURCE
+
+
+def test_simplified_conversion_preserves_ascend_brand_name():
+    tree = ast.parse(SOURCE)
+    selected_nodes = []
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name)
+            and target.id in {"_ASCEND_BRAND_NAME", "_ASCEND_BRAND_PLACEHOLDER"}
+            for target in node.targets
+        ):
+            selected_nodes.append(node)
+        elif isinstance(node, ast.FunctionDef) and node.name == "_convert_po_to_simplified":
+            selected_nodes.append(node)
+
+    namespace = {
+        "zhconv": SimpleNamespace(
+            convert=lambda text, _locale: text.replace("昇", "升")
+            .replace("繁體", "繁体")
+            .replace("文檔", "文档")
+        )
+    }
+    exec(compile(ast.Module(body=selected_nodes, type_ignores=[]), str(PO_TRANSLATE_PATH), "exec"), namespace)
+
+    entries = [SimpleNamespace(msgstr="昇腾平台使用繁體文檔")]
+    namespace["_convert_po_to_simplified"](entries)
+
+    assert entries[0].msgstr == "昇腾平台使用繁体文档"

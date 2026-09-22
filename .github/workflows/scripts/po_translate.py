@@ -157,6 +157,9 @@ CRITICAL RULES — violations will cause the translation to be rejected:
 
 {content}"""
 
+_ASCEND_BRAND_NAME = "昇腾"
+_ASCEND_BRAND_PLACEHOLDER = "__VLLM_ASCEND_BRAND_ZH_CN__"
+
 
 def _normalize_msgid(text: str) -> str:
     """Normalize a msgid for fuzzy comparison.
@@ -178,11 +181,14 @@ def _convert_po_to_simplified(po):
 
     This is a safety net to catch any Traditional Chinese characters that the
     translation model may have produced despite the prompt requesting Simplified
-    Chinese only.
+    Chinese only. Preserve the required Ascend brand spelling because zhconv
+    otherwise normalizes ``昇腾`` to ``升腾``.
     """
     for entry in po:
         if entry.msgstr:
-            entry.msgstr = zhconv.convert(entry.msgstr, "zh-cn")
+            protected = entry.msgstr.replace(_ASCEND_BRAND_NAME, _ASCEND_BRAND_PLACEHOLDER)
+            converted = zhconv.convert(protected, "zh-cn")
+            entry.msgstr = converted.replace(_ASCEND_BRAND_PLACEHOLDER, _ASCEND_BRAND_NAME)
 
 
 class POTranslator:
