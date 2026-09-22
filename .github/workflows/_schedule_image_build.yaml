@@ -173,8 +173,8 @@ jobs:
       max-parallel: 2
       matrix:
         runner_info:
-          - {runner: linux-aarch64-cpu-4-gy006, tag: arm64}
-          - {runner: linux-amd64-cpu-4-gy006, tag: amd64}
+          - {runner: linux-aarch64-cpu-4-cn12-001, tag: arm64}
+          - {runner: linux-amd64-cpu-4-cn12-001, tag: amd64}
 
     steps:
 
@@ -415,7 +415,7 @@ jobs:
         retention-days: 1
 
   merge-image:
-    runs-on: linux-amd64-cpu-4-gy006
+    runs-on: linux-amd64-cpu-4-cn12-001
     needs: build-push-digest
     if: ${{ inputs.should_push && !inputs.temp_only }}
     steps:
@@ -616,7 +616,7 @@ jobs:
 
   merge-image-temp:
     name: merge-image-temp
-    runs-on: linux-amd64-cpu-4-gy006
+    runs-on: linux-amd64-cpu-4-cn12-001
     needs: build-push-digest
     if: ${{ inputs.should_push && inputs.temp_only }}
     steps:
