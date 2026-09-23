@@ -54,11 +54,6 @@ on:
         type: boolean
         default: false
         description: "If true, login to SWR and push built images. Set to false for PR verification builds."
-      profile_validation_build:
-        required: false
-        type: boolean
-        default: false
-        description: "Rebuild this checkout on the existing A3 nightly image for private profiling validation."
       cann_swr_url:
         required: false
         type: string
@@ -118,7 +113,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          ref: ${{ inputs.profile_validation_build && github.sha || inputs.vllm_ascend_branch }}
+          ref: ${{ inputs.vllm_ascend_branch }}
 
       - name: Login to SWR
         id: login-swr
@@ -212,15 +207,6 @@ jobs:
 
           if [ -n "$BASE_IMAGE" ]; then
             BUILD_ARGS+=(--build-arg BASE_IMAGE="${BASE_IMAGE}")
-          fi
-
-          if [ "${{ inputs.profile_validation_build }}" = "true" ]; then
-            BUILD_ARGS=(
-              --platform ${{ matrix.arch_platform }}
-              -f .github/workflows/dockerfiles/Dockerfile.profile-validation.a3
-              --build-arg BASE_IMAGE="${SWR_REGISTRY}:nightly-ci-main-a3"
-              --build-arg SOURCE_SHA="${{ github.sha }}"
-            )
           fi
 
           if [ "${{ inputs.should_push }}" = "true" ]; then
