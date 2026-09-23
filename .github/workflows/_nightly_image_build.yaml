@@ -79,16 +79,16 @@ on:
 
 jobs:
   generate-matrix:
-    runs-on: linux-amd64-cpu-4
+    runs-on: linux-amd64-cpu-4-gy006
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - id: set-matrix
         run: |
           if [ "${{ inputs.build_type }}" = "daily" ]; then
-            MATRIX='{"include":[{"arch_name":"amd64","arch_runner":"linux-amd64-cpu-4","arch_platform":"linux/amd64","os":"ubuntu"},{"arch_name":"amd64","arch_runner":"linux-amd64-cpu-4","arch_platform":"linux/amd64","os":"openeuler"},{"arch_name":"arm64","arch_runner":"linux-aarch64-cpu-4","arch_platform":"linux/arm64","os":"ubuntu"},{"arch_name":"arm64","arch_runner":"linux-aarch64-cpu-4","arch_platform":"linux/arm64","os":"openeuler"}]}'
+            MATRIX='{"include":[{"arch_name":"amd64","arch_runner":"linux-amd64-cpu-4-gy006","arch_platform":"linux/amd64","os":"ubuntu"},{"arch_name":"amd64","arch_runner":"linux-amd64-cpu-4-gy006","arch_platform":"linux/amd64","os":"openeuler"},{"arch_name":"arm64","arch_runner":"linux-aarch64-cpu-4-gy006","arch_platform":"linux/arm64","os":"ubuntu"},{"arch_name":"arm64","arch_runner":"linux-aarch64-cpu-4-gy006","arch_platform":"linux/arm64","os":"openeuler"}]}'
           else
-            MATRIX='{"include":[{"arch_name":"arm64","arch_runner":"linux-aarch64-cpu-4","arch_platform":"linux/arm64","os":"ubuntu"}]}'
+            MATRIX='{"include":[{"arch_name":"arm64","arch_runner":"linux-aarch64-cpu-4-gy006","arch_platform":"linux/arm64","os":"ubuntu"}]}'
           fi
           echo "matrix=${MATRIX}" >> $GITHUB_OUTPUT
 
@@ -262,7 +262,7 @@ jobs:
 
   merge-image:
     name: Merge multi-arch nightly-${{ inputs.target }}
-    runs-on: linux-amd64-cpu-4
+    runs-on: linux-amd64-cpu-4-gy006
     needs: build
     # Run even if some matrix instances failed. Each OS variant is merged independently,
     # only when BOTH arch images exist. Owner gate keeps it disabled in upstream forks.

@@ -23,7 +23,7 @@ FROM ${BASE_IMAGE}:nightly-${VLLM_ASCEND_BRANCH}-310p${OS_MARK}${TAG_SUFFIX}
 
 # Build-time configuration. Defaults are the public community mirrors so this
 # Dockerfile can be built standalone; CI passes internal mirrors via --build-arg.
-ARG PIP_INDEX_URL="https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
+ARG PIP_INDEX_URL="https://repo.huaweicloud.com/repository/pypi/simple"
 ARG PIP_EXTRA_INDEX_URL="https://repo.huaweicloud.com/ascend/repos/pypi"
 ARG PIP_TRUSTED_HOST=""
 ARG AIS_BENCH_TAG="v3.1-20260609-master"
