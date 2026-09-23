@@ -4,7 +4,6 @@ import argparse
 import json
 import logging
 import os
-import re
 import shlex
 import shutil
 import tarfile
@@ -14,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+import regex as re
 import requests
 
 logger = logging.getLogger(__name__)
