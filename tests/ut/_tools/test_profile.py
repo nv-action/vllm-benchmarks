@@ -319,6 +319,10 @@ def test_a3_workflow_profile_plumbing():
     dispatch_inputs = schedule["on"]["workflow_dispatch"]["inputs"]
     assert len(dispatch_inputs) <= 10
     assert json.loads(dispatch_inputs["profile_options_json"]["default"]) == {}
+    build = schedule["jobs"]["build-image"]["with"]
+    assert "nv-action/vllm-benchmarks" in build["should_push"]
+    assert "nv-action/vllm-benchmarks" in build["profile_validation_build"]
+    assert "swr.cn-southwest-2.myhuaweicloud.com" in build["swr_registry"]
     for job_name in ("multi-node-tests", "double-node-tests", "single-node-tests", "multi-card-tests"):
         assert all(field in schedule["jobs"][job_name]["with"] for field in fields)
         assert schedule["jobs"][job_name]["secrets"]["AWS_ACCESS_KEY_ID"] == "${{ secrets.AWS_ACCESS_KEY_ID }}"
@@ -336,6 +340,17 @@ def test_a3_workflow_profile_plumbing():
         assert "python3 -m tools.profile upload" in upload["run"]
         assert "secrets.AWS_ACCESS_KEY_ID" in upload["env"]["AWS_ACCESS_KEY_ID"]
         assert "secrets.AWS_SECRET_ACCESS_KEY" in upload["env"]["AWS_SECRET_ACCESS_KEY"]
+        if name == "_e2e_nightly_single_node.yaml":
+            for overlay_name in (
+                "Checkout profiling validation source",
+                "Overlay profiling Python source on existing image",
+            ):
+                overlay = next(step for step in steps if step["name"] == overlay_name)
+                assert "!inputs.profile_image_built" in overlay["if"]
+    for job_name in ("single-node-tests", "multi-card-tests"):
+        assert schedule["jobs"][job_name]["with"]["profile_image_built"].endswith(
+            "inputs.skip_build_image != 'true' }}"
+        )
     command = workflow("pr_nightly_command.yml")
     assert all(field in command["jobs"]["authorize"]["outputs"] for field in fields)
     assert "profile_options_json" in command["jobs"]["dispatch-a3"]["steps"][-1]["run"]
