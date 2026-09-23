@@ -81,6 +81,9 @@ on:
       profile_enabled:
         type: boolean
         default: false
+      profile_image_built:
+        type: boolean
+        default: false
       profile_start_after:
         type: string
         default: '15'
@@ -265,7 +268,7 @@ jobs:
           python3 -m pip cache purge
 
       - name: Checkout profiling validation source
-        if: ${{ inputs.profile_enabled && inputs.request_id == '' }}
+        if: ${{ inputs.profile_enabled && !inputs.profile_image_built && inputs.request_id == '' }}
         uses: actions/checkout@v7
         with:
           ref: ${{ inputs.vllm_ascend_ref || github.sha }}
@@ -273,7 +276,7 @@ jobs:
           fetch-depth: 1
 
       - name: Overlay profiling Python source on existing image
-        if: ${{ inputs.profile_enabled && inputs.request_id == '' }}
+        if: ${{ inputs.profile_enabled && !inputs.profile_image_built && inputs.request_id == '' }}
         run: |
           source_dir="$GITHUB_WORKSPACE/profile-source"
           target_dir=/vllm-workspace/vllm-ascend
