@@ -38,6 +38,7 @@ from tools.benchmark_steady_state import (
     steady_state_summary,
     unavailable_steady_state,
 )
+from tools.profile import ArtifactManager, ProfileController, ProfileSpec, ServeManifest, TargetSelector, profile_root
 
 BENCHMARK_HOME = os.getenv("BENCHMARK_HOME", os.path.abspath("./benchmark"))
 DATASET_CONF_DIR = os.path.join(BENCHMARK_HOME, "ais_bench", "benchmark", "configs", "datasets")
@@ -78,11 +79,16 @@ class AisbenchRunner:
         self.stdout_file = f"output_{self.task_type}.txt"
         aisbench_cmd = " ".join(aisbench_cmd) + f" --debug > {self.stdout_file} 2>&1 &"
         print(f"running aisbench cmd: {aisbench_cmd}")
-        self.proc: subprocess.Popen = subprocess.Popen(aisbench_cmd, shell=True)
+        env = os.environ.copy()
+        if self.profile_targets:
+            repo_root = str(Path(__file__).resolve().parents[1])
+            env["PYTHONPATH"] = os.pathsep.join(filter(None, (repo_root, env.get("PYTHONPATH", ""))))
+        self.proc: subprocess.Popen = subprocess.Popen(aisbench_cmd, shell=True, env=env)
 
     def __init__(self, model: str, port: int, aisbench_config: dict, host_ip: str = "localhost", verify=True):
         self.model = model
         self.case_name = str(aisbench_config.get("case_name", "unknown"))
+        self.profile_case_name = str(aisbench_config.get("profile_case_name", self.case_name))
         self.dataset_path = aisbench_config.get("dataset_path_local")
         if not self.dataset_path:
             self.dataset_path = maybe_download_from_modelscope(aisbench_config["dataset_path"], repo_type="dataset")
@@ -95,6 +101,22 @@ class AisbenchRunner:
         self.port = port
         self.host_ip = host_ip
         self.task_type = aisbench_config["case_type"]
+        self.profile_spec = ProfileSpec()
+        self.profile_targets = ()
+        try:
+            self.profile_spec = ProfileSpec.from_env()
+            if self.profile_spec.includes(self.case_name, self.task_type):
+                manifest_path = profile_root() / "serve_manifest.json"
+                if manifest_path.exists():
+                    self.profile_targets = TargetSelector.select(
+                        ServeManifest.read(manifest_path), self.profile_spec.scope
+                    )
+                else:
+                    logging.warning("No serve manifest for profiling; benchmark runs without profiling")
+        except Exception:
+            logging.exception("Profiling setup failed; benchmark runs without profiling")
+        safe_profile_case = re.sub(r"[^A-Za-z0-9_.-]", "_", self.profile_case_name)
+        self.profile_marker = profile_root() / f"{safe_profile_case}.first_request"
         self.request_conf = aisbench_config["request_conf"]
         self.dataset_conf = aisbench_config.get("dataset_conf")
         self.num_prompts = aisbench_config.get("num_prompts")
@@ -128,8 +150,37 @@ class AisbenchRunner:
 
             self.metrics_server = _MetricsServer(self.host_ip, self.port)
             self.metrics_baseline = capture_baseline(self.metrics_server, len(self.spec_decode_baseline))
-        self._run_aisbench_task()
-        self._wait_for_task()
+        controller = None
+        if self.profile_targets:
+            try:
+                self.profile_marker.parent.mkdir(parents=True, exist_ok=True)
+                self.profile_marker.unlink(missing_ok=True)
+                target_names = ", ".join(target.name for target in self.profile_targets)
+                print(
+                    f"\n{'=' * 60}\n"
+                    f"Profiling case {self.profile_case_name}: targets={target_names}, "
+                    f"start-after={self.profile_spec.start_after}s, duration={self.profile_spec.duration}s\n"
+                    f"{'=' * 60}",
+                    flush=True,
+                )
+                controller = ProfileController(self.profile_spec, self.profile_targets, self.profile_marker)
+                controller.start()
+            except Exception:
+                logging.exception("Profiling controller could not start; benchmark result is unchanged")
+                controller = None
+        try:
+            self._run_aisbench_task()
+            self._wait_for_task()
+        finally:
+            if controller:
+                result = controller.finish()
+                print(f"Profiling case {self.profile_case_name} finished: {result}", flush=True)
+                try:
+                    ArtifactManager(profile_root(), self.profile_spec.output).collect(
+                        self.profile_case_name, self.profile_targets, result
+                    )
+                except Exception:
+                    logging.exception("Failed to collect profiling artifacts; benchmark result is unchanged")
         if verify:
             self.baseline = aisbench_config.get("baseline", 1)
             if self.task_type == "accuracy":
@@ -209,6 +260,11 @@ class AisbenchRunner:
         if self.no_pred:
             content = re.sub(r"pred_postprocessor.*", "#pred_postprocessor", content)
         conf_path_new = os.path.join(REQUEST_CONF_DIR, f"{self.request_conf}_custom.py")
+        if self.profile_targets:
+            content += (
+                "\nfrom tools.profile import profiled_model\n"
+                f"models[0]['type'] = profiled_model(models[0]['type'], {str(self.profile_marker)!r})\n"
+            )
         with open(conf_path_new, "w", encoding="utf-8") as f:
             f.write(content)
         print(f"The request config is\n {content}")

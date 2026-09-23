@@ -48,6 +48,14 @@ jobs:
       dispatch_a5: ${{ steps.resolve.outputs.dispatch_a5 }}
       vllm_ascend_ref: ${{ steps.resolve.outputs.vllm_ascend_ref }}
       aop_enabled: ${{ steps.resolve.outputs.aop_enabled }}
+      profile_enabled: ${{ steps.resolve.outputs.profile_enabled }}
+      profile_start_after: ${{ steps.resolve.outputs.profile_start_after }}
+      profile_duration: ${{ steps.resolve.outputs.profile_duration }}
+      profile_with_stack: ${{ steps.resolve.outputs.profile_with_stack }}
+      profile_scope: ${{ steps.resolve.outputs.profile_scope }}
+      profile_max_size: ${{ steps.resolve.outputs.profile_max_size }}
+      profile_output: ${{ steps.resolve.outputs.profile_output }}
+      profile_cases: ${{ steps.resolve.outputs.profile_cases }}
       bisect_args_json: ${{ steps.resolve.outputs.bisect_args_json }}
       command: ${{ steps.resolve.outputs.command }}
       pr_number: ${{ steps.resolve.outputs.pr_number }}
@@ -133,6 +141,14 @@ jobs:
           BRANCH="main"
           TEST_CASES=""
           AOP_ENABLED="false"
+          PROFILE_ENABLED="false"
+          PROFILE_START_AFTER="15"
+          PROFILE_DURATION="8"
+          PROFILE_WITH_STACK="false"
+          PROFILE_SCOPE="representative"
+          PROFILE_MAX_SIZE="50G"
+          PROFILE_OUTPUT="parsed"
+          PROFILE_CASES=""
           IS_A3_560T="false"
           NEXT_IS_BRANCH=0
           NEXT_IS_GOOD_COMMIT=0
@@ -171,6 +187,24 @@ jobs:
             if [ "$NEXT_IS_BRANCH" = "1" ]; then
               BRANCH="$WORD"
               NEXT_IS_BRANCH=0
+            elif [ "$PENDING_OPTION" = "--profile-start-after" ]; then
+              PROFILE_START_AFTER="$WORD"
+              PENDING_OPTION=""
+            elif [ "$PENDING_OPTION" = "--profile-duration" ]; then
+              PROFILE_DURATION="$WORD"
+              PENDING_OPTION=""
+            elif [ "$PENDING_OPTION" = "--profile-scope" ]; then
+              PROFILE_SCOPE="$WORD"
+              PENDING_OPTION=""
+            elif [ "$PENDING_OPTION" = "--profile-max-size" ]; then
+              PROFILE_MAX_SIZE="$WORD"
+              PENDING_OPTION=""
+            elif [ "$PENDING_OPTION" = "--profile-output" ]; then
+              PROFILE_OUTPUT="$WORD"
+              PENDING_OPTION=""
+            elif [ "$PENDING_OPTION" = "--profile-cases" ]; then
+              PROFILE_CASES="$WORD"
+              PENDING_OPTION=""
             elif [ "$NEXT_IS_GOOD_COMMIT" = "1" ]; then
               BISECT_GOOD_COMMIT="$WORD"
               NEXT_IS_GOOD_COMMIT=0
@@ -201,6 +235,12 @@ jobs:
               AOP_ENABLED="true"
             elif [ "$WORD" = "--a3-560t" ]; then
               IS_A3_560T="true"
+            elif [ "$WORD" = "--profile" ]; then
+              PROFILE_ENABLED="true"
+            elif [ "$WORD" = "--profile-with-stack" ]; then
+              PROFILE_WITH_STACK="true"
+            elif [[ "$WORD" =~ ^--profile-(start-after|duration|scope|max-size|output|cases)$ ]]; then
+              PENDING_OPTION="$WORD"
             elif [ "$WORD" = "--good-commit" ]; then
               NEXT_IS_GOOD_COMMIT=1
               PENDING_OPTION="$WORD"
@@ -237,6 +277,21 @@ jobs:
           if [ -n "$PENDING_OPTION" ]; then
             echo "ERROR: $PENDING_OPTION requires a value"
             exit 1
+          fi
+          if [ "$PROFILE_ENABLED" = "true" ]; then
+            if [ "$COMMAND" != "nightly" ] || [ "$IS_A3_560T" = "true" ]; then
+              echo "ERROR: profiling is supported only by Nightly-A3"
+              exit 1
+            fi
+            if ! [[ "$PROFILE_START_AFTER" =~ ^[0-9]+$ ]] ||
+               ! [[ "$PROFILE_DURATION" =~ ^[1-9][0-9]*$ ]] ||
+               ! [[ "$PROFILE_MAX_SIZE" =~ ^[1-9][0-9]*[KMGTP]?$ ]] ||
+               ! [[ "$PROFILE_SCOPE" =~ ^(representative|all)$ ]] ||
+               ! [[ "$PROFILE_OUTPUT" =~ ^(parsed|raw)$ ]] ||
+               { [ -n "$PROFILE_CASES" ] && ! [[ "$PROFILE_CASES" =~ ^[A-Za-z0-9_.-]+(,[A-Za-z0-9_.-]+)*$ ]]; }; then
+              echo "ERROR: invalid profiling option"
+              exit 1
+            fi
           fi
 
           if [ -n "$BISECT_GOOD_COMMIT" ] &&
@@ -286,6 +341,14 @@ jobs:
             echo "test_cases=$TEST_CASES"
             echo "branch=$BRANCH"
             echo "aop_enabled=$AOP_ENABLED"
+            echo "profile_enabled=$PROFILE_ENABLED"
+            echo "profile_start_after=$PROFILE_START_AFTER"
+            echo "profile_duration=$PROFILE_DURATION"
+            echo "profile_with_stack=$PROFILE_WITH_STACK"
+            echo "profile_scope=$PROFILE_SCOPE"
+            echo "profile_max_size=$PROFILE_MAX_SIZE"
+            echo "profile_output=$PROFILE_OUTPUT"
+            echo "profile_cases=$PROFILE_CASES"
             echo "bisect_good_commit=$BISECT_GOOD_COMMIT"
             echo "bisect_bad_commit=$BISECT_BAD_COMMIT"
             echo "bisect_fail_confirm_retries=$BISECT_FAIL_CONFIRM_RETRIES"
@@ -404,8 +467,26 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
           BISECT_ARGS_JSON: ${{ needs.authorize.outputs.bisect_args_json }}
+          PROFILE_ENABLED: ${{ needs.authorize.outputs.profile_enabled }}
+          PROFILE_START_AFTER: ${{ needs.authorize.outputs.profile_start_after }}
+          PROFILE_DURATION: ${{ needs.authorize.outputs.profile_duration }}
+          PROFILE_WITH_STACK: ${{ needs.authorize.outputs.profile_with_stack }}
+          PROFILE_SCOPE: ${{ needs.authorize.outputs.profile_scope }}
+          PROFILE_MAX_SIZE: ${{ needs.authorize.outputs.profile_max_size }}
+          PROFILE_OUTPUT: ${{ needs.authorize.outputs.profile_output }}
+          PROFILE_CASES: ${{ needs.authorize.outputs.profile_cases }}
         run: |
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
+          PROFILE_OPTIONS_JSON=$(jq -cn \
+            --argjson enabled "$PROFILE_ENABLED" \
+            --arg start_after "$PROFILE_START_AFTER" \
+            --arg duration "$PROFILE_DURATION" \
+            --argjson with_stack "$PROFILE_WITH_STACK" \
+            --arg scope "$PROFILE_SCOPE" \
+            --arg max_size "$PROFILE_MAX_SIZE" \
+            --arg output "$PROFILE_OUTPUT" \
+            --arg cases "$PROFILE_CASES" \
+            '{enabled:$enabled,start_after:$start_after,duration:$duration,with_stack:$with_stack,scope:$scope,max_size:$max_size,output:$output,cases:$cases}')
           gh workflow run schedule_nightly_test_a3.yaml \
             --repo "$REPO" \
             --ref main \
@@ -415,6 +496,7 @@ jobs:
             -f skip_build_image=true \
             -f vllm_ascend_ref='${{ needs.authorize.outputs.vllm_ascend_ref }}' \
             -f aop_enabled='${{ needs.authorize.outputs.aop_enabled }}' \
+            -f profile_options_json="$PROFILE_OPTIONS_JSON" \
             -f bisect_args_json="$BISECT_ARGS_JSON"
           sleep 8
           A3_RUN_ID=$(gh api "repos/$REPO/actions/workflows/schedule_nightly_test_a3.yaml/runs?per_page=1" \
