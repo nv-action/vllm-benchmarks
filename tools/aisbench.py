@@ -83,6 +83,7 @@ class AisbenchRunner:
         if self.profile_targets:
             repo_root = str(Path(__file__).resolve().parents[1])
             env["PYTHONPATH"] = os.pathsep.join(filter(None, (repo_root, env.get("PYTHONPATH", ""))))
+            env["NIGHTLY_PROFILE_REQUEST_MARKER"] = str(self.profile_marker)
         self.proc: subprocess.Popen = subprocess.Popen(aisbench_cmd, shell=True, env=env)
 
     def __init__(self, model: str, port: int, aisbench_config: dict, host_ip: str = "localhost", verify=True):
@@ -261,10 +262,15 @@ class AisbenchRunner:
             content = re.sub(r"pred_postprocessor.*", "#pred_postprocessor", content)
         conf_path_new = os.path.join(REQUEST_CONF_DIR, f"{self.request_conf}_custom.py")
         if self.profile_targets:
-            content += (
-                "\nfrom tools.profile import profiled_model\n"
-                f"models[0]['type'] = profiled_model(models[0]['type'], {str(self.profile_marker)!r})\n"
+            content, replacements = re.subn(
+                r"\btype\s*=\s*VLLMCustomAPIChat\b",
+                "type=ProfiledVLLMCustomAPIChat",
+                content,
+                count=1,
             )
+            if replacements != 1:
+                raise ValueError(f"Unsupported AISBench model type in {conf_path}")
+            content = "from tools.aisbench_profile_model import ProfiledVLLMCustomAPIChat\n" + content
         with open(conf_path_new, "w", encoding="utf-8") as f:
             f.write(content)
         print(f"The request config is\n {content}")
