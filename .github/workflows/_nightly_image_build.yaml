@@ -126,8 +126,8 @@ jobs:
       - name: Build nightly-${{ inputs.target }} image
         id: build
         env:
-          GIT_PROXY: https://gh-proxy.test.osinfra.cn/
           # 公网源：pypi.org 主源 + huaweicloud ascend 包 extra 源（https，无需 trusted-host）
+          # GIT_PROXY 已移除：github.com 经 buildkitd 代理链由 squid url_rewrite 到 gh-proxy
           PIP_INDEX_URL: https://pypi.org/simple
           PIP_EXTRA_INDEX_URL: https://repo.huaweicloud.com/ascend/repos/pypi
           PIP_TRUSTED_HOST: ""
@@ -191,7 +191,6 @@ jobs:
             --platform ${{ matrix.arch_platform }}
             -f .github/workflows/dockerfiles/Dockerfile.nightly.${{ inputs.target }}
             --build-arg VLLM_ASCEND_BRANCH="${BRANCH_TAG}"
-            --build-arg GIT_PROXY="${GIT_PROXY}"
             --build-arg PIP_INDEX_URL="${PIP_INDEX_URL}"
             --build-arg PIP_EXTRA_INDEX_URL="${PIP_EXTRA_INDEX_URL}"
             --build-arg PIP_TRUSTED_HOST="${PIP_TRUSTED_HOST}"
