@@ -21,19 +21,19 @@ main 上 nightly build 用的是通用 `linux-*-cpu-4` 池（自动落 cn12-001�
 | L91 非daily 矩阵 `arch_runner` | 同上 |
 | L265 merge job runs-on | 同上 |
 
-### 1.2 pip 源切换（4 个 nightly Dockerfile，已改）
+### 1.2 pip 源切回官方 pypi.org（4 个 nightly Dockerfile，已改）
 
 `Dockerfile.nightly.{a2,a3,310p,a5}` L24/26：
 
 ```dockerfile
 # 原
 ARG PIP_INDEX_URL="https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
-# 改为
-ARG PIP_INDEX_URL="https://repo.huaweicloud.com/repository/pypi/simple"
+# 改为（官方源）
+ARG PIP_INDEX_URL="https://pypi.org/simple"
 ```
 
-背景：squid 实测 tuna 回源仅 250~300KB/s（46.8MB pyarrow wheel 拉 153~234s），
-且两 squid pod 缓存隔离导致重复回源；huaweicloud 是既有信任源，squid 有配套缓存规则。
+背景：tuna 回源慢（squid 实测 250~300KB/s，46.8MB pyarrow wheel 拉 153~234s）。
+pypi.org 流量走 squid（Fastly CDN，带宽远优于 tuna 直连），无镜像站一致性问题。
 `PIP_TRUSTED_HOST` 默认空、由 pip config 条件生效，无需改动。
 
 ## 2. 触发（只构建 310P）
@@ -59,7 +59,7 @@ gh workflow run nightly_image_build.yaml \
 ## 3. 执行步骤
 
 1. [x] `_nightly_image_build.yaml`：runner 加 `-gy006`（§1.1）
-2. [x] 4 个 `Dockerfile.nightly.*`：PIP_INDEX_URL → huaweicloud（§1.2）
+2. [x] 4 个 `Dockerfile.nightly.*`：PIP_INDEX_URL → 官方 pypi.org（§1.2）
 3. [ ] commit（`git commit -s`）+ push `test/310p-nightly-huaweicloud`
 4. [ ] 触发 nightly build（§2 命令，chips=["310p"]）
 5. [ ] 确认 build job 落在 gy006 runner
@@ -67,7 +67,6 @@ gh workflow run nightly_image_build.yaml \
 ## 4. 验证清单
 
 - [ ] build-310p 的 4 个 build job（ubuntu/openEuler × amd64/arm64）全部成功，均落在 `cpu-4-gy006`
-- [ ] 构建日志 pip install 走 `repo.huaweicloud.com`（不再出现 tuna 慢拉；
-      可对比 wheel 下载耗时，squid 侧应有 huaweicloud 的 TCP_HIT）
+- [ ] 构建日志 pip install 走 `pypi.org`（不再出现 tuna 慢拉）
 - [ ] `merge-image` 等推送类 job 因 should_push=false 正常 skipped
 - [ ] 现有 `ascend/vllm-ascend:nightly-main-310p` 产物未被覆盖
