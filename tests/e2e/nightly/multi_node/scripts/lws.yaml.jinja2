@@ -29,6 +29,24 @@ spec:
                 value: "{{ config_base_path | default("") }}"
               - name: LOG_PREFIX
                 value: {{ log_prefix | default("/root/.cache/ascend-logs") }}
+              - name: NIGHTLY_PROFILE_ROOT
+                value: {{ (log_prefix ~ "/profile_artifact") | tojson }}
+              - name: NIGHTLY_PROFILE_ENABLED
+                value: {{ profile_enabled | default("false") | tojson }}
+              - name: NIGHTLY_PROFILE_START_AFTER
+                value: {{ profile_start_after | default("15") | tojson }}
+              - name: NIGHTLY_PROFILE_DURATION
+                value: {{ profile_duration | default("8") | tojson }}
+              - name: NIGHTLY_PROFILE_WITH_STACK
+                value: {{ profile_with_stack | default("false") | tojson }}
+              - name: NIGHTLY_PROFILE_SCOPE
+                value: {{ profile_scope | default("representative") | tojson }}
+              - name: NIGHTLY_PROFILE_MAX_SIZE
+                value: {{ profile_max_size | default("50G") | tojson }}
+              - name: NIGHTLY_PROFILE_OUTPUT
+                value: {{ profile_output | default("parsed") | tojson }}
+              - name: NIGHTLY_PROFILE_CASES
+                value: {{ profile_cases | default("") | tojson }}
               - name: WORKSPACE
                 value: "/vllm-workspace"
               - name: FAIL_TAG
@@ -145,6 +163,24 @@ spec:
                 value: "{{ config_base_path | default("") }}"
               - name: LOG_PREFIX
                 value: {{ log_prefix | default("/root/.cache/ascend-logs") }}
+              - name: NIGHTLY_PROFILE_ROOT
+                value: {{ (log_prefix ~ "/profile_artifact") | tojson }}
+              - name: NIGHTLY_PROFILE_ENABLED
+                value: {{ profile_enabled | default("false") | tojson }}
+              - name: NIGHTLY_PROFILE_START_AFTER
+                value: {{ profile_start_after | default("15") | tojson }}
+              - name: NIGHTLY_PROFILE_DURATION
+                value: {{ profile_duration | default("8") | tojson }}
+              - name: NIGHTLY_PROFILE_WITH_STACK
+                value: {{ profile_with_stack | default("false") | tojson }}
+              - name: NIGHTLY_PROFILE_SCOPE
+                value: {{ profile_scope | default("representative") | tojson }}
+              - name: NIGHTLY_PROFILE_MAX_SIZE
+                value: {{ profile_max_size | default("50G") | tojson }}
+              - name: NIGHTLY_PROFILE_OUTPUT
+                value: {{ profile_output | default("parsed") | tojson }}
+              - name: NIGHTLY_PROFILE_CASES
+                value: {{ profile_cases | default("") | tojson }}
               - name: WORKSPACE
                 value: "/vllm-workspace"
               - name: FAIL_TAG

@@ -32,6 +32,7 @@ from tests.e2e.nightly.multi_node.external_dp.scripts.utils import (
     wait_http_unready,
 )
 from tests.e2e.nightly.multi_node.scripts.utils import get_net_interface
+from tools.profile import ProfileSpec, make_instance, with_profiler_config
 
 logger = logging.getLogger(__name__)
 
@@ -341,6 +342,12 @@ class ServerCommandBuilder:
             for arg in template.server_cmd_template
         ]
         cmd = ["vllm", "serve", self.config.model, *rendered_args]
+        spec = ProfileSpec.from_env()
+        if spec.enabled:
+            role = {"prefiller": "prefill", "decoder": "decode"}.get(rank.role, "standalone")
+            name = f"{role}-{rank.dp_rank}" if role != "standalone" else f"dp-{rank.dp_rank}"
+            instance = make_instance(name, f"http://{rank.host}:{rank.port}", role, rank.dp_rank)
+            cmd = with_profiler_config(cmd, instance, spec)
 
         env = {key: str(value) for key, value in rendered_env.items()}
         display_cmd = format_server_cmd(cmd, env)

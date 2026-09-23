@@ -36,6 +36,7 @@ from tests.e2e.nightly.multi_node.external_dp.scripts.utils import (
 )
 from tests.e2e.nightly.multi_node.scripts.utils import ProxyServer
 from tools.aisbench import run_aisbench_cases
+from tools.profile import ProfileSpec, install_manifest, make_instance
 
 logging.basicConfig(
     level=logging.INFO,
@@ -223,6 +224,13 @@ def test_external_dp() -> None:
     log_root = Path(os.environ.get("EXTERNAL_DP_LOG_DIR", str(DEFAULT_LOG_ROOT)))
     max_wait_seconds = int(os.environ.get("EXTERNAL_DP_MAX_WAIT_SECONDS", "3600"))
     is_master = current_node_index == 0
+    if is_master and ProfileSpec.from_env().enabled:
+        instances = []
+        for rank in ranks:
+            role = {"prefiller": "prefill", "decoder": "decode"}.get(rank.role, "standalone")
+            name = f"{role}-{rank.dp_rank}" if role != "standalone" else f"dp-{rank.dp_rank}"
+            instances.append(make_instance(name, f"http://{rank.host}:{rank.port}", role, rank.dp_rank))
+        install_manifest(instances)
 
     kv_pool_manager = create_kv_pool_manager(
         config=config,
