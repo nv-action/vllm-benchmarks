@@ -199,10 +199,7 @@ jobs:
       target: a3
       vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
       build_type: ${{ inputs.build_type }}
-      should_push: ${{ github.repository == 'nv-action/vllm-benchmarks' || (github.repository == 'vllm-project/vllm-ascend' && github.event_name != 'pull_request') }}
-      profile_validation_build: ${{ github.repository == 'nv-action/vllm-benchmarks' }}
-      swr_registry: ${{ github.repository == 'nv-action/vllm-benchmarks' && 'swr.cn-southwest-2.myhuaweicloud.com' || 'swr.cn-north-12.myhuaweicloud.com' }}
-      cann_swr_url: ${{ github.repository == 'nv-action/vllm-benchmarks' && 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann' || 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/cann' }}
+      should_push: ${{ github.repository == 'vllm-project/vllm-ascend' && github.event_name != 'pull_request' }}
       soc: 'a3'
       cann_version: ${{ fromJSON(inputs.base_image_tag).cann_version }}
       base_image_date: ${{ fromJSON(inputs.base_image_tag).base_image_date }}
@@ -363,7 +360,6 @@ jobs:
       vllm_ascend_ref: ${{ inputs.vllm_ascend_ref || '' }}
       aop_single_enabled: ${{ inputs.aop_enabled }}
       profile_enabled: ${{ fromJSON(inputs.profile_options_json || '{}').enabled || false }}
-      profile_image_built: ${{ github.repository == 'nv-action/vllm-benchmarks' && inputs.skip_build_image != 'true' }}
       profile_start_after: ${{ fromJSON(inputs.profile_options_json || '{}').start_after || '15' }}
       profile_duration: ${{ fromJSON(inputs.profile_options_json || '{}').duration || '8' }}
       profile_with_stack: ${{ fromJSON(inputs.profile_options_json || '{}').with_stack || false }}
@@ -420,7 +416,6 @@ jobs:
       vllm_ascend_ref: ${{ inputs.vllm_ascend_ref || '' }}
       aop_single_enabled: ${{ inputs.aop_enabled }}
       profile_enabled: ${{ fromJSON(inputs.profile_options_json || '{}').enabled || false }}
-      profile_image_built: ${{ github.repository == 'nv-action/vllm-benchmarks' && inputs.skip_build_image != 'true' }}
       profile_start_after: ${{ fromJSON(inputs.profile_options_json || '{}').start_after || '15' }}
       profile_duration: ${{ fromJSON(inputs.profile_options_json || '{}').duration || '8' }}
       profile_with_stack: ${{ fromJSON(inputs.profile_options_json || '{}').with_stack || false }}
