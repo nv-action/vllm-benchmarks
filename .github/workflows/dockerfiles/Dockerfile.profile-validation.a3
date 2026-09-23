@@ -1,0 +1,17 @@
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+ARG SOURCE_SHA
+LABEL org.opencontainers.image.revision=${SOURCE_SHA}
+
+ENV SOC_VERSION=ascend910_9391
+WORKDIR /vllm-workspace/vllm-ascend
+COPY . /vllm-workspace/vllm-ascend/
+
+# Rebuild the checked-out vLLM Ascend source, including its native extensions,
+# against the same vLLM/CANN stack used by the A3 nightly image.
+RUN bash -lc 'set -euo pipefail; \
+    source /usr/local/Ascend/ascend-toolkit/set_env.sh; \
+    source /usr/local/Ascend/nnal/atb/set_env.sh; \
+    MAX_JOBS=4 VLLM_BATCH_INVARIANT=1 python3 -m pip install --no-deps --no-build-isolation -e /vllm-workspace/vllm-ascend; \
+    python3 -m pip show vllm-ascend'
