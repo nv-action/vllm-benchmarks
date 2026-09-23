@@ -321,8 +321,21 @@ def test_a3_workflow_profile_plumbing():
     assert json.loads(dispatch_inputs["profile_options_json"]["default"]) == {}
     for job_name in ("multi-node-tests", "double-node-tests", "single-node-tests", "multi-card-tests"):
         assert all(field in schedule["jobs"][job_name]["with"] for field in fields)
+        assert schedule["jobs"][job_name]["secrets"]["AWS_ACCESS_KEY_ID"] == "${{ secrets.AWS_ACCESS_KEY_ID }}"
+        assert schedule["jobs"][job_name]["secrets"]["AWS_SECRET_ACCESS_KEY"] == "${{ secrets.AWS_SECRET_ACCESS_KEY }}"
     for name in ("_e2e_nightly_single_node.yaml", "_e2e_nightly_multi_node.yaml"):
-        assert all(field in workflow(name)["on"]["workflow_call"]["inputs"] for field in fields)
+        called_workflow = workflow(name)
+        assert all(field in called_workflow["on"]["workflow_call"]["inputs"] for field in fields)
+        assert all(
+            key in called_workflow["on"]["workflow_call"]["secrets"]
+            for key in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY")
+        )
+        job = next(job for job in called_workflow["jobs"].values() if "steps" in job)
+        steps = job["steps"]
+        upload = next(step for step in steps if step["name"] == "Upload profiling artifacts directly to OBS")
+        assert "python3 -m tools.profile upload" in upload["run"]
+        assert "secrets.AWS_ACCESS_KEY_ID" in upload["env"]["AWS_ACCESS_KEY_ID"]
+        assert "secrets.AWS_SECRET_ACCESS_KEY" in upload["env"]["AWS_SECRET_ACCESS_KEY"]
     command = workflow("pr_nightly_command.yml")
     assert all(field in command["jobs"]["authorize"]["outputs"] for field in fields)
     assert "profile_options_json" in command["jobs"]["dispatch-a3"]["steps"][-1]["run"]
