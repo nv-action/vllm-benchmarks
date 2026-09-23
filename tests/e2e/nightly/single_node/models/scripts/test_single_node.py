@@ -24,6 +24,7 @@ from tests.e2e.nightly.single_node.models.scripts.single_node_config import (
     SingleNodeConfigLoader,
 )
 from tools.aisbench import run_aisbench_cases
+from tools.profile import ProfileSpec, install_manifest, make_instance, profile_root, with_profiler_config
 
 logger = logging.getLogger(__name__)
 
@@ -565,7 +566,9 @@ def _save_benchmark_results_json(config: SingleNodeConfig, benchmark_keys: list[
 def _run_benchmarks(config: SingleNodeConfig, port: int) -> None:
     """Run Aisbench benchmarks and process benchmark-dependent custom assertions."""
     benchmark_keys = [k for k, v in config.benchmarks.items() if v]
-    aisbench_cases = [{**config.benchmarks[k], "case_name": k} for k in benchmark_keys]
+    aisbench_cases = [
+        {**config.benchmarks[k], "case_name": k, "profile_case_name": f"{config.name}__{k}"} for k in benchmark_keys
+    ]
     if not aisbench_cases:
         return
 
@@ -597,6 +600,9 @@ async def test_single_node(config: SingleNodeConfig) -> None:
             subprocess.call(command)
     kv_pool_manager = create_single_node_kv_pool_manager(config.kv_pool, config.name)
     if config.service_mode == "epd":
+        if ProfileSpec.from_env().enabled:
+            logger.warning("Profiling is not supported for the single-node EPD service mode")
+            (profile_root() / "serve_manifest.json").unlink(missing_ok=True)
         with (
             kv_pool_manager,
             RemoteEPDServer(
@@ -610,6 +616,11 @@ async def test_single_node(config: SingleNodeConfig) -> None:
         return
 
     # Standard OpenAI service mode
+    spec = ProfileSpec.from_env()
+    if spec.enabled:
+        instance = make_instance("serve-0", f"http://127.0.0.1:{config.server_port}")
+        install_manifest([instance])
+        config.server_cmd = with_profiler_config(config.server_cmd, instance, spec)
     with (
         kv_pool_manager,
         RemoteOpenAIServer(

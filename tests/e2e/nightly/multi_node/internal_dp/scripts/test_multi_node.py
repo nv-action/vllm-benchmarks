@@ -23,6 +23,7 @@ from tests.e2e.nightly.multi_node.scripts.benchmark_results import (
 )
 from tests.e2e.nightly.scripts.result_postprocess import postprocess_benchmark_results
 from tools.aisbench import run_aisbench_cases
+from tools.profile import ProfileSpec, install_manifest, make_instance, with_profiler_config
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +165,30 @@ def _save_benchmark_results_json(config: MultiNodeConfig, results: list[Any]) ->
 @pytest.mark.asyncio
 async def test_multi_node() -> None:
     config = MultiNodeConfigLoader.from_yaml()
+    spec = ProfileSpec.from_env()
+    if spec.enabled:
+        instances = []
+        for node in config.nodes:
+            if node.headless:
+                continue
+            if config.disagg_cfg and config.disagg_cfg.is_prefiller(node.index):
+                role = "prefill"
+                rank = config.disagg_cfg.prefiller_indices.index(node.index)
+            elif config.disagg_cfg and config.disagg_cfg.is_decoder(node.index):
+                role = "decode"
+                rank = config.disagg_cfg.decoder_indices.index(node.index)
+            else:
+                role, rank = "standalone", node.index
+            name = f"{role}-{rank}" if role != "standalone" else f"dp-{rank}"
+            port = (node.envs or {}).get("SERVER_PORT", config.server_port)
+            instances.append(make_instance(name, f"http://{node.ip}:{port}", role, rank))
+        if config.is_master:
+            install_manifest(instances)
+        current = next(
+            (i for i in instances if i.endpoint == f"http://{config.cur_node.ip}:{config.server_port}"), None
+        )
+        if current:
+            config.server_cmd = with_profiler_config(config.server_cmd, current, spec)
     if config.special_dependencies:
         for k, v in config.special_dependencies.items():
             command = [

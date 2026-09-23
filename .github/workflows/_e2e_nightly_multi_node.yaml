@@ -73,6 +73,30 @@ on:
         type: string
         default: ''
         description: non-empty when triggered by PR /nightly command
+      profile_enabled:
+        type: boolean
+        default: false
+      profile_start_after:
+        type: string
+        default: '15'
+      profile_duration:
+        type: string
+        default: '8'
+      profile_with_stack:
+        type: boolean
+        default: false
+      profile_scope:
+        type: string
+        default: representative
+      profile_max_size:
+        type: string
+        default: '50G'
+      profile_output:
+        type: string
+        default: parsed
+      profile_cases:
+        type: string
+        default: ''
       testcase_timeout:
         required: false
         default: 120
@@ -170,6 +194,8 @@ jobs:
 
       - name: Checkout code
         uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.profile_enabled && inputs.vllm_ascend_ref || github.ref }}
 
       - name: Set job variables
         id: vars
@@ -316,6 +342,14 @@ jobs:
             -D bisect_no_verify_bad="$BISECT_NO_VERIFY_BAD" \
             -D bisect_force_initial_build="$BISECT_FORCE_INITIAL_BUILD" \
             -D bisect_config_base_path="$BISECT_CONFIG_BASE_PATH" \
+            -D profile_enabled="${{ inputs.profile_enabled }}" \
+            -D profile_start_after="${{ inputs.profile_start_after }}" \
+            -D profile_duration="${{ inputs.profile_duration }}" \
+            -D profile_with_stack="${{ inputs.profile_with_stack }}" \
+            -D profile_scope="${{ inputs.profile_scope }}" \
+            -D profile_max_size="${{ inputs.profile_max_size }}" \
+            -D profile_output="${{ inputs.profile_output }}" \
+            -D profile_cases="${{ inputs.profile_cases }}" \
             --outfile lws.yaml
 
           kubectl apply -f ./lws.yaml
@@ -431,6 +465,22 @@ jobs:
             --vllm-ascend-dir "." \
             --vllm-ascend-version "${{ steps.stream_logs.outputs.vllm_ascend_hash }}" \
             --vllm-version "${{ steps.stream_logs.outputs.vllm_hash }}"
+
+      - name: Upload profiling artifacts directly to OBS
+        if: ${{ always() && inputs.profile_enabled }}
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.OBS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.OBS_SECRET_ACCESS_KEY }}
+          PROFILE_KEY_PREFIX: nightly-profiling/${{ github.repository }}/${{ github.run_id }}/${{ github.run_attempt }}/multi-node/${{ steps.vars.outputs.benchmark_job_name }}
+        run: |
+          PROFILE_ROOT="$LOG_PREFIX/profile_artifact"
+          if [ -f "$PROFILE_ROOT/profile_manifest.json" ]; then
+            python3 -c 'import boto3' 2>/dev/null || python3 -m pip install --quiet boto3
+            python3 -m tools.profile upload --root "$PROFILE_ROOT" --prefix "$PROFILE_KEY_PREFIX"
+          else
+            echo "No profiling manifest; no supported serve target was initialized."
+          fi
 
       - name: Fetch benchmark results from PVC
         if: always()
