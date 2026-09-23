@@ -139,11 +139,6 @@ on:
         required: false
         type: string
         default: ''
-      aptmirror:
-        description: 'APT mirror URL for Ubuntu (replaces archive.ubuntu.com / ports.ubuntu.com)'
-        required: false
-        type: string
-        default: 'http://cache-service.nginx-pypi-cache.svc.cluster.local:8081'
     secrets:
       SWR_USERNAME:
         description: 'SWR username for pushing images'
@@ -161,7 +156,6 @@ defaults:
 
 env:
   SWR_REPO: ${{ inputs.swr_repo }}
-  APTMIRROR: ${{ inputs.aptmirror }}
 
 jobs:
   build-push-digest:
@@ -179,16 +173,13 @@ jobs:
       max-parallel: 2
       matrix:
         runner_info:
-          - {runner: linux-aarch64-cpu-4, tag: arm64}
-          - {runner: linux-amd64-cpu-4, tag: amd64}
+          - {runner: linux-aarch64-cpu-4-gy006, tag: arm64}
+          - {runner: linux-amd64-cpu-4-gy006, tag: amd64}
 
     steps:
 
     - name: Install zstd
       run: |
-        if [ -n "$APTMIRROR" ]; then
-          sed -Ei "s@(ports|archive).ubuntu.com@${APTMIRROR#http://}@g" /etc/apt/sources.list
-        fi
         apt-get update -y
         apt-get install -y zstd
 
@@ -357,17 +348,9 @@ jobs:
         build-args: |
           CANN_QUAY_URL=${{ inputs.cann_swr_url }}
           CANN_VERSION=${{ inputs.cann_image_version }}
-          APTMIRROR=http://cache-service.nginx-pypi-cache.svc.cluster.local:8081
-          YUM_MIRROR=http://cache-service.nginx-pypi-cache.svc.cluster.local:8083
-          RUSTUP_DIST_SERVER=http://cache-service.nginx-pypi-cache.svc.cluster.local:8082/rustup
-          RUSTUP_UPDATE_ROOT=http://cache-service.nginx-pypi-cache.svc.cluster.local:8082/rustup/rustup
-          CRATES_IO_INDEX=http://cache-service.nginx-pypi-cache.svc.cluster.local:8085/index/
-          PIP_INDEX_URL=http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
-          PIP_TRUSTED_HOST=cache-service.nginx-pypi-cache.svc.cluster.local
-          PYTORCH_INDEX_URL=http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu
-          ASCEND_INDEX_URL=http://cache-service.nginx-pypi-cache.svc.cluster.local/ascend/repos/pypi
-          GIT_PROXY=https://gh-proxy.test.osinfra.cn/
-          COMPILE_CUSTOM_KERNELS=${{ steps.cache-csrc.outputs.cache-hit == 'true' && '0' || '1' }}
+          # TODO(ci): 临时强制 0 以验证构建管线（跳过自定义算子编译，避免 buildkitd OOM）；
+          # 首次构建成功后应恢复为基于 csrc 缓存命中的逻辑
+          COMPILE_CUSTOM_KERNELS=0
           VLLM_COMMIT=${{ inputs.vllm_commit }}
           BUILD_TYPE=${{ inputs.build_type || 'release' }}
           MEMCACHE_VERSION=${{ inputs.memcache_version || '1.2.0' }}
@@ -431,7 +414,7 @@ jobs:
         retention-days: 1
 
   merge-image:
-    runs-on: linux-amd64-cpu-4
+    runs-on: linux-amd64-cpu-4-gy006
     needs: build-push-digest
     if: ${{ inputs.should_push && !inputs.temp_only }}
     steps:
@@ -632,7 +615,7 @@ jobs:
 
   merge-image-temp:
     name: merge-image-temp
-    runs-on: linux-amd64-cpu-4
+    runs-on: linux-amd64-cpu-4-gy006
     needs: build-push-digest
     if: ${{ inputs.should_push && inputs.temp_only }}
     steps:
