@@ -182,10 +182,15 @@ checkout_and_install_vllm() {
     }
     git remote add origin https://github.com/vllm-project/vllm.git 2>/dev/null || \
         git remote set-url origin https://github.com/vllm-project/vllm.git
-    if ! git fetch --depth 1 origin "$VLLM_REF"; then
-        git fetch --depth 1 origin "refs/heads/$VLLM_REF" || \
-            git fetch --depth 1 origin "refs/tags/$VLLM_REF" || \
-            { echo "ERROR: cannot fetch vllm ref '$VLLM_REF' (use a full commit SHA, tag, or branch name)"; return 1; }
+    # Fetch the tag ref itself when the ref names a tag: a plain
+    # "git fetch origin <tag>" only fetches the commit object and leaves
+    # no local tag ref, so vllm's setuptools_scm falls back to a wrong
+    # 0.1.dev1+g<sha> version instead of the release version.
+    if ! git fetch --depth 1 origin "+refs/tags/${VLLM_REF}:refs/tags/${VLLM_REF}" 2>/dev/null; then
+        if ! git fetch --depth 1 origin "$VLLM_REF"; then
+            git fetch --depth 1 origin "refs/heads/$VLLM_REF" || \
+                { echo "ERROR: cannot fetch vllm ref '$VLLM_REF' (use a full commit SHA, tag, or branch name)"; return 1; }
+        fi
     fi
     git checkout FETCH_HEAD
     VLLM_TARGET_DEVICE=empty pip install -e . --no-deps --no-input --disable-pip-version-check
