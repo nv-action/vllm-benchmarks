@@ -152,6 +152,10 @@ on:
         required: false
       OBS_SECRET_ACCESS_KEY:
         required: false
+      AWS_ACCESS_KEY_ID:
+        required: false
+      AWS_SECRET_ACCESS_KEY:
+        required: false
       OPENLIBING_SECRET:
         required: false
 
@@ -553,12 +557,12 @@ jobs:
           echo "effective_name=${{ inputs.vllm_ascend_branch }}-${{ inputs.name }}" >> $GITHUB_OUTPUT
 
       - name: Upload profiling artifacts directly to OBS
-        if: ${{ always() && inputs.profile_enabled && inputs.config_file_path != '' && github.repository_owner == 'vllm-project' }}
+        if: ${{ always() && inputs.profile_enabled && inputs.config_file_path != '' }}
         continue-on-error: true
         working-directory: /vllm-workspace/vllm-ascend
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.OBS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.OBS_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ github.repository_owner == 'vllm-project' && secrets.OBS_ACCESS_KEY_ID || secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ github.repository_owner == 'vllm-project' && secrets.OBS_SECRET_ACCESS_KEY || secrets.AWS_SECRET_ACCESS_KEY }}
           PROFILE_KEY_PREFIX: nightly-profiling/${{ github.repository }}/${{ github.run_id }}/${{ github.run_attempt }}/single-node/${{ inputs.name || inputs.config_file_path }}
         run: |
           if [ -f "$NIGHTLY_PROFILE_ROOT/profile_manifest.json" ]; then
@@ -567,16 +571,6 @@ jobs:
           else
             echo "No profiling manifest; no supported serve target was initialized."
           fi
-
-      - name: Upload profiling artifacts to GitHub
-        if: ${{ always() && inputs.profile_enabled && inputs.config_file_path != '' && github.repository_owner != 'vllm-project' }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: nightly-profiling-${{ inputs.name || inputs.config_file_path }}-${{ github.run_id }}
-          path: /vllm-workspace/vllm-ascend/profile_artifact/
-          if-no-files-found: warn
-          retention-days: 30
-          compression-level: 0
 
       - name: Upload benchmark results
         if: ${{ always() && inputs.config_file_path != '' }}
