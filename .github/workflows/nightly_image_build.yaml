@@ -36,6 +36,7 @@ on:
         type: choice
         options:
           - main
+          - pull/17100/head
           - releases/v0.26.0rc
           - releases/v0.25.1rc
           - releases/v0.24.0rc

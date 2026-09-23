@@ -46,6 +46,7 @@ on:
         type: choice
         options:
           - main
+          - pull/17100/head
           - releases/v0.27.1rc
           - releases/v0.26.0rc
           - releases/v0.25.1rc
@@ -155,7 +156,9 @@ jobs:
       swr_temp_repo: ${{ inputs.build_type == 'daily' && 'swr.cn-north-12.myhuaweicloud.com/atlas_inference/vllm-atlas-temp' || 'swr.cn-north-12.myhuaweicloud.com/atlas_ci/vllm-atlas-temp' }}
       # ======================================================================
       
-      should_push: false
+      # PR 事件保持 build check（不推镜像）；dispatch/schedule 推送产物，
+      # 供 nightly build 的 BASE_IMAGE（atlas_inference/vllm-ascend:nightly-<branch>-cann<ver>-<date>）引用
+      should_push: ${{ github.event_name != 'pull_request' }}
       workflow_dispatch_tag: ${{ inputs.tag != 'none' && inputs.tag || '' }}
       branch_ref: ${{ inputs.branch != 'none' && inputs.branch || '' }}
       schedule_tag_pattern: 'main'
