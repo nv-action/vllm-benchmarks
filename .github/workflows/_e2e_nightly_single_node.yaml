@@ -558,7 +558,6 @@ jobs:
 
       - name: Upload profiling artifacts directly to OBS
         if: ${{ always() && inputs.profile_enabled && inputs.config_file_path != '' }}
-        continue-on-error: true
         working-directory: /vllm-workspace/vllm-ascend
         env:
           AWS_ACCESS_KEY_ID: ${{ github.repository_owner == 'vllm-project' && secrets.OBS_ACCESS_KEY_ID || secrets.AWS_ACCESS_KEY_ID }}
@@ -568,8 +567,19 @@ jobs:
           if [ -f "$NIGHTLY_PROFILE_ROOT/profile_manifest.json" ]; then
             python3 -c 'import boto3' 2>/dev/null || python3 -m pip install --quiet boto3
             python3 -m tools.profile upload --root "$NIGHTLY_PROFILE_ROOT" --prefix "$PROFILE_KEY_PREFIX"
+            python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          manifest = json.loads((Path(os.environ["NIGHTLY_PROFILE_ROOT"]) / "profile_manifest.json").read_text())
+          targets = [target for case in manifest["cases"] for target in case["targets"]]
+          if manifest["status"] != "success" or not targets or any(not target.get("obs_url") for target in targets):
+              raise SystemExit("Profiling did not produce and upload a complete trace")
+          PY
           else
             echo "No profiling manifest; no supported serve target was initialized."
+            exit 1
           fi
 
       - name: Upload benchmark results
