@@ -1,5 +1,9 @@
+import asyncio
 import json
+import sys
+from importlib.machinery import ModuleSpec
 from pathlib import Path
+from types import ModuleType
 from unittest.mock import MagicMock
 
 import pytest
@@ -7,6 +11,82 @@ import pytest
 from tools import aisbench
 from tools.aisbench_perf_data import TimingLoadResult
 from tools.benchmark_steady_state import RequestTiming, TimingLoadStats
+
+
+def test_profiled_request_config_loads_with_mmengine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    config_class = pytest.importorskip("mmengine.config").Config
+
+    class VLLMCustomAPIChat:
+        async def stream_infer(self, *_):
+            return "stream"
+
+        async def text_infer(self, *_):
+            return "text"
+
+    for name in ("ais_bench", "ais_bench.benchmark", "ais_bench.benchmark.models"):
+        module = ModuleType(name)
+        module.__spec__ = ModuleSpec(name, loader=None)
+        monkeypatch.setitem(sys.modules, name, module)
+    sys.modules["ais_bench.benchmark.models"].VLLMCustomAPIChat = VLLMCustomAPIChat
+    previous_profile_model = sys.modules.pop("tools.aisbench_profile_model", None)
+    try:
+        request_conf = tmp_path / "vllm_api_stream_chat.py"
+        request_conf.write_text(
+            "from ais_bench.benchmark.models import VLLMCustomAPIChat\n"
+            "models = [\n"
+            "    dict(\n"
+            "        type=VLLMCustomAPIChat,\n"
+            "        model='test',\n"
+            "        host_port=8000,\n"
+            "    )\n"
+            "]\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(aisbench, "REQUEST_CONF_DIR", str(tmp_path))
+        runner = aisbench.AisbenchRunner.__new__(aisbench.AisbenchRunner)
+        runner.__dict__.update(
+            model="test-model",
+            model_path="/model",
+            port=8001,
+            host_ip="localhost",
+            max_out_len=1024,
+            batch_size=1,
+            trust_remote_code=True,
+            request_conf="vllm_api_stream_chat",
+            request_rate=0,
+            top_p=None,
+            top_k=None,
+            seed=None,
+            min_p=None,
+            presence_penalty=None,
+            repetition_penalty=None,
+            thinking=False,
+            reasoning_effort=None,
+            task_type="performance",
+            temperature=None,
+            no_pred=False,
+            profile_targets=(object(),),
+            profile_marker=tmp_path / "first_request",
+            dataset_conf="gsm8k/perf",
+            num_prompts=1,
+        )
+        runner._init_request_conf()
+        custom = tmp_path / "vllm_api_stream_chat_custom.py"
+        assert "profiled_model(" not in custom.read_text(encoding="utf-8")
+        popen = MagicMock()
+        monkeypatch.setattr(aisbench.subprocess, "Popen", popen)
+        runner._run_aisbench_task()
+        assert popen.call_args.kwargs["env"]["NIGHTLY_PROFILE_REQUEST_MARKER"] == str(runner.profile_marker)
+        monkeypatch.setenv("NIGHTLY_PROFILE_REQUEST_MARKER", str(runner.profile_marker))
+        model = config_class.fromfile(str(custom)).models[0]["type"]()
+        assert asyncio.run(model.stream_infer({}, None)) == "stream"
+        first_request = runner.profile_marker.read_text()
+        assert asyncio.run(model.text_infer({}, None)) == "text"
+        assert runner.profile_marker.read_text() == first_request
+    finally:
+        sys.modules.pop("tools.aisbench_profile_model", None)
+        if previous_profile_model is not None:
+            sys.modules["tools.aisbench_profile_model"] = previous_profile_model
 
 
 @pytest.mark.parametrize("reasoning_effort", [None, "low"])
