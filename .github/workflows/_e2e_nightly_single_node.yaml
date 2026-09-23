@@ -273,6 +273,11 @@ jobs:
         run: |
           source_dir="$GITHUB_WORKSPACE/profile-source"
           target_dir=/vllm-workspace/vllm-ascend
+          image_commit=$(git -C "$target_dir" rev-parse HEAD)
+          if [ "$image_commit" != a29224fddc2332686bb9f791d624f9d09f15af27 ]; then
+            echo "::error::Unexpected image source commit: $image_commit"
+            exit 1
+          fi
           for file in \
             tools/aisbench.py \
             tools/aisbench_perf_data.py \
@@ -280,11 +285,22 @@ jobs:
             tools/profile.py \
             tests/e2e/nightly/scripts/result_postprocess.py \
             tests/e2e/nightly/single_node/models/scripts/test_single_node.py \
-            tests/e2e/nightly/single_node/models/configs/Qwen3.5-27B-w8a8-A3.yaml; do
+            tests/e2e/nightly/single_node/models/configs/Qwen3.5-27B-w8a8-A3.yaml \
+            vllm_ascend/attention/context_parallel/dsa_cp.py \
+            vllm_ascend/attention/dsa_v1.py \
+            vllm_ascend/attention/sfa_v1.py \
+            vllm_ascend/distributed/weight_transfer/npu_ipc_engine.py \
+            vllm_ascend/models/__init__.py \
+            vllm_ascend/models/glm5next/cache_config.py \
+            vllm_ascend/models/glm5next/cache_views.py \
+            vllm_ascend/spec_decode/llm_base_proposer.py \
+            vllm_ascend/worker/device_metadata.py \
+            vllm_ascend/worker/model_runner_v1.py; do
             install -D "$source_dir/$file" "$target_dir/$file"
           done
+          echo "Image Ascend source: $image_commit"
           echo "Profiling source: $(git -C "$source_dir" rev-parse HEAD)"
-          python3 -m compileall -q "$target_dir/tools" "$target_dir/tests/e2e/nightly/single_node/models/scripts/test_single_node.py"
+          python3 -m compileall -q "$target_dir/tools" "$target_dir/tests/e2e/nightly/single_node/models/scripts/test_single_node.py" "$target_dir/vllm_ascend"
 
       - name: Show vLLM and vLLM-Ascend version
         working-directory: /vllm-workspace
@@ -537,7 +553,7 @@ jobs:
           echo "effective_name=${{ inputs.vllm_ascend_branch }}-${{ inputs.name }}" >> $GITHUB_OUTPUT
 
       - name: Upload profiling artifacts directly to OBS
-        if: ${{ always() && inputs.profile_enabled && inputs.config_file_path != '' }}
+        if: ${{ always() && inputs.profile_enabled && inputs.config_file_path != '' && github.repository_owner == 'vllm-project' }}
         continue-on-error: true
         working-directory: /vllm-workspace/vllm-ascend
         env:
@@ -551,6 +567,16 @@ jobs:
           else
             echo "No profiling manifest; no supported serve target was initialized."
           fi
+
+      - name: Upload profiling artifacts to GitHub
+        if: ${{ always() && inputs.profile_enabled && inputs.config_file_path != '' && github.repository_owner != 'vllm-project' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-profiling-${{ inputs.name || inputs.config_file_path }}-${{ github.run_id }}
+          path: /vllm-workspace/vllm-ascend/profile_artifact/
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 0
 
       - name: Upload benchmark results
         if: ${{ always() && inputs.config_file_path != '' }}

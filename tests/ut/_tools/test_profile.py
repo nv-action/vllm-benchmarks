@@ -317,14 +317,15 @@ def test_a3_workflow_profile_plumbing():
     )
     schedule = workflow("schedule_nightly_test_a3.yaml")
     dispatch_inputs = schedule["on"]["workflow_dispatch"]["inputs"]
-    assert dispatch_inputs["profile_start_after"]["default"] == "15"
-    assert dispatch_inputs["profile_duration"]["default"] == "8"
+    assert len(dispatch_inputs) <= 10
+    assert json.loads(dispatch_inputs["profile_options_json"]["default"]) == {}
     for job_name in ("multi-node-tests", "double-node-tests", "single-node-tests", "multi-card-tests"):
         assert all(field in schedule["jobs"][job_name]["with"] for field in fields)
     for name in ("_e2e_nightly_single_node.yaml", "_e2e_nightly_multi_node.yaml"):
         assert all(field in workflow(name)["on"]["workflow_call"]["inputs"] for field in fields)
     command = workflow("pr_nightly_command.yml")
     assert all(field in command["jobs"]["authorize"]["outputs"] for field in fields)
+    assert "profile_options_json" in command["jobs"]["dispatch-a3"]["steps"][-1]["run"]
 
     template = (root / "tests/e2e/nightly/multi_node/scripts/lws.yaml.jinja2").read_text()
     rendered = Environment().from_string(template).render(log_prefix="/tmp/profile-test", profile_enabled="true")
