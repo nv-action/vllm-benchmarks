@@ -194,6 +194,14 @@ checkout_and_install_vllm() {
     fi
     git checkout FETCH_HEAD
     VLLM_TARGET_DEVICE=empty pip install -e . --no-deps --no-input --disable-pip-version-check
+    # setuptools_scm falls back to 0.1.dev1+g<sha> when the ref carries no tag
+    # information (bare SHA / branch); surface it instead of silently
+    # misrouting every vllm_version_is() check in vllm-ascend.
+    local installed_vllm_version
+    installed_vllm_version=$(pip show vllm 2>/dev/null | sed -n 's/^Version: //p')
+    if [[ "$installed_vllm_version" == 0.1.dev* ]]; then
+        echo "WARNING: vllm version fell back to '$installed_vllm_version': ref '$VLLM_REF' carries no tag info. Version-gated code paths in vllm-ascend may misbehave; prefer a release tag for reliable results."
+    fi
 }
 
 checkout_src() {

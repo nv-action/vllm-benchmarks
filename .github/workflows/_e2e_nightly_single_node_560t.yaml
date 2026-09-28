@@ -203,6 +203,13 @@ jobs:
           echo ""
           echo "Installed vllm from ref '$VLLM_REF':"
           pip show vllm
+          # setuptools_scm falls back to 0.1.dev1+g<sha> when the ref carries no
+          # tag information (bare SHA / branch); surface it instead of silently
+          # misrouting every vllm_version_is() check in vllm-ascend.
+          INSTALLED_VLLM_VERSION=$(pip show vllm 2>/dev/null | sed -n 's/^Version: //p')
+          if [[ "$INSTALLED_VLLM_VERSION" == 0.1.dev* ]]; then
+            echo "::warning::vllm version fell back to '$INSTALLED_VLLM_VERSION': ref '$VLLM_REF' carries no tag info. Version-gated code paths in vllm-ascend may misbehave; prefer a release tag (e.g. v0.29.0) for reliable results."
+          fi
 
       - name: uninstall vlm vllm-ascend and remove code (if pr test)
         if: ${{ inputs.request_id != '' }}
