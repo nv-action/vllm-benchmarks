@@ -116,6 +116,25 @@ def test_controller_parallel_partial_and_size(tmp_path, monkeypatch):
     assert controller.finish()["reason"] == "size_limit_exceeded"
 
 
+@pytest.mark.parametrize("fail", [False, True])
+def test_controller_shared_endpoint_is_called_once(tmp_path, monkeypatch, fail):
+    monkeypatch.setattr(profile, "POLL_INTERVAL", 0.005)
+    marker = tmp_path / "first"
+    profile._mark_first_request(str(marker))
+    targets = tuple(profile.make_instance(f"dp-{rank}", "http://leader", dp_rank=rank) for rank in (0, 1))
+    client = Client(failures=("http://leader",) if fail else ())
+    controller = profile.ProfileController(
+        profile.ProfileSpec(enabled=True, start_after=0, duration=0.02), targets, marker, client
+    )
+    controller.start()
+    assert client.done.wait(2)
+    result = controller.finish()
+    assert client.started == ["http://leader"]
+    assert client.stopped == ["http://leader"]
+    assert set(result["targets"]) == {"dp-0", "dp-1"}
+    assert result["status"] == ("partial" if fail else "success")
+
+
 def test_controller_benchmark_ends_before_request(tmp_path, monkeypatch):
     monkeypatch.setattr(profile, "POLL_INTERVAL", 0.005)
     client = Client()
@@ -348,3 +367,28 @@ def test_a3_workflow_profile_plumbing():
     assert env["NIGHTLY_PROFILE_ROOT"] == "/tmp/profile-test/profile_artifact"
     assert env["NIGHTLY_PROFILE_START_AFTER"] == "15"
     assert env["NIGHTLY_PROFILE_DURATION"] == "8"
+
+
+def test_a2_workflow_profile_plumbing():
+    root = Path(__file__).resolve().parents[3]
+    schedule = yaml.load((root / ".github/workflows/schedule_nightly_test_a2.yaml").read_text(), Loader=yaml.BaseLoader)
+    dispatch_inputs = schedule["on"]["workflow_dispatch"]["inputs"]
+    assert len(dispatch_inputs) <= 10
+    assert json.loads(dispatch_inputs["profile_options_json"]["default"]) == {}
+    assert "bisect_good_commit" not in dispatch_inputs
+    fields = (
+        "profile_enabled",
+        "profile_start_after",
+        "profile_duration",
+        "profile_with_stack",
+        "profile_scope",
+        "profile_max_size",
+        "profile_output",
+        "profile_cases",
+    )
+    for job_name in ("single-node-tests", "multi-node-tests"):
+        job = schedule["jobs"][job_name]
+        assert all(field in job["with"] for field in fields)
+        assert job["secrets"]["AWS_ACCESS_KEY_ID"] == "${{ secrets.AWS_ACCESS_KEY_ID }}"
+        assert job["secrets"]["AWS_SECRET_ACCESS_KEY"] == "${{ secrets.AWS_SECRET_ACCESS_KEY }}"
+    assert "nv-action/vllm-benchmarks.git" in schedule["jobs"]["multi-node-tests"]["with"]["vllm_ascend_remote_url"]

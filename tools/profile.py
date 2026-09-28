@@ -197,15 +197,21 @@ class ProfileController:
         return self.result
 
     def _parallel(self, method: str, targets: tuple[ServeInstance, ...]) -> dict[str, str | None]:
-        with ThreadPoolExecutor(max_workers=len(targets) or 1) as pool:
-            futures = {pool.submit(getattr(self.client, method), t.endpoint): t.name for t in targets}
+        endpoints: dict[str, list[str]] = {}
+        for target in targets:
+            endpoints.setdefault(target.endpoint, []).append(target.name)
+        with ThreadPoolExecutor(max_workers=len(endpoints) or 1) as pool:
+            futures = {
+                pool.submit(getattr(self.client, method), endpoint): names for endpoint, names in endpoints.items()
+            }
             result = {}
             for future in as_completed(futures):
                 try:
                     future.result()
-                    result[futures[future]] = None
+                    error = None
                 except Exception as exc:
-                    result[futures[future]] = str(exc)
+                    error = str(exc)
+                result.update(dict.fromkeys(futures[future], error))
             return result
 
     def _run(self) -> None:
