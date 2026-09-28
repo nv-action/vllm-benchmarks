@@ -200,7 +200,8 @@ checkout_src() {
 install_vllm_ascend() {
     echo "====> Install vllm-ascend"
     pip install -r "$WORKSPACE/vllm-ascend/requirements-dev.txt"
-    pip install -e "$WORKSPACE/vllm-ascend"
+    FLA_NPU_DISABLE_PTH=1 \
+        pip install -e "$WORKSPACE/vllm-ascend"
 }
 
 install_aisbench() {
