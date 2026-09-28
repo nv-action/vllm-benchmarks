@@ -1,5 +1,6 @@
 import asyncio
 import json
+import subprocess
 import tarfile
 import threading
 from pathlib import Path
@@ -392,3 +393,24 @@ def test_a2_workflow_profile_plumbing():
         assert job["secrets"]["AWS_ACCESS_KEY_ID"] == "${{ secrets.AWS_ACCESS_KEY_ID }}"
         assert job["secrets"]["AWS_SECRET_ACCESS_KEY"] == "${{ secrets.AWS_SECRET_ACCESS_KEY }}"
     assert "nv-action/vllm-benchmarks.git" in schedule["jobs"]["multi-node-tests"]["with"]["vllm_ascend_remote_url"]
+
+
+def test_multi_node_profile_skips_git_proxy(tmp_path, monkeypatch):
+    root = Path(__file__).resolve().parents[3]
+    script = (root / "tests/e2e/nightly/multi_node/scripts/run.sh").read_text()
+    function = script[script.index("check_and_config() {") : script.index("\ninstall_extra_components() {")]
+    mirror_key = "url.https://shturl.cc/https://github.com/.insteadOf"
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "gitconfig"))
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", str(tmp_path / "systemconfig"))
+    subprocess.run(["git", "config", "--global", mirror_key, "https://github.com/"], check=True)
+    subprocess.run(
+        ["git", "config", "--file", str(tmp_path / "systemconfig"), mirror_key, "https://github.com/"], check=True
+    )
+    shell = function + f"\npip() {{ :; }}\ncheck_and_config\ngit config --get {mirror_key}\n"
+
+    monkeypatch.setenv("NIGHTLY_PROFILE_ENABLED", "true")
+    assert subprocess.run(["bash", "-c", shell], capture_output=True).returncode == 1
+
+    monkeypatch.setenv("NIGHTLY_PROFILE_ENABLED", "false")
+    result = subprocess.run(["bash", "-c", shell], capture_output=True, text=True, check=True)
+    assert result.stdout.splitlines()[-1] == "https://github.com/"

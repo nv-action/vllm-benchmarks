@@ -141,7 +141,13 @@ check_npu_info() {
 
 check_and_config() {
     echo "====> Configure mirrors and git proxy"
-    git config --global url."https://shturl.cc/https://github.com/".insteadOf "https://github.com/"
+    if [[ "${NIGHTLY_PROFILE_ENABLED:-false}" == "true" ]]; then
+        # Profiling validates the fork source; avoid the unavailable GitHub proxy.
+        export GIT_CONFIG_NOSYSTEM=1
+        git config --global --unset-all url."https://shturl.cc/https://github.com/".insteadOf || true
+    else
+        git config --global url."https://shturl.cc/https://github.com/".insteadOf "https://github.com/"
+    fi
     pip config set global.index-url https://mirrors.huaweicloud.com/repository/pypi/simple/
     pip config set global.trusted-host mirrors.huaweicloud.com
     export PIP_EXTRA_INDEX_URL="https://mirrors.huaweicloud.com/ascend/repos/pypi"
@@ -183,7 +189,8 @@ checkout_src() {
 
     if [ ! -d "$WORKSPACE/vllm-ascend" ]; then
         echo "Cloning vllm-ascend from $VLLM_ASCEND_REMOTE_URL"
-        git clone --depth 1 --recurse-submodules "$VLLM_ASCEND_REMOTE_URL" "$WORKSPACE/vllm-ascend"
+        git clone --depth 1 --recurse-submodules "$VLLM_ASCEND_REMOTE_URL" "$WORKSPACE/vllm-ascend" \
+            || print_failure "Failed to clone $VLLM_ASCEND_REMOTE_URL"
         cd "$WORKSPACE/vllm-ascend"
         if git fetch --depth 1 origin "$VLLM_ASCEND_REF"; then
             git checkout --detach FETCH_HEAD
