@@ -564,16 +564,19 @@ jobs:
           echo "artifact_ts=$(date -u +%Y%m%dT%H%M%SZ)" >> $GITHUB_OUTPUT
           echo "effective_name=${{ inputs.vllm_ascend_branch }}-${{ inputs.name }}" >> $GITHUB_OUTPUT
 
-      - name: Upload profiling artifacts directly to OBS
+      - name: Upload raw profiling artifacts to OBS
         if: ${{ always() && inputs.profile_enabled && inputs.config_file_path != '' }}
         working-directory: /vllm-workspace/vllm-ascend
         env:
           AWS_ACCESS_KEY_ID: ${{ github.repository_owner == 'vllm-project' && secrets.OBS_ACCESS_KEY_ID || secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ github.repository_owner == 'vllm-project' && secrets.OBS_SECRET_ACCESS_KEY || secrets.AWS_SECRET_ACCESS_KEY }}
-          PROFILE_KEY_PREFIX: nightly-profiling/${{ github.repository }}/${{ github.run_id }}/${{ github.run_attempt }}/single-node/${{ inputs.name || inputs.config_file_path }}
+          PROFILE_KEY_PREFIX: nightly-profiling/${{ github.repository }}/${{ github.run_id }}/${{ github.run_attempt }}/single-node/${{ inputs.vllm_ascend_branch }}-${{ inputs.name || inputs.config_file_path }}
         run: |
+          echo '========== Profiling raw upload =========='
           if [ -f "$NIGHTLY_PROFILE_ROOT/profile_manifest.json" ]; then
             python3 -c 'import boto3' 2>/dev/null || python3 -m pip install --quiet boto3
+            python3 -m pip install --quiet esdk-obs-python || true
+            python3 -m tools.profile storage || true
             python3 -m tools.profile upload --root "$NIGHTLY_PROFILE_ROOT" --prefix "$PROFILE_KEY_PREFIX"
             python3 - <<'PY'
           import json

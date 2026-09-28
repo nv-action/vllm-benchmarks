@@ -607,17 +607,19 @@ jobs:
             --vllm-ascend-version "${{ steps.stream_logs.outputs.vllm_ascend_hash }}" \
             --vllm-version "${{ steps.stream_logs.outputs.vllm_hash }}"
 
-      - name: Upload profiling artifacts directly to OBS
+      - name: Upload raw profiling artifacts to OBS
         if: ${{ always() && inputs.profile_enabled }}
-        continue-on-error: true
         env:
           AWS_ACCESS_KEY_ID: ${{ github.repository_owner == 'vllm-project' && secrets.OBS_ACCESS_KEY_ID || secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ github.repository_owner == 'vllm-project' && secrets.OBS_SECRET_ACCESS_KEY || secrets.AWS_SECRET_ACCESS_KEY }}
           PROFILE_KEY_PREFIX: nightly-profiling/${{ github.repository }}/${{ github.run_id }}/${{ github.run_attempt }}/multi-node/${{ steps.vars.outputs.benchmark_job_name }}
         run: |
+          echo '========== Profiling raw upload =========='
           PROFILE_ROOT="$LOG_PREFIX/profile_artifact"
           if [ -f "$PROFILE_ROOT/profile_manifest.json" ]; then
             python3 -c 'import boto3' 2>/dev/null || python3 -m pip install --quiet boto3
+            python3 -m pip install --quiet esdk-obs-python || true
+            python3 -m tools.profile storage || true
             python3 -m tools.profile upload --root "$PROFILE_ROOT" --prefix "$PROFILE_KEY_PREFIX"
           else
             echo "No profiling manifest; no supported serve target was initialized."

@@ -488,3 +488,103 @@ jobs:
       - name: Remove dedicated taint from test nodes
         run: |
           kubectl taint nodes ${{ vars.A3_TAINT_NODES }} dedicated- || true
+
+  parse-multi-node-profile:
+    name: Parse multi-node profile
+    needs: [setup-vars, parse-trigger, multi-node-tests]
+    if: >-
+      always() &&
+      fromJSON(inputs.profile_options_json || '{}').enabled &&
+      (fromJSON(inputs.profile_options_json || '{}').output || 'parsed') == 'parsed' &&
+      needs.setup-vars.result == 'success' &&
+      needs.multi-node-tests.result != 'skipped'
+    strategy:
+      fail-fast: false
+      matrix:
+        vllm_ascend_branch: ${{ fromJSON(needs.setup-vars.outputs.vllm_ascend_branches) }}
+        test_config: ${{ fromJSON(needs.setup-vars.outputs.multi_node) }}
+    uses: ./.github/workflows/_e2e_profile_parse.yaml
+    with:
+      runner: linux-aarch64-a3-800t-2
+      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a3'
+      ref: ${{ github.sha }}
+      prefix: nightly-profiling/${{ github.repository }}/${{ github.run_id }}/${{ github.run_attempt }}/multi-node/${{ matrix.vllm_ascend_branch }}-${{ matrix.test_config.name }}
+      should_run: >-
+        ${{ needs.parse-trigger.outputs.filter == 'all' ||
+            contains(needs.parse-trigger.outputs.filter, format(',{0},', matrix.test_config.name)) }}
+    secrets: inherit
+
+  parse-double-node-profile:
+    name: Parse double-node profile
+    needs: [setup-vars, parse-trigger, double-node-tests]
+    if: >-
+      always() &&
+      fromJSON(inputs.profile_options_json || '{}').enabled &&
+      (fromJSON(inputs.profile_options_json || '{}').output || 'parsed') == 'parsed' &&
+      needs.setup-vars.result == 'success' &&
+      needs.double-node-tests.result != 'skipped'
+    strategy:
+      fail-fast: false
+      matrix:
+        vllm_ascend_branch: ${{ fromJSON(needs.setup-vars.outputs.vllm_ascend_branches) }}
+        test_config: ${{ fromJSON(needs.setup-vars.outputs.double_node) }}
+    uses: ./.github/workflows/_e2e_profile_parse.yaml
+    with:
+      runner: linux-aarch64-a3-800t-2
+      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a3'
+      ref: ${{ github.sha }}
+      prefix: nightly-profiling/${{ github.repository }}/${{ github.run_id }}/${{ github.run_attempt }}/multi-node/${{ matrix.vllm_ascend_branch }}-${{ matrix.test_config.name }}
+      should_run: >-
+        ${{ needs.parse-trigger.outputs.filter == 'all' ||
+            contains(needs.parse-trigger.outputs.filter, format(',{0},', matrix.test_config.name)) }}
+    secrets: inherit
+
+  parse-single-node-profile:
+    name: Parse single-node profile
+    needs: [setup-vars, parse-trigger, single-node-tests]
+    if: >-
+      always() &&
+      fromJSON(inputs.profile_options_json || '{}').enabled &&
+      (fromJSON(inputs.profile_options_json || '{}').output || 'parsed') == 'parsed' &&
+      needs.setup-vars.result == 'success' &&
+      needs.single-node-tests.result != 'skipped'
+    strategy:
+      fail-fast: false
+      matrix:
+        vllm_ascend_branch: ${{ fromJSON(needs.setup-vars.outputs.vllm_ascend_branches) }}
+        test_config: ${{ fromJSON(needs.setup-vars.outputs.single_node) }}
+    uses: ./.github/workflows/_e2e_profile_parse.yaml
+    with:
+      runner: ${{ contains(matrix.test_config.os, '800t') && 'linux-aarch64-a3-800t-2' || contains(matrix.test_config.os, '800i') && 'linux-aarch64-a3-800i-2' || contains(matrix.test_config.os, 'nightly-a3') && 'linux-aarch64-nightly-a3-2' || 'linux-aarch64-a3-2' }}
+      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a3'
+      ref: ${{ github.sha }}
+      prefix: nightly-profiling/${{ github.repository }}/${{ github.run_id }}/${{ github.run_attempt }}/single-node/${{ matrix.vllm_ascend_branch }}-${{ matrix.test_config.name }}
+      should_run: >-
+        ${{ needs.parse-trigger.outputs.filter == 'all' ||
+            contains(needs.parse-trigger.outputs.filter, format(',{0},', matrix.test_config.name)) }}
+    secrets: inherit
+
+  parse-multi-card-profile:
+    name: Parse multi-card profile
+    needs: [setup-vars, parse-trigger, multi-card-tests]
+    if: >-
+      always() &&
+      fromJSON(inputs.profile_options_json || '{}').enabled &&
+      (fromJSON(inputs.profile_options_json || '{}').output || 'parsed') == 'parsed' &&
+      needs.setup-vars.result == 'success' &&
+      needs.multi-card-tests.result != 'skipped'
+    strategy:
+      fail-fast: false
+      matrix:
+        vllm_ascend_branch: ${{ fromJSON(needs.setup-vars.outputs.vllm_ascend_branches) }}
+        test_config: ${{ fromJSON(needs.setup-vars.outputs.multi_card) }}
+    uses: ./.github/workflows/_e2e_profile_parse.yaml
+    with:
+      runner: ${{ contains(matrix.test_config.os, '800t') && 'linux-aarch64-a3-800t-2' || contains(matrix.test_config.os, '800i') && 'linux-aarch64-a3-800i-2' || contains(matrix.test_config.os, 'nightly-a3') && 'linux-aarch64-nightly-a3-2' || 'linux-aarch64-a3-2' }}
+      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a3'
+      ref: ${{ github.sha }}
+      prefix: nightly-profiling/${{ github.repository }}/${{ github.run_id }}/${{ github.run_attempt }}/single-node/${{ matrix.vllm_ascend_branch }}-${{ matrix.test_config.name }}
+      should_run: >-
+        ${{ needs.parse-trigger.outputs.filter == 'all' ||
+            contains(needs.parse-trigger.outputs.filter, format(',{0},', matrix.test_config.name)) }}
+    secrets: inherit

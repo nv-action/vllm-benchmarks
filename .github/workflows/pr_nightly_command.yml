@@ -56,6 +56,7 @@ jobs:
       profile_max_size: ${{ steps.resolve.outputs.profile_max_size }}
       profile_output: ${{ steps.resolve.outputs.profile_output }}
       profile_cases: ${{ steps.resolve.outputs.profile_cases }}
+      profile_options_json: ${{ steps.resolve.outputs.profile_options_json }}
       bisect_args_json: ${{ steps.resolve.outputs.bisect_args_json }}
       command: ${{ steps.resolve.outputs.command }}
       pr_number: ${{ steps.resolve.outputs.pr_number }}
@@ -67,7 +68,7 @@ jobs:
           sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
           echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
           sudo apt-get update -y
-          sudo apt-get install gh -y
+          sudo apt-get install gh jq -y
 
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -279,8 +280,8 @@ jobs:
             exit 1
           fi
           if [ "$PROFILE_ENABLED" = "true" ]; then
-            if [ "$COMMAND" != "nightly" ] || [ "$IS_A3_560T" = "true" ]; then
-              echo "ERROR: profiling is supported only by Nightly-A3"
+            if [ "$COMMAND" != "nightly" ]; then
+              echo "ERROR: profiling is supported only by nightly workflows"
               exit 1
             fi
             if ! [[ "$PROFILE_START_AFTER" =~ ^[0-9]+$ ]] ||
@@ -337,6 +338,17 @@ jobs:
             "$BISECT_NO_VERIFY_BAD" \
             "$BISECT_FORCE_INITIAL_BUILD"
 
+          PROFILE_OPTIONS_JSON=$(jq -cn \
+            --argjson enabled "$PROFILE_ENABLED" \
+            --arg start_after "$PROFILE_START_AFTER" \
+            --arg duration "$PROFILE_DURATION" \
+            --argjson with_stack "$PROFILE_WITH_STACK" \
+            --arg scope "$PROFILE_SCOPE" \
+            --arg max_size "$PROFILE_MAX_SIZE" \
+            --arg output "$PROFILE_OUTPUT" \
+            --arg cases "$PROFILE_CASES" \
+            '{enabled:$enabled,start_after:$start_after,duration:$duration,with_stack:$with_stack,scope:$scope,max_size:$max_size,output:$output,cases:$cases}')
+
           {
             echo "test_cases=$TEST_CASES"
             echo "branch=$BRANCH"
@@ -349,6 +361,7 @@ jobs:
             echo "profile_max_size=$PROFILE_MAX_SIZE"
             echo "profile_output=$PROFILE_OUTPUT"
             echo "profile_cases=$PROFILE_CASES"
+            echo "profile_options_json=$PROFILE_OPTIONS_JSON"
             echo "bisect_good_commit=$BISECT_GOOD_COMMIT"
             echo "bisect_bad_commit=$BISECT_BAD_COMMIT"
             echo "bisect_fail_confirm_retries=$BISECT_FAIL_CONFIRM_RETRIES"
@@ -425,6 +438,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
           BISECT_ARGS_JSON: ${{ needs.authorize.outputs.bisect_args_json }}
+          PROFILE_OPTIONS_JSON: ${{ needs.authorize.outputs.profile_options_json }}
         run: |
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
           gh workflow run schedule_nightly_test_a2.yaml \
@@ -436,6 +450,7 @@ jobs:
             -f skip_build_image=true \
             -f vllm_ascend_ref='${{ needs.authorize.outputs.vllm_ascend_ref }}' \
             -f aop_enabled='${{ needs.authorize.outputs.aop_enabled }}' \
+            -f profile_options_json="$PROFILE_OPTIONS_JSON" \
             -f bisect_args_json="$BISECT_ARGS_JSON"
           sleep 8
           A2_RUN_ID=$(gh api "repos/$REPO/actions/workflows/schedule_nightly_test_a2.yaml/runs?per_page=1" \
@@ -467,26 +482,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
           BISECT_ARGS_JSON: ${{ needs.authorize.outputs.bisect_args_json }}
-          PROFILE_ENABLED: ${{ needs.authorize.outputs.profile_enabled }}
-          PROFILE_START_AFTER: ${{ needs.authorize.outputs.profile_start_after }}
-          PROFILE_DURATION: ${{ needs.authorize.outputs.profile_duration }}
-          PROFILE_WITH_STACK: ${{ needs.authorize.outputs.profile_with_stack }}
-          PROFILE_SCOPE: ${{ needs.authorize.outputs.profile_scope }}
-          PROFILE_MAX_SIZE: ${{ needs.authorize.outputs.profile_max_size }}
-          PROFILE_OUTPUT: ${{ needs.authorize.outputs.profile_output }}
-          PROFILE_CASES: ${{ needs.authorize.outputs.profile_cases }}
+          PROFILE_OPTIONS_JSON: ${{ needs.authorize.outputs.profile_options_json }}
         run: |
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
-          PROFILE_OPTIONS_JSON=$(jq -cn \
-            --argjson enabled "$PROFILE_ENABLED" \
-            --arg start_after "$PROFILE_START_AFTER" \
-            --arg duration "$PROFILE_DURATION" \
-            --argjson with_stack "$PROFILE_WITH_STACK" \
-            --arg scope "$PROFILE_SCOPE" \
-            --arg max_size "$PROFILE_MAX_SIZE" \
-            --arg output "$PROFILE_OUTPUT" \
-            --arg cases "$PROFILE_CASES" \
-            '{enabled:$enabled,start_after:$start_after,duration:$duration,with_stack:$with_stack,scope:$scope,max_size:$max_size,output:$output,cases:$cases}')
           gh workflow run schedule_nightly_test_a3.yaml \
             --repo "$REPO" \
             --ref main \
@@ -528,6 +526,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
           BISECT_ARGS_JSON: ${{ needs.authorize.outputs.bisect_args_json }}
+          PROFILE_OPTIONS_JSON: ${{ needs.authorize.outputs.profile_options_json }}
         run: |
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
           gh workflow run schedule_nightly_test_a3_560t.yaml \
@@ -539,6 +538,7 @@ jobs:
             -f skip_build_image=true \
             -f vllm_ascend_ref='${{ needs.authorize.outputs.vllm_ascend_ref }}' \
             -f aop_enabled='${{ needs.authorize.outputs.aop_enabled }}' \
+            -f profile_options_json="$PROFILE_OPTIONS_JSON" \
             -f bisect_args_json="$BISECT_ARGS_JSON"
           sleep 8
           A3_560T_RUN_ID=$(gh api "repos/$REPO/actions/workflows/schedule_nightly_test_a3_560t.yaml/runs?per_page=1" \
@@ -569,6 +569,7 @@ jobs:
         id: dispatch_a5
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+          PROFILE_OPTIONS_JSON: ${{ needs.authorize.outputs.profile_options_json }}
         run: |
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
           gh workflow run schedule_nightly_test_a5.yaml \
@@ -579,7 +580,8 @@ jobs:
             -f request_id='${{ needs.authorize.outputs.pr_number }}' \
             -f skip_build_image=true \
             -f vllm_ascend_ref='${{ needs.authorize.outputs.vllm_ascend_ref }}' \
-            -f aop_enabled='${{ needs.authorize.outputs.aop_enabled }}'
+            -f aop_enabled='${{ needs.authorize.outputs.aop_enabled }}' \
+            -f profile_options_json="$PROFILE_OPTIONS_JSON"
           sleep 8
           A5_RUN_ID=$(gh api "repos/$REPO/actions/workflows/schedule_nightly_test_a5.yaml/runs?per_page=1" \
             --jq '.workflow_runs[0].id')
@@ -609,6 +611,7 @@ jobs:
         id: dispatch_310p
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+          PROFILE_OPTIONS_JSON: ${{ needs.authorize.outputs.profile_options_json }}
         run: |
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
           gh workflow run schedule_nightly_test_310p.yaml \
@@ -619,7 +622,8 @@ jobs:
             -f request_id='${{ needs.authorize.outputs.pr_number }}' \
             -f skip_build_image=true \
             -f vllm_ascend_ref='${{ needs.authorize.outputs.vllm_ascend_ref }}' \
-            -f aop_enabled='${{ needs.authorize.outputs.aop_enabled }}'
+            -f aop_enabled='${{ needs.authorize.outputs.aop_enabled }}' \
+            -f profile_options_json="$PROFILE_OPTIONS_JSON"
           sleep 8
           _310P_RUN_ID=$(gh api "repos/$REPO/actions/workflows/schedule_nightly_test_310p.yaml/runs?per_page=1" \
             --jq '.workflow_runs[0].id')
