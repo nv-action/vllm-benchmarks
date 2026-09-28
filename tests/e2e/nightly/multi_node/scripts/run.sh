@@ -148,7 +148,8 @@ check_npu_info() {
 check_and_config() {
     echo "====> Configure mirrors and git proxy"
     # github加速镜像
-    git config --global url."https://shturl.cc//https://github.com/".insteadOf "https://github.com/"
+    # git config --global url."https://shturl.cc//https://github.com/".insteadOf "https://github.com/"
+    git config --global url."https://ghfast.top/https://github.com/".insteadOf "https://github.com/"
 
     pip config set global.index-url https://mirrors.huaweicloud.com/repository/pypi/simple/
     pip config set global.trusted-host mirrors.huaweicloud.com
