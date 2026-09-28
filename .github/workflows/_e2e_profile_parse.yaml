@@ -1,0 +1,70 @@
+name: Parse nightly profiling artifacts
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        required: true
+        type: string
+      image:
+        required: true
+        type: string
+      prefix:
+        required: true
+        type: string
+      ref:
+        required: true
+        type: string
+      should_run:
+        required: true
+        type: boolean
+    secrets:
+      OBS_ACCESS_KEY_ID:
+        required: false
+      OBS_SECRET_ACCESS_KEY:
+        required: false
+      AWS_ACCESS_KEY_ID:
+        required: false
+      AWS_SECRET_ACCESS_KEY:
+        required: false
+
+defaults:
+  run:
+    shell: bash -el {0}
+
+jobs:
+  parse:
+    name: ${{ inputs.prefix }}
+    if: ${{ inputs.should_run }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 240
+    container:
+      image: ${{ inputs.image }}
+    steps:
+      - name: Checkout profiling source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          path: profile-source
+
+      - name: Parse raw traces and upload results
+        working-directory: profile-source
+        env:
+          AWS_ACCESS_KEY_ID: ${{ github.repository_owner == 'vllm-project' && secrets.OBS_ACCESS_KEY_ID || secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ github.repository_owner == 'vllm-project' && secrets.OBS_SECRET_ACCESS_KEY || secrets.AWS_SECRET_ACCESS_KEY }}
+          PROFILE_KEY_PREFIX: ${{ inputs.prefix }}
+        run: |
+          set -euo pipefail
+          echo '========== Profiling offline parse =========='
+          echo "OBS prefix: $PROFILE_KEY_PREFIX"
+          npu-smi info
+          echo "Available CPUs: $(nproc)"
+          free -h
+          df -h /tmp
+          python3 -c 'import boto3' 2>/dev/null || python3 -m pip install --quiet boto3
+          python3 -m pip install --quiet esdk-obs-python || true
+          python3 -m tools.profile storage || true
+          python3 -m tools.profile parse \
+            --root /tmp/profile_parse \
+            --prefix "$PROFILE_KEY_PREFIX" \
+            --max-process-number 16

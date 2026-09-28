@@ -189,7 +189,7 @@ def test_controller_starts_and_stops_targets_concurrently(tmp_path, monkeypatch)
     assert controller.finish()["status"] == "success"
 
 
-def test_artifact_raw_fallback_and_manifest(tmp_path, monkeypatch):
+def test_artifact_collects_raw_without_parsing(tmp_path, monkeypatch):
     monkeypatch.setenv("NIGHTLY_PROFILE_ENABLED", "true")
     raw = tmp_path / "raw" / "serve-0"
     trace = raw / "worker_ascend_pt"
@@ -201,32 +201,20 @@ def test_artifact_raw_fallback_and_manifest(tmp_path, monkeypatch):
     )
     manifest = json.loads((tmp_path / "profile_manifest.json").read_text())
     record = manifest["cases"][0]["targets"][0]
-    assert manifest["status"] == "partial"
-    assert record["output"] == "raw-fallback"
+    assert manifest["status"] == "success"
+    assert manifest["requested"]["output"] == "parsed"
+    assert record["output"] == "raw"
+    assert "parse_error" not in record
     with tarfile.open(tmp_path / record["archive"]) as tar:
         assert "serve-0/worker_ascend_pt/data.bin" in tar.getnames()
     assert not list(raw.iterdir())
 
 
-def test_artifact_parsed_only_and_multiple_cases(tmp_path, monkeypatch):
-    import sys
-    import types
-
+def test_artifact_raw_multiple_cases(tmp_path, monkeypatch):
     monkeypatch.setenv("NIGHTLY_PROFILE_ENABLED", "true")
     raw = tmp_path / "raw" / "serve-0"
     target = profile.ServeInstance("serve-0", "http://localhost", str(raw))
 
-    def analyse(path, **_):
-        parsed = Path(path) / "ASCEND_PROFILER_OUTPUT"
-        parsed.mkdir()
-        (parsed / "analyse.done").write_text("done")
-        (parsed / "trace_view.json").write_text("{}")
-
-    profiler = types.ModuleType("torch_npu.profiler.profiler")
-    profiler.analyse = analyse
-    monkeypatch.setitem(sys.modules, "torch_npu", types.ModuleType("torch_npu"))
-    monkeypatch.setitem(sys.modules, "torch_npu.profiler", types.ModuleType("torch_npu.profiler"))
-    monkeypatch.setitem(sys.modules, "torch_npu.profiler.profiler", profiler)
     manager = profile.ArtifactManager(tmp_path, "parsed")
     for case_name in ("perf", "perf_long"):
         trace = raw / "worker_ascend_pt"
@@ -238,11 +226,10 @@ def test_artifact_parsed_only_and_multiple_cases(tmp_path, monkeypatch):
     assert manifest["status"] == "success"
     for case in manifest["cases"]:
         record = case["targets"][0]
-        assert record["output"] == "parsed"
+        assert record["output"] == "raw"
         with tarfile.open(tmp_path / record["archive"]) as tar:
             names = tar.getnames()
-            assert any(name.endswith("trace_view.json") for name in names)
-            assert not any(name.endswith("huge_raw.bin") for name in names)
+            assert any(name.endswith("huge_raw.bin") for name in names)
 
 
 def test_upload_artifacts_verifies_each_object(tmp_path, monkeypatch):
@@ -263,7 +250,7 @@ def test_upload_artifacts_verifies_each_object(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(boto3, "client", lambda *_, **__: client)
     result = profile.upload_artifacts(tmp_path, "nightly-profiling/run", "bucket", "endpoint", "region")
-    assert result["cases"][0]["targets"][0]["obs_url"] == "obs://bucket/nightly-profiling/run/perf/serve-0.tar.gz"
+    assert result["cases"][0]["targets"][0]["obs_url"] == "obs://bucket/nightly-profiling/run/raw/perf/serve-0.tar.gz"
     assert client.upload_file.call_count == 2
 
 
@@ -352,8 +339,9 @@ def test_a3_workflow_profile_plumbing():
         )
         job = next(job for job in called_workflow["jobs"].values() if "steps" in job)
         steps = job["steps"]
-        upload = next(step for step in steps if step["name"] == "Upload profiling artifacts directly to OBS")
+        upload = next(step for step in steps if "python3 -m tools.profile upload" in step.get("run", ""))
         assert "python3 -m tools.profile upload" in upload["run"]
+        assert "python3 -m tools.profile storage" in upload["run"]
         assert "secrets.AWS_ACCESS_KEY_ID" in upload["env"]["AWS_ACCESS_KEY_ID"]
         assert "secrets.AWS_SECRET_ACCESS_KEY" in upload["env"]["AWS_SECRET_ACCESS_KEY"]
     command = workflow("pr_nightly_command.yml")
