@@ -79,6 +79,10 @@ on:
         required: false
         default: '{}'
         type: string
+      profile_options_json:
+        description: 'JSON profiling options: enabled, start_after, duration, with_stack, scope, max_size, output, cases'
+        type: string
+        default: '{}'
 permissions:
   contents: read
   pull-requests: read
@@ -221,6 +225,14 @@ jobs:
       request_id: ${{ inputs.request_id || '' }}
       vllm_ascend_ref: ${{ inputs.vllm_ascend_ref || '' }}
       aop_single_enabled: ${{ inputs.aop_enabled }}
+      profile_enabled: ${{ fromJSON(inputs.profile_options_json || '{}').enabled || false }}
+      profile_start_after: ${{ fromJSON(inputs.profile_options_json || '{}').start_after || '15' }}
+      profile_duration: ${{ fromJSON(inputs.profile_options_json || '{}').duration || '8' }}
+      profile_with_stack: ${{ fromJSON(inputs.profile_options_json || '{}').with_stack || false }}
+      profile_scope: ${{ fromJSON(inputs.profile_options_json || '{}').scope || 'representative' }}
+      profile_max_size: ${{ fromJSON(inputs.profile_options_json || '{}').max_size || '50G' }}
+      profile_output: ${{ fromJSON(inputs.profile_options_json || '{}').output || 'parsed' }}
+      profile_cases: ${{ fromJSON(inputs.profile_options_json || '{}').cases || '' }}
       bisect_good_commit: ${{ fromJSON(inputs.bisect_args_json || '{}').good_commit || '' }}
       bisect_bad_commit: ${{ fromJSON(inputs.bisect_args_json || '{}').bad_commit || 'HEAD' }}
       bisect_fail_confirm_retries: ${{ fromJSON(inputs.bisect_args_json || '{}').fail_confirm_retries || '' }}
@@ -231,6 +243,10 @@ jobs:
       bisect_force_initial_build: ${{ fromJSON(inputs.bisect_args_json || '{}').force_initial_build || false }}
       bisect_config_base_path: ''
     secrets:
+      OBS_ACCESS_KEY_ID: ${{ secrets.OBS_ACCESS_KEY_ID }}
+      OBS_SECRET_ACCESS_KEY: ${{ secrets.OBS_SECRET_ACCESS_KEY }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       OPENLIBING_SECRET: ${{ secrets.OPENLIBING_SECRET }}
 
   multi-card-tests:
@@ -265,6 +281,14 @@ jobs:
       request_id: ${{ inputs.request_id || '' }}
       vllm_ascend_ref: ${{ inputs.vllm_ascend_ref || '' }}
       aop_single_enabled: ${{ inputs.aop_enabled }}
+      profile_enabled: ${{ fromJSON(inputs.profile_options_json || '{}').enabled || false }}
+      profile_start_after: ${{ fromJSON(inputs.profile_options_json || '{}').start_after || '15' }}
+      profile_duration: ${{ fromJSON(inputs.profile_options_json || '{}').duration || '8' }}
+      profile_with_stack: ${{ fromJSON(inputs.profile_options_json || '{}').with_stack || false }}
+      profile_scope: ${{ fromJSON(inputs.profile_options_json || '{}').scope || 'representative' }}
+      profile_max_size: ${{ fromJSON(inputs.profile_options_json || '{}').max_size || '50G' }}
+      profile_output: ${{ fromJSON(inputs.profile_options_json || '{}').output || 'parsed' }}
+      profile_cases: ${{ fromJSON(inputs.profile_options_json || '{}').cases || '' }}
       bisect_good_commit: ${{ fromJSON(inputs.bisect_args_json || '{}').good_commit || '' }}
       bisect_bad_commit: ${{ fromJSON(inputs.bisect_args_json || '{}').bad_commit || 'HEAD' }}
       bisect_fail_confirm_retries: ${{ fromJSON(inputs.bisect_args_json || '{}').fail_confirm_retries || '' }}
@@ -277,6 +301,8 @@ jobs:
     secrets:
       OBS_ACCESS_KEY_ID: ${{ secrets.OBS_ACCESS_KEY_ID }}
       OBS_SECRET_ACCESS_KEY: ${{ secrets.OBS_SECRET_ACCESS_KEY }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       OPENLIBING_SECRET: ${{ secrets.OPENLIBING_SECRET }}
 
   merge-benchmark-artifacts:
@@ -296,3 +322,53 @@ jobs:
           pattern: nightly-test-benchmark-results-*
           compression-level: 0
           delete-merged: true
+
+  parse-single-node-profile:
+    name: Parse single-node profile
+    needs: [setup-vars, parse-trigger, single-node-tests]
+    if: >-
+      always() &&
+      fromJSON(inputs.profile_options_json || '{}').enabled &&
+      (fromJSON(inputs.profile_options_json || '{}').output || 'parsed') == 'parsed' &&
+      needs.setup-vars.result == 'success' &&
+      needs.single-node-tests.result != 'skipped'
+    strategy:
+      fail-fast: false
+      matrix:
+        vllm_ascend_branch: ${{ fromJSON(needs.setup-vars.outputs.vllm_ascend_branches) }}
+        test_config: ${{ fromJSON(needs.setup-vars.outputs.single_node) }}
+    uses: ./.github/workflows/_e2e_profile_parse.yaml
+    with:
+      runner: linux-aarch64-a3-800i-2
+      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a3'
+      ref: ${{ github.sha }}
+      prefix: nightly-profiling/${{ github.repository }}/${{ github.run_id }}/${{ github.run_attempt }}/single-node/${{ matrix.vllm_ascend_branch }}-${{ matrix.test_config.name }}
+      should_run: >-
+        ${{ needs.parse-trigger.outputs.filter == 'all' ||
+            contains(needs.parse-trigger.outputs.filter, format(',{0},', matrix.test_config.name)) }}
+    secrets: inherit
+
+  parse-multi-card-profile:
+    name: Parse multi-card profile
+    needs: [setup-vars, parse-trigger, multi-card-tests]
+    if: >-
+      always() &&
+      fromJSON(inputs.profile_options_json || '{}').enabled &&
+      (fromJSON(inputs.profile_options_json || '{}').output || 'parsed') == 'parsed' &&
+      needs.setup-vars.result == 'success' &&
+      needs.multi-card-tests.result != 'skipped'
+    strategy:
+      fail-fast: false
+      matrix:
+        vllm_ascend_branch: ${{ fromJSON(needs.setup-vars.outputs.vllm_ascend_branches) }}
+        test_config: ${{ fromJSON(needs.setup-vars.outputs.multi_card) }}
+    uses: ./.github/workflows/_e2e_profile_parse.yaml
+    with:
+      runner: linux-aarch64-a3-800i-2
+      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a3'
+      ref: ${{ github.sha }}
+      prefix: nightly-profiling/${{ github.repository }}/${{ github.run_id }}/${{ github.run_attempt }}/single-node/${{ matrix.vllm_ascend_branch }}-${{ matrix.test_config.name }}
+      should_run: >-
+        ${{ needs.parse-trigger.outputs.filter == 'all' ||
+            contains(needs.parse-trigger.outputs.filter, format(',{0},', matrix.test_config.name)) }}
+    secrets: inherit
