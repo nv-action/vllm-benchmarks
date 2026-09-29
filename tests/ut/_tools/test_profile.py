@@ -1,6 +1,7 @@
 import asyncio
 import json
 import subprocess
+import sys
 import tarfile
 import threading
 from pathlib import Path
@@ -11,6 +12,22 @@ import pytest
 import yaml
 
 from tools import profile
+
+
+def test_profile_module_import_without_runner_dependencies():
+    script = """
+import builtins
+original_import = builtins.__import__
+def blocked_import(name, *args, **kwargs):
+    if name in ("regex", "requests"):
+        raise ModuleNotFoundError(name)
+    return original_import(name, *args, **kwargs)
+builtins.__import__ = blocked_import
+from tools import profile
+assert callable(profile.upload_artifacts)
+assert callable(profile.parse_artifacts)
+"""
+    subprocess.run([sys.executable, "-c", script], cwd=Path(__file__).resolve().parents[3], check=True)
 
 
 def test_spec_defaults_and_case_filter(monkeypatch):

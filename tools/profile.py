@@ -13,9 +13,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-import regex as re
-import requests
-
 logger = logging.getLogger(__name__)
 STOP_TIMEOUT = 900
 POLL_INTERVAL = 1
@@ -34,6 +31,8 @@ class ProfileSpec:
 
     @classmethod
     def from_env(cls) -> "ProfileSpec":
+        import regex as re
+
         enabled = os.getenv("NIGHTLY_PROFILE_ENABLED", "false").lower() == "true"
         if not enabled:
             return cls()
@@ -107,6 +106,8 @@ def profile_root() -> Path:
 
 
 def make_instance(name: str, endpoint: str, role: str = "standalone", dp_rank: int = 0) -> ServeInstance:
+    import regex as re
+
     safe_name = re.sub(r"[^A-Za-z0-9_.-]", "_", name)
     return ServeInstance(name, endpoint, str(profile_root() / "raw" / safe_name), role, dp_rank)
 
@@ -166,9 +167,13 @@ def _mark_first_request(marker: str) -> None:
 
 class ProfileClient:
     def start_profile(self, endpoint: str) -> None:
+        import requests
+
         requests.post(f"{endpoint.rstrip('/')}/start_profile", timeout=30).raise_for_status()
 
     def stop_profile(self, endpoint: str) -> None:
+        import requests
+
         requests.post(f"{endpoint.rstrip('/')}/stop_profile", timeout=STOP_TIMEOUT).raise_for_status()
 
 
@@ -268,6 +273,8 @@ class ArtifactManager:
         self.root, self.requested_output = root, output
 
     def collect(self, case_name: str, targets: tuple[ServeInstance, ...], result: dict) -> None:
+        import regex as re
+
         safe_case = re.sub(r"[^A-Za-z0-9_.-]", "_", case_name)
         case_dir = self.root / safe_case
         case_dir.mkdir(parents=True, exist_ok=True)
