@@ -38,6 +38,7 @@ def test_nightly_profiling_jobs(soc, producers, runner):
         assert "== 'parsed'" in parser["if"]
         assert parser["with"]["image"] == producer["with"]["image"]
         assert parser["with"]["ref"] == "${{ github.sha }}"
+        assert parser["with"]["display_name"] == "${{ matrix.test_config.config_file_path || matrix.test_config.name }}"
         assert "matrix.vllm_ascend_branch" in parser["with"]["prefix"]
         assert "needs.parse-trigger.outputs.filter" in parser["with"]["should_run"]
         if runner:
@@ -64,6 +65,7 @@ def test_parser_uses_small_npu_runner_and_same_image():
     workflow = load_workflow("_e2e_profile_parse.yaml")
     job = workflow["jobs"]["parse"]
     assert job["runs-on"] == "${{ inputs.runner }}"
+    assert job["name"] == "${{ inputs.display_name }}"
     assert job["container"]["image"] == "${{ inputs.image }}"
     assert job["if"] == "${{ inputs.should_run }}"
     script = job["steps"][-1]["run"]

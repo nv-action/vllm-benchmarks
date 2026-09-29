@@ -506,6 +506,7 @@ jobs:
       runner: linux-aarch64-a3-800t-2
       image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a3'
       ref: ${{ github.sha }}
+      display_name: ${{ matrix.test_config.config_file_path || matrix.test_config.name }}
       prefix: nightly-profiling/${{ github.repository }}/${{ github.run_id }}/${{ github.run_attempt }}/multi-node/${{ matrix.vllm_ascend_branch }}-${{ matrix.test_config.name }}
       should_run: >-
         ${{ needs.parse-trigger.outputs.filter == 'all' ||
@@ -531,6 +532,7 @@ jobs:
       runner: linux-aarch64-a3-800t-2
       image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a3'
       ref: ${{ github.sha }}
+      display_name: ${{ matrix.test_config.config_file_path || matrix.test_config.name }}
       prefix: nightly-profiling/${{ github.repository }}/${{ github.run_id }}/${{ github.run_attempt }}/multi-node/${{ matrix.vllm_ascend_branch }}-${{ matrix.test_config.name }}
       should_run: >-
         ${{ needs.parse-trigger.outputs.filter == 'all' ||
@@ -556,6 +558,7 @@ jobs:
       runner: ${{ contains(matrix.test_config.os, '800t') && 'linux-aarch64-a3-800t-2' || contains(matrix.test_config.os, '800i') && 'linux-aarch64-a3-800i-2' || contains(matrix.test_config.os, 'nightly-a3') && 'linux-aarch64-nightly-a3-2' || 'linux-aarch64-a3-2' }}
       image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a3'
       ref: ${{ github.sha }}
+      display_name: ${{ matrix.test_config.config_file_path || matrix.test_config.name }}
       prefix: nightly-profiling/${{ github.repository }}/${{ github.run_id }}/${{ github.run_attempt }}/single-node/${{ matrix.vllm_ascend_branch }}-${{ matrix.test_config.name }}
       should_run: >-
         ${{ needs.parse-trigger.outputs.filter == 'all' ||
@@ -581,6 +584,7 @@ jobs:
       runner: ${{ contains(matrix.test_config.os, '800t') && 'linux-aarch64-a3-800t-2' || contains(matrix.test_config.os, '800i') && 'linux-aarch64-a3-800i-2' || contains(matrix.test_config.os, 'nightly-a3') && 'linux-aarch64-nightly-a3-2' || 'linux-aarch64-a3-2' }}
       image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a3'
       ref: ${{ github.sha }}
+      display_name: ${{ matrix.test_config.config_file_path || matrix.test_config.name }}
       prefix: nightly-profiling/${{ github.repository }}/${{ github.run_id }}/${{ github.run_attempt }}/single-node/${{ matrix.vllm_ascend_branch }}-${{ matrix.test_config.name }}
       should_run: >-
         ${{ needs.parse-trigger.outputs.filter == 'all' ||

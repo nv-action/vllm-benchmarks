@@ -2,6 +2,7 @@ import io
 import json
 import sys
 import tarfile
+import threading
 import types
 from pathlib import Path
 from types import SimpleNamespace
@@ -89,14 +90,45 @@ def test_offline_parse_uploads_parsed_manifest_last(tmp_path, fake_obs, monkeypa
     record = manifest["cases"][0]["targets"][0]
     assert record["output"] == "parsed"
     assert record["raw_obs_url"] == "obs://bucket/nightly/run/raw/perf/serve_0.tar.gz"
-    assert record["obs_url"] == "obs://bucket/nightly/run/parsed/perf/serve_0.tar.gz"
+    assert [rank["name"] for rank in record["ranks"]] == ["worker_0_ascend_pt", "worker_1_ascend_pt"]
+    assert all(rank["obs_url"].startswith("obs://bucket/nightly/run/parsed/perf/serve_0/") for rank in record["ranks"])
     assert fake_obs.uploads[-1] == "nightly/run/parsed/profile_manifest.json"
     assert all(fake_obs.objects[key] == value for key, value in raw_objects.items())
-    archive = fake_obs.objects["bucket", "nightly/run/parsed/perf/serve_0.tar.gz"]
-    with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
-        names = tar.getnames()
-    assert sum(name.endswith("trace_view.json") for name in names) == 2
-    assert not any(name.endswith("raw.bin") for name in names)
+    for rank in record["ranks"]:
+        archive = fake_obs.objects["bucket", rank["obs_url"].removeprefix("obs://bucket/")]
+        with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
+            names = tar.getnames()
+        assert sum(name.endswith("trace_view.json") for name in names) == 1
+        assert not any(name.endswith("raw.bin") for name in names)
+
+
+def test_offline_parse_upload_overlaps_next_rank(tmp_path, fake_obs, monkeypatch):
+    _upload_raw(tmp_path, fake_obs, monkeypatch)
+    _mock_analyse(monkeypatch)
+    first_upload_started = threading.Event()
+    second_parse_started = threading.Event()
+    original_upload = fake_obs.upload_file
+    original_analyse = sys.modules["torch_npu.profiler.profiler"].analyse
+
+    def upload_file(source, bucket, key, **kwargs):
+        if key.endswith("worker_0_ascend_pt.tar.gz"):
+            first_upload_started.set()
+            assert second_parse_started.wait(2)
+        return original_upload(source, bucket, key, **kwargs)
+
+    def analyse(path, *, max_process_number):
+        if Path(path).name == "worker_1_ascend_pt":
+            assert first_upload_started.wait(2)
+            second_parse_started.set()
+        original_analyse(path, max_process_number=max_process_number)
+
+    monkeypatch.setattr(fake_obs, "upload_file", upload_file)
+    monkeypatch.setattr(sys.modules["torch_npu.profiler.profiler"], "analyse", analyse)
+
+    manifest = profile.parse_artifacts(tmp_path / "parser", "nightly/run", "bucket", "endpoint", "region")
+
+    assert manifest["status"] == "success"
+    assert first_upload_started.is_set() and second_parse_started.is_set()
 
 
 def test_offline_parse_invalid_trace_is_reported_and_raw_is_kept(tmp_path, fake_obs, monkeypatch):
@@ -108,8 +140,30 @@ def test_offline_parse_invalid_trace_is_reported_and_raw_is_kept(tmp_path, fake_
 
     manifest = json.loads(fake_obs.objects["bucket", "nightly/run/parsed/profile_manifest.json"])
     assert manifest["status"] == "partial"
-    assert "parse_error" in manifest["cases"][0]["targets"][0]
+    assert "parse_error" in manifest["cases"][0]["targets"][0]["ranks"][0]
     assert all(fake_obs.objects[key] == value for key, value in raw_objects.items())
+
+
+def test_offline_parse_upload_failure_keeps_other_rank(tmp_path, fake_obs, monkeypatch):
+    _upload_raw(tmp_path, fake_obs, monkeypatch)
+    _mock_analyse(monkeypatch)
+    original_upload = fake_obs.upload_file
+
+    def upload_file(source, bucket, key, **kwargs):
+        if key.endswith("worker_0_ascend_pt.tar.gz"):
+            raise RuntimeError("OBS upload failed")
+        return original_upload(source, bucket, key, **kwargs)
+
+    monkeypatch.setattr(fake_obs, "upload_file", upload_file)
+    with pytest.raises(RuntimeError, match="Offline profiling incomplete"):
+        profile.parse_artifacts(tmp_path / "parser", "nightly/run", "bucket", "endpoint", "region")
+
+    manifest = json.loads(fake_obs.objects["bucket", "nightly/run/parsed/profile_manifest.json"])
+    assert manifest["status"] == "partial"
+    ranks = manifest["cases"][0]["targets"][0]["ranks"]
+    assert ranks[0]["upload_error"] == "OBS upload failed"
+    assert "obs_url" in ranks[1]
+    assert fake_obs.uploads[-1] == "nightly/run/parsed/profile_manifest.json"
 
 
 def test_offline_parse_marks_partial_raw_manifest_as_failed(tmp_path, fake_obs, monkeypatch):

@@ -490,6 +490,7 @@ jobs:
       runner: linux-aarch64-a2b3-1
       image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a2'
       ref: ${{ github.sha }}
+      display_name: ${{ matrix.test_config.config_file_path || matrix.test_config.name }}
       prefix: nightly-profiling/${{ github.repository }}/${{ github.run_id }}/${{ github.run_attempt }}/multi-node/${{ matrix.vllm_ascend_branch }}-${{ matrix.test_config.name }}
       should_run: >-
         ${{ needs.parse-trigger.outputs.filter == 'all' ||
@@ -515,6 +516,7 @@ jobs:
       runner: linux-aarch64-a2b3-1
       image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a2'
       ref: ${{ github.sha }}
+      display_name: ${{ matrix.test_config.config_file_path || matrix.test_config.name }}
       prefix: nightly-profiling/${{ github.repository }}/${{ github.run_id }}/${{ github.run_attempt }}/single-node/${{ matrix.vllm_ascend_branch }}-${{ matrix.test_config.name }}
       should_run: >-
         ${{ needs.parse-trigger.outputs.filter == 'all' ||

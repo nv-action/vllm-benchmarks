@@ -232,8 +232,8 @@ class ProfileController:
                 self.result = {"status": "skipped", "reason": "benchmark_ended_before_start", "targets": {}}
                 return
             print(f"[Profiling] start_profile -> {', '.join(t.name for t in self.targets)}", flush=True)
-            started_at = time.monotonic()
             start = self._parallel("start_profile", self.targets)
+            started_at = time.monotonic()
             active = tuple(t for t in self.targets if start[t.name] is None)
             reason = "duration_reached"
             try:
@@ -373,6 +373,25 @@ def _progress(label: str, total: int):
     return callback
 
 
+def _upload_archive(client, transfer, root: Path, prefix: str, bucket: str, record: dict, stage: str) -> None:
+    source = root / record["archive"]
+    key = f"{prefix}/{record['archive']}"
+    size = source.stat().st_size
+    print(f"[Profiling] Upload {stage} obs://{bucket}/{key}: {size} bytes", flush=True)
+    client.upload_file(
+        str(source),
+        bucket,
+        key,
+        ExtraArgs={"ContentType": "application/gzip"},
+        Config=transfer,
+        Callback=_progress(f"Upload {stage} {record['archive']}", size),
+    )
+    uploaded_size = client.head_object(Bucket=bucket, Key=key)["ContentLength"]
+    if uploaded_size != size:
+        raise RuntimeError(f"OBS size mismatch: local={size}, remote={uploaded_size}")
+    record["obs_url"] = f"obs://{bucket}/{key}"
+
+
 def upload_artifacts(root: Path, prefix: str, bucket: str, endpoint: str, region: str, stage: str = "raw") -> dict:
     """Upload archives in parallel and publish the stage manifest last."""
     manifest_path = root / "profile_manifest.json"
@@ -384,23 +403,8 @@ def upload_artifacts(root: Path, prefix: str, bucket: str, endpoint: str, region
     def upload(record: dict) -> None:
         if "archive" not in record:
             return
-        source = root / record["archive"]
-        key = f"{prefix}/{record['archive']}"
         try:
-            size = source.stat().st_size
-            print(f"[Profiling] Upload {stage} obs://{bucket}/{key}: {size} bytes", flush=True)
-            client.upload_file(
-                str(source),
-                bucket,
-                key,
-                ExtraArgs={"ContentType": "application/gzip"},
-                Config=transfer,
-                Callback=_progress(f"Upload {stage} {record['archive']}", size),
-            )
-            uploaded_size = client.head_object(Bucket=bucket, Key=key)["ContentLength"]
-            if uploaded_size != size:
-                raise RuntimeError(f"OBS size mismatch: local={size}, remote={uploaded_size}")
-            record["obs_url"] = f"obs://{bucket}/{key}"
+            _upload_archive(client, transfer, root, prefix, bucket, record, stage)
         except Exception as exc:
             record["upload_error"] = str(exc)
 
@@ -453,6 +457,15 @@ def parse_artifacts(
     from torch_npu.profiler.profiler import analyse
 
     failures = []
+    parsed_prefix = f"{prefix.strip('/')}/parsed"
+    upload_client = _obs_client(endpoint, region)
+    upload_pool = ThreadPoolExecutor(max_workers=1)
+    uploads = []
+
+    def upload_rank(rank: dict, archive: Path) -> None:
+        _upload_archive(upload_client, transfer, parsed_root, parsed_prefix, bucket, rank, "parsed")
+        print(f"Profiling artifact uploaded: {rank['obs_url']}", flush=True)
+        archive.unlink()
 
     for case_index, case in enumerate(manifest["cases"]):
         for target_index, record in enumerate(case["targets"]):
@@ -487,48 +500,60 @@ def parse_artifacts(
                 trace_dirs = sorted(target_dir.rglob("*_ascend_pt"))
                 if not trace_dirs:
                     raise ValueError(f"No Ascend trace directories in {raw_archive}")
+                record["ranks"] = []
+                record["output"] = "parsed"
                 for trace_index, trace_dir in enumerate(trace_dirs, 1):
-                    print(
-                        f"[Profiling] Parse {raw_archive} trace {trace_index}/{len(trace_dirs)} "
-                        f"(max_process_number={max_process_number}): {trace_dir}",
-                        flush=True,
-                    )
-                    started = time.monotonic()
-                    analyse(str(trace_dir), max_process_number=max_process_number)
-                    parsed = trace_dir / "ASCEND_PROFILER_OUTPUT"
-                    trace_view = parsed / "trace_view.json"
-                    if (
-                        not (parsed / "analyse.done").is_file()
-                        or not trace_view.is_file()
-                        or not trace_view.stat().st_size
-                    ):
-                        raise ValueError(f"Incomplete parsed trace: {trace_dir}")
-                    json.loads(trace_view.read_text())
-                    print(f"[Profiling] Parsed {trace_dir} in {time.monotonic() - started:.1f}s", flush=True)
-
-                archive = parsed_root / raw_archive
-                archive.parent.mkdir(parents=True, exist_ok=True)
-                parsed_size = sum(
-                    directory_size(trace_dir / "ASCEND_PROFILER_OUTPUT")
-                    + sum(file.stat().st_size for file in trace_dir.glob("profiler_info*.json"))
-                    + sum(file.stat().st_size for file in trace_dir.glob("profiler_metadata.json"))
-                    for trace_dir in trace_dirs
-                )
-                print(f"[Profiling] Compress parsed {raw_archive}: {parsed_size} bytes before", flush=True)
-                with tarfile.open(archive, "w:gz") as tar:
-                    for trace_dir in trace_dirs:
-                        relative = trace_dir.relative_to(target_dir)
-                        tar.add(
-                            trace_dir / "ASCEND_PROFILER_OUTPUT",
-                            arcname=str(Path(record["name"]) / relative / "ASCEND_PROFILER_OUTPUT"),
+                    relative = trace_dir.relative_to(target_dir)
+                    rank = {"name": str(relative)}
+                    record["ranks"].append(rank)
+                    try:
+                        print(
+                            f"[Profiling] Parse {raw_archive} trace {trace_index}/{len(trace_dirs)} "
+                            f"(max_process_number={max_process_number}): {trace_dir}",
+                            flush=True,
                         )
-                        for metadata in (
-                            *trace_dir.glob("profiler_info*.json"),
-                            *trace_dir.glob("profiler_metadata.json"),
+                        started = time.monotonic()
+                        analyse(str(trace_dir), max_process_number=max_process_number)
+                        parsed = trace_dir / "ASCEND_PROFILER_OUTPUT"
+                        trace_view = parsed / "trace_view.json"
+                        if (
+                            not (parsed / "analyse.done").is_file()
+                            or not trace_view.is_file()
+                            or not trace_view.stat().st_size
                         ):
-                            tar.add(metadata, arcname=str(Path(record["name"]) / relative / metadata.name))
-                record.update(archive=raw_archive, size_bytes=archive.stat().st_size, output="parsed")
-                print(f"[Profiling] Compressed parsed {raw_archive}: {archive.stat().st_size} bytes after", flush=True)
+                            raise ValueError(f"Incomplete parsed trace: {trace_dir}")
+                        json.loads(trace_view.read_text())
+                        print(f"[Profiling] Parsed {trace_dir} in {time.monotonic() - started:.1f}s", flush=True)
+
+                        archive_path = (
+                            Path(raw_archive).parent / record["name"] / relative.with_name(f"{relative.name}.tar.gz")
+                        )
+                        archive = parsed_root / archive_path
+                        archive.parent.mkdir(parents=True, exist_ok=True)
+                        parsed_size = directory_size(parsed) + sum(
+                            file.stat().st_size
+                            for pattern in ("profiler_info*.json", "profiler_metadata.json")
+                            for file in trace_dir.glob(pattern)
+                        )
+                        print(f"[Profiling] Compress parsed {archive_path}: {parsed_size} bytes before", flush=True)
+                        with tarfile.open(archive, "w:gz") as tar:
+                            tar.add(parsed, arcname=str(Path(record["name"]) / relative / parsed.name))
+                            for metadata in (
+                                *trace_dir.glob("profiler_info*.json"),
+                                *trace_dir.glob("profiler_metadata.json"),
+                            ):
+                                tar.add(metadata, arcname=str(Path(record["name"]) / relative / metadata.name))
+                        rank.update(archive=str(archive_path), size_bytes=archive.stat().st_size, output="parsed")
+                        print(
+                            f"[Profiling] Compressed parsed {archive_path}: {archive.stat().st_size} bytes after",
+                            flush=True,
+                        )
+                    except Exception as exc:
+                        rank["parse_error"] = str(exc)
+                        failures.append(f"{case['case']}/{record['name']}/{relative}: {exc}")
+                        print(f"[Profiling] Parse failed: {failures[-1]}", flush=True)
+                        continue
+                    uploads.append((upload_pool.submit(upload_rank, rank, archive), case, record, rank))
             except Exception as exc:
                 record["parse_error"] = str(exc)
                 failures.append(f"{case['case']}/{record['name']}: {exc}")
@@ -537,20 +562,30 @@ def parse_artifacts(
                 if raw_archive:
                     (raw_root / raw_archive).unlink(missing_ok=True)
                 shutil.rmtree(work_dir, ignore_errors=True)
-        if any(target.get("parse_error") for target in case["targets"]):
+    for future, case, record, rank in uploads:
+        try:
+            future.result()
+        except Exception as exc:
+            rank["upload_error"] = str(exc)
+            failures.append(f"{case['case']}/{record['name']}/{rank['name']}: {exc}")
+            print(f"[Profiling] Upload failed: {failures[-1]}", flush=True)
+    upload_pool.shutdown(wait=True)
+
+    for case in manifest["cases"]:
+        if any(
+            target.get("parse_error")
+            or any(rank.get("parse_error") or rank.get("upload_error") for rank in target.get("ranks", []))
+            for target in case["targets"]
+        ):
             case["status"] = "partial"
 
     if failures:
         manifest["status"] = "partial"
     (parsed_root / "profile_manifest.json").write_text(json.dumps(manifest, indent=2))
     result = upload_artifacts(parsed_root, prefix, bucket, endpoint, region, stage="parsed")
-    upload_failures = [
-        target["upload_error"] for case in result["cases"] for target in case["targets"] if target.get("upload_error")
-    ]
-    if result["status"] == "partial" or failures or upload_failures:
+    if result["status"] == "partial" or failures:
         raise RuntimeError(
-            f"Offline profiling incomplete: raw/parsed status={result['status']}, "
-            f"{len(failures)} parse failures, {len(upload_failures)} upload failures"
+            f"Offline profiling incomplete: raw/parsed status={result['status']}, {len(failures)} parse/upload failures"
         )
     return result
 

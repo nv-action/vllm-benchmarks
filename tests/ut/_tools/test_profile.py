@@ -4,6 +4,7 @@ import subprocess
 import sys
 import tarfile
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -153,6 +154,31 @@ def test_controller_shared_endpoint_is_called_once(tmp_path, monkeypatch, fail):
     assert result["status"] == ("partial" if fail else "success")
 
 
+def test_controller_duration_starts_after_start_response(tmp_path, monkeypatch):
+    monkeypatch.setattr(profile, "POLL_INTERVAL", 0.005)
+    marker = tmp_path / "first"
+    profile._mark_first_request(str(marker))
+
+    class SlowClient(Client):
+        def start_profile(self, endpoint):
+            time.sleep(0.05)
+            self.start_returned_at = time.monotonic()
+
+        def stop_profile(self, endpoint):
+            self.stopped_at = time.monotonic()
+            self.done.set()
+
+    client = SlowClient()
+    target = profile.make_instance("serve-0", "http://localhost")
+    controller = profile.ProfileController(
+        profile.ProfileSpec(enabled=True, start_after=0, duration=0.03), (target,), marker, client
+    )
+    controller.start()
+    assert client.done.wait(2)
+    assert controller.finish()["status"] == "success"
+    assert client.stopped_at - client.start_returned_at >= 0.03
+
+
 def test_controller_benchmark_ends_before_request(tmp_path, monkeypatch):
     monkeypatch.setattr(profile, "POLL_INTERVAL", 0.005)
     client = Client()
@@ -208,6 +234,7 @@ def test_controller_starts_and_stops_targets_concurrently(tmp_path, monkeypatch)
 
 def test_artifact_collects_raw_without_parsing(tmp_path, monkeypatch):
     monkeypatch.setenv("NIGHTLY_PROFILE_ENABLED", "true")
+    monkeypatch.setenv("NIGHTLY_PROFILE_OUTPUT", "parsed")
     raw = tmp_path / "raw" / "serve-0"
     trace = raw / "worker_ascend_pt"
     trace.mkdir(parents=True)

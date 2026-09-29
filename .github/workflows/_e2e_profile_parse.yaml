@@ -12,6 +12,9 @@ on:
       prefix:
         required: true
         type: string
+      display_name:
+        required: true
+        type: string
       ref:
         required: true
         type: string
@@ -34,7 +37,7 @@ defaults:
 
 jobs:
   parse:
-    name: ${{ inputs.prefix }}
+    name: ${{ inputs.display_name }}
     if: ${{ inputs.should_run }}
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 240
