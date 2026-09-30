@@ -34,7 +34,7 @@ permissions:
 jobs:
   authorize:
     name: Check user authorization
-    runs-on: linux-amd64-cpu-8-hk
+    runs-on: linux-amd64-cpu-4-hk
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
     outputs:
@@ -47,13 +47,11 @@ jobs:
       dispatch_310p: ${{ steps.resolve.outputs.dispatch_310p }}
       dispatch_a5: ${{ steps.resolve.outputs.dispatch_a5 }}
       vllm_ascend_ref: ${{ steps.resolve.outputs.vllm_ascend_ref }}
-      pr_base: ${{ steps.resolve.outputs.pr_base }}
       aop_enabled: ${{ steps.resolve.outputs.aop_enabled }}
       bisect_args_json: ${{ steps.resolve.outputs.bisect_args_json }}
       command: ${{ steps.resolve.outputs.command }}
       pr_number: ${{ steps.resolve.outputs.pr_number }}
-      vllm_ref: ${{ steps.resolve.outputs.vllm_ref }}
-      vllm_ref_flag: ${{ steps.resolve.outputs.vllm_ref_flag }}
+      blocked: ${{ steps.block_window.outputs.blocked }}
     steps:
       - name: Install system dependencies
         run: |
@@ -108,13 +106,71 @@ jobs:
         if: steps.auth.outputs.is_authorized == 'false'
         run: exit 1
 
-      - name: Install Python dependencies
+      # Maintenance window gate. Controlled by the repository variable
+      # NIGHTLY_COMMAND_BLOCK_WINDOW, formatted as HH:MM-HH:MM in Beijing time
+      # (UTC+8, cross-midnight supported, e.g. 22:00-08:00). When the switch is
+      # set to a valid window and the current Beijing time falls inside it, the
+      # /nightly and /weekly comment triggers are blocked. Unset or malformed
+      # values disable the gate (fail-open).
+      - name: Check command block window
+        id: block_window
         if: steps.auth.outputs.is_authorized == 'true'
+        env:
+          BLOCK_WINDOW: ${{ vars.NIGHTLY_COMMAND_BLOCK_WINDOW }}
+          COMMAND: ${{ github.event.action }}
+        run: |
+          echo "command=${COMMAND%-command}" >> "$GITHUB_OUTPUT"
+          BLOCKED="false"
+          WINDOW="$(echo "$BLOCK_WINDOW" | xargs)"
+          if [ -z "$WINDOW" ]; then
+            echo "NIGHTLY_COMMAND_BLOCK_WINDOW is not set; block window disabled."
+          elif [[ ! "$WINDOW" =~ ^([0-9]{2}):([0-9]{2})-([0-9]{2}):([0-9]{2})$ ]]; then
+            echo "::warning::Invalid NIGHTLY_COMMAND_BLOCK_WINDOW='$WINDOW' (expected HH:MM-HH:MM); block window disabled."
+          else
+            SH=${BASH_REMATCH[1]}
+            SM=${BASH_REMATCH[2]}
+            EH=${BASH_REMATCH[3]}
+            EM=${BASH_REMATCH[4]}
+            if (( 10#$SH > 23 || 10#$SM > 59 || 10#$EH > 23 || 10#$EM > 59 )); then
+              echo "::warning::Out-of-range time in NIGHTLY_COMMAND_BLOCK_WINDOW='$WINDOW'; block window disabled."
+            else
+              START_MIN=$((10#$SH * 60 + 10#$SM))
+              END_MIN=$((10#$EH * 60 + 10#$EM))
+              NOW_MIN=$((10#$(date -u -d '+8 hours' +%H) * 60 + 10#$(date -u -d '+8 hours' +%M)))
+              if (( START_MIN <= END_MIN )); then
+                if (( NOW_MIN >= START_MIN && NOW_MIN < END_MIN )); then
+                  BLOCKED="true"
+                fi
+              else
+                if (( NOW_MIN >= START_MIN || NOW_MIN < END_MIN )); then
+                  BLOCKED="true"
+                fi
+              fi
+            fi
+          fi
+          echo "blocked=$BLOCKED" >> "$GITHUB_OUTPUT"
+          if [ "$BLOCKED" = "true" ]; then
+            echo "Command /${COMMAND%-command} is blocked until the maintenance window ends."
+          fi
+
+      - name: Post blocked comment
+        if: steps.auth.outputs.is_authorized == 'true' && steps.block_window.outputs.blocked == 'true'
+        uses: peter-evans/create-or-update-comment@v5
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
+          repository: ${{ github.event.client_payload.github.payload.repository.full_name }}
+          comment-id: ${{ github.event.client_payload.github.payload.comment.id }}
+          body: |
+            [Bot]: `/${{ steps.block_window.outputs.command }}` is temporarily disabled during the maintenance window (Beijing time `${{ vars.NIGHTLY_COMMAND_BLOCK_WINDOW }}`). Please retry after the window ends.
+          reactions: confused
+
+      - name: Install Python dependencies
+        if: steps.auth.outputs.is_authorized == 'true' && steps.block_window.outputs.blocked != 'true'
         run: pip3 install pyyaml -q
 
       - name: Resolve test cases and branch
         id: resolve
-        if: steps.auth.outputs.is_authorized == 'true'
+        if: steps.auth.outputs.is_authorized == 'true' && steps.block_window.outputs.blocked != 'true'
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
           ALL_ARGS: ${{ github.event.client_payload.slash_command.args.all }}
@@ -134,12 +190,10 @@ jobs:
           fi
 
           BRANCH="main"
-          VLLM_REF=""
           TEST_CASES=""
           AOP_ENABLED="false"
           IS_A3_560T="false"
           NEXT_IS_BRANCH=0
-          NEXT_IS_VLLM_REF=0
           NEXT_IS_GOOD_COMMIT=0
           NEXT_IS_BAD_COMMIT=0
           NEXT_IS_FAIL_CONFIRM_RETRIES=0
@@ -176,10 +230,6 @@ jobs:
             if [ "$NEXT_IS_BRANCH" = "1" ]; then
               BRANCH="$WORD"
               NEXT_IS_BRANCH=0
-            elif [ "$NEXT_IS_VLLM_REF" = "1" ]; then
-              VLLM_REF="$WORD"
-              NEXT_IS_VLLM_REF=0
-              PENDING_OPTION=""
             elif [ "$NEXT_IS_GOOD_COMMIT" = "1" ]; then
               BISECT_GOOD_COMMIT="$WORD"
               NEXT_IS_GOOD_COMMIT=0
@@ -202,9 +252,6 @@ jobs:
               PENDING_OPTION=""
             elif [ "$WORD" = "--branch" ]; then
               NEXT_IS_BRANCH=1
-            elif [ "$WORD" = "--vllm-ref" ]; then
-              NEXT_IS_VLLM_REF=1
-              PENDING_OPTION="$WORD"
             elif [ "$WORD" = "--aop_enabled" ]; then
               if [ -z "$TEST_CASES" ]; then
                 echo "ERROR: --aop_enabled must appear after at least one test case"
@@ -275,12 +322,6 @@ jobs:
             fi
           done
 
-          if [ -n "$VLLM_REF" ] &&
-             ! [[ "$VLLM_REF" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]; then
-            echo "ERROR: --vllm-ref must be a vllm commit SHA, tag (e.g. v0.29.0), or branch name"
-            exit 1
-          fi
-
           if [ -z "$TEST_CASES" ]; then
             gh api "repos/${{ github.event.client_payload.github.payload.repository.full_name }}/issues/${{ github.event.client_payload.github.payload.issue.number }}/comments" \
               -f body="[Bot]: \`/$COMMAND\` without test names will not dispatch. Please specify test names, e.g. \`/$COMMAND all\` or \`/$COMMAND test_custom_op\`." \
@@ -300,20 +341,10 @@ jobs:
             "$BISECT_NO_VERIFY_BAD" \
             "$BISECT_FORCE_INITIAL_BUILD"
 
-          # Prebuilt "-f vllm_ref=<ref>" dispatch flag; empty when no override is
-          # requested, so dispatch jobs can expand $VLLM_REF_FLAG unquoted into
-          # gh workflow run and the flag is simply omitted.
-          VLLM_REF_FLAG=""
-          if [ -n "$VLLM_REF" ]; then
-            VLLM_REF_FLAG="-f vllm_ref=$VLLM_REF"
-          fi
-
           {
             echo "test_cases=$TEST_CASES"
             echo "branch=$BRANCH"
             echo "aop_enabled=$AOP_ENABLED"
-            echo "vllm_ref=$VLLM_REF"
-            echo "vllm_ref_flag=$VLLM_REF_FLAG"
             echo "bisect_good_commit=$BISECT_GOOD_COMMIT"
             echo "bisect_bad_commit=$BISECT_BAD_COMMIT"
             echo "bisect_fail_confirm_retries=$BISECT_FAIL_CONFIRM_RETRIES"
@@ -327,13 +358,7 @@ jobs:
 
           PR_SHA=$(gh api "$PR_URL" --jq '.head.sha')
           PR_NUMBER=$(gh api "$PR_URL" --jq '.number')
-          # The PR's base branch: the dispatched nightly runs its workflows
-          # (and the runner-side script checkout) from this ref, so a PR opened
-          # against a feature branch is tested with that branch's CI wiring
-          # instead of always main's.
-          PR_BASE=$(gh api "$PR_URL" --jq '.base.ref')
           echo "vllm_ascend_ref=$PR_SHA" >> "$GITHUB_OUTPUT"
-          echo "pr_base=$PR_BASE" >> "$GITHUB_OUTPUT"
           echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
 
           if [ "$TEST_CASES" = "all" ]; then
@@ -375,8 +400,8 @@ jobs:
   dispatch-a2:
     name: Trigger Nightly-A2
     needs: [authorize]
-    if: needs.authorize.outputs.is_authorized == 'true' && needs.authorize.outputs.command == 'nightly' && needs.authorize.outputs.dispatch_a2 == 'true'
-    runs-on: linux-amd64-cpu-8-hk
+    if: needs.authorize.outputs.is_authorized == 'true' && needs.authorize.outputs.blocked != 'true' && needs.authorize.outputs.command == 'nightly' && needs.authorize.outputs.dispatch_a2 == 'true'
+    runs-on: linux-amd64-cpu-4-hk
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
     outputs:
@@ -396,30 +421,28 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
           BISECT_ARGS_JSON: ${{ needs.authorize.outputs.bisect_args_json }}
-          VLLM_REF_FLAG: ${{ needs.authorize.outputs.vllm_ref_flag }}
         run: |
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
           gh workflow run schedule_nightly_test_a2.yaml \
             --repo "$REPO" \
-            --ref '${{ needs.authorize.outputs.pr_base || 'main' }}' \
+            --ref main \
             -f test_cases='${{ needs.authorize.outputs.test_cases }}' \
             -f vllm_ascend_branch='${{ needs.authorize.outputs.branch }}' \
             -f request_id='${{ needs.authorize.outputs.pr_number }}' \
             -f skip_build_image=true \
             -f vllm_ascend_ref='${{ needs.authorize.outputs.vllm_ascend_ref }}' \
             -f aop_enabled='${{ needs.authorize.outputs.aop_enabled }}' \
-            $VLLM_REF_FLAG \
             -f bisect_args_json="$BISECT_ARGS_JSON"
           sleep 8
           A2_RUN_ID=$(gh api "repos/$REPO/actions/workflows/schedule_nightly_test_a2.yaml/runs?per_page=1" \
             --jq '.workflow_runs[0].id')
           echo "a2_run_id=$A2_RUN_ID" >> "$GITHUB_OUTPUT"
-          echo "Dispatched Nightly-A2 with test_cases='${{ needs.authorize.outputs.test_cases }}', branch='${{ needs.authorize.outputs.branch }}', vllm_ref='${{ needs.authorize.outputs.vllm_ref }}'"
+          echo "Dispatched Nightly-A2 with test_cases='${{ needs.authorize.outputs.test_cases }}', branch='${{ needs.authorize.outputs.branch }}'"
 
   dispatch-a3:
     name: Trigger Nightly-A3
     needs: [authorize]
-    if: needs.authorize.outputs.is_authorized == 'true' && needs.authorize.outputs.command == 'nightly' && needs.authorize.outputs.dispatch_a3 == 'true'
+    if: needs.authorize.outputs.is_authorized == 'true' && needs.authorize.outputs.blocked != 'true' && needs.authorize.outputs.command == 'nightly' && needs.authorize.outputs.dispatch_a3 == 'true'
     runs-on: linux-amd64-cpu-4-hk
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
@@ -440,30 +463,28 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
           BISECT_ARGS_JSON: ${{ needs.authorize.outputs.bisect_args_json }}
-          VLLM_REF_FLAG: ${{ needs.authorize.outputs.vllm_ref_flag }}
         run: |
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
           gh workflow run schedule_nightly_test_a3.yaml \
             --repo "$REPO" \
-            --ref '${{ needs.authorize.outputs.pr_base || 'main' }}' \
+            --ref main \
             -f test_cases='${{ needs.authorize.outputs.test_cases }}' \
             -f vllm_ascend_branch='${{ needs.authorize.outputs.branch }}' \
             -f request_id='${{ needs.authorize.outputs.pr_number }}' \
             -f skip_build_image=true \
             -f vllm_ascend_ref='${{ needs.authorize.outputs.vllm_ascend_ref }}' \
             -f aop_enabled='${{ needs.authorize.outputs.aop_enabled }}' \
-            $VLLM_REF_FLAG \
             -f bisect_args_json="$BISECT_ARGS_JSON"
           sleep 8
           A3_RUN_ID=$(gh api "repos/$REPO/actions/workflows/schedule_nightly_test_a3.yaml/runs?per_page=1" \
             --jq '.workflow_runs[0].id')
           echo "a3_run_id=$A3_RUN_ID" >> "$GITHUB_OUTPUT"
-          echo "Dispatched Nightly-A3 with test_cases='${{ needs.authorize.outputs.test_cases }}', branch='${{ needs.authorize.outputs.branch }}', vllm_ref='${{ needs.authorize.outputs.vllm_ref }}'"
+          echo "Dispatched Nightly-A3 with test_cases='${{ needs.authorize.outputs.test_cases }}', branch='${{ needs.authorize.outputs.branch }}'"
 
   dispatch-a3-560t:
     name: Trigger Nightly-A3-560T
     needs: [authorize]
-    if: needs.authorize.outputs.is_authorized == 'true' && needs.authorize.outputs.command == 'nightly' && needs.authorize.outputs.dispatch_a3_560t == 'true'
+    if: needs.authorize.outputs.is_authorized == 'true' && needs.authorize.outputs.blocked != 'true' && needs.authorize.outputs.command == 'nightly' && needs.authorize.outputs.dispatch_a3_560t == 'true'
     runs-on: linux-amd64-cpu-4-hk
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
@@ -484,30 +505,28 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
           BISECT_ARGS_JSON: ${{ needs.authorize.outputs.bisect_args_json }}
-          VLLM_REF_FLAG: ${{ needs.authorize.outputs.vllm_ref_flag }}
         run: |
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
           gh workflow run schedule_nightly_test_a3_560t.yaml \
             --repo "$REPO" \
-            --ref '${{ needs.authorize.outputs.pr_base || 'main' }}' \
+            --ref main \
             -f test_cases='${{ needs.authorize.outputs.test_cases }}' \
             -f vllm_ascend_branch='${{ needs.authorize.outputs.branch }}' \
             -f request_id='${{ needs.authorize.outputs.pr_number }}' \
             -f skip_build_image=true \
             -f vllm_ascend_ref='${{ needs.authorize.outputs.vllm_ascend_ref }}' \
             -f aop_enabled='${{ needs.authorize.outputs.aop_enabled }}' \
-            $VLLM_REF_FLAG \
             -f bisect_args_json="$BISECT_ARGS_JSON"
           sleep 8
           A3_560T_RUN_ID=$(gh api "repos/$REPO/actions/workflows/schedule_nightly_test_a3_560t.yaml/runs?per_page=1" \
             --jq '.workflow_runs[0].id')
           echo "a3_560t_run_id=$A3_560T_RUN_ID" >> "$GITHUB_OUTPUT"
-          echo "Dispatched Nightly-A3-560T with test_cases='${{ needs.authorize.outputs.test_cases }}', branch='${{ needs.authorize.outputs.branch }}', vllm_ref='${{ needs.authorize.outputs.vllm_ref }}'"
+          echo "Dispatched Nightly-A3-560T with test_cases='${{ needs.authorize.outputs.test_cases }}', branch='${{ needs.authorize.outputs.branch }}'"
 
   dispatch-a5:
     name: Trigger Nightly-A5
     needs: [authorize]
-    if: needs.authorize.outputs.is_authorized == 'true' && needs.authorize.outputs.command == 'nightly' && needs.authorize.outputs.dispatch_a5 == 'true'
+    if: needs.authorize.outputs.is_authorized == 'true' && needs.authorize.outputs.blocked != 'true' && needs.authorize.outputs.command == 'nightly' && needs.authorize.outputs.dispatch_a5 == 'true'
     runs-on: linux-amd64-cpu-4-hk
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
@@ -527,29 +546,27 @@ jobs:
         id: dispatch_a5
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
-          VLLM_REF_FLAG: ${{ needs.authorize.outputs.vllm_ref_flag }}
         run: |
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
           gh workflow run schedule_nightly_test_a5.yaml \
             --repo "$REPO" \
-            --ref '${{ needs.authorize.outputs.pr_base || 'main' }}' \
+            --ref main \
             -f test_cases='${{ needs.authorize.outputs.test_cases }}' \
             -f vllm_ascend_branch='${{ needs.authorize.outputs.branch }}' \
             -f request_id='${{ needs.authorize.outputs.pr_number }}' \
             -f skip_build_image=true \
             -f vllm_ascend_ref='${{ needs.authorize.outputs.vllm_ascend_ref }}' \
-            -f aop_enabled='${{ needs.authorize.outputs.aop_enabled }}' \
-            $VLLM_REF_FLAG
+            -f aop_enabled='${{ needs.authorize.outputs.aop_enabled }}'
           sleep 8
           A5_RUN_ID=$(gh api "repos/$REPO/actions/workflows/schedule_nightly_test_a5.yaml/runs?per_page=1" \
             --jq '.workflow_runs[0].id')
           echo "a5_run_id=$A5_RUN_ID" >> "$GITHUB_OUTPUT"
-          echo "Dispatched Nightly-A5 with test_cases='${{ needs.authorize.outputs.test_cases }}', branch='${{ needs.authorize.outputs.branch }}', vllm_ref='${{ needs.authorize.outputs.vllm_ref }}'"
+          echo "Dispatched Nightly-A5 with test_cases='${{ needs.authorize.outputs.test_cases }}', branch='${{ needs.authorize.outputs.branch }}'"
 
   dispatch-310p:
     name: Trigger Nightly-310P
     needs: [authorize]
-    if: needs.authorize.outputs.is_authorized == 'true' && needs.authorize.outputs.command == 'nightly' && needs.authorize.outputs.dispatch_310p == 'true'
+    if: needs.authorize.outputs.is_authorized == 'true' && needs.authorize.outputs.blocked != 'true' && needs.authorize.outputs.command == 'nightly' && needs.authorize.outputs.dispatch_310p == 'true'
     runs-on: linux-amd64-cpu-4-hk
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
@@ -569,29 +586,27 @@ jobs:
         id: dispatch_310p
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
-          VLLM_REF_FLAG: ${{ needs.authorize.outputs.vllm_ref_flag }}
         run: |
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
           gh workflow run schedule_nightly_test_310p.yaml \
             --repo "$REPO" \
-            --ref '${{ needs.authorize.outputs.pr_base || 'main' }}' \
+            --ref main \
             -f test_cases='${{ needs.authorize.outputs.test_cases }}' \
             -f vllm_ascend_branch='${{ needs.authorize.outputs.branch }}' \
             -f request_id='${{ needs.authorize.outputs.pr_number }}' \
             -f skip_build_image=true \
             -f vllm_ascend_ref='${{ needs.authorize.outputs.vllm_ascend_ref }}' \
-            -f aop_enabled='${{ needs.authorize.outputs.aop_enabled }}' \
-            $VLLM_REF_FLAG
+            -f aop_enabled='${{ needs.authorize.outputs.aop_enabled }}'
           sleep 8
           _310P_RUN_ID=$(gh api "repos/$REPO/actions/workflows/schedule_nightly_test_310p.yaml/runs?per_page=1" \
             --jq '.workflow_runs[0].id')
           echo "_310p_run_id=$_310P_RUN_ID" >> "$GITHUB_OUTPUT"
-          echo "Dispatched Nightly-310P with test_cases='${{ needs.authorize.outputs.test_cases }}', branch='${{ needs.authorize.outputs.branch }}', vllm_ref='${{ needs.authorize.outputs.vllm_ref }}'"
+          echo "Dispatched Nightly-310P with test_cases='${{ needs.authorize.outputs.test_cases }}', branch='${{ needs.authorize.outputs.branch }}'"
 
   dispatch-weekly-a2:
     name: Trigger Weekly-A2
     needs: [authorize]
-    if: needs.authorize.outputs.is_authorized == 'true' && needs.authorize.outputs.command == 'weekly' && needs.authorize.outputs.dispatch_a2 == 'true'
+    if: needs.authorize.outputs.is_authorized == 'true' && needs.authorize.outputs.blocked != 'true' && needs.authorize.outputs.command == 'weekly' && needs.authorize.outputs.dispatch_a2 == 'true'
     runs-on: linux-amd64-cpu-4-hk
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
@@ -611,29 +626,27 @@ jobs:
         id: dispatch_weekly_a2
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
-          VLLM_REF_FLAG: ${{ needs.authorize.outputs.vllm_ref_flag }}
         run: |
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
           gh workflow run schedule_weekly_test_a2.yaml \
             --repo "$REPO" \
-            --ref '${{ needs.authorize.outputs.pr_base || 'main' }}' \
+            --ref main \
             -f test_cases='${{ needs.authorize.outputs.test_cases }}' \
             -f vllm_ascend_branch='${{ needs.authorize.outputs.branch }}' \
             -f request_id='${{ needs.authorize.outputs.pr_number }}' \
             -f skip_build_image=true \
             -f vllm_ascend_ref='${{ needs.authorize.outputs.vllm_ascend_ref }}' \
-            -f aop_enabled='${{ needs.authorize.outputs.aop_enabled }}' \
-            $VLLM_REF_FLAG
+            -f aop_enabled='${{ needs.authorize.outputs.aop_enabled }}'
           sleep 8
           A2_RUN_ID=$(gh api "repos/$REPO/actions/workflows/schedule_weekly_test_a2.yaml/runs?per_page=1" \
             --jq '.workflow_runs[0].id')
           echo "weekly_a2_run_id=$A2_RUN_ID" >> "$GITHUB_OUTPUT"
-          echo "Dispatched Weekly-A2 with test_cases='${{ needs.authorize.outputs.test_cases }}', branch='${{ needs.authorize.outputs.branch }}', vllm_ref='${{ needs.authorize.outputs.vllm_ref }}'"
+          echo "Dispatched Weekly-A2 with test_cases='${{ needs.authorize.outputs.test_cases }}', branch='${{ needs.authorize.outputs.branch }}'"
 
   dispatch-weekly-a3:
     name: Trigger Weekly-A3
     needs: [authorize]
-    if: needs.authorize.outputs.is_authorized == 'true' && needs.authorize.outputs.command == 'weekly' && needs.authorize.outputs.dispatch_a3 == 'true'
+    if: needs.authorize.outputs.is_authorized == 'true' && needs.authorize.outputs.blocked != 'true' && needs.authorize.outputs.command == 'weekly' && needs.authorize.outputs.dispatch_a3 == 'true'
     runs-on: linux-amd64-cpu-4-hk
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
@@ -654,30 +667,28 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
           BISECT_ARGS_JSON: ${{ needs.authorize.outputs.bisect_args_json }}
-          VLLM_REF_FLAG: ${{ needs.authorize.outputs.vllm_ref_flag }}
         run: |
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
           gh workflow run schedule_weekly_test_a3.yaml \
             --repo "$REPO" \
-            --ref '${{ needs.authorize.outputs.pr_base || 'main' }}' \
+            --ref main \
             -f test_cases='${{ needs.authorize.outputs.test_cases }}' \
             -f vllm_ascend_branch='${{ needs.authorize.outputs.branch }}' \
             -f request_id='${{ needs.authorize.outputs.pr_number }}' \
             -f skip_build_image=true \
             -f vllm_ascend_ref='${{ needs.authorize.outputs.vllm_ascend_ref }}' \
             -f aop_enabled='${{ needs.authorize.outputs.aop_enabled }}' \
-            $VLLM_REF_FLAG \
             -f bisect_args_json="$BISECT_ARGS_JSON"
           sleep 8
           A3_RUN_ID=$(gh api "repos/$REPO/actions/workflows/schedule_weekly_test_a3.yaml/runs?per_page=1" \
             --jq '.workflow_runs[0].id')
           echo "weekly_a3_run_id=$A3_RUN_ID" >> "$GITHUB_OUTPUT"
-          echo "Dispatched Weekly-A3 with test_cases='${{ needs.authorize.outputs.test_cases }}', branch='${{ needs.authorize.outputs.branch }}', vllm_ref='${{ needs.authorize.outputs.vllm_ref }}'"
+          echo "Dispatched Weekly-A3 with test_cases='${{ needs.authorize.outputs.test_cases }}', branch='${{ needs.authorize.outputs.branch }}'"
 
   dispatch-weekly-a3-560t:
     name: Trigger Weekly-A3-560T
     needs: [authorize]
-    if: needs.authorize.outputs.is_authorized == 'true' && needs.authorize.outputs.command == 'weekly' && needs.authorize.outputs.dispatch_a3_560t == 'true'
+    if: needs.authorize.outputs.is_authorized == 'true' && needs.authorize.outputs.blocked != 'true' && needs.authorize.outputs.command == 'weekly' && needs.authorize.outputs.dispatch_a3_560t == 'true'
     runs-on: linux-amd64-cpu-4-hk
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
@@ -698,30 +709,28 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
           BISECT_ARGS_JSON: ${{ needs.authorize.outputs.bisect_args_json }}
-          VLLM_REF_FLAG: ${{ needs.authorize.outputs.vllm_ref_flag }}
         run: |
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
           gh workflow run schedule_weekly_test_a3_560t.yaml \
             --repo "$REPO" \
-            --ref '${{ needs.authorize.outputs.pr_base || 'main' }}' \
+            --ref main \
             -f test_cases='${{ needs.authorize.outputs.test_cases }}' \
             -f vllm_ascend_branch='${{ needs.authorize.outputs.branch }}' \
             -f request_id='${{ needs.authorize.outputs.pr_number }}' \
             -f skip_build_image=true \
             -f vllm_ascend_ref='${{ needs.authorize.outputs.vllm_ascend_ref }}' \
             -f aop_enabled='${{ needs.authorize.outputs.aop_enabled }}' \
-            $VLLM_REF_FLAG \
             -f bisect_args_json="$BISECT_ARGS_JSON"
           sleep 8
           A3_560T_RUN_ID=$(gh api "repos/$REPO/actions/workflows/schedule_weekly_test_a3_560t.yaml/runs?per_page=1" \
             --jq '.workflow_runs[0].id')
           echo "weekly_a3_560t_run_id=$A3_560T_RUN_ID" >> "$GITHUB_OUTPUT"
-          echo "Dispatched Weekly-A3-560T with test_cases='${{ needs.authorize.outputs.test_cases }}', branch='${{ needs.authorize.outputs.branch }}', vllm_ref='${{ needs.authorize.outputs.vllm_ref }}'"
+          echo "Dispatched Weekly-A3-560T with test_cases='${{ needs.authorize.outputs.test_cases }}', branch='${{ needs.authorize.outputs.branch }}'"
 
   dispatch-weekly-310p:
     name: Trigger Weekly-310P
     needs: [authorize]
-    if: needs.authorize.outputs.is_authorized == 'true' && needs.authorize.outputs.command == 'weekly' && needs.authorize.outputs.dispatch_310p == 'true'
+    if: needs.authorize.outputs.is_authorized == 'true' && needs.authorize.outputs.blocked != 'true' && needs.authorize.outputs.command == 'weekly' && needs.authorize.outputs.dispatch_310p == 'true'
     runs-on: linux-amd64-cpu-4-hk
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
@@ -742,30 +751,28 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
           BISECT_ARGS_JSON: ${{ needs.authorize.outputs.bisect_args_json }}
-          VLLM_REF_FLAG: ${{ needs.authorize.outputs.vllm_ref_flag }}
         run: |
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
           gh workflow run schedule_weekly_test_310p.yaml \
             --repo "$REPO" \
-            --ref '${{ needs.authorize.outputs.pr_base || 'main' }}' \
+            --ref main \
             -f test_cases='${{ needs.authorize.outputs.test_cases }}' \
             -f vllm_ascend_branch='${{ needs.authorize.outputs.branch }}' \
             -f request_id='${{ needs.authorize.outputs.pr_number }}' \
             -f skip_build_image=true \
             -f vllm_ascend_ref='${{ needs.authorize.outputs.vllm_ascend_ref }}' \
             -f aop_enabled='${{ needs.authorize.outputs.aop_enabled }}' \
-            $VLLM_REF_FLAG \
             -f bisect_args_json="$BISECT_ARGS_JSON"
           sleep 8
           _310P_RUN_ID=$(gh api "repos/$REPO/actions/workflows/schedule_weekly_test_310p.yaml/runs?per_page=1" \
             --jq '.workflow_runs[0].id')
           echo "weekly_310p_run_id=$_310P_RUN_ID" >> "$GITHUB_OUTPUT"
-          echo "Dispatched Weekly-310P with test_cases='${{ needs.authorize.outputs.test_cases }}', branch='${{ needs.authorize.outputs.branch }}', vllm_ref='${{ needs.authorize.outputs.vllm_ref }}'"
+          echo "Dispatched Weekly-310P with test_cases='${{ needs.authorize.outputs.test_cases }}', branch='${{ needs.authorize.outputs.branch }}'"
 
   post-links:
     name: Post workflow links
     needs: [authorize, dispatch-a2, dispatch-a3, dispatch-a3-560t, dispatch-a5, dispatch-310p, dispatch-weekly-a2, dispatch-weekly-a3, dispatch-weekly-a3-560t, dispatch-weekly-310p]
-    if: always() && needs.authorize.outputs.is_authorized == 'true'
+    if: always() && needs.authorize.outputs.is_authorized == 'true' && needs.authorize.outputs.blocked != 'true'
     runs-on: linux-amd64-cpu-8-hk
     steps:
       - name: Build comment body
