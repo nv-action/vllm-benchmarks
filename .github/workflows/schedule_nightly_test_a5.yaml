@@ -220,6 +220,10 @@ jobs:
       soc_version: a5
       runner: linux-aarch64-a5-0
       image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a5'
+      # Clone the vllm-ascend repo from the repository that dispatched this
+      # workflow, so /nightly works on any fork (the PR head only exists in
+      # the repository the PR was opened on).
+      vllm_ascend_remote_url: 'https://github.com/${{ github.repository }}.git'
       ascend_log_prefix: ${{ needs.setup-vars.outputs.ascend_log_prefix }}/${{ matrix.vllm_ascend_branch }}
       vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
       replicas: 1
