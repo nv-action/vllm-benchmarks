@@ -1,0 +1,36 @@
+name: Probe Runners
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner-label:
+          - linux-aarch64-a2-1-hk-001
+          - linux-aarch64-a2-2-hk-001
+          - linux-aarch64-a2-4-hk-001
+          - linux-aarch64-a2-8-hk-001
+          - linux-aarch64-a2b1-4
+          - linux-aarch64-a2b3-1
+          - linux-aarch64-a2b3-2
+          - linux-aarch64-a2b3-4
+          - linux-aarch64-a2b3-8
+          - linux-aarch64-a2b4-4-hk-001
+          - linux-aarch64-910b-4
+          - linux-aarch64-a3-800i-4-cn12-001
+          - linux-aarch64-a3-800t-0
+          - linux-aarch64-nightly-a3-2
+          - linux-aarch64-a3-2-sh-001
+          - linux-aarch64-a5-8
+          - linux-amd64-cpu-8-hk
+    runs-on: ${{ matrix.runner-label }}
+    timeout-minutes: 3
+    steps:
+      - name: Report alive
+        run: |
+          echo "ALIVE: ${{ matrix.runner-label }}"
+          hostname
+          uname -m
