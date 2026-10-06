@@ -182,6 +182,7 @@ class BisectOptions:
             "install",
             "-e",
             ".",
+            "--no-deps",
         ]
     )
     pip_requirements_cmd: list[str] = field(

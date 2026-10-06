@@ -173,6 +173,14 @@ class BuildManager:
             with open(log_file, "a", encoding="utf-8") as out:
                 proc = subprocess.run(cmd, cwd=str(self.repo), stdout=out, stderr=subprocess.STDOUT, text=True)
             tail = "(see build log)"
+            if proc.returncode != 0:
+                # Surface the tail of the build log in the job log: the log
+                # file lives in the runner container and is lost when the job
+                # ends, so "(see build log)" alone leaves nothing to debug.
+                try:
+                    tail = log_file.read_text(encoding="utf-8", errors="replace")[-4000:]
+                except OSError:
+                    pass
         else:
             proc = subprocess.run(cmd, cwd=str(self.repo), capture_output=True, text=True)
             tail = (proc.stdout or "")[-2000:]
