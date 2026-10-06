@@ -1,0 +1,28 @@
+name: Probe Runners
+
+on:
+  push:
+    branches: [czy_test]
+  workflow_dispatch:
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner-label:
+          - linux-aarch64-a3-800i-16-cn12-001
+          - linux-aarch64-a3-800i-8-cn12-001
+          - linux-aarch64-a3-800i-4-cn12-001
+          - linux-aarch64-nightly-a3-2
+          - linux-aarch64-a2b3-4
+          - linux-aarch64-a2b3-8
+          - linux-amd64-cpu-8-hk
+    runs-on: ${{ matrix.runner-label }}
+    timeout-minutes: 3
+    steps:
+      - name: Report alive
+        run: |
+          echo "ALIVE: ${{ matrix.runner-label }}"
+          hostname
+          uname -m
