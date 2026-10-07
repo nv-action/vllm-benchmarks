@@ -45,7 +45,10 @@ logger = logging.getLogger(__name__)
 
 # Build artifacts removed before a rebuild so stale ``.so`` files can never be
 # loaded against a new checkout.
-_STALE_ARTIFACTS = ("build", "*.egg-info", "dist")
+# The custom-op build script preserves csrc/build, including CMakeCache.txt.
+# That cache can point HI_PYTHON at a short-lived uv build-environment path,
+# so discard it before rebuilding a candidate in a new isolated environment.
+_STALE_ARTIFACTS = ("build", "csrc/build", "*.egg-info", "dist")
 
 
 @dataclass
