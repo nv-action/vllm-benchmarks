@@ -171,9 +171,14 @@ class BuildManager:
         logger.info("[build] running: %s", " ".join(cmd))
         if log_file is not None:
             with open(log_file, "a", encoding="utf-8") as out:
+                out.write(self._cmake_python_diagnostics("before install"))
+                out.flush()
                 proc = subprocess.run(cmd, cwd=str(self.repo), stdout=out, stderr=subprocess.STDOUT, text=True)
             tail = "(see build log)"
             if proc.returncode != 0:
+                with open(log_file, "a", encoding="utf-8") as out:
+                    out.write(self._cmake_python_diagnostics("after failed install"))
+                    out.write(self._cmake_failure_logs())
                 # Surface the tail of the build log in the job log: the log
                 # file lives in the runner container and is lost when the job
                 # ends, so "(see build log)" alone leaves nothing to debug.
@@ -186,6 +191,44 @@ class BuildManager:
             tail = (proc.stdout or "")[-2000:]
         if proc.returncode != 0:
             raise BuildError(f"{label} failed (rc={proc.returncode}):\n{tail}")
+
+    def _cmake_python_diagnostics(self, phase: str) -> str:
+        """Report only the CMake Python paths, not the full potentially sensitive cache."""
+        cache = self.repo / "csrc" / "build" / "CMakeCache.txt"
+        lines = [f"\n[build] CMake diagnostics ({phase}): {cache}\n"]
+        if not cache.is_file():
+            lines.append("[build] CMakeCache.txt does not exist\n")
+            return "".join(lines)
+        try:
+            entries = cache.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError as exc:
+            lines.append(f"[build] cannot read CMakeCache.txt: {exc}\n")
+            return "".join(lines)
+        for key in ("HI_PYTHON", "Python3_EXECUTABLE", "_Python3_EXECUTABLE"):
+            matches = [entry.partition("=")[2] for entry in entries if entry.startswith(f"{key}:")]
+            if not matches:
+                lines.append(f"[build] {key}: not cached\n")
+                continue
+            value = matches[-1]
+            lines.append(f"[build] {key}: {value} (exists={Path(value).is_file()})\n")
+        if phase == "after failed install":
+            lines.append("[build] uv may remove temporary build Python on exit; compare the before-install paths\n")
+        return "".join(lines)
+
+    def _cmake_failure_logs(self) -> str:
+        cmake_files = self.repo / "csrc" / "build" / "CMakeFiles"
+        lines = []
+        for name in ("CMakeConfigureLog.yaml", "CMakeError.log"):
+            path = cmake_files / name
+            if not path.is_file():
+                continue
+            try:
+                tail = path.read_text(encoding="utf-8", errors="replace")[-4000:]
+            except OSError as exc:
+                lines.append(f"[build] cannot read {path}: {exc}\n")
+            else:
+                lines.append(f"\n[build] tail of {path}:\n{tail}\n")
+        return "".join(lines)
 
 
 class BuildError(RuntimeError):
