@@ -346,7 +346,7 @@ class ServerCommandBuilder:
         if spec.enabled:
             role = {"prefiller": "prefill", "decoder": "decode"}.get(rank.role, "standalone")
             name = f"{role}-{rank.dp_rank}" if role != "standalone" else f"dp-{rank.dp_rank}"
-            instance = make_instance(name, f"http://{rank.host}:{rank.port}", role, rank.dp_rank)
+            instance = make_instance(name, f"http://{rank.host}:{rank.port}", role, rank.dp_rank, rank.node_index)
             cmd = with_profiler_config(cmd, instance, spec)
 
         env = {key: str(value) for key, value in rendered_env.items()}

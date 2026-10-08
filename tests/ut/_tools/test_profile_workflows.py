@@ -11,16 +11,16 @@ def load_workflow(name: str) -> dict:
 
 
 @pytest.mark.parametrize(
-    ("soc", "producers", "runner"),
+    ("soc", "producers"),
     [
-        ("a2", ("multi-node", "single-node"), "linux-aarch64-a2b3-1"),
-        ("a3", ("multi-node", "double-node", "single-node", "multi-card"), None),
-        ("a3_560t", ("single-node", "multi-card"), "linux-aarch64-a3-800i-2"),
-        ("310p", ("single-node",), "linux-aarch64-310p-1"),
-        ("a5", ("multi-node", "single-node"), "linux-aarch64-a5-2"),
+        ("a2", ("multi-node", "single-node")),
+        ("a3", ("multi-node", "double-node", "single-node", "multi-card")),
+        ("a3_560t", ("single-node", "multi-card")),
+        ("310p", ("single-node",)),
+        ("a5", ("multi-node", "single-node")),
     ],
 )
-def test_nightly_profiling_jobs(soc, producers, runner):
+def test_nightly_profiling_jobs(soc, producers):
     workflow = load_workflow(f"schedule_nightly_test_{soc}.yaml")
     assert workflow["on"]["workflow_dispatch"]["inputs"]["profile_options_json"]["default"] == "{}"
 
@@ -38,10 +38,10 @@ def test_nightly_profiling_jobs(soc, producers, runner):
         assert "== 'parsed'" in parser["if"]
         assert parser["with"]["image"] == producer["with"]["image"]
         assert parser["with"]["ref"] == "${{ github.sha }}"
+        assert parser["with"]["display_name"] == "${{ matrix.test_config.config_file_path || matrix.test_config.name }}"
         assert "matrix.vllm_ascend_branch" in parser["with"]["prefix"]
         assert "needs.parse-trigger.outputs.filter" in parser["with"]["should_run"]
-        if runner:
-            assert parser["with"]["runner"] == runner
+        assert parser["with"]["runner"] == "linux-aarch64-a2b3-1"
 
 
 @pytest.mark.parametrize(
@@ -60,17 +60,29 @@ def test_producer_only_uploads_raw(name):
         assert "inputs.vllm_ascend_branch" in step["env"]["PROFILE_KEY_PREFIX"]
 
 
-def test_parser_uses_small_npu_runner_and_same_image():
+def test_parser_uses_one_runner_per_node_and_finalizes_manifest():
     workflow = load_workflow("_e2e_profile_parse.yaml")
-    job = workflow["jobs"]["parse"]
-    assert job["runs-on"] == "${{ inputs.runner }}"
-    assert job["container"]["image"] == "${{ inputs.image }}"
-    assert job["if"] == "${{ inputs.should_run }}"
-    script = job["steps"][-1]["run"]
-    assert "python3 -m tools.profile storage" in script
-    assert "python3 -m tools.profile parse" in script
-    assert "--max-process-number 16" in script
-    assert "--root /tmp/profile_parse" in script
+    prepare = workflow["jobs"]["prepare"]
+    parser = workflow["jobs"]["parse"]
+    finalize = workflow["jobs"]["finalize"]
+    for job in (prepare, parser, finalize):
+        assert job["runs-on"] == "${{ inputs.runner }}"
+        assert job["container"]["image"] == "${{ inputs.image }}"
+
+    assert prepare["if"] == "${{ inputs.should_run }}"
+    assert prepare["outputs"]["matrix"] == "${{ steps.plan.outputs.matrix }}"
+    plan_script = prepare["steps"][-1]["run"]
+    assert "python3 -m tools.profile storage" in plan_script
+    assert "python3 -m tools.profile plan" in plan_script
+
+    assert parser["strategy"]["matrix"] == "${{ fromJSON(needs.prepare.outputs.matrix) }}"
+    parse_script = parser["steps"][-1]["run"]
+    assert "python3 -m tools.profile parse" in parse_script
+    assert "--node-index ${{ matrix.node_index }}" in parse_script
+    assert "--max-process-number 16" in parse_script
+
+    finalize_script = finalize["steps"][-1]["run"]
+    assert "python3 -m tools.profile finalize" in finalize_script
 
 
 def test_pr_nightly_dispatch_forwards_profiling_to_all_socs():

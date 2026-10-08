@@ -25,7 +25,7 @@ def configure_profiling(config, spec: ProfileSpec) -> None:
         port = (node.envs or {}).get("SERVER_PORT", config.server_port)
         # Internal DP's headless rank has no HTTP API; the leader controls both engines.
         endpoint = f"http://{leader.ip}:{leader_port}" if node.headless else f"http://{node.ip}:{port}"
-        instances[node.index] = make_instance(name, endpoint, role, rank)
+        instances[node.index] = make_instance(name, endpoint, role, rank, node.index)
 
     if config.is_master:
         install_manifest(list(instances.values()))

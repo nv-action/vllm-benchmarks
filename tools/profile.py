@@ -13,12 +13,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-import regex as re
-import requests
-
 logger = logging.getLogger(__name__)
 STOP_TIMEOUT = 900
 POLL_INTERVAL = 1
+RANK_PARSE_CONCURRENCY = 1
+PUBLISH_CONCURRENCY = 1
+PARSED_COMPRESSION_LEVEL = 1
 
 
 @dataclass(frozen=True)
@@ -34,6 +34,8 @@ class ProfileSpec:
 
     @classmethod
     def from_env(cls) -> "ProfileSpec":
+        import regex as re
+
         enabled = os.getenv("NIGHTLY_PROFILE_ENABLED", "false").lower() == "true"
         if not enabled:
             return cls()
@@ -70,6 +72,7 @@ class ServeInstance:
     profile_dir: str
     role: str = "standalone"
     dp_rank: int = 0
+    node_index: int = 0
 
 
 @dataclass(frozen=True)
@@ -106,9 +109,13 @@ def profile_root() -> Path:
     return Path(os.getenv("NIGHTLY_PROFILE_ROOT", "profile_artifact")).resolve()
 
 
-def make_instance(name: str, endpoint: str, role: str = "standalone", dp_rank: int = 0) -> ServeInstance:
+def make_instance(
+    name: str, endpoint: str, role: str = "standalone", dp_rank: int = 0, node_index: int = 0
+) -> ServeInstance:
+    import regex as re
+
     safe_name = re.sub(r"[^A-Za-z0-9_.-]", "_", name)
-    return ServeInstance(name, endpoint, str(profile_root() / "raw" / safe_name), role, dp_rank)
+    return ServeInstance(name, endpoint, str(profile_root() / "raw" / safe_name), role, dp_rank, node_index)
 
 
 def install_manifest(instances: list[ServeInstance]) -> None:
@@ -166,9 +173,13 @@ def _mark_first_request(marker: str) -> None:
 
 class ProfileClient:
     def start_profile(self, endpoint: str) -> None:
+        import requests
+
         requests.post(f"{endpoint.rstrip('/')}/start_profile", timeout=30).raise_for_status()
 
     def stop_profile(self, endpoint: str) -> None:
+        import requests
+
         requests.post(f"{endpoint.rstrip('/')}/stop_profile", timeout=STOP_TIMEOUT).raise_for_status()
 
 
@@ -227,8 +238,8 @@ class ProfileController:
                 self.result = {"status": "skipped", "reason": "benchmark_ended_before_start", "targets": {}}
                 return
             print(f"[Profiling] start_profile -> {', '.join(t.name for t in self.targets)}", flush=True)
-            started_at = time.monotonic()
             start = self._parallel("start_profile", self.targets)
+            started_at = time.monotonic()
             active = tuple(t for t in self.targets if start[t.name] is None)
             reason = "duration_reached"
             try:
@@ -268,6 +279,8 @@ class ArtifactManager:
         self.root, self.requested_output = root, output
 
     def collect(self, case_name: str, targets: tuple[ServeInstance, ...], result: dict) -> None:
+        import regex as re
+
         safe_case = re.sub(r"[^A-Za-z0-9_.-]", "_", case_name)
         case_dir = self.root / safe_case
         case_dir.mkdir(parents=True, exist_ok=True)
@@ -298,7 +311,7 @@ class ArtifactManager:
                         child.unlink()
             except Exception as exc:
                 state["artifact_error"] = str(exc)
-            records.append({"name": target.name, "endpoint": target.endpoint, **state})
+            records.append({"name": target.name, "endpoint": target.endpoint, "node_index": target.node_index, **state})
         case_record = {
             "case": case_name,
             "actual_duration": result.get("actual_duration", 0),
@@ -366,6 +379,25 @@ def _progress(label: str, total: int):
     return callback
 
 
+def _upload_archive(client, transfer, root: Path, prefix: str, bucket: str, record: dict, stage: str) -> None:
+    source = root / record["archive"]
+    key = f"{prefix}/{record['archive']}"
+    size = source.stat().st_size
+    print(f"[Profiling] Upload {stage} obs://{bucket}/{key}: {size} bytes", flush=True)
+    client.upload_file(
+        str(source),
+        bucket,
+        key,
+        ExtraArgs={"ContentType": "application/gzip"},
+        Config=transfer,
+        Callback=_progress(f"Upload {stage} {record['archive']}", size),
+    )
+    uploaded_size = client.head_object(Bucket=bucket, Key=key)["ContentLength"]
+    if uploaded_size != size:
+        raise RuntimeError(f"OBS size mismatch: local={size}, remote={uploaded_size}")
+    record["obs_url"] = f"obs://{bucket}/{key}"
+
+
 def upload_artifacts(root: Path, prefix: str, bucket: str, endpoint: str, region: str, stage: str = "raw") -> dict:
     """Upload archives in parallel and publish the stage manifest last."""
     manifest_path = root / "profile_manifest.json"
@@ -377,23 +409,8 @@ def upload_artifacts(root: Path, prefix: str, bucket: str, endpoint: str, region
     def upload(record: dict) -> None:
         if "archive" not in record:
             return
-        source = root / record["archive"]
-        key = f"{prefix}/{record['archive']}"
         try:
-            size = source.stat().st_size
-            print(f"[Profiling] Upload {stage} obs://{bucket}/{key}: {size} bytes", flush=True)
-            client.upload_file(
-                str(source),
-                bucket,
-                key,
-                ExtraArgs={"ContentType": "application/gzip"},
-                Config=transfer,
-                Callback=_progress(f"Upload {stage} {record['archive']}", size),
-            )
-            uploaded_size = client.head_object(Bucket=bucket, Key=key)["ContentLength"]
-            if uploaded_size != size:
-                raise RuntimeError(f"OBS size mismatch: local={size}, remote={uploaded_size}")
-            record["obs_url"] = f"obs://{bucket}/{key}"
+            _upload_archive(client, transfer, root, prefix, bucket, record, stage)
         except Exception as exc:
             record["upload_error"] = str(exc)
 
@@ -417,10 +434,52 @@ def upload_artifacts(root: Path, prefix: str, bucket: str, endpoint: str, region
     return manifest
 
 
+def _download_raw_manifest(root: Path, prefix: str, bucket: str, client, transfer) -> tuple[dict, Path, str]:
+    raw_root = root / "raw"
+    raw_root.mkdir(parents=True, exist_ok=True)
+    raw_prefix = f"{prefix.strip('/')}/raw"
+    manifest_path = raw_root / "profile_manifest.json"
+    print(f"[Profiling] Download raw manifest: obs://{bucket}/{raw_prefix}/profile_manifest.json", flush=True)
+    client.download_file(bucket, f"{raw_prefix}/profile_manifest.json", str(manifest_path), Config=transfer)
+    return json.loads(manifest_path.read_text()), raw_root, raw_prefix
+
+
+def _upload_json(client, source: Path, bucket: str, key: str) -> None:
+    client.upload_file(str(source), bucket, key, ExtraArgs={"ContentType": "application/json"})
+    if client.head_object(Bucket=bucket, Key=key)["ContentLength"] != source.stat().st_size:
+        raise RuntimeError(f"OBS size mismatch: {key}")
+
+
+def plan_artifact_shards(root: Path, prefix: str, bucket: str, endpoint: str, region: str) -> list[int]:
+    """Return one parsing shard for every node represented in the raw manifest."""
+    client = _obs_client(endpoint, region)
+    manifest, _, _ = _download_raw_manifest(root, prefix, bucket, client, _transfer_config())
+    node_indexes = sorted(
+        {int(target.get("node_index", 0)) for case in manifest.get("cases", []) for target in case.get("targets", [])}
+    )
+    return node_indexes or [0]
+
+
+def _prepare_parsed_record(record: dict) -> tuple[str | None, str | None]:
+    raw_archive = record.pop("archive", None)
+    raw_url = record.pop("obs_url", None)
+    record.pop("size_bytes", None)
+    record.pop("output", None)
+    if raw_url:
+        record["raw_obs_url"] = raw_url
+    return raw_archive, raw_url
+
+
 def parse_artifacts(
-    root: Path, prefix: str, bucket: str, endpoint: str, region: str, max_process_number: int = 16
+    root: Path,
+    prefix: str,
+    bucket: str,
+    endpoint: str,
+    region: str,
+    max_process_number: int = 16,
+    node_index: int | None = None,
 ) -> dict:
-    """Download raw traces, parse one trace at a time, and publish parsed artifacts."""
+    """Parse one node shard while completed ranks are compressed and uploaded."""
     if max_process_number < 1:
         raise ValueError("max_process_number must be positive")
 
@@ -428,33 +487,66 @@ def parse_artifacts(
 
     client = _obs_client(endpoint, region)
     transfer = _transfer_config()
-    raw_prefix = f"{prefix.strip('/')}/raw"
-    raw_root = root / "raw"
-    parsed_root = root / "parsed"
-    raw_root.mkdir(parents=True, exist_ok=True)
-    parsed_root.mkdir(parents=True, exist_ok=True)
-    manifest_path = raw_root / "profile_manifest.json"
-    print(f"[Profiling] Download raw manifest: obs://{bucket}/{raw_prefix}/profile_manifest.json", flush=True)
     try:
-        client.download_file(bucket, f"{raw_prefix}/profile_manifest.json", str(manifest_path), Config=transfer)
+        manifest, raw_root, raw_prefix = _download_raw_manifest(root, prefix, bucket, client, transfer)
     except ClientError as exc:
         if exc.response["Error"]["Code"] in ("404", "NoSuchKey", "NotFound"):
             print("[Profiling] No raw manifest for this job; skipping offline parse", flush=True)
             return {"status": "skipped", "reason": "raw_manifest_missing"}
         raise
-    manifest = json.loads(manifest_path.read_text())
+
     from torch_npu.profiler.profiler import analyse
 
-    failures = []
+    shard_index = 0 if node_index is None else node_index
+    parsed_root = root / "parsed"
+    parsed_root.mkdir(parents=True, exist_ok=True)
+    parsed_prefix = f"{prefix.strip('/')}/parsed"
+    upload_client = _obs_client(endpoint, region)
+    failures: list[str] = []
+    shard_targets = []
 
-    for case_index, case in enumerate(manifest["cases"]):
-        for target_index, record in enumerate(case["targets"]):
-            raw_archive = record.pop("archive", None)
-            raw_url = record.pop("obs_url", None)
-            record.pop("size_bytes", None)
-            record.pop("output", None)
-            if raw_url:
-                record["raw_obs_url"] = raw_url
+    def parse_rank(raw_archive: str, trace_index: int, trace_count: int, trace_dir: Path) -> Path:
+        print(
+            f"[Profiling] Parse node={shard_index} {raw_archive} trace {trace_index}/{trace_count} "
+            f"(rank_concurrency={RANK_PARSE_CONCURRENCY}, max_process_number={max_process_number}): {trace_dir}",
+            flush=True,
+        )
+        started = time.monotonic()
+        analyse(str(trace_dir), max_process_number=max_process_number)
+        parsed = trace_dir / "ASCEND_PROFILER_OUTPUT"
+        trace_view = parsed / "trace_view.json"
+        if not (parsed / "analyse.done").is_file() or not trace_view.is_file() or not trace_view.stat().st_size:
+            raise ValueError(f"Incomplete parsed trace: {trace_dir}")
+        json.loads(trace_view.read_text())
+        print(f"[Profiling] Parsed {trace_dir} in {time.monotonic() - started:.1f}s", flush=True)
+        return parsed
+
+    def publish_rank(record: dict, rank: dict, trace_dir: Path, relative: Path, parsed: Path, raw_archive: str) -> None:
+        archive_path = Path(raw_archive).parent / record["name"] / relative.with_name(f"{relative.name}.tar.gz")
+        archive = parsed_root / archive_path
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        parsed_size = directory_size(parsed) + sum(
+            file.stat().st_size
+            for pattern in ("profiler_info*.json", "profiler_metadata.json")
+            for file in trace_dir.glob(pattern)
+        )
+        print(f"[Profiling] Compress parsed {archive_path}: {parsed_size} bytes before", flush=True)
+        with tarfile.open(archive, "w:gz", compresslevel=PARSED_COMPRESSION_LEVEL) as tar:
+            tar.add(parsed, arcname=str(Path(record["name"]) / relative / parsed.name))
+            for metadata in (*trace_dir.glob("profiler_info*.json"), *trace_dir.glob("profiler_metadata.json")):
+                tar.add(metadata, arcname=str(Path(record["name"]) / relative / metadata.name))
+        rank.update(archive=str(archive_path), size_bytes=archive.stat().st_size, output="parsed")
+        print(f"[Profiling] Compressed parsed {archive_path}: {archive.stat().st_size} bytes after", flush=True)
+        _upload_archive(upload_client, transfer, parsed_root, parsed_prefix, bucket, rank, "parsed")
+        print(f"Profiling artifact uploaded: {rank['obs_url']}", flush=True)
+        archive.unlink()
+        shutil.rmtree(trace_dir)
+
+    for case_index, case in enumerate(manifest.get("cases", [])):
+        for target_index, record in enumerate(case.get("targets", [])):
+            if node_index is not None and int(record.get("node_index", 0)) != node_index:
+                continue
+            raw_archive, raw_url = _prepare_parsed_record(record)
             work_dir = root / "work" / f"case_{case_index}_target_{target_index}"
             try:
                 if not raw_archive or not raw_url:
@@ -462,7 +554,7 @@ def parse_artifacts(
                 source = raw_root / raw_archive
                 source.parent.mkdir(parents=True, exist_ok=True)
                 remote_size = client.head_object(Bucket=bucket, Key=f"{raw_prefix}/{raw_archive}")["ContentLength"]
-                print(f"[Profiling] Download raw {raw_archive}: {remote_size} bytes", flush=True)
+                print(f"[Profiling] Download raw node={shard_index} {raw_archive}: {remote_size} bytes", flush=True)
                 client.download_file(
                     bucket,
                     f"{raw_prefix}/{raw_archive}",
@@ -480,72 +572,148 @@ def parse_artifacts(
                 trace_dirs = sorted(target_dir.rglob("*_ascend_pt"))
                 if not trace_dirs:
                     raise ValueError(f"No Ascend trace directories in {raw_archive}")
-                for trace_index, trace_dir in enumerate(trace_dirs, 1):
-                    print(
-                        f"[Profiling] Parse {raw_archive} trace {trace_index}/{len(trace_dirs)} "
-                        f"(max_process_number={max_process_number}): {trace_dir}",
-                        flush=True,
-                    )
-                    started = time.monotonic()
-                    analyse(str(trace_dir), max_process_number=max_process_number)
-                    parsed = trace_dir / "ASCEND_PROFILER_OUTPUT"
-                    trace_view = parsed / "trace_view.json"
-                    if (
-                        not (parsed / "analyse.done").is_file()
-                        or not trace_view.is_file()
-                        or not trace_view.stat().st_size
-                    ):
-                        raise ValueError(f"Incomplete parsed trace: {trace_dir}")
-                    json.loads(trace_view.read_text())
-                    print(f"[Profiling] Parsed {trace_dir} in {time.monotonic() - started:.1f}s", flush=True)
-
-                archive = parsed_root / raw_archive
-                archive.parent.mkdir(parents=True, exist_ok=True)
-                parsed_size = sum(
-                    directory_size(trace_dir / "ASCEND_PROFILER_OUTPUT")
-                    + sum(file.stat().st_size for file in trace_dir.glob("profiler_info*.json"))
-                    + sum(file.stat().st_size for file in trace_dir.glob("profiler_metadata.json"))
-                    for trace_dir in trace_dirs
-                )
-                print(f"[Profiling] Compress parsed {raw_archive}: {parsed_size} bytes before", flush=True)
-                with tarfile.open(archive, "w:gz") as tar:
-                    for trace_dir in trace_dirs:
+                record["ranks"] = []
+                record["output"] = "parsed"
+                parse_futures = {}
+                publish_futures = {}
+                with (
+                    ThreadPoolExecutor(max_workers=RANK_PARSE_CONCURRENCY) as parse_pool,
+                    ThreadPoolExecutor(max_workers=PUBLISH_CONCURRENCY) as publish_pool,
+                ):
+                    for trace_index, trace_dir in enumerate(trace_dirs, 1):
                         relative = trace_dir.relative_to(target_dir)
-                        tar.add(
-                            trace_dir / "ASCEND_PROFILER_OUTPUT",
-                            arcname=str(Path(record["name"]) / relative / "ASCEND_PROFILER_OUTPUT"),
+                        rank = {"name": str(relative)}
+                        record["ranks"].append(rank)
+                        future = parse_pool.submit(parse_rank, raw_archive, trace_index, len(trace_dirs), trace_dir)
+                        parse_futures[future] = (rank, trace_dir, relative)
+                    for future in as_completed(parse_futures):
+                        rank, trace_dir, relative = parse_futures[future]
+                        try:
+                            parsed = future.result()
+                        except Exception as exc:
+                            rank["parse_error"] = str(exc)
+                            failure = f"{case['case']}/{record['name']}/{relative}: {exc}"
+                            failures.append(failure)
+                            print(f"[Profiling] Parse failed: {failure}", flush=True)
+                            continue
+                        published = publish_pool.submit(
+                            publish_rank, record, rank, trace_dir, relative, parsed, raw_archive
                         )
-                        for metadata in (
-                            *trace_dir.glob("profiler_info*.json"),
-                            *trace_dir.glob("profiler_metadata.json"),
-                        ):
-                            tar.add(metadata, arcname=str(Path(record["name"]) / relative / metadata.name))
-                record.update(archive=raw_archive, size_bytes=archive.stat().st_size, output="parsed")
-                print(f"[Profiling] Compressed parsed {raw_archive}: {archive.stat().st_size} bytes after", flush=True)
+                        publish_futures[published] = (rank, relative)
+                    for future in as_completed(publish_futures):
+                        rank, relative = publish_futures[future]
+                        try:
+                            future.result()
+                        except Exception as exc:
+                            rank["upload_error"] = str(exc)
+                            failure = f"{case['case']}/{record['name']}/{relative}: {exc}"
+                            failures.append(failure)
+                            print(f"[Profiling] Publish failed: {failure}", flush=True)
             except Exception as exc:
                 record["parse_error"] = str(exc)
-                failures.append(f"{case['case']}/{record['name']}: {exc}")
-                print(f"[Profiling] Parse failed: {failures[-1]}", flush=True)
+                failure = f"{case['case']}/{record['name']}: {exc}"
+                failures.append(failure)
+                print(f"[Profiling] Parse failed: {failure}", flush=True)
             finally:
                 if raw_archive:
                     (raw_root / raw_archive).unlink(missing_ok=True)
                 shutil.rmtree(work_dir, ignore_errors=True)
-        if any(target.get("parse_error") for target in case["targets"]):
+            shard_targets.append({"case_index": case_index, "target_index": target_index, "record": record})
+
+    shard = {
+        "node_index": shard_index,
+        "status": "partial" if failures else "success",
+        "targets": shard_targets,
+        "failures": failures,
+    }
+    shard_path = parsed_root / "shards" / f"node-{shard_index}.json"
+    shard_path.parent.mkdir(parents=True, exist_ok=True)
+    shard_path.write_text(json.dumps(shard, indent=2))
+    shard_key = f"{parsed_prefix}/shards/node-{shard_index}.json"
+    _upload_json(client, shard_path, bucket, shard_key)
+    print(f"[Profiling] Parsed shard uploaded: obs://{bucket}/{shard_key} (status={shard['status']})", flush=True)
+
+    if node_index is None:
+        return finalize_artifacts(root, prefix, bucket, endpoint, region, [shard_index])
+    if failures:
+        raise RuntimeError(f"Offline profiling node {node_index} failed with {len(failures)} parse/upload failures")
+    return shard
+
+
+def finalize_artifacts(
+    root: Path,
+    prefix: str,
+    bucket: str,
+    endpoint: str,
+    region: str,
+    node_indexes: list[int] | None = None,
+) -> dict:
+    """Merge node shard manifests and publish the global parsed manifest last."""
+    client = _obs_client(endpoint, region)
+    transfer = _transfer_config()
+    manifest, _, _ = _download_raw_manifest(root, prefix, bucket, client, transfer)
+    node_indexes = (
+        node_indexes
+        or sorted(
+            {
+                int(target.get("node_index", 0))
+                for case in manifest.get("cases", [])
+                for target in case.get("targets", [])
+            }
+        )
+        or [0]
+    )
+    parsed_root = root / "parsed"
+    shard_root = parsed_root / "shards"
+    shard_root.mkdir(parents=True, exist_ok=True)
+    parsed_prefix = f"{prefix.strip('/')}/parsed"
+    parsed_targets = {}
+    failures = []
+
+    for shard_index in node_indexes:
+        shard_path = shard_root / f"node-{shard_index}.json"
+        shard_key = f"{parsed_prefix}/shards/node-{shard_index}.json"
+        try:
+            client.download_file(bucket, shard_key, str(shard_path), Config=transfer)
+            shard = json.loads(shard_path.read_text())
+        except Exception as exc:
+            failures.append(f"node-{shard_index}: {exc}")
+            continue
+        failures.extend(shard.get("failures", []))
+        for target in shard.get("targets", []):
+            parsed_targets[target["case_index"], target["target_index"]] = target["record"]
+
+    for case_index, case in enumerate(manifest.get("cases", [])):
+        targets = []
+        for target_index, raw_record in enumerate(case.get("targets", [])):
+            record = parsed_targets.get((case_index, target_index))
+            if record is None:
+                record = dict(raw_record)
+                _prepare_parsed_record(record)
+                record["parse_error"] = "Parsed shard result is missing"
+                failures.append(f"{case['case']}/{record['name']}: parsed shard result is missing")
+            targets.append(record)
+        case["targets"] = targets
+        if case.get("status") != "success" or any(
+            target.get("parse_error")
+            or any(rank.get("parse_error") or rank.get("upload_error") for rank in target.get("ranks", []))
+            for target in targets
+        ):
             case["status"] = "partial"
 
-    if failures:
+    if manifest.get("status") != "success" or failures:
         manifest["status"] = "partial"
-    (parsed_root / "profile_manifest.json").write_text(json.dumps(manifest, indent=2))
-    result = upload_artifacts(parsed_root, prefix, bucket, endpoint, region, stage="parsed")
-    upload_failures = [
-        target["upload_error"] for case in result["cases"] for target in case["targets"] if target.get("upload_error")
-    ]
-    if result["status"] == "partial" or failures or upload_failures:
+    manifest_path = parsed_root / "profile_manifest.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps(manifest, indent=2))
+    key = f"{parsed_prefix}/profile_manifest.json"
+    _upload_json(client, manifest_path, bucket, key)
+    print(f"Profiling manifest uploaded: obs://{bucket}/{key} (status={manifest['status']})", flush=True)
+    if manifest["status"] == "partial":
         raise RuntimeError(
-            f"Offline profiling incomplete: raw/parsed status={result['status']}, "
-            f"{len(failures)} parse failures, {len(upload_failures)} upload failures"
+            f"Offline profiling incomplete: raw/parsed status=partial, {len(failures)} parse/upload failures"
         )
-    return result
+    return manifest
 
 
 def log_obs_storage(bucket: str, endpoint: str) -> None:
@@ -580,25 +748,44 @@ def log_obs_storage(bucket: str, endpoint: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=["upload", "parse", "storage"])
+    parser.add_argument("command", choices=["upload", "plan", "parse", "finalize", "storage"])
     parser.add_argument("--root", type=Path)
     parser.add_argument("--prefix")
     parser.add_argument("--bucket", default="obs-guiiyang1-ascend-test")
     parser.add_argument("--endpoint", default="https://obs.cn-southwest-2.myhuaweicloud.com")
     parser.add_argument("--region", default="cn-southwest-2")
     parser.add_argument("--max-process-number", type=int, default=16)
+    parser.add_argument("--node-index", type=int)
+    parser.add_argument("--plan-output", type=Path)
     args = parser.parse_args()
     if args.command == "storage":
         log_obs_storage(args.bucket, args.endpoint)
     else:
         if args.root is None or args.prefix is None:
-            parser.error("--root and --prefix are required for upload and parse")
+            parser.error("--root and --prefix are required")
         if args.command == "upload":
             result = upload_artifacts(args.root, args.prefix, args.bucket, args.endpoint, args.region)
             if result["status"] == "partial":
                 raise RuntimeError("Profiling raw artifact/upload incomplete; see manifest and per-target errors above")
+        elif args.command == "plan":
+            node_indexes = plan_artifact_shards(args.root, args.prefix, args.bucket, args.endpoint, args.region)
+            plan = json.dumps({"node_index": node_indexes}, separators=(",", ":"))
+            if args.plan_output:
+                args.plan_output.parent.mkdir(parents=True, exist_ok=True)
+                args.plan_output.write_text(plan)
+            print(f"[Profiling] Parse shard matrix: {plan}", flush=True)
+        elif args.command == "parse":
+            parse_artifacts(
+                args.root,
+                args.prefix,
+                args.bucket,
+                args.endpoint,
+                args.region,
+                args.max_process_number,
+                args.node_index,
+            )
         else:
-            parse_artifacts(args.root, args.prefix, args.bucket, args.endpoint, args.region, args.max_process_number)
+            finalize_artifacts(args.root, args.prefix, args.bucket, args.endpoint, args.region)
 
 
 if __name__ == "__main__":

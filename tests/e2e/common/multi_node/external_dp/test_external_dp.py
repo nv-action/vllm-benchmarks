@@ -229,7 +229,9 @@ def test_external_dp() -> None:
         for rank in ranks:
             role = {"prefiller": "prefill", "decoder": "decode"}.get(rank.role, "standalone")
             name = f"{role}-{rank.dp_rank}" if role != "standalone" else f"dp-{rank.dp_rank}"
-            instances.append(make_instance(name, f"http://{rank.host}:{rank.port}", role, rank.dp_rank))
+            instances.append(
+                make_instance(name, f"http://{rank.host}:{rank.port}", role, rank.dp_rank, rank.node_index)
+            )
         install_manifest(instances)
 
     kv_pool_manager = create_kv_pool_manager(
