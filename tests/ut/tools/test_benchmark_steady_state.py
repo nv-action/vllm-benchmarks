@@ -148,14 +148,6 @@ def test_empty_data_is_unavailable():
     assert result.reason == "no successful request timing data"
 
 
-def test_rate_controlled_workload_is_skipped():
-    result = analyze_steady_state([_request("a", 0, 1)], target_concurrency=1, request_rate=10)
-
-    assert result.status == "skipped"
-    assert result.reason == "rate-controlled workload"
-    assert result.timeline == ()
-
-
 def test_short_window_only_emits_warning():
     result = analyze_steady_state(
         [_request("a", 0, 4), _request("b", 1, 3)],
@@ -208,6 +200,10 @@ def test_renderer_uses_unavailable_group_title():
     output = render_terminal("perf", result)
 
     assert "::group::🔴 [STEADY STATE] perf | UNAVAILABLE | timing data unavailable" in output
+    assert "zero-filled charts below are placeholders, not measurements" in output
+    assert "Concurrency Timeline" in output
+    assert "Completed Requests" in output
+    assert any(line.startswith("0 |") and "─" in line for line in output.splitlines())
 
 
 def test_renderer_uses_not_found_group_title():
@@ -215,15 +211,19 @@ def test_renderer_uses_not_found_group_title():
 
     output = render_terminal("perf", result)
 
-    assert "::group::🟡 [STEADY STATE] perf | NOT_FOUND | peak=2<threshold=3" in output
+    assert "::group::🔴 [STEADY STATE] perf | NOT_FOUND | peak=2<threshold=3" in output
+    assert "Concurrency Timeline" in output
+    assert "Completed Requests" in output
+    assert "zero-filled charts" not in output
 
 
-def test_renderer_uses_skipped_group_title():
-    result = analyze_steady_state([_request("a", 0, 1)], target_concurrency=1, request_rate=10)
+def test_renderer_reports_unreached_threshold_with_request_rate():
+    result = analyze_steady_state([_request("a", 0, 1)], target_concurrency=2)
 
     output = render_terminal("fixed-qps", result, request_rate=10)
 
-    assert "::group::⚪ [STEADY STATE] fixed-qps | SKIPPED | rate-controlled workload" in output
+    assert "::group::🔴 [STEADY STATE] fixed-qps | NOT_FOUND | peak=1<threshold=2" in output
+    assert "Request rate:          10" in output
 
 
 def _chart_rows(output: str, title: str) -> list[str]:

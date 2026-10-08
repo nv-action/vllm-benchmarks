@@ -29,7 +29,7 @@ MIN_STEADY_STATE_WINDOW_S = 10.0
 DEFAULT_TIMELINE_WIDTH = 64
 DEFAULT_CHART_HEIGHT = 8
 
-SteadyStateStatus = Literal["found", "not_found", "skipped", "unavailable"]
+SteadyStateStatus = Literal["found", "not_found", "unavailable"]
 
 
 @dataclass(frozen=True)
@@ -143,7 +143,6 @@ def analyze_steady_state(
     requests: Sequence[RequestTiming],
     target_concurrency: int,
     threshold_ratio: float = DEFAULT_STEADY_STATE_THRESHOLD,
-    request_rate: float = 0,
 ) -> SteadyStateResult:
     """Reconstruct request concurrency and locate the broad steady-state window.
 
@@ -154,15 +153,6 @@ def analyze_steady_state(
 
     _validate_parameters(target_concurrency, threshold_ratio)
     total_requests = len(requests)
-    if request_rate > 0:
-        return _empty_result(
-            status="skipped",
-            total_requests=total_requests,
-            target_concurrency=target_concurrency,
-            threshold_ratio=threshold_ratio,
-            reason="rate-controlled workload",
-        )
-
     successful_requests = [request for request in requests if request.success]
     if not successful_requests:
         return _empty_result(
@@ -305,7 +295,7 @@ def steady_state_summary(case_name: str, result: SteadyStateResult) -> dict[str,
 
 def _sample_timeline(result: SteadyStateResult, width: int) -> tuple[list[int], list[int], float]:
     if not result.timeline:
-        return [], [], 0.0
+        return [0] * width, [0] * width, 0.0
     duration_s = result.timeline[-1].time_s
     if duration_s <= 0:
         point = result.timeline[-1]
@@ -587,12 +577,10 @@ def _group_title(case_name: str, result: SteadyStateResult) -> str:
         return f"🟢 [STEADY STATE] {case_name} | FOUND | {detail}"
     if result.status == "not_found":
         return (
-            f"🟡 [STEADY STATE] {case_name} | NOT_FOUND | "
+            f"🔴 [STEADY STATE] {case_name} | NOT_FOUND | "
             f"peak={result.observed_peak}<threshold={result.threshold_concurrency}"
         )
-    if result.status == "unavailable":
-        return f"🔴 [STEADY STATE] {case_name} | UNAVAILABLE | timing data unavailable"
-    return f"⚪ [STEADY STATE] {case_name} | SKIPPED | {result.reason or 'analysis skipped'}"
+    return f"🔴 [STEADY STATE] {case_name} | UNAVAILABLE | timing data unavailable"
 
 
 def render_terminal(
@@ -662,6 +650,8 @@ def render_terminal(
         lines.extend(["", "Reason:", f"  {result.reason}"])
     if result.warning:
         lines.extend(["", f"WARNING: {result.warning}"])
+    if not result.timeline:
+        lines.extend(["", "No usable request timeline; zero-filled charts below are placeholders, not measurements."])
 
     running, completed, duration_s = _sample_timeline(result, width)
     if running:

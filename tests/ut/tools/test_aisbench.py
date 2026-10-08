@@ -126,6 +126,7 @@ def test_request_config_reasoning_effort(tmp_path: Path, monkeypatch: pytest.Mon
         task_type="accuracy",
         temperature=None,
         no_pred=False,
+        profile_targets=(),
     )
 
     runner._init_request_conf()
@@ -184,8 +185,11 @@ def test_try_analyze_steady_state_writes_one_flushed_group_without_changing_resu
     assert summary["steady_state"]["end"] == {"time_s": 11, "completed_requests": 1}
 
 
-def test_try_analyze_steady_state_is_non_fatal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_try_analyze_steady_state_error_renders_zero_chart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
     runner = aisbench.AisbenchRunner.__new__(aisbench.AisbenchRunner)
+    original_result = object()
     runner.__dict__.update(
         case_name="perf",
         batch_size=2,
@@ -193,22 +197,31 @@ def test_try_analyze_steady_state_is_non_fatal(tmp_path: Path, monkeypatch: pyte
         performance_result_dir=tmp_path,
         performance_dataset_type="dataset",
         steady_state_result=None,
+        result=original_result,
     )
     monkeypatch.setattr(
         aisbench.AisbenchTimingAdapter,
         "load_request_timings",
         MagicMock(side_effect=RuntimeError("broken timing artifact")),
     )
+    monkeypatch.setattr(aisbench, "STEADY_STATE_OUTPUT_DIR", tmp_path / "steady_state")
 
     runner._try_analyze_steady_state()
 
-    assert runner.steady_state_result is None
+    assert runner.steady_state_result.status == "unavailable"
+    assert runner.steady_state_result.reason == "analysis failed: broken timing artifact"
+    assert runner.result is original_result
+    output = capsys.readouterr().out
+    assert "Concurrency Timeline" in output
+    assert "Completed Requests" in output
+    assert "zero-filled charts below are placeholders, not measurements" in output
 
 
-def test_rate_controlled_workload_is_skipped_without_reading_timings(
+def test_rate_controlled_workload_reads_timings(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ):
     runner = aisbench.AisbenchRunner.__new__(aisbench.AisbenchRunner)
+    original_result = object()
     runner.__dict__.update(
         case_name="fixed-qps",
         batch_size=2,
@@ -216,28 +229,32 @@ def test_rate_controlled_workload_is_skipped_without_reading_timings(
         performance_result_dir=tmp_path,
         performance_dataset_type="dataset",
         steady_state_result=None,
+        result=original_result,
     )
-    load_timings = MagicMock(side_effect=AssertionError("adapter must not run"))
+    timings = [RequestTiming("a", 0, 12, True), RequestTiming("b", 1, 11, True)]
+    load_timings = MagicMock(return_value=TimingLoadResult(timings, TimingLoadStats(2, 2, 2, 0)))
     monkeypatch.setattr(aisbench.AisbenchTimingAdapter, "load_request_timings", load_timings)
     monkeypatch.setattr(aisbench, "STEADY_STATE_OUTPUT_DIR", tmp_path / "steady_state")
 
     runner._try_analyze_steady_state()
 
-    assert not load_timings.called
-    assert runner.steady_state_result.status == "skipped"
-    assert "::group::⚪ [STEADY STATE] fixed-qps | SKIPPED | rate-controlled workload" in capsys.readouterr().out
+    load_timings.assert_called_once_with()
+    assert runner.result is original_result
+    assert runner.steady_state_result.status == "found"
+    assert "::group::🟢 [STEADY STATE] fixed-qps | FOUND |" in capsys.readouterr().out
     summary_path = tmp_path / "steady_state" / "fixed-qps" / "summary.json"
-    assert json.loads(summary_path.read_text(encoding="utf-8"))["reason"] == "rate-controlled workload"
+    assert json.loads(summary_path.read_text(encoding="utf-8"))["steady_state"]["duration_s"] == 10
 
 
+@pytest.mark.parametrize("request_rate", [0, 10])
 def test_missing_details_writes_unavailable_summary(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], request_rate: float
 ):
     runner = aisbench.AisbenchRunner.__new__(aisbench.AisbenchRunner)
     runner.__dict__.update(
         case_name="perf",
         batch_size=2,
-        request_rate=0,
+        request_rate=request_rate,
         performance_result_dir=tmp_path,
         performance_dataset_type="dataset",
         steady_state_result=None,
@@ -250,6 +267,8 @@ def test_missing_details_writes_unavailable_summary(
     output = capsys.readouterr().out
     assert "::group::🔴 [STEADY STATE] perf | UNAVAILABLE | timing data unavailable" in output
     assert "Reason:" in output
+    assert "Concurrency Timeline" in output
+    assert "Completed Requests" in output
     summary_path = tmp_path / "steady_state" / "perf" / "summary.json"
     assert json.loads(summary_path.read_text(encoding="utf-8"))["status"] == "unavailable"
 
@@ -273,3 +292,15 @@ def test_performance_analysis_runs_before_baseline_assertion(monkeypatch: pytest
         runner._performance_verify()
 
     assert calls == ["result", "steady"]
+
+
+def test_performance_analysis_runs_when_result_is_unreadable(monkeypatch: pytest.MonkeyPatch):
+    runner = aisbench.AisbenchRunner.__new__(aisbench.AisbenchRunner)
+    analyze = MagicMock()
+    monkeypatch.setattr(runner, "_get_result_performance", MagicMock(side_effect=FileNotFoundError("missing result")))
+    monkeypatch.setattr(runner, "_try_analyze_steady_state", analyze)
+
+    with pytest.raises(FileNotFoundError, match="missing result"):
+        runner._performance_verify()
+
+    analyze.assert_called_once_with()

@@ -352,29 +352,25 @@ class AisbenchRunner:
         )
 
     def _try_analyze_steady_state(self) -> None:
+        timing_stats = None
         try:
-            timing_stats = None
-            if self.request_rate > 0:
-                result = analyze_steady_state(
-                    [],
-                    target_concurrency=self.batch_size,
-                    request_rate=self.request_rate,
-                )
-            else:
-                assert self.performance_result_dir is not None
-                assert self.performance_dataset_type is not None
-                try:
-                    load_result = AisbenchTimingAdapter(
-                        self.performance_result_dir,
-                        self.performance_dataset_type,
-                    ).load_request_timings()
-                    timing_stats = load_result.stats
-                    result = analyze_steady_state(load_result.timings, target_concurrency=self.batch_size)
-                except TimingDataUnavailable as exc:
-                    result = unavailable_steady_state(target_concurrency=self.batch_size, reason=str(exc))
+            assert self.performance_result_dir is not None
+            assert self.performance_dataset_type is not None
+            load_result = AisbenchTimingAdapter(
+                self.performance_result_dir,
+                self.performance_dataset_type,
+            ).load_request_timings()
+            timing_stats = load_result.stats
+            result = analyze_steady_state(load_result.timings, target_concurrency=self.batch_size)
+        except TimingDataUnavailable as exc:
+            result = unavailable_steady_state(target_concurrency=self.batch_size, reason=str(exc))
+        except Exception as exc:
+            logging.exception("Failed to analyze steady state; benchmark result is unchanged")
+            result = unavailable_steady_state(target_concurrency=self.batch_size, reason=f"analysis failed: {exc}")
+        try:
             self._emit_steady_state(result, timing_stats)
         except Exception:
-            logging.exception("Failed to analyze steady state; benchmark result is unchanged")
+            logging.exception("Failed to render steady state; benchmark result is unchanged")
 
     def _get_result_accuracy(self):
         acc_file = re.search(r"write csv to (.*)", self.result_line).group(1)
@@ -387,8 +383,10 @@ class AisbenchRunner:
             self.result = float(df.iloc[0, -1])
 
     def _performance_verify(self):
-        self._get_result_performance()
-        self._try_analyze_steady_state()
+        try:
+            self._get_result_performance()
+        finally:
+            self._try_analyze_steady_state()
         output_throughput = self.result_json["Output Token Throughput"]["total"].replace("token/s", "")
         assert float(output_throughput) >= self.threshold * self.baseline, (
             "Performance verification failed. "

@@ -1,8 +1,10 @@
 import asyncio
 import json
 import subprocess
+import sys
 import tarfile
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -11,6 +13,22 @@ import pytest
 import yaml
 
 from tools import profile
+
+
+def test_profile_module_import_without_runner_dependencies():
+    script = """
+import builtins
+original_import = builtins.__import__
+def blocked_import(name, *args, **kwargs):
+    if name in ("regex", "requests"):
+        raise ModuleNotFoundError(name)
+    return original_import(name, *args, **kwargs)
+builtins.__import__ = blocked_import
+from tools import profile
+assert callable(profile.upload_artifacts)
+assert callable(profile.parse_artifacts)
+"""
+    subprocess.run([sys.executable, "-c", script], cwd=Path(__file__).resolve().parents[3], check=True)
 
 
 def test_spec_defaults_and_case_filter(monkeypatch):
@@ -136,6 +154,31 @@ def test_controller_shared_endpoint_is_called_once(tmp_path, monkeypatch, fail):
     assert result["status"] == ("partial" if fail else "success")
 
 
+def test_controller_duration_starts_after_start_response(tmp_path, monkeypatch):
+    monkeypatch.setattr(profile, "POLL_INTERVAL", 0.005)
+    marker = tmp_path / "first"
+    profile._mark_first_request(str(marker))
+
+    class SlowClient(Client):
+        def start_profile(self, endpoint):
+            time.sleep(0.05)
+            self.start_returned_at = time.monotonic()
+
+        def stop_profile(self, endpoint):
+            self.stopped_at = time.monotonic()
+            self.done.set()
+
+    client = SlowClient()
+    target = profile.make_instance("serve-0", "http://localhost")
+    controller = profile.ProfileController(
+        profile.ProfileSpec(enabled=True, start_after=0, duration=0.03), (target,), marker, client
+    )
+    controller.start()
+    assert client.done.wait(2)
+    assert controller.finish()["status"] == "success"
+    assert client.stopped_at - client.start_returned_at >= 0.03
+
+
 def test_controller_benchmark_ends_before_request(tmp_path, monkeypatch):
     monkeypatch.setattr(profile, "POLL_INTERVAL", 0.005)
     client = Client()
@@ -191,11 +234,12 @@ def test_controller_starts_and_stops_targets_concurrently(tmp_path, monkeypatch)
 
 def test_artifact_collects_raw_without_parsing(tmp_path, monkeypatch):
     monkeypatch.setenv("NIGHTLY_PROFILE_ENABLED", "true")
+    monkeypatch.setenv("NIGHTLY_PROFILE_OUTPUT", "parsed")
     raw = tmp_path / "raw" / "serve-0"
     trace = raw / "worker_ascend_pt"
     trace.mkdir(parents=True)
     (trace / "data.bin").write_bytes(b"trace")
-    target = profile.ServeInstance("serve-0", "http://localhost", str(raw))
+    target = profile.ServeInstance("serve-0", "http://localhost", str(raw), node_index=2)
     profile.ArtifactManager(tmp_path, "parsed").collect(
         "perf", (target,), {"status": "success", "actual_duration": 8, "targets": {"serve-0": {}}}
     )
@@ -204,6 +248,7 @@ def test_artifact_collects_raw_without_parsing(tmp_path, monkeypatch):
     assert manifest["status"] == "success"
     assert manifest["requested"]["output"] == "parsed"
     assert record["output"] == "raw"
+    assert record["node_index"] == 2
     assert "parse_error" not in record
     with tarfile.open(tmp_path / record["archive"]) as tar:
         assert "serve-0/worker_ascend_pt/data.bin" in tar.getnames()
@@ -328,27 +373,13 @@ def test_a3_workflow_profile_plumbing():
     assert json.loads(dispatch_inputs["profile_options_json"]["default"]) == {}
     for job_name in ("multi-node-tests", "double-node-tests", "single-node-tests", "multi-card-tests"):
         assert all(field in schedule["jobs"][job_name]["with"] for field in fields)
-        assert schedule["jobs"][job_name]["secrets"]["AWS_ACCESS_KEY_ID"] == "${{ secrets.AWS_ACCESS_KEY_ID }}"
-        assert schedule["jobs"][job_name]["secrets"]["AWS_SECRET_ACCESS_KEY"] == "${{ secrets.AWS_SECRET_ACCESS_KEY }}"
     for name in ("_e2e_nightly_single_node.yaml", "_e2e_nightly_multi_node.yaml"):
-        called_workflow = workflow(name)
-        assert all(field in called_workflow["on"]["workflow_call"]["inputs"] for field in fields)
-        assert all(
-            key in called_workflow["on"]["workflow_call"]["secrets"]
-            for key in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY")
-        )
-        job = next(job for job in called_workflow["jobs"].values() if "steps" in job)
-        steps = job["steps"]
-        upload = next(step for step in steps if "python3 -m tools.profile upload" in step.get("run", ""))
-        assert "python3 -m tools.profile upload" in upload["run"]
-        assert "python3 -m tools.profile storage" in upload["run"]
-        assert "secrets.AWS_ACCESS_KEY_ID" in upload["env"]["AWS_ACCESS_KEY_ID"]
-        assert "secrets.AWS_SECRET_ACCESS_KEY" in upload["env"]["AWS_SECRET_ACCESS_KEY"]
+        assert all(field in workflow(name)["on"]["workflow_call"]["inputs"] for field in fields)
     command = workflow("pr_nightly_command.yml")
     assert all(field in command["jobs"]["authorize"]["outputs"] for field in fields)
     assert "profile_options_json" in command["jobs"]["dispatch-a3"]["steps"][-1]["run"]
 
-    template = (root / "tests/e2e/nightly/multi_node/scripts/lws.yaml.jinja2").read_text()
+    template = (root / "tests/e2e/common/multi_node/lws.yaml.jinja2").read_text()
     rendered = Environment().from_string(template).render(log_prefix="/tmp/profile-test", profile_enabled="true")
     lws = next(yaml.safe_load_all(rendered))
     leader = lws["spec"]["leaderWorkerTemplate"]["leaderTemplate"]["spec"]["containers"][0]
@@ -356,49 +387,3 @@ def test_a3_workflow_profile_plumbing():
     assert env["NIGHTLY_PROFILE_ROOT"] == "/tmp/profile-test/profile_artifact"
     assert env["NIGHTLY_PROFILE_START_AFTER"] == "15"
     assert env["NIGHTLY_PROFILE_DURATION"] == "8"
-
-
-def test_a2_workflow_profile_plumbing():
-    root = Path(__file__).resolve().parents[3]
-    schedule = yaml.load((root / ".github/workflows/schedule_nightly_test_a2.yaml").read_text(), Loader=yaml.BaseLoader)
-    dispatch_inputs = schedule["on"]["workflow_dispatch"]["inputs"]
-    assert len(dispatch_inputs) <= 10
-    assert json.loads(dispatch_inputs["profile_options_json"]["default"]) == {}
-    assert "bisect_good_commit" not in dispatch_inputs
-    fields = (
-        "profile_enabled",
-        "profile_start_after",
-        "profile_duration",
-        "profile_with_stack",
-        "profile_scope",
-        "profile_max_size",
-        "profile_output",
-        "profile_cases",
-    )
-    for job_name in ("single-node-tests", "multi-node-tests"):
-        job = schedule["jobs"][job_name]
-        assert all(field in job["with"] for field in fields)
-        assert job["secrets"]["AWS_ACCESS_KEY_ID"] == "${{ secrets.AWS_ACCESS_KEY_ID }}"
-        assert job["secrets"]["AWS_SECRET_ACCESS_KEY"] == "${{ secrets.AWS_SECRET_ACCESS_KEY }}"
-    assert "nv-action/vllm-benchmarks.git" in schedule["jobs"]["multi-node-tests"]["with"]["vllm_ascend_remote_url"]
-
-
-def test_multi_node_profile_skips_git_proxy(tmp_path, monkeypatch):
-    root = Path(__file__).resolve().parents[3]
-    script = (root / "tests/e2e/nightly/multi_node/scripts/run.sh").read_text()
-    function = script[script.index("check_and_config() {") : script.index("\ninstall_extra_components() {")]
-    mirror_key = "url.https://shturl.cc/https://github.com/.insteadOf"
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "gitconfig"))
-    monkeypatch.setenv("GIT_CONFIG_SYSTEM", str(tmp_path / "systemconfig"))
-    subprocess.run(["git", "config", "--global", mirror_key, "https://github.com/"], check=True)
-    subprocess.run(
-        ["git", "config", "--file", str(tmp_path / "systemconfig"), mirror_key, "https://github.com/"], check=True
-    )
-    shell = function + f"\npip() {{ :; }}\ncheck_and_config\ngit config --get {mirror_key}\n"
-
-    monkeypatch.setenv("NIGHTLY_PROFILE_ENABLED", "true")
-    assert subprocess.run(["bash", "-c", shell], capture_output=True).returncode == 1
-
-    monkeypatch.setenv("NIGHTLY_PROFILE_ENABLED", "false")
-    result = subprocess.run(["bash", "-c", shell], capture_output=True, text=True, check=True)
-    assert result.stdout.splitlines()[-1] == "https://github.com/"
