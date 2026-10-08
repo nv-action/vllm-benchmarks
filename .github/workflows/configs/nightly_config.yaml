@@ -65,7 +65,7 @@ a2:
   accuracy:
     nightly:
       - name: accuracy-group-1
-        os: linux-aarch64-a2-1-hk-001
+        os: linux-aarch64-a2b3-1
         model_list:
           - Qwen3-VL-8B-Instruct-W8A8
           - Qwen3-8B
@@ -87,7 +87,7 @@ a2:
           - Mixtral-8x7B-Instruct-v0.1
     pr_only:
       - name: pr-accuracy-group-1
-        os: linux-aarch64-a2-1-hk-001
+        os: linux-aarch64-a2b3-1
         model_list:
           - gemma-3-4b-it
           - internlm3-8b-instruct
@@ -287,7 +287,7 @@ a3-560t:
         config_file_path: Qwen3-235B-A22B-W8A8_piecewise_fullgraph_A3.yaml
         config_base_path: tests/e2e/cases/models/configs/Qwen
       - name: acceptace_rate_deepseekv4-flash-w8a8-mtp
-        os: linux-aarch64-a3-800i-8-cn12-001
+        os: linux-aarch64-nightly-a3-8
         config_file_path: acceptace_rate_deepseekv4-flash-w8a8-mtp.yaml
         config_base_path: tests/e2e/cases/models/configs/DeepSeek
       - name: kimi25_w4a8_step_3_7
