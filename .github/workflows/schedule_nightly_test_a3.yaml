@@ -222,7 +222,7 @@ jobs:
     uses: ./.github/workflows/_e2e_nightly_multi_node.yaml
     with:
       soc_version: a3
-      runner: linux-aarch64-a3-800t-0
+      runner: linux-amd64-cpu-8-hk
       image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a3'
       # Clone the vllm-ascend repo from the repository that dispatched this
       # workflow, so /nightly works on any fork (the PR head only exists in
@@ -276,7 +276,7 @@ jobs:
     uses: ./.github/workflows/_e2e_nightly_multi_node.yaml
     with:
       soc_version: a3
-      runner: linux-aarch64-a3-800t-0
+      runner: linux-amd64-cpu-8-hk
       image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a3'
       # Clone the vllm-ascend repo from the repository that dispatched this
       # workflow, so /nightly works on any fork (the PR head only exists in
