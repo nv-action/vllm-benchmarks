@@ -24,7 +24,7 @@ from tests.e2e.common.multi_node.internal_dp.profiling import configure_profilin
 from tests.e2e.conftest import RemoteOpenAIServer
 from tests.e2e.nightly.scripts.result_postprocess import postprocess_benchmark_results
 from tools.aisbench import run_aisbench_cases
-from tools.profile import ProfileSpec
+from tools.profiling.workflow import ProfileSpec
 
 logger = logging.getLogger(__name__)
 

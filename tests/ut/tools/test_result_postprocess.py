@@ -28,7 +28,7 @@ def test_postprocess_invokes_uploader_as_module_from_repo_root(tmp_path: Path, m
         "--files",
         str(output_path.resolve()),
     ]
-    assert run.call_args.kwargs["cwd"] == repo_root.resolve()
+    assert run.call_args.kwargs["cwd"] == str(repo_root.resolve())
 
 
 def test_upload_module_help_does_not_shadow_standard_library_bisect():

@@ -16,9 +16,22 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 STOP_TIMEOUT = 900
 POLL_INTERVAL = 1
-RANK_PARSE_CONCURRENCY = 1
+RANK_PARSE_CONCURRENCY = 2
 PUBLISH_CONCURRENCY = 1
-PARSED_COMPRESSION_LEVEL = 1
+COMPRESSION_LEVEL = 1
+DEFAULT_MAX_PROCESS_NUMBER = 16
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    normalized = value.lower()
+    if normalized == "true":
+        return True
+    if normalized == "false":
+        return False
+    raise ValueError(f"Invalid boolean value for {name}: {value!r}; expected true or false")
 
 
 @dataclass(frozen=True)
@@ -27,33 +40,40 @@ class ProfileSpec:
     start_after: int = 15
     duration: int = 8
     with_stack: bool = False
-    scope: str = "representative"
+    scope: str = "representative"  # "representative" or "all"
     max_size_bytes: int = 50 * 1024**3
-    output: str = "parsed"
+    output: str = "parsed"  # "parsed" or "raw"
     cases: tuple[str, ...] = ()
 
     @classmethod
     def from_env(cls) -> "ProfileSpec":
         import regex as re
 
-        enabled = os.getenv("NIGHTLY_PROFILE_ENABLED", "false").lower() == "true"
+        defaults = cls()
+        enabled = _env_bool("ASCEND_PROFILE_ENABLED", defaults.enabled)
         if not enabled:
-            return cls()
-        max_size = os.getenv("NIGHTLY_PROFILE_MAX_SIZE", "50G").upper()
-        match = re.fullmatch(r"(\d+)([KMGTP]?)", max_size)
-        if not match:
-            raise ValueError(f"Invalid profile max size: {max_size}")
-        suffix = match.group(2)
-        multiplier = 1024 ** ("KMGTP".index(suffix) + 1) if suffix else 1
+            return defaults
+        max_size = os.getenv("ASCEND_PROFILE_MAX_SIZE")
+        if max_size is None:
+            max_size_bytes = defaults.max_size_bytes
+        else:
+            max_size = max_size.upper()
+            match = re.fullmatch(r"(\d+)([KMGTP]?)", max_size)
+            if not match:
+                raise ValueError(f"Invalid profile max size: {max_size}")
+            suffix = match.group(2)
+            multiplier = 1024 ** ("KMGTP".index(suffix) + 1) if suffix else 1
+            max_size_bytes = int(match.group(1)) * multiplier
+        cases = os.getenv("ASCEND_PROFILE_CASES")
         spec = cls(
             enabled=True,
-            start_after=int(os.getenv("NIGHTLY_PROFILE_START_AFTER", "15")),
-            duration=int(os.getenv("NIGHTLY_PROFILE_DURATION", "8")),
-            with_stack=os.getenv("NIGHTLY_PROFILE_WITH_STACK", "false").lower() == "true",
-            scope=os.getenv("NIGHTLY_PROFILE_SCOPE", "representative"),
-            max_size_bytes=int(match.group(1)) * multiplier,
-            output=os.getenv("NIGHTLY_PROFILE_OUTPUT", "parsed"),
-            cases=tuple(filter(None, os.getenv("NIGHTLY_PROFILE_CASES", "").split(","))),
+            start_after=int(os.getenv("ASCEND_PROFILE_START_AFTER", defaults.start_after)),
+            duration=int(os.getenv("ASCEND_PROFILE_DURATION", defaults.duration)),
+            with_stack=_env_bool("ASCEND_PROFILE_WITH_STACK", defaults.with_stack),
+            scope=os.getenv("ASCEND_PROFILE_SCOPE", defaults.scope),
+            max_size_bytes=max_size_bytes,
+            output=os.getenv("ASCEND_PROFILE_OUTPUT", defaults.output),
+            cases=defaults.cases if cases is None else tuple(filter(None, cases.split(","))),
         )
         if spec.start_after < 0 or spec.duration <= 0 or spec.max_size_bytes <= 0:
             raise ValueError("Profile times and max size must be positive (start-after may be zero)")
@@ -106,7 +126,7 @@ class TargetSelector:
 
 
 def profile_root() -> Path:
-    return Path(os.getenv("NIGHTLY_PROFILE_ROOT", "profile_artifact")).resolve()
+    return Path(os.getenv("ASCEND_PROFILE_ROOT", "profile_artifact")).resolve()
 
 
 def make_instance(
@@ -145,21 +165,6 @@ def with_profiler_config(command: list[str] | str, instance: ServeInstance, spec
     else:
         args.extend((flag, json.dumps(existing)))
     return shlex.join(args) if isinstance(command, str) else args
-
-
-def profiled_model(base_type: type, marker: str) -> type:
-    """AISBench model wrapper; marks the first actual request, not process launch."""
-
-    class ProfiledModel(base_type):
-        async def stream_infer(self, request_body, output):
-            _mark_first_request(marker)
-            return await super().stream_infer(request_body, output)
-
-        async def text_infer(self, request_body, output):
-            _mark_first_request(marker)
-            return await super().text_infer(request_body, output)
-
-    return ProfiledModel
 
 
 def _mark_first_request(marker: str) -> None:
@@ -275,8 +280,8 @@ class ProfileController:
 
 
 class ArtifactManager:
-    def __init__(self, root: Path, output: str):
-        self.root, self.requested_output = root, output
+    def __init__(self, root: Path):
+        self.root = root
 
     def collect(self, case_name: str, targets: tuple[ServeInstance, ...], result: dict) -> None:
         import regex as re
@@ -294,7 +299,7 @@ class ArtifactManager:
                     raise FileNotFoundError(f"No profiler output in {raw_dir}")
                 raw_size = directory_size(raw_dir)
                 print(f"[Profiling] Compress raw {case_name}/{target.name}: {raw_size} bytes before", flush=True)
-                with tarfile.open(archive, "w:gz") as tar:
+                with tarfile.open(archive, "w:gz", compresslevel=COMPRESSION_LEVEL) as tar:
                     tar.add(raw_dir, arcname=target.name)
                 state.update(
                     archive=str(archive.relative_to(self.root)), size_bytes=archive.stat().st_size, output="raw"
@@ -476,7 +481,7 @@ def parse_artifacts(
     bucket: str,
     endpoint: str,
     region: str,
-    max_process_number: int = 16,
+    max_process_number: int = DEFAULT_MAX_PROCESS_NUMBER,
     node_index: int | None = None,
 ) -> dict:
     """Parse one node shard while completed ranks are compressed and uploaded."""
@@ -531,7 +536,7 @@ def parse_artifacts(
             for file in trace_dir.glob(pattern)
         )
         print(f"[Profiling] Compress parsed {archive_path}: {parsed_size} bytes before", flush=True)
-        with tarfile.open(archive, "w:gz", compresslevel=PARSED_COMPRESSION_LEVEL) as tar:
+        with tarfile.open(archive, "w:gz", compresslevel=COMPRESSION_LEVEL) as tar:
             tar.add(parsed, arcname=str(Path(record["name"]) / relative / parsed.name))
             for metadata in (*trace_dir.glob("profiler_info*.json"), *trace_dir.glob("profiler_metadata.json")):
                 tar.add(metadata, arcname=str(Path(record["name"]) / relative / metadata.name))
@@ -754,7 +759,7 @@ def main() -> None:
     parser.add_argument("--bucket", default="obs-guiiyang1-ascend-test")
     parser.add_argument("--endpoint", default="https://obs.cn-southwest-2.myhuaweicloud.com")
     parser.add_argument("--region", default="cn-southwest-2")
-    parser.add_argument("--max-process-number", type=int, default=16)
+    parser.add_argument("--max-process-number", type=int, default=DEFAULT_MAX_PROCESS_NUMBER)
     parser.add_argument("--node-index", type=int)
     parser.add_argument("--plan-output", type=Path)
     args = parser.parse_args()

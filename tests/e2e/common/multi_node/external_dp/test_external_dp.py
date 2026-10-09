@@ -36,7 +36,7 @@ from tests.e2e.common.multi_node.external_dp.utils import (
 )
 from tests.e2e.common.multi_node.utils import ProxyServer
 from tools.aisbench import run_aisbench_cases
-from tools.profile import ProfileSpec, install_manifest, make_instance
+from tools.profiling.workflow import ProfileSpec, install_manifest, make_instance
 
 logging.basicConfig(
     level=logging.INFO,

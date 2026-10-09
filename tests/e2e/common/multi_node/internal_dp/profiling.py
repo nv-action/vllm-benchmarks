@@ -1,6 +1,6 @@
 """Profiling setup for multi-node internal DP test servers."""
 
-from tools.profile import ProfileSpec, ServeInstance, install_manifest, make_instance, with_profiler_config
+from tools.profiling.workflow import ProfileSpec, ServeInstance, install_manifest, make_instance, with_profiler_config
 
 
 def configure_profiling(config, spec: ProfileSpec) -> None:

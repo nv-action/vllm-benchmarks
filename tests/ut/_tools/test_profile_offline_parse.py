@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import pytest
 from botocore.exceptions import ClientError
 
-from tools import profile
+from tools.profiling import workflow as profile
 
 
 class FakeObs:
@@ -47,7 +47,7 @@ def fake_obs(monkeypatch):
 
 
 def _upload_raw(tmp_path, fake_obs, monkeypatch):
-    monkeypatch.setenv("NIGHTLY_PROFILE_ENABLED", "true")
+    monkeypatch.setenv("ASCEND_PROFILE_ENABLED", "true")
     collector = tmp_path / "collector"
     raw_dir = collector / "raw" / "serve_0"
     for name in ("worker_0_ascend_pt", "worker_1_ascend_pt"):
@@ -56,13 +56,13 @@ def _upload_raw(tmp_path, fake_obs, monkeypatch):
         (trace / "raw.bin").write_bytes(b"raw trace")
         (trace / "profiler_info.json").write_text("{}")
     target = profile.ServeInstance("serve_0", "http://localhost", str(raw_dir))
-    profile.ArtifactManager(collector, "parsed").collect("perf", (target,), {"status": "success"})
+    profile.ArtifactManager(collector).collect("perf", (target,), {"status": "success"})
     profile.upload_artifacts(collector, "nightly/run", "bucket", "endpoint", "region")
     return dict(fake_obs.objects)
 
 
 def _upload_raw_nodes(tmp_path, fake_obs, monkeypatch):
-    monkeypatch.setenv("NIGHTLY_PROFILE_ENABLED", "true")
+    monkeypatch.setenv("ASCEND_PROFILE_ENABLED", "true")
     collector = tmp_path / "collector"
     targets = []
     result_targets = {}
@@ -75,9 +75,7 @@ def _upload_raw_nodes(tmp_path, fake_obs, monkeypatch):
         (trace / "profiler_info.json").write_text("{}")
         targets.append(profile.ServeInstance(name, "http://localhost", str(raw_dir), node_index=node_index))
         result_targets[name] = {}
-    profile.ArtifactManager(collector, "parsed").collect(
-        "perf", tuple(targets), {"status": "success", "targets": result_targets}
-    )
+    profile.ArtifactManager(collector).collect("perf", tuple(targets), {"status": "success", "targets": result_targets})
     profile.upload_artifacts(collector, "nightly/run", "bucket", "endpoint", "region")
 
 
@@ -127,7 +125,7 @@ def test_offline_parse_uses_one_shard_per_node(tmp_path, fake_obs, monkeypatch):
     calls = _mock_analyse(monkeypatch)
     root = tmp_path / "parser"
 
-    assert profile.RANK_PARSE_CONCURRENCY == 1
+    assert profile.RANK_PARSE_CONCURRENCY == 2
     assert profile.plan_artifact_shards(root, "nightly/run", "bucket", "endpoint", "region") == [0, 1]
     for node_index in (0, 1):
         shard = profile.parse_artifacts(root, "nightly/run", "bucket", "endpoint", "region", node_index=node_index)

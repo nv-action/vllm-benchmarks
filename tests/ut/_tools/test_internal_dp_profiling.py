@@ -2,11 +2,11 @@ import json
 from types import SimpleNamespace
 
 from tests.e2e.common.multi_node.internal_dp.profiling import configure_profiling
-from tools.profile import ProfileSpec, ServeManifest
+from tools.profiling.workflow import ProfileSpec, ServeManifest
 
 
 def test_headless_internal_dp_is_collected_in_all_scope(tmp_path, monkeypatch):
-    monkeypatch.setenv("NIGHTLY_PROFILE_ROOT", str(tmp_path))
+    monkeypatch.setenv("ASCEND_PROFILE_ROOT", str(tmp_path))
     leader = SimpleNamespace(index=0, ip="leader", headless=False, envs={"SERVER_PORT": 8080})
     worker = SimpleNamespace(index=1, ip="worker", headless=True, envs={"SERVER_PORT": 8080})
     config = SimpleNamespace(
@@ -35,7 +35,7 @@ def test_headless_internal_dp_is_collected_in_all_scope(tmp_path, monkeypatch):
 
 
 def test_headless_internal_dp_keeps_representative_behavior(tmp_path, monkeypatch):
-    monkeypatch.setenv("NIGHTLY_PROFILE_ROOT", str(tmp_path))
+    monkeypatch.setenv("ASCEND_PROFILE_ROOT", str(tmp_path))
     leader = SimpleNamespace(index=0, ip="leader", headless=False, envs={})
     worker = SimpleNamespace(index=1, ip="worker", headless=True, envs={})
     config = SimpleNamespace(

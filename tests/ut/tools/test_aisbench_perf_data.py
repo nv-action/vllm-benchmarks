@@ -22,7 +22,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from tools.aisbench_perf_data import AisbenchTimingAdapter, TimingDataUnavailable
+from tools.profiling.steady_state import AisbenchTimingAdapter, TimingDataUnavailable
 
 
 def _write_numpy_store(path: Path, arrays: list[np.ndarray]) -> None:
@@ -42,7 +42,7 @@ def _write_jsonl(path: Path, records: list[object]) -> None:
 
 
 def test_adapter_reads_inline_and_database_backed_time_points(tmp_path: Path, caplog: pytest.LogCaptureFixture):
-    caplog.set_level("INFO", logger="tools.aisbench_perf_data")
+    caplog.set_level("INFO", logger="tools.profiling.steady_state")
     _write_numpy_store(tmp_path / "db_data" / "worker.db", [np.array([20.0, 21.0, 25.0])])
     _write_jsonl(
         tmp_path / "gsm8k_details.jsonl",
@@ -93,7 +93,7 @@ def test_adapter_reuses_one_read_only_connection_per_database(tmp_path: Path):
         ],
     )
 
-    with patch("tools.aisbench_perf_data.sqlite3.connect", wraps=sqlite3.connect) as connect:
+    with patch("tools.profiling.steady_state.sqlite3.connect", wraps=sqlite3.connect) as connect:
         load_result = AisbenchTimingAdapter(tmp_path, "dataset").load_request_timings()
 
     assert len(load_result.timings) == 2
