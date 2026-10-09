@@ -83,6 +83,9 @@ def test_parser_uses_one_runner_per_node_and_finalizes_manifest():
 
     finalize_script = finalize["steps"][-1]["run"]
     assert "python3 -m tools.profiling.workflow finalize" in finalize_script
+    for script in (plan_script, parse_script, finalize_script):
+        assert 'export PATH="/usr/local/python3.12.13/bin:$PATH"' in script
+        assert "command -v python3" in script
 
 
 def test_pr_nightly_dispatch_forwards_profiling_to_all_socs():
