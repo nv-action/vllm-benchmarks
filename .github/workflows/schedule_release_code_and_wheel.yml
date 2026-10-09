@@ -158,7 +158,7 @@ jobs:
           PROJECT_TOML: .github/workflows/scripts/wheel/pyproject.toml
           OUTPUT_DIR: dist/variants
         run: |
-          pip install build git+https://github.com/wheelnext/variantlib.git --quiet
+          pip install build git+https://github.com/wheelnext/variantlib.git@67a62d53fb8b5a91334d9632bc7d1546ee67349e --quiet
           mkdir -p dist/variants
           python3 .github/workflows/scripts/wheel/make_variant.py \
             -c .github/workflows/scripts/wheel/config.json \
@@ -246,7 +246,7 @@ jobs:
           PROJECT_TOML: .github/workflows/scripts/wheel/pyproject.toml
           OUTPUT_DIR: dist/variants
         run: |
-          pip install build git+https://github.com/wheelnext/variantlib.git --quiet
+          pip install build git+https://github.com/wheelnext/variantlib.git@67a62d53fb8b5a91334d9632bc7d1546ee67349e --quiet
           mkdir -p dist/variants
           python3 .github/workflows/scripts/wheel/make_variant.py \
             -c .github/workflows/scripts/wheel/config.json \
@@ -328,7 +328,7 @@ jobs:
           PROJECT_TOML: .github/workflows/scripts/wheel/pyproject.toml
           OUTPUT_DIR: dist/variants
         run: |
-          pip install build git+https://github.com/wheelnext/variantlib.git --quiet
+          pip install build git+https://github.com/wheelnext/variantlib.git@67a62d53fb8b5a91334d9632bc7d1546ee67349e --quiet
           mkdir -p dist/variants
           python3 .github/workflows/scripts/wheel/make_variant.py \
             -c .github/workflows/scripts/wheel/config.json \
@@ -411,7 +411,7 @@ jobs:
           PROJECT_TOML: .github/workflows/scripts/wheel/pyproject.toml
           OUTPUT_DIR: dist/variants
         run: |
-          pip install build git+https://github.com/wheelnext/variantlib.git --quiet
+          pip install build git+https://github.com/wheelnext/variantlib.git@67a62d53fb8b5a91334d9632bc7d1546ee67349e --quiet
           mkdir -p dist/variants
           python3 .github/workflows/scripts/wheel/make_variant.py \
             -c .github/workflows/scripts/wheel/config.json \
@@ -453,7 +453,7 @@ jobs:
 
       - name: Generate combined variant index
         run: |
-          pip install git+https://github.com/wheelnext/variantlib.git --quiet
+          pip install git+https://github.com/wheelnext/variantlib.git@67a62d53fb8b5a91334d9632bc7d1546ee67349e --quiet
           variantlib generate-index-json -d combined-variants/
           echo "Generated index files:"
           ls combined-variants/
