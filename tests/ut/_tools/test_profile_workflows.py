@@ -41,7 +41,7 @@ def test_nightly_profiling_jobs(soc, producers):
         assert parser["with"]["display_name"] == "${{ matrix.test_config.config_file_path || matrix.test_config.name }}"
         assert "matrix.vllm_ascend_branch" in parser["with"]["prefix"]
         assert "needs.parse-trigger.outputs.filter" in parser["with"]["should_run"]
-        assert parser["with"]["runner"] == "linux-aarch64-a2b3-1"
+        assert parser["with"]["runner"] == "linux-arm64-cpu-32-hk"
 
 
 @pytest.mark.parametrize(
@@ -50,11 +50,11 @@ def test_nightly_profiling_jobs(soc, producers):
 def test_producer_only_uploads_raw(name):
     workflow = load_workflow(name)
     job = next(iter(workflow["jobs"].values()))
-    step = next(step for step in job["steps"] if "python3 -m tools.profile upload" in step.get("run", ""))
+    step = next(step for step in job["steps"] if "python3 -m tools.profiling.workflow upload" in step.get("run", ""))
     script = step["run"]
-    assert "python3 -m tools.profile storage" in script
-    assert "python3 -m tools.profile upload" in script
-    assert "python3 -m tools.profile parse" not in script
+    assert "python3 -m tools.profiling.workflow storage" in script
+    assert "python3 -m tools.profiling.workflow upload" in script
+    assert "python3 -m tools.profiling.workflow parse" not in script
     assert not step.get("continue-on-error", False)
     if "multi_node" not in name:
         assert "inputs.vllm_ascend_branch" in step["env"]["PROFILE_KEY_PREFIX"]
@@ -72,17 +72,17 @@ def test_parser_uses_one_runner_per_node_and_finalizes_manifest():
     assert prepare["if"] == "${{ inputs.should_run }}"
     assert prepare["outputs"]["matrix"] == "${{ steps.plan.outputs.matrix }}"
     plan_script = prepare["steps"][-1]["run"]
-    assert "python3 -m tools.profile storage" in plan_script
-    assert "python3 -m tools.profile plan" in plan_script
+    assert "python3 -m tools.profiling.workflow storage" in plan_script
+    assert "python3 -m tools.profiling.workflow plan" in plan_script
 
     assert parser["strategy"]["matrix"] == "${{ fromJSON(needs.prepare.outputs.matrix) }}"
     parse_script = parser["steps"][-1]["run"]
-    assert "python3 -m tools.profile parse" in parse_script
+    assert "python3 -m tools.profiling.workflow parse" in parse_script
     assert "--node-index ${{ matrix.node_index }}" in parse_script
     assert "--max-process-number 16" in parse_script
 
     finalize_script = finalize["steps"][-1]["run"]
-    assert "python3 -m tools.profile finalize" in finalize_script
+    assert "python3 -m tools.profiling.workflow finalize" in finalize_script
 
 
 def test_pr_nightly_dispatch_forwards_profiling_to_all_socs():

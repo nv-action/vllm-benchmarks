@@ -1,4 +1,3 @@
-import asyncio
 import json
 import subprocess
 import sys
@@ -7,12 +6,12 @@ import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 import yaml
 
-from tools import profile
+from tools.profiling import workflow as profile
 
 
 def test_profile_module_import_without_runner_dependencies():
@@ -24,7 +23,7 @@ def blocked_import(name, *args, **kwargs):
         raise ModuleNotFoundError(name)
     return original_import(name, *args, **kwargs)
 builtins.__import__ = blocked_import
-from tools import profile
+from tools.profiling import workflow as profile
 assert callable(profile.upload_artifacts)
 assert callable(profile.parse_artifacts)
 """
@@ -32,10 +31,11 @@ assert callable(profile.parse_artifacts)
 
 
 def test_spec_defaults_and_case_filter(monkeypatch):
-    monkeypatch.delenv("NIGHTLY_PROFILE_ENABLED", raising=False)
+    monkeypatch.delenv("ASCEND_PROFILE_ENABLED", raising=False)
     assert profile.ProfileSpec.from_env() == profile.ProfileSpec()
-    monkeypatch.setenv("NIGHTLY_PROFILE_ENABLED", "true")
-    monkeypatch.setenv("NIGHTLY_PROFILE_CASES", "perf,perf_long")
+    monkeypatch.setenv("ASCEND_PROFILE_ENABLED", "true")
+    assert profile.ProfileSpec.from_env() == profile.ProfileSpec(enabled=True)
+    monkeypatch.setenv("ASCEND_PROFILE_CASES", "perf,perf_long")
     spec = profile.ProfileSpec.from_env()
     assert (spec.start_after, spec.duration, spec.max_size_bytes) == (15, 8, 50 * 1024**3)
     assert spec.includes("perf", "performance")
@@ -43,16 +43,44 @@ def test_spec_defaults_and_case_filter(monkeypatch):
     assert not spec.includes("perf", "accuracy")
 
 
+@pytest.mark.parametrize("value", ["true", "True", "TRUE"])
+def test_profile_boolean_true_is_case_insensitive(monkeypatch, value):
+    monkeypatch.setenv("ASCEND_PROFILE_ENABLED", value)
+    assert profile.ProfileSpec.from_env().enabled is True
+
+
+@pytest.mark.parametrize("value", ["false", "False", "FALSE"])
+def test_profile_boolean_false_is_case_insensitive(monkeypatch, value):
+    monkeypatch.setenv("ASCEND_PROFILE_ENABLED", value)
+    assert profile.ProfileSpec.from_env().enabled is False
+
+
+@pytest.mark.parametrize("value", ["", "1", "yes", "on", " true "])
+def test_profile_boolean_rejects_non_boolean_values(monkeypatch, value):
+    monkeypatch.setenv("ASCEND_PROFILE_ENABLED", value)
+    with pytest.raises(ValueError, match="expected true or false"):
+        profile.ProfileSpec.from_env()
+
+
+def test_profile_with_stack_uses_the_same_boolean_parser(monkeypatch):
+    monkeypatch.setenv("ASCEND_PROFILE_ENABLED", "TRUE")
+    monkeypatch.setenv("ASCEND_PROFILE_WITH_STACK", "False")
+    assert profile.ProfileSpec.from_env().with_stack is False
+    monkeypatch.setenv("ASCEND_PROFILE_WITH_STACK", "1")
+    with pytest.raises(ValueError, match="ASCEND_PROFILE_WITH_STACK"):
+        profile.ProfileSpec.from_env()
+
+
 @pytest.mark.parametrize("value", ["oops", "0G", "-1G"])
 def test_invalid_size(monkeypatch, value):
-    monkeypatch.setenv("NIGHTLY_PROFILE_ENABLED", "true")
-    monkeypatch.setenv("NIGHTLY_PROFILE_MAX_SIZE", value)
+    monkeypatch.setenv("ASCEND_PROFILE_ENABLED", "true")
+    monkeypatch.setenv("ASCEND_PROFILE_MAX_SIZE", value)
     with pytest.raises(ValueError):
         profile.ProfileSpec.from_env()
 
 
 def test_manifest_selector_and_config(tmp_path, monkeypatch):
-    monkeypatch.setenv("NIGHTLY_PROFILE_ROOT", str(tmp_path))
+    monkeypatch.setenv("ASCEND_PROFILE_ROOT", str(tmp_path))
     instances = [
         profile.make_instance("prefill-1", "http://a", "prefill", 1),
         profile.make_instance("decode-1", "http://b", "decode", 1),
@@ -72,23 +100,6 @@ def test_manifest_selector_and_config(tmp_path, monkeypatch):
     assert config["custom"] == "keep"
     assert config["torch_profiler_dir"] == instances[0].profile_dir
     assert config["torch_profiler_with_stack"] is True
-
-
-def test_first_request_marker(tmp_path):
-    marker = tmp_path / "first"
-
-    class Base:
-        async def stream_infer(self, *_):
-            return "stream"
-
-        async def text_infer(self, *_):
-            return "text"
-
-    model = profile.profiled_model(Base, str(marker))()
-    assert asyncio.run(model.stream_infer({}, None)) == "stream"
-    first = float(marker.read_text())
-    assert asyncio.run(model.text_infer({}, None)) == "text"
-    assert float(marker.read_text()) == first
 
 
 class Client:
@@ -233,16 +244,19 @@ def test_controller_starts_and_stops_targets_concurrently(tmp_path, monkeypatch)
 
 
 def test_artifact_collects_raw_without_parsing(tmp_path, monkeypatch):
-    monkeypatch.setenv("NIGHTLY_PROFILE_ENABLED", "true")
-    monkeypatch.setenv("NIGHTLY_PROFILE_OUTPUT", "parsed")
+    monkeypatch.setenv("ASCEND_PROFILE_ENABLED", "true")
+    monkeypatch.setenv("ASCEND_PROFILE_OUTPUT", "parsed")
     raw = tmp_path / "raw" / "serve-0"
     trace = raw / "worker_ascend_pt"
     trace.mkdir(parents=True)
     (trace / "data.bin").write_bytes(b"trace")
     target = profile.ServeInstance("serve-0", "http://localhost", str(raw), node_index=2)
-    profile.ArtifactManager(tmp_path, "parsed").collect(
-        "perf", (target,), {"status": "success", "actual_duration": 8, "targets": {"serve-0": {}}}
-    )
+    archive = tmp_path / "perf" / "serve-0.tar.gz"
+    with patch("tools.profiling.workflow.tarfile.open", wraps=tarfile.open) as open_archive:
+        profile.ArtifactManager(tmp_path).collect(
+            "perf", (target,), {"status": "success", "actual_duration": 8, "targets": {"serve-0": {}}}
+        )
+    open_archive.assert_called_once_with(archive, "w:gz", compresslevel=1)
     manifest = json.loads((tmp_path / "profile_manifest.json").read_text())
     record = manifest["cases"][0]["targets"][0]
     assert manifest["status"] == "success"
@@ -256,11 +270,11 @@ def test_artifact_collects_raw_without_parsing(tmp_path, monkeypatch):
 
 
 def test_artifact_raw_multiple_cases(tmp_path, monkeypatch):
-    monkeypatch.setenv("NIGHTLY_PROFILE_ENABLED", "true")
+    monkeypatch.setenv("ASCEND_PROFILE_ENABLED", "true")
     raw = tmp_path / "raw" / "serve-0"
     target = profile.ServeInstance("serve-0", "http://localhost", str(raw))
 
-    manager = profile.ArtifactManager(tmp_path, "parsed")
+    manager = profile.ArtifactManager(tmp_path)
     for case_name in ("perf", "perf_long"):
         trace = raw / "worker_ascend_pt"
         trace.mkdir(parents=True)
@@ -302,9 +316,9 @@ def test_upload_artifacts_verifies_each_object(tmp_path, monkeypatch):
 def test_aisbench_profiles_only_selected_performance_case(tmp_path, monkeypatch):
     from tools import aisbench
 
-    monkeypatch.setenv("NIGHTLY_PROFILE_ENABLED", "true")
-    monkeypatch.setenv("NIGHTLY_PROFILE_CASES", "perf")
-    monkeypatch.setenv("NIGHTLY_PROFILE_ROOT", str(tmp_path))
+    monkeypatch.setenv("ASCEND_PROFILE_ENABLED", "true")
+    monkeypatch.setenv("ASCEND_PROFILE_CASES", "perf")
+    monkeypatch.setenv("ASCEND_PROFILE_ROOT", str(tmp_path))
     profile.install_manifest([profile.make_instance("serve-0", "http://localhost:8000")])
     events = []
     monkeypatch.setattr(aisbench.AisbenchRunner, "_init_dataset_conf", lambda self: None)
@@ -380,10 +394,24 @@ def test_a3_workflow_profile_plumbing():
     assert "profile_options_json" in command["jobs"]["dispatch-a3"]["steps"][-1]["run"]
 
     template = (root / "tests/e2e/common/multi_node/lws.yaml.jinja2").read_text()
-    rendered = Environment().from_string(template).render(log_prefix="/tmp/profile-test", profile_enabled="true")
+    rendered = (
+        Environment()
+        .from_string(template)
+        .render(
+            log_prefix="/tmp/profile-test",
+            profile_enabled="true",
+            profile_start_after="15",
+            profile_duration="8",
+            profile_with_stack="false",
+            profile_scope="representative",
+            profile_max_size="50G",
+            profile_output="parsed",
+            profile_cases="",
+        )
+    )
     lws = next(yaml.safe_load_all(rendered))
     leader = lws["spec"]["leaderWorkerTemplate"]["leaderTemplate"]["spec"]["containers"][0]
     env = {item["name"]: item["value"] for item in leader["env"]}
-    assert env["NIGHTLY_PROFILE_ROOT"] == "/tmp/profile-test/profile_artifact"
-    assert env["NIGHTLY_PROFILE_START_AFTER"] == "15"
-    assert env["NIGHTLY_PROFILE_DURATION"] == "8"
+    assert env["ASCEND_PROFILE_ROOT"] == "/tmp/profile-test/profile_artifact"
+    assert env["ASCEND_PROFILE_START_AFTER"] == "15"
+    assert env["ASCEND_PROFILE_DURATION"] == "8"

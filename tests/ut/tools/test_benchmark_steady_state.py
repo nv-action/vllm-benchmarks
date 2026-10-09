@@ -15,7 +15,7 @@
 
 import pytest
 
-from tools.benchmark_steady_state import (
+from tools.profiling.steady_state import (
     RequestTiming,
     SteadyStateResult,
     TimelinePoint,

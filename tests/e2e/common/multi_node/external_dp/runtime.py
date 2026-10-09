@@ -32,7 +32,7 @@ from tests.e2e.common.multi_node.external_dp.utils import (
     wait_http_unready,
 )
 from tests.e2e.common.multi_node.utils import get_net_interface
-from tools.profile import ProfileSpec, make_instance, with_profiler_config
+from tools.profiling.workflow import ProfileSpec, make_instance, with_profiler_config
 
 logger = logging.getLogger(__name__)
 

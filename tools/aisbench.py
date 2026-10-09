@@ -29,16 +29,24 @@ import pandas as pd
 import regex as re
 from modelscope import snapshot_download  # type: ignore
 
-from tools.aisbench_perf_data import AisbenchTimingAdapter, TimingDataUnavailable
-from tools.benchmark_steady_state import (
+from tools.profiling.steady_state import (
+    AisbenchTimingAdapter,
     SteadyStateResult,
+    TimingDataUnavailable,
     TimingLoadStats,
     analyze_steady_state,
     render_terminal,
     steady_state_summary,
     unavailable_steady_state,
 )
-from tools.profile import ArtifactManager, ProfileController, ProfileSpec, ServeManifest, TargetSelector, profile_root
+from tools.profiling.workflow import (
+    ArtifactManager,
+    ProfileController,
+    ProfileSpec,
+    ServeManifest,
+    TargetSelector,
+    profile_root,
+)
 
 BENCHMARK_HOME = os.getenv("BENCHMARK_HOME", os.path.abspath("./benchmark"))
 DATASET_CONF_DIR = os.path.join(BENCHMARK_HOME, "ais_bench", "benchmark", "configs", "datasets")
@@ -83,7 +91,7 @@ class AisbenchRunner:
         if self.profile_targets:
             repo_root = str(Path(__file__).resolve().parents[1])
             env["PYTHONPATH"] = os.pathsep.join(filter(None, (repo_root, env.get("PYTHONPATH", ""))))
-            env["NIGHTLY_PROFILE_REQUEST_MARKER"] = str(self.profile_marker)
+            env["ASCEND_PROFILE_REQUEST_MARKER"] = str(self.profile_marker)
         self.proc: subprocess.Popen = subprocess.Popen(aisbench_cmd, shell=True, env=env)
 
     def __init__(self, model: str, port: int, aisbench_config: dict, host_ip: str = "localhost", verify=True):
@@ -177,9 +185,7 @@ class AisbenchRunner:
                 result = controller.finish()
                 print(f"Profiling case {self.profile_case_name} finished: {result}", flush=True)
                 try:
-                    ArtifactManager(profile_root(), self.profile_spec.output).collect(
-                        self.profile_case_name, self.profile_targets, result
-                    )
+                    ArtifactManager(profile_root()).collect(self.profile_case_name, self.profile_targets, result)
                 except Exception:
                     logging.exception("Failed to collect profiling artifacts; benchmark result is unchanged")
         if verify:
@@ -270,7 +276,7 @@ class AisbenchRunner:
             )
             if replacements != 1:
                 raise ValueError(f"Unsupported AISBench model type in {conf_path}")
-            content = "from tools.aisbench_profile_model import ProfiledVLLMCustomAPIChat\n" + content
+            content = "from tools.profiling.aisbench_request_marker import ProfiledVLLMCustomAPIChat\n" + content
         with open(conf_path_new, "w", encoding="utf-8") as f:
             f.write(content)
         print(f"The request config is\n {content}")

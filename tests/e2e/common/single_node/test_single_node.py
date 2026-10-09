@@ -24,7 +24,7 @@ from tests.e2e.common.single_node.single_node_config import (
 from tests.e2e.conftest import DisaggEpdProxy, RemoteEPDServer, RemoteOpenAIServer
 from tests.e2e.nightly.scripts.result_postprocess import postprocess_benchmark_results
 from tools.aisbench import run_aisbench_cases
-from tools.profile import ProfileSpec, install_manifest, make_instance, profile_root, with_profiler_config
+from tools.profiling.workflow import ProfileSpec, install_manifest, make_instance, profile_root, with_profiler_config
 
 logger = logging.getLogger(__name__)
 

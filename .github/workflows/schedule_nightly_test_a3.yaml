@@ -505,7 +505,7 @@ jobs:
         test_config: ${{ fromJSON(needs.setup-vars.outputs.multi_node) }}
     uses: ./.github/workflows/_e2e_profile_parse.yaml
     with:
-      runner: linux-aarch64-a2b3-1
+      runner: linux-arm64-cpu-32-hk
       image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a3'
       ref: ${{ github.sha }}
       display_name: ${{ matrix.test_config.config_file_path || matrix.test_config.name }}
@@ -531,7 +531,7 @@ jobs:
         test_config: ${{ fromJSON(needs.setup-vars.outputs.double_node) }}
     uses: ./.github/workflows/_e2e_profile_parse.yaml
     with:
-      runner: linux-aarch64-a2b3-1
+      runner: linux-arm64-cpu-32-hk
       image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a3'
       ref: ${{ github.sha }}
       display_name: ${{ matrix.test_config.config_file_path || matrix.test_config.name }}
@@ -557,7 +557,7 @@ jobs:
         test_config: ${{ fromJSON(needs.setup-vars.outputs.single_node) }}
     uses: ./.github/workflows/_e2e_profile_parse.yaml
     with:
-      runner: linux-aarch64-a2b3-1
+      runner: linux-arm64-cpu-32-hk
       image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a3'
       ref: ${{ github.sha }}
       display_name: ${{ matrix.test_config.config_file_path || matrix.test_config.name }}
@@ -583,7 +583,7 @@ jobs:
         test_config: ${{ fromJSON(needs.setup-vars.outputs.multi_card) }}
     uses: ./.github/workflows/_e2e_profile_parse.yaml
     with:
-      runner: linux-aarch64-a2b3-1
+      runner: linux-arm64-cpu-32-hk
       image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a3'
       ref: ${{ github.sha }}
       display_name: ${{ matrix.test_config.config_file_path || matrix.test_config.name }}

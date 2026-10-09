@@ -9,8 +9,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from tools import aisbench
-from tools.aisbench_perf_data import TimingLoadResult
-from tools.benchmark_steady_state import RequestTiming, TimingLoadStats
+from tools.profiling.steady_state import RequestTiming, TimingLoadResult, TimingLoadStats
 
 
 def test_profiled_request_config_loads_with_mmengine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -28,7 +27,8 @@ def test_profiled_request_config_loads_with_mmengine(tmp_path: Path, monkeypatch
         module.__spec__ = ModuleSpec(name, loader=None)
         monkeypatch.setitem(sys.modules, name, module)
     sys.modules["ais_bench.benchmark.models"].VLLMCustomAPIChat = VLLMCustomAPIChat
-    previous_profile_model = sys.modules.pop("tools.aisbench_profile_model", None)
+    module_name = "tools.profiling.aisbench_request_marker"
+    previous_profile_model = sys.modules.pop(module_name, None)
     try:
         request_conf = tmp_path / "vllm_api_stream_chat.py"
         request_conf.write_text(
@@ -76,17 +76,17 @@ def test_profiled_request_config_loads_with_mmengine(tmp_path: Path, monkeypatch
         popen = MagicMock()
         monkeypatch.setattr(aisbench.subprocess, "Popen", popen)
         runner._run_aisbench_task()
-        assert popen.call_args.kwargs["env"]["NIGHTLY_PROFILE_REQUEST_MARKER"] == str(runner.profile_marker)
-        monkeypatch.setenv("NIGHTLY_PROFILE_REQUEST_MARKER", str(runner.profile_marker))
+        assert popen.call_args.kwargs["env"]["ASCEND_PROFILE_REQUEST_MARKER"] == str(runner.profile_marker)
+        monkeypatch.setenv("ASCEND_PROFILE_REQUEST_MARKER", str(runner.profile_marker))
         model = config_class.fromfile(str(custom)).models[0]["type"]()
         assert asyncio.run(model.stream_infer({}, None)) == "stream"
         first_request = runner.profile_marker.read_text()
         assert asyncio.run(model.text_infer({}, None)) == "text"
         assert runner.profile_marker.read_text() == first_request
     finally:
-        sys.modules.pop("tools.aisbench_profile_model", None)
+        sys.modules.pop(module_name, None)
         if previous_profile_model is not None:
-            sys.modules["tools.aisbench_profile_model"] = previous_profile_model
+            sys.modules[module_name] = previous_profile_model
 
 
 @pytest.mark.parametrize("reasoning_effort", [None, "low"])
