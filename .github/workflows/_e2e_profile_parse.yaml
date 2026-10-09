@@ -61,8 +61,6 @@ jobs:
           PROFILE_KEY_PREFIX: ${{ inputs.prefix }}
         run: |
           set -euo pipefail
-          export PATH="/usr/local/python3.12.13/bin:$PATH"
-          echo "Python: $(command -v python3) ($(python3 --version))"
           python3 -c 'import boto3' 2>/dev/null || python3 -m pip install --quiet boto3
           python3 -m pip install --quiet esdk-obs-python || true
           python3 -m tools.profiling.workflow storage || true
@@ -98,8 +96,6 @@ jobs:
           PROFILE_KEY_PREFIX: ${{ inputs.prefix }}
         run: |
           set -euo pipefail
-          export PATH="/usr/local/python3.12.13/bin:$PATH"
-          echo "Python: $(command -v python3) ($(python3 --version))"
           echo '========== Profiling offline parse =========='
           echo "Node shard: ${{ matrix.node_index }}"
           echo "Available CPUs: $(nproc)"
@@ -135,8 +131,6 @@ jobs:
           PROFILE_KEY_PREFIX: ${{ inputs.prefix }}
         run: |
           set -euo pipefail
-          export PATH="/usr/local/python3.12.13/bin:$PATH"
-          echo "Python: $(command -v python3) ($(python3 --version))"
           python3 -c 'import boto3' 2>/dev/null || python3 -m pip install --quiet boto3
           python3 -m tools.profiling.workflow finalize \
             --root /tmp/profile_finalize \
