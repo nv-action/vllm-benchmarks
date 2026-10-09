@@ -159,6 +159,15 @@ a3:
         config_base_path: tests/e2e/cases/models/configs/GLM
         size: 2
 
+  single_node:
+    test_config:
+      # moved from a3-560t.multi_card: fast 2-card case (~30min) used to
+      # smoke-test the Nightly-A3 workflow dispatch path on this branch
+      - name: Qwen3-30B-QuaRot
+        os: linux-aarch64-nightly-a3-2
+        config_file_path: Qwen3-30B-QuaRot-eagle3.yaml
+        config_base_path: tests/e2e/cases/models/configs/Qwen
+
 a3-560t:
   single_node:
     test_config:
@@ -304,10 +313,6 @@ a3-560t:
       - name: qwen3-32b-int8
         os: linux-aarch64-a3-800i-4-cn12-001
         config_file_path: Qwen3-32B-Int8.yaml
-        config_base_path: tests/e2e/cases/models/configs/Qwen
-      - name: Qwen3-30B-QuaRot
-        os: linux-aarch64-nightly-a3-2
-        config_file_path: Qwen3-30B-QuaRot-eagle3.yaml
         config_base_path: tests/e2e/cases/models/configs/Qwen
       - name: Qwen3-32B-QuaRot
         os: linux-aarch64-nightly-a3-2
