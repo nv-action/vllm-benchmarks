@@ -37,16 +37,6 @@ on:
           - v0.22.1rc1
           - v0.21.0rc1
           - v0.20.2rc1
-      cann_version:
-        description: 'CANN base image version tag'
-        required: false
-        default: '9.1.0'
-        type: string
-      chips:
-        description: 'Chips to build (JSON array: ["a2","a3","310p","a5"])'
-        required: false
-        default: '["a2","a3","310p","a5"]'
-        type: string
 
 jobs:
   build_and_release_code:
@@ -103,17 +93,12 @@ jobs:
 
   build_and_release_wheel:
     name: build and release wheel
-    if: ${{ contains(fromJSON(inputs.chips || '["a2","a3","310p","a5"]'), 'a2') }}
     strategy:
       matrix:
-        runner_info:
-          - {runner: linux-amd64-cpu-4,   os: ubuntu-24.04}
-          - {runner: linux-aarch64-cpu-4, os: ubuntu-24.04-arm}
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
         python-version: ["3.10", "3.11", "3.12"]
 
-    runs-on: ${{ matrix.runner_info.runner }}
-    container:
-      image: swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-910b-ubuntu22.04-py3.12
+    runs-on: ${{ matrix.os }}
     steps:
       - name: checkout vllm-ascend
         if: ${{ github.event_name != 'workflow_dispatch' }}
@@ -128,6 +113,12 @@ jobs:
           repository: vllm-project/vllm-ascend
           submodules: recursive
           ref: ${{ inputs.tag }}
+
+      - name: Free up disk space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+        with:
+          tool-cache: true
+          docker-images: false
 
       - name: Build wheel
         run: |
@@ -190,17 +181,12 @@ jobs:
 
   build_and_release_wheel_a3:
     name: build and release wheel (A3)
-    if: ${{ contains(fromJSON(inputs.chips || '["a2","a3","310p","a5"]'), 'a3') }}
     strategy:
       matrix:
-        runner_info:
-          - {runner: linux-amd64-cpu-4,   os: ubuntu-24.04}
-          - {runner: linux-aarch64-cpu-4, os: ubuntu-24.04-arm}
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
         python-version: ["3.10", "3.11", "3.12"]
 
-    runs-on: ${{ matrix.runner_info.runner }}
-    container:
-      image: swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-a3-ubuntu22.04-py3.12
+    runs-on: ${{ matrix.os }}
     steps:
       - name: checkout vllm-ascend
         if: ${{ github.event_name != 'workflow_dispatch' }}
@@ -215,6 +201,12 @@ jobs:
           repository: vllm-project/vllm-ascend
           submodules: recursive
           ref: ${{ inputs.tag }}
+
+      - name: Free up disk space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+        with:
+          tool-cache: true
+          docker-images: false
 
       - name: Build wheel
         run: |
@@ -271,17 +263,12 @@ jobs:
 
   build_and_release_wheel_310p:
     name: build and release wheel (310P)
-    if: ${{ contains(fromJSON(inputs.chips || '["a2","a3","310p","a5"]'), '310p') }}
     strategy:
       matrix:
-        runner_info:
-          - {runner: linux-amd64-cpu-4,   os: ubuntu-24.04}
-          - {runner: linux-aarch64-cpu-4, os: ubuntu-24.04-arm}
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
         python-version: ["3.10", "3.11", "3.12"]
 
-    runs-on: ${{ matrix.runner_info.runner }}
-    container:
-      image: swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-310p-ubuntu22.04-py3.12
+    runs-on: ${{ matrix.os }}
     steps:
       - name: checkout vllm-ascend
         if: ${{ github.event_name != 'workflow_dispatch' }}
@@ -296,6 +283,12 @@ jobs:
           repository: vllm-project/vllm-ascend
           submodules: recursive
           ref: ${{ inputs.tag }}
+
+      - name: Free up disk space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+        with:
+          tool-cache: true
+          docker-images: false
 
       - name: Build wheel
         run: |
@@ -352,17 +345,12 @@ jobs:
 
   build_and_release_wheel_a5:
     name: build and release wheel (A5)
-    if: ${{ contains(fromJSON(inputs.chips || '["a2","a3","310p","a5"]'), 'a5') }}
     strategy:
       matrix:
-        runner_info:
-          - {runner: linux-amd64-cpu-4,   os: ubuntu-24.04}
-          - {runner: linux-aarch64-cpu-4, os: ubuntu-24.04-arm}
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
         python-version: ["3.10", "3.11", "3.12"]
 
-    runs-on: ${{ matrix.runner_info.runner }}
-    container:
-      image: swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-950-ubuntu22.04-py3.12
+    runs-on: ${{ matrix.os }}
     steps:
       - name: checkout vllm-ascend
         if: ${{ github.event_name != 'workflow_dispatch' }}
@@ -377,6 +365,12 @@ jobs:
           repository: vllm-project/vllm-ascend
           submodules: recursive
           ref: ${{ inputs.tag }}
+
+      - name: Free up disk space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+        with:
+          tool-cache: true
+          docker-images: false
 
       - name: Build wheel
         run: |
@@ -393,7 +387,7 @@ jobs:
           ls dist
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -435,7 +429,7 @@ jobs:
   generate_and_upload_variant_index:
     name: generate and upload variant index
     needs: [build_and_release_wheel, build_and_release_wheel_a3, build_and_release_wheel_310p, build_and_release_wheel_a5]
-    if: ${{ !cancelled() && !failure() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-24.04
     steps:
       - name: Download all variant wheels
