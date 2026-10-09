@@ -52,7 +52,7 @@ jobs:
       a3: ${{ steps.filter.outputs.a3 }}
       p310p: ${{ steps.filter.outputs.p310p }}
       a5: ${{ steps.filter.outputs.a5 }}
-      all: ${{ steps.filter.outputs.all }}
+      any: ${{ steps.filter.outputs.any }}
     steps:
       - name: Filter chips
         id: filter
@@ -68,10 +68,10 @@ jobs:
             echo "a3=$a3"
             echo "p310p=$p310p"
             echo "a5=$a5"
-            if [ "$a2" = true ] && [ "$a3" = true ] && [ "$p310p" = true ] && [ "$a5" = true ]; then
-              echo "all=true"
+            if [ "$a2" = true ] || [ "$a3" = true ] || [ "$p310p" = true ] || [ "$a5" = true ]; then
+              echo "any=true"
             else
-              echo "all=false"
+              echo "any=false"
             fi
           } >> "$GITHUB_OUTPUT"
 
@@ -211,7 +211,7 @@ jobs:
           path: dist/
 
       - name: Release
-        if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+        if: ${{ github.event_name == 'push' }}
         run: |
           python3 -m pip install twine
           python3 -m twine upload --verbose dist/*.whl -u __token__ -p ${{ secrets.PYPI_TOKEN }}
@@ -474,11 +474,11 @@ jobs:
     name: generate and upload variant index
     needs: [setup-chips, build_and_release_wheel, build_and_release_wheel_a3, build_and_release_wheel_310p, build_and_release_wheel_a5]
     if: ${{ !cancelled()
-          && needs.setup-chips.outputs.all == 'true'
-          && needs.build_and_release_wheel.result == 'success'
-          && needs.build_and_release_wheel_a3.result == 'success'
-          && needs.build_and_release_wheel_310p.result == 'success'
-          && needs.build_and_release_wheel_a5.result == 'success' }}
+          && needs.setup-chips.outputs.any == 'true'
+          && (needs.setup-chips.outputs.a2 != 'true' || needs.build_and_release_wheel.result == 'success')
+          && (needs.setup-chips.outputs.a3 != 'true' || needs.build_and_release_wheel_a3.result == 'success')
+          && (needs.setup-chips.outputs.p310p != 'true' || needs.build_and_release_wheel_310p.result == 'success')
+          && (needs.setup-chips.outputs.a5 != 'true' || needs.build_and_release_wheel_a5.result == 'success') }}
     runs-on: ubuntu-24.04
     steps:
       - name: Download all variant wheels
