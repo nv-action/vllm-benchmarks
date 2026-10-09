@@ -37,8 +37,44 @@ on:
           - v0.22.1rc1
           - v0.21.0rc1
           - v0.20.2rc1
+      chips:
+        description: 'Chips to build (JSON array: ["a2","a3","310p","a5"]). Default builds all.'
+        required: false
+        default: '["a2","a3","310p","a5"]'
+        type: string
 
 jobs:
+  setup-chips:
+    name: setup chips
+    runs-on: ubuntu-24.04
+    outputs:
+      a2: ${{ steps.filter.outputs.a2 }}
+      a3: ${{ steps.filter.outputs.a3 }}
+      p310p: ${{ steps.filter.outputs.p310p }}
+      a5: ${{ steps.filter.outputs.a5 }}
+      all: ${{ steps.filter.outputs.all }}
+    steps:
+      - name: Filter chips
+        id: filter
+        run: |
+          CHIPS='${{ inputs.chips || '["a2","a3","310p","a5"]' }}'
+          has() { echo "$CHIPS" | jq -e --arg c "$1" 'index($c) != null' >/dev/null && echo true || echo false; }
+          a2=$(has a2)
+          a3=$(has a3)
+          p310p=$(has 310p)
+          a5=$(has a5)
+          {
+            echo "a2=$a2"
+            echo "a3=$a3"
+            echo "p310p=$p310p"
+            echo "a5=$a5"
+            if [ "$a2" = true ] && [ "$a3" = true ] && [ "$p310p" = true ] && [ "$a5" = true ]; then
+              echo "all=true"
+            else
+              echo "all=false"
+            fi
+          } >> "$GITHUB_OUTPUT"
+
   build_and_release_code:
     name: release code
     runs-on: linux-amd64-cpu-8-hk
@@ -93,6 +129,8 @@ jobs:
 
   build_and_release_wheel:
     name: build and release wheel
+    needs: [setup-chips]
+    if: ${{ needs.setup-chips.outputs.a2 == 'true' }}
     strategy:
       matrix:
         os: [ubuntu-24.04, ubuntu-24.04-arm]
@@ -181,6 +219,8 @@ jobs:
 
   build_and_release_wheel_a3:
     name: build and release wheel (A3)
+    needs: [setup-chips]
+    if: ${{ needs.setup-chips.outputs.a3 == 'true' }}
     strategy:
       matrix:
         os: [ubuntu-24.04, ubuntu-24.04-arm]
@@ -263,6 +303,8 @@ jobs:
 
   build_and_release_wheel_310p:
     name: build and release wheel (310P)
+    needs: [setup-chips]
+    if: ${{ needs.setup-chips.outputs.p310p == 'true' }}
     strategy:
       matrix:
         os: [ubuntu-24.04, ubuntu-24.04-arm]
@@ -345,6 +387,8 @@ jobs:
 
   build_and_release_wheel_a5:
     name: build and release wheel (A5)
+    needs: [setup-chips]
+    if: ${{ needs.setup-chips.outputs.a5 == 'true' }}
     strategy:
       matrix:
         os: [ubuntu-24.04, ubuntu-24.04-arm]
@@ -428,8 +472,13 @@ jobs:
 
   generate_and_upload_variant_index:
     name: generate and upload variant index
-    needs: [build_and_release_wheel, build_and_release_wheel_a3, build_and_release_wheel_310p, build_and_release_wheel_a5]
-    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+    needs: [setup-chips, build_and_release_wheel, build_and_release_wheel_a3, build_and_release_wheel_310p, build_and_release_wheel_a5]
+    if: ${{ !cancelled()
+          && needs.setup-chips.outputs.all == 'true'
+          && needs.build_and_release_wheel.result == 'success'
+          && needs.build_and_release_wheel_a3.result == 'success'
+          && needs.build_and_release_wheel_310p.result == 'success'
+          && needs.build_and_release_wheel_a5.result == 'success' }}
     runs-on: ubuntu-24.04
     steps:
       - name: Download all variant wheels
