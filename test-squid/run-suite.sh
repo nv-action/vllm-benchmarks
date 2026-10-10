@@ -74,10 +74,12 @@ run_timed() {
 }
 
 # 判定包管理器：apt / yum / dnf
+# 注意：openEuler 同时提供 dnf 与 yum（yum 为兼容壳），而真实 CI
+# （_build_csrc_cache.yaml openeuler 分支）用的是 `yum install`，故优先 yum 以对齐真实命令路径。
 detect_pkgmgr() {
     if command -v apt-get >/dev/null 2>&1; then echo apt
-    elif command -v dnf >/dev/null 2>&1; then echo dnf
     elif command -v yum >/dev/null 2>&1; then echo yum
+    elif command -v dnf >/dev/null 2>&1; then echo dnf
     else echo none; fi
 }
 
@@ -108,8 +110,11 @@ case "$PKGMGR" in
         run_timed apt-install-zstd download apt-get install -y zstd
         ;;
     dnf|yum)
+        # 与 apt 分支对称：拆成「刷元数据」+「装包」两个阶段
+        # _build_csrc_cache.yaml openeuler 分支的真实命令为 `yum install -y git zstd`
         log "== $PKGMGR 下载链路 =="
-        run_timed "$PKGMGR-update" download "$PKGMGR" install -y zstd
+        run_timed "$PKGMGR-makecache" download "$PKGMGR" makecache
+        run_timed "$PKGMGR-install-zstd" download "$PKGMGR" install -y zstd
         ;;
     *)
         log "[skip] 未识别包管理器"
@@ -126,6 +131,17 @@ export PIP_INDEX_URL
 export PYTORCH_INDEX_URL
 export ASCEND_INDEX_URL
 python3 -m pip config set global.index-url "$PIP_INDEX_URL" >/dev/null 2>&1 || true
+
+# 2.0 python3/pip 引导：部分镜像缺 python3 或缺 pip 模块，先补齐再测 pip 链路
+pip_bootstrap() {
+    python3 -m pip --version >/dev/null 2>&1 && return 0
+    case "$PKGMGR" in
+        apt) apt-get update -y && apt-get install -y python3 python3-pip ;;
+        dnf|yum) "$PKGMGR" install -y python3 python3-pip ;;
+        *) return 1 ;;
+    esac
+}
+run_timed pip-bootstrap download pip_bootstrap
 
 # 2.1 pip 安装小轮子（mock 掉 requirements-dev.txt 全量）
 run_timed pip-install-small download python3 -m pip install --no-cache-dir zstandard
@@ -197,7 +213,9 @@ probe() {
     local url="$1"
     local start end sec
     start=$(date +%s)
-    code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 -I "$url" 2>/dev/null)
+    # 用 GET 而非 HEAD：实测经 squid 代理时部分站点（github.com）对 HEAD
+    # 响应缓慢/超时，但 GET 数据面正常（git ls-remote 1s 即通过）
+    code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "$url" 2>/dev/null)
     status=$?
     end=$(date +%s)
     sec=$((end - start))
