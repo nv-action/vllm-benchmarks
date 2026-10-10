@@ -1,0 +1,108 @@
+name: Debug runner environment
+
+run-name: Debug runner environment (${{ inputs.hold_minutes }}m)
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: Exact container image reference
+        required: true
+        type: string
+        default: >-
+          swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-main-a2@sha256:383170e7d1f1aab5619343200591244602f90e3b415bfd103e2249d9ee735fac
+      hold_minutes:
+        description: How long to keep runners alive
+        required: true
+        default: '120'
+        type: choice
+        options:
+          - '60'
+          - '120'
+          - '180'
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash -el {0}
+
+jobs:
+  debug:
+    name: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - linux-aarch64-a2b3-1
+          - linux-arm64-cpu-32-hk
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 190
+    container:
+      image: ${{ inputs.image }}
+    steps:
+      - name: Print environment baseline
+        env:
+          EXPECTED_IMAGE: ${{ inputs.image }}
+          RUNNER_LABEL: ${{ matrix.runner }}
+        run: |
+          set +e
+
+          echo '========== Runner =========='
+          echo "runner_label=$RUNNER_LABEL"
+          echo "runner_name=${{ runner.name }}"
+          echo "runner_arch=${{ runner.arch }}"
+          echo "hostname=$(hostname)"
+          echo "expected_image=$EXPECTED_IMAGE"
+          uname -a
+          id
+
+          echo '========== Step environment =========='
+          env | sort
+
+          echo '========== PID 1 environment =========='
+          tr '\0' '\n' < /proc/1/environ | sort
+
+          echo '========== Python resolution =========='
+          echo "PATH=$PATH"
+          type -a python3
+          command -v python3
+          readlink -f "$(command -v python3)"
+          python3 -VV
+          python3 -m pip --version
+          python3 -c 'import sys; print(sys.executable); print(sys.path)'
+          python3 -c 'import torch_npu; print(torch_npu.__file__)'
+          python3 -c 'import boto3; print(boto3.__file__)'
+
+          echo '========== Login/non-login shells =========='
+          bash --noprofile --norc -c 'echo "non-login PATH=$PATH"; type -a python3; python3 -VV; python3 -m pip --version'
+          bash -lc 'echo "login PATH=$PATH"; type -a python3; python3 -VV; python3 -m pip --version'
+
+          echo '========== Relevant files =========='
+          ls -l /usr/bin/python3 /usr/local/bin/python3 /usr/local/python*/bin/python3 2>/dev/null
+          sha256sum /etc/profile /root/.profile /root/.bashrc /usr/local/python*/bin/python3 2>/dev/null
+
+          echo '========== Mounts =========='
+          findmnt
+          df -hT
+          touch /tmp/profile-debug-ready
+
+      - name: Hold runner for interactive debugging
+        env:
+          HOLD_MINUTES: ${{ inputs.hold_minutes }}
+        run: |
+          echo '========== Runner ready =========='
+          echo "runner=${{ matrix.runner }}"
+          echo "runner_name=${{ runner.name }}"
+          echo "hostname=$(hostname)"
+          echo 'Create /tmp/stop-profile-debug to release this runner early.'
+
+          for ((minute = 1; minute <= HOLD_MINUTES; minute++)); do
+            if [[ -f /tmp/stop-profile-debug ]]; then
+              echo 'Stop marker detected; releasing runner.'
+              exit 0
+            fi
+            echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] debug heartbeat ${minute}/${HOLD_MINUTES}"
+            sleep 60
+          done
