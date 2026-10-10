@@ -1,0 +1,208 @@
+name: Debug runner environment
+
+run-name: Compare CPU and NPU runner environments
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash -el {0}
+
+env:
+  PROFILE_SOURCE_REF: e64874f66630eb39a949461be6992cda244604da
+
+jobs:
+  diagnose:
+    name: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - linux-aarch64-a2b3-1
+          - linux-arm64-cpu-32-hk
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    container:
+      image: >-
+        swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-main-a2@sha256:383170e7d1f1aab5619343200591244602f90e3b415bfd103e2249d9ee735fac
+    steps:
+      - name: Checkout identical profiling source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.PROFILE_SOURCE_REF }}
+          path: profile-source
+
+      - name: Compare system and Python environments
+        env:
+          RUNNER_LABEL: ${{ matrix.runner }}
+        run: |
+          set +e
+
+          echo '========== RUNNER =========='
+          echo "runner_label=$RUNNER_LABEL"
+          echo "runner_name=${{ runner.name }}"
+          echo "runner_arch=${{ runner.arch }}"
+          echo "source_ref=$PROFILE_SOURCE_REF"
+          uname -a
+          id
+
+          echo '========== CGROUP LIMITS =========='
+          nproc
+          grep -E 'Cpus_allowed_list|Mems_allowed_list' /proc/self/status
+          for file in cpu.max cpuset.cpus.effective memory.max memory.current; do
+            if [[ -f "/sys/fs/cgroup/$file" ]]; then
+              printf '%s=' "$file"
+              cat "/sys/fs/cgroup/$file"
+            fi
+          done
+
+          echo '========== SAFE PATH VARIABLES =========='
+          printf 'PATH=%s\n' "$PATH"
+          printf 'PYTHONPATH=%s\n' "${PYTHONPATH:-<unset>}"
+          printf 'LD_LIBRARY_PATH=%s\n' "${LD_LIBRARY_PATH:-<unset>}"
+          printf 'ASCEND_HOME_PATH=%s\n' "${ASCEND_HOME_PATH:-<unset>}"
+          printf 'ASCEND_TOOLKIT_HOME=%s\n' "${ASCEND_TOOLKIT_HOME:-<unset>}"
+
+          echo '========== SHELL MODES =========='
+          echo '--- current GitHub Actions login shell ---'
+          printf 'PATH=%s\n' "$PATH"
+          type -a python3
+          echo '--- clean non-login shell ---'
+          bash --noprofile --norc -c 'printf "PATH=%s\n" "$PATH"; type -a python3'
+          echo '--- login shell ---'
+          bash -lc 'printf "PATH=%s\n" "$PATH"; type -a python3'
+
+          echo '========== PYTHON RESOLUTION =========='
+          command -v python3
+          readlink -f "$(command -v python3)"
+          sha256sum "$(readlink -f "$(command -v python3)")"
+          python3 -VV
+          python3 -m pip --version
+          python3 - <<'PY'
+          import importlib.metadata
+          import importlib.util
+          import site
+          import sys
+          import sysconfig
+
+          print(f"sys.executable={sys.executable}")
+          print("sys.path=")
+          for entry in sys.path:
+              print(f"  {entry}")
+          print(f"site.getsitepackages()={site.getsitepackages()}")
+          print(f"site.getusersitepackages()={site.getusersitepackages()}")
+          print(f"sysconfig.purelib={sysconfig.get_path('purelib')}")
+          print(f"sysconfig.platlib={sysconfig.get_path('platlib')}")
+          for package in ("torch", "torch-npu", "boto3", "esdk-obs-python"):
+              try:
+                  print(f"package[{package}]={importlib.metadata.version(package)}")
+              except importlib.metadata.PackageNotFoundError:
+                  print(f"package[{package}]=<missing>")
+          for module in ("torch", "torch_npu", "boto3", "obs"):
+              spec = importlib.util.find_spec(module)
+              print(f"spec[{module}]={None if spec is None else spec.origin}")
+              if spec and spec.submodule_search_locations:
+                  print(f"locations[{module}]={list(spec.submodule_search_locations)}")
+          PY
+
+          echo '========== RELEVANT FILE FINGERPRINTS =========='
+          for file in /etc/profile /etc/bash.bashrc /root/.profile /root/.bashrc; do
+            if [[ -f "$file" ]]; then
+              stat -c '%n mode=%a owner=%u:%g size=%s' "$file"
+              sha256sum "$file"
+            fi
+          done
+
+          echo '========== ASCEND INSTALLATION =========='
+          for path in \
+            /usr/local/Ascend \
+            /usr/local/Ascend/ascend-toolkit \
+            /usr/local/Ascend/ascend-toolkit/latest \
+            /usr/local/Ascend/driver; do
+            if [[ -e "$path" ]]; then
+              ls -ld "$path"
+              readlink -f "$path"
+            else
+              echo "$path <missing>"
+            fi
+          done
+          if command -v ldconfig >/dev/null 2>&1; then
+            ldconfig -p | grep -E 'libascendcl|libhccl|libprof|libmsprof|libacl' || true
+          fi
+
+          echo '========== RELEVANT MOUNT TARGETS =========='
+          findmnt -rn -o TARGET,FSTYPE | grep -E '^(/usr/local|/workspace|/__w|/dev)(/| |$)' || true
+
+          echo '========== NPU DEVICE NAMES =========='
+          for device in /dev/davinci* /dev/devmm_svm /dev/hisi_hdc; do
+            if [[ -e "$device" ]]; then
+              stat -c '%n type=%F mode=%a' "$device"
+            fi
+          done
+
+      - name: Reproduce profiling imports
+        working-directory: profile-source
+        run: |
+          set +e
+
+          echo '========== PROFILE MODULE IMPORT =========='
+          python3 - <<'PY'
+          import traceback
+
+          try:
+              import tools.profiling.workflow
+              print("tools.profiling.workflow: OK")
+          except Exception:
+              print("tools.profiling.workflow: FAILED")
+              traceback.print_exc()
+          PY
+
+          echo '========== TORCH_NPU IMPORT =========='
+          python3 - <<'PY'
+          import traceback
+
+          try:
+              import torch_npu
+              print(f"torch_npu: OK ({torch_npu.__file__})")
+          except Exception:
+              print("torch_npu: FAILED")
+              traceback.print_exc()
+          PY
+
+          echo '========== PROFILER ANALYSE IMPORT =========='
+          python3 - <<'PY'
+          import traceback
+
+          try:
+              from torch_npu.profiler.profiler import analyse
+              print(f"torch_npu.profiler.profiler.analyse: OK ({analyse.__module__})")
+          except Exception:
+              print("torch_npu.profiler.profiler.analyse: FAILED")
+              traceback.print_exc()
+          PY
+
+          echo '========== TORCH_NPU NATIVE LIBRARIES =========='
+          python3 - <<'PY'
+          import importlib.util
+          import pathlib
+          import subprocess
+
+          spec = importlib.util.find_spec("torch_npu")
+          if spec is None or not spec.submodule_search_locations:
+              print("torch_npu package directory: <missing>")
+              raise SystemExit(0)
+
+          package_root = pathlib.Path(next(iter(spec.submodule_search_locations)))
+          print(f"torch_npu package directory: {package_root}")
+          libraries = sorted(package_root.rglob("_C*.so"))
+          libraries.extend(sorted(package_root.rglob("libtorch_npu.so")))
+          if not libraries:
+              print("native libraries: <missing>")
+          for library in dict.fromkeys(libraries):
+              print(f"--- ldd {library} ---")
+              subprocess.run(["ldd", str(library)], check=False)
+          PY
