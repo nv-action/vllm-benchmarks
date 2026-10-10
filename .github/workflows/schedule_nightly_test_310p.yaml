@@ -279,7 +279,7 @@ jobs:
         test_config: ${{ fromJSON(needs.setup-vars.outputs.single_node) }}
     uses: ./.github/workflows/_e2e_profile_parse.yaml
     with:
-      runner: linux-arm64-cpu-32-hk
+      runner: linux-arm64-cpu-16
       image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-310p'
       ref: ${{ github.sha }}
       display_name: ${{ matrix.test_config.config_file_path || matrix.test_config.name }}
