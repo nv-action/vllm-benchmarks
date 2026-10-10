@@ -23,7 +23,7 @@ jobs:
       matrix:
         runner:
           - linux-aarch64-a2b3-1
-          - linux-arm64-cpu-32-hk
+          - linux-arm64-cpu-16
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     container:
