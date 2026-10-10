@@ -125,7 +125,7 @@ def test_offline_parse_uses_one_shard_per_node(tmp_path, fake_obs, monkeypatch):
     calls = _mock_analyse(monkeypatch)
     root = tmp_path / "parser"
 
-    assert profile.RANK_PARSE_CONCURRENCY == 2
+    assert profile.RANK_PARSE_CONCURRENCY == 1
     assert profile.plan_artifact_shards(root, "nightly/run", "bucket", "endpoint", "region") == [0, 1]
     for node_index in (0, 1):
         shard = profile.parse_artifacts(root, "nightly/run", "bucket", "endpoint", "region", node_index=node_index)
