@@ -98,7 +98,13 @@ def archive_path(source: Path, destination: Path) -> None:
             ]
             for name in files:
                 item = root_path / name
-                if name == ".env" or name.endswith((".pem", ".key")) or item.is_symlink() or not item.is_file():
+                if (
+                    item == destination
+                    or name == ".env"
+                    or name.endswith((".pem", ".key"))
+                    or item.is_symlink()
+                    or not item.is_file()
+                ):
                     continue
                 archive.add(item, arcname=item.relative_to(source), recursive=False)
 
