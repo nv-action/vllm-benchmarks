@@ -20,14 +20,15 @@ jobs:
       - name: Checkout current profiling implementation
         uses: actions/checkout@v7
       - name: Check boto3 and install only if missing
-        timeout-minutes: 3
+        timeout-minutes: 6
         run: |
           echo '========== OBS dependency check =========='
           if python3 -c 'import boto3; print("Using existing boto3 " + boto3.__version__)'; then
             echo 'Reusing the image dependency; no package download needed.'
           else
-            echo 'boto3 is unavailable; installing with a 120-second limit.'
-            timeout 120s python3 -m pip install --disable-pip-version-check --no-input \
+            echo 'boto3 is unavailable; installing from Huawei Cloud PyPI with a 300-second limit.'
+            timeout 300s python3 -m pip install --disable-pip-version-check --no-input \
+              --index-url https://repo.huaweicloud.com/repository/pypi/simple \
               --timeout 15 --retries 1 boto3
             python3 -c 'import boto3; print("Installed boto3 " + boto3.__version__)'
           fi
