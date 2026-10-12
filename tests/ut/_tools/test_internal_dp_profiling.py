@@ -2,7 +2,7 @@ import json
 from types import SimpleNamespace
 
 from tests.e2e.common.multi_node.internal_dp.profiling import configure_profiling
-from tools.profiling.workflow import ProfileSpec, ServeManifest
+from tools.profiling.capture import ProfileSpec, ServeManifest
 
 
 def test_headless_internal_dp_is_collected_in_all_scope(tmp_path, monkeypatch):
@@ -22,16 +22,16 @@ def test_headless_internal_dp_is_collected_in_all_scope(tmp_path, monkeypatch):
     instances = ServeManifest.read(tmp_path / "serve_manifest.json").instances
     assert [instance.name for instance in instances] == ["dp-0", "dp-1"]
     assert {instance.endpoint for instance in instances} == {"http://leader:8080"}
-    assert len({instance.profile_dir for instance in instances}) == 2
+    assert len({instance.raw_trace_dir for instance in instances}) == 2
     leader_profiler = json.loads(config.server_cmd[config.server_cmd.index("--profiler-config") + 1])
-    assert leader_profiler["torch_profiler_dir"] == instances[0].profile_dir
+    assert leader_profiler["torch_profiler_dir"] == instances[0].raw_trace_dir
 
     config.cur_node = worker
     config.is_master = False
     config.server_cmd = ["--headless"]
     configure_profiling(config, spec)
     worker_profiler = json.loads(config.server_cmd[config.server_cmd.index("--profiler-config") + 1])
-    assert worker_profiler["torch_profiler_dir"] == instances[1].profile_dir
+    assert worker_profiler["torch_profiler_dir"] == instances[1].raw_trace_dir
 
 
 def test_headless_internal_dp_keeps_representative_behavior(tmp_path, monkeypatch):

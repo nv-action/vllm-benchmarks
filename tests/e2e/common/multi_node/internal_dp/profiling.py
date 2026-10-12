@@ -1,6 +1,12 @@
 """Profiling setup for multi-node internal DP test servers."""
 
-from tools.profiling.workflow import ProfileSpec, ServeInstance, install_manifest, make_instance, with_profiler_config
+from tools.profiling.capture import (
+    ProfileSpec,
+    ServeInstance,
+    ServeManifest,
+    configure_profiler_command,
+    profile_root,
+)
 
 
 def configure_profiling(config, spec: ProfileSpec) -> None:
@@ -20,15 +26,15 @@ def configure_profiling(config, spec: ProfileSpec) -> None:
             role = "decode"
             rank = config.disagg_cfg.decoder_indices.index(node.index)
         else:
-            role, rank = "standalone", node.index
-        name = f"{role}-{rank}" if role != "standalone" else f"dp-{rank}"
+            role, rank = "unified", node.index
+        name = f"{role}-{rank}" if role != "unified" else f"dp-{rank}"
         port = (node.envs or {}).get("SERVER_PORT", config.server_port)
         # Internal DP's headless rank has no HTTP API; the leader controls both engines.
         endpoint = f"http://{leader.ip}:{leader_port}" if node.headless else f"http://{node.ip}:{port}"
-        instances[node.index] = make_instance(name, endpoint, role, rank, node.index)
+        instances[node.index] = ServeInstance.from_endpoint(name, endpoint, role, rank, node.index)
 
     if config.is_master:
-        install_manifest(list(instances.values()))
+        ServeManifest(tuple(instances.values())).write(profile_root() / "serve_manifest.json")
     current = instances.get(config.cur_node.index)
     if current:
-        config.server_cmd = with_profiler_config(config.server_cmd, current, spec)
+        config.server_cmd = configure_profiler_command(config.server_cmd, current, spec)

@@ -29,6 +29,13 @@ import pandas as pd
 import regex as re
 from modelscope import snapshot_download  # type: ignore
 
+from tools.profiling.capture import (
+    ProfileController,
+    ProfileSpec,
+    ServeManifest,
+    collect_raw_artifacts,
+    profile_root,
+)
 from tools.profiling.steady_state import (
     AisbenchTimingAdapter,
     SteadyStateResult,
@@ -38,14 +45,6 @@ from tools.profiling.steady_state import (
     render_terminal,
     steady_state_summary,
     unavailable_steady_state,
-)
-from tools.profiling.workflow import (
-    ArtifactManager,
-    ProfileController,
-    ProfileSpec,
-    ServeManifest,
-    TargetSelector,
-    profile_root,
 )
 
 BENCHMARK_HOME = os.getenv("BENCHMARK_HOME", os.path.abspath("./benchmark"))
@@ -110,22 +109,7 @@ class AisbenchRunner:
         self.port = port
         self.host_ip = host_ip
         self.task_type = aisbench_config["case_type"]
-        self.profile_spec = ProfileSpec()
-        self.profile_targets = ()
-        try:
-            self.profile_spec = ProfileSpec.from_env()
-            if self.profile_spec.includes(self.case_name, self.task_type):
-                manifest_path = profile_root() / "serve_manifest.json"
-                if manifest_path.exists():
-                    self.profile_targets = TargetSelector.select(
-                        ServeManifest.read(manifest_path), self.profile_spec.scope
-                    )
-                else:
-                    logging.warning("No serve manifest for profiling; benchmark runs without profiling")
-        except Exception:
-            logging.exception("Profiling setup failed; benchmark runs without profiling")
-        safe_profile_case = re.sub(r"[^A-Za-z0-9_.-]", "_", self.profile_case_name)
-        self.profile_marker = profile_root() / f"{safe_profile_case}.first_request"
+        self._prepare_profiling()
         self.request_conf = aisbench_config["request_conf"]
         self.dataset_conf = aisbench_config.get("dataset_conf")
         self.num_prompts = aisbench_config.get("num_prompts")
@@ -150,7 +134,6 @@ class AisbenchRunner:
         self.result_line = None
         self.performance_result_dir: Path | None = None
         self.performance_dataset_type: str | None = None
-        self.steady_state_result: SteadyStateResult | None = None
         self._init_dataset_conf()
         self._init_request_conf()
         if self.task_type == "spec_decode":
@@ -159,35 +142,12 @@ class AisbenchRunner:
 
             self.metrics_server = _MetricsServer(self.host_ip, self.port)
             self.metrics_baseline = capture_baseline(self.metrics_server, len(self.spec_decode_baseline))
-        controller = None
-        if self.profile_targets:
-            try:
-                self.profile_marker.parent.mkdir(parents=True, exist_ok=True)
-                self.profile_marker.unlink(missing_ok=True)
-                target_names = ", ".join(target.name for target in self.profile_targets)
-                print(
-                    f"\n{'=' * 60}\n"
-                    f"Profiling case {self.profile_case_name}: targets={target_names}, "
-                    f"start-after={self.profile_spec.start_after}s, duration={self.profile_spec.duration}s\n"
-                    f"{'=' * 60}",
-                    flush=True,
-                )
-                controller = ProfileController(self.profile_spec, self.profile_targets, self.profile_marker)
-                controller.start()
-            except Exception:
-                logging.exception("Profiling controller could not start; benchmark result is unchanged")
-                controller = None
+        controller = self._start_profiling()
         try:
             self._run_aisbench_task()
             self._wait_for_task()
         finally:
-            if controller:
-                result = controller.finish()
-                print(f"Profiling case {self.profile_case_name} finished: {result}", flush=True)
-                try:
-                    ArtifactManager(profile_root()).collect(self.profile_case_name, self.profile_targets, result)
-                except Exception:
-                    logging.exception("Failed to collect profiling artifacts; benchmark result is unchanged")
+            self._finish_profiling(controller)
         if verify:
             self.baseline = aisbench_config.get("baseline", 1)
             if self.task_type == "accuracy":
@@ -199,6 +159,56 @@ class AisbenchRunner:
             if self.task_type == "spec_decode":
                 self.threshold = aisbench_config.get("threshold", 0.05)
                 self._spec_decode_verify()
+
+    def _prepare_profiling(self) -> None:
+        """Resolve optional profiling targets without blocking benchmark setup."""
+        self.profile_spec = ProfileSpec()
+        self.profile_targets = ()
+        try:
+            self.profile_spec = ProfileSpec.from_env()
+            if not self.profile_spec.includes_case(self.case_name, self.task_type):
+                return
+            root = profile_root()
+            safe_profile_case = re.sub(r"[^A-Za-z0-9_.-]", "_", self.profile_case_name)
+            self.profile_marker = root / f"{safe_profile_case}.first_request"
+            manifest_path = root / "serve_manifest.json"
+            if manifest_path.exists():
+                self.profile_targets = ServeManifest.read(manifest_path).select_targets(self.profile_spec.scope)
+            else:
+                logging.warning("No serve manifest for profiling; benchmark runs without profiling")
+        except Exception as exc:
+            logging.warning("Profiling setup failed (%s); benchmark runs without profiling", type(exc).__name__)
+
+    def _start_profiling(self) -> ProfileController | None:
+        """Reset this case's marker and start its optional profiling controller."""
+        if not self.profile_targets:
+            return None
+        try:
+            self.profile_marker.parent.mkdir(parents=True, exist_ok=True)
+            self.profile_marker.unlink(missing_ok=True)
+            target_names = ", ".join(target.name for target in self.profile_targets)
+            print(
+                f"Profiling case {self.profile_case_name}: targets={target_names}, "
+                f"start-after={self.profile_spec.start_after}s, duration={self.profile_spec.duration}s",
+                flush=True,
+            )
+            controller = ProfileController(self.profile_spec, self.profile_targets, self.profile_marker)
+            controller.start()
+            return controller
+        except Exception as exc:
+            logging.warning("Profiling start failed (%s); benchmark runs without profiling", type(exc).__name__)
+            return None
+
+    def _finish_profiling(self, controller: ProfileController | None) -> None:
+        """Stop profiling and collect results without masking benchmark failures."""
+        if controller is None:
+            return
+        try:
+            result = controller.finish()
+            print(f"Profiling case {self.profile_case_name} finished: status={result['status']}", flush=True)
+            collect_raw_artifacts(profile_root(), self.profile_case_name, self.profile_targets, result)
+        except Exception as exc:
+            logging.warning("Profiling collection failed (%s); benchmark result is unchanged", type(exc).__name__)
 
     def _init_dataset_conf(self):
         if self.task_type in ("accuracy", "spec_decode"):
@@ -275,8 +285,10 @@ class AisbenchRunner:
                 count=1,
             )
             if replacements != 1:
-                raise ValueError(f"Unsupported AISBench model type in {conf_path}")
-            content = "from tools.profiling.aisbench_request_marker import ProfiledVLLMCustomAPIChat\n" + content
+                logging.warning("Unsupported AISBench model type; benchmark runs without profiling")
+                self.profile_targets = ()
+            else:
+                content = "from tools.profiling.aisbench_request_marker import ProfiledVLLMCustomAPIChat\n" + content
         with open(conf_path_new, "w", encoding="utf-8") as f:
             f.write(content)
         print(f"The request config is\n {content}")
@@ -338,13 +350,16 @@ class AisbenchRunner:
         self.result = [self.result_csv, self.result_json]
 
     def _emit_steady_state(self, result: SteadyStateResult, timing_stats: TimingLoadStats | None) -> None:
-        self.steady_state_result = result
-        safe_case_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(self.case_name)).strip("._") or "unknown"
+        safe_case_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(self.profile_case_name)).strip("._") or "unknown"
         output_dir = STEADY_STATE_OUTPUT_DIR / safe_case_name
-        output_dir.mkdir(parents=True, exist_ok=True)
         output_file = output_dir / "summary.json"
-        with output_file.open("w", encoding="utf-8") as file:
-            json.dump(steady_state_summary(self.case_name, result), file, indent=2, ensure_ascii=False)
+        try:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            with output_file.open("w", encoding="utf-8") as file:
+                json.dump(steady_state_summary(self.case_name, result), file, indent=2, ensure_ascii=False)
+        except Exception as exc:
+            logging.warning("Steady-state summary could not be saved (%s)", type(exc).__name__)
+            output_file = None
         print(
             render_terminal(
                 self.case_name,
@@ -370,13 +385,7 @@ class AisbenchRunner:
             result = analyze_steady_state(load_result.timings, target_concurrency=self.batch_size)
         except TimingDataUnavailable as exc:
             result = unavailable_steady_state(target_concurrency=self.batch_size, reason=str(exc))
-        except Exception as exc:
-            logging.exception("Failed to analyze steady state; benchmark result is unchanged")
-            result = unavailable_steady_state(target_concurrency=self.batch_size, reason=f"analysis failed: {exc}")
-        try:
-            self._emit_steady_state(result, timing_stats)
-        except Exception:
-            logging.exception("Failed to render steady state; benchmark result is unchanged")
+        self._emit_steady_state(result, timing_stats)
 
     def _get_result_accuracy(self):
         acc_file = re.search(r"write csv to (.*)", self.result_line).group(1)
@@ -392,7 +401,12 @@ class AisbenchRunner:
         try:
             self._get_result_performance()
         finally:
-            self._try_analyze_steady_state()
+            try:
+                self._try_analyze_steady_state()
+            except Exception as exc:
+                logging.warning(
+                    "Unexpected steady-state failure (%s); benchmark result is unchanged", type(exc).__name__
+                )
         output_throughput = self.result_json["Output Token Throughput"]["total"].replace("token/s", "")
         assert float(output_throughput) >= self.threshold * self.baseline, (
             "Performance verification failed. "

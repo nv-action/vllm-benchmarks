@@ -26,22 +26,19 @@ def test_nightly_profiling_jobs(soc, producers):
 
     for stage in producers:
         producer = workflow["jobs"][f"{stage}-tests"]
-        parser = workflow["jobs"][f"parse-{stage}-profile"]
-        assert "inputs.profile_options_json" in producer["with"]["profile_enabled"]
-        assert producer["with"]["profile_start_after"].endswith("'15' }}")
-        assert producer["with"]["profile_duration"].endswith("'8' }}")
-        assert producer["with"]["profile_output"].endswith("'parsed' }}")
-        assert "OBS_ACCESS_KEY_ID" in producer["secrets"]
+        parser = workflow["jobs"][f"parse-{stage}-profiles"]
+        assert producer["with"]["profile_options_json"] == "${{ needs.setup-vars.outputs.profile_options }}"
+        assert "HW_OBS_PROFILE_AK" in producer["secrets"]
+        assert "HW_OBS_PROFILE_SK" in producer["secrets"]
         assert parser["uses"] == "./.github/workflows/_e2e_profile_parse.yaml"
         assert f"{stage}-tests" in parser["needs"]
-        assert ".enabled" in parser["if"]
-        assert "== 'parsed'" in parser["if"]
+        assert "needs.setup-vars.outputs.profile_parse == 'true'" in parser["if"]
         assert parser["with"]["image"] == producer["with"]["image"]
         assert parser["with"]["ref"] == "${{ github.sha }}"
         assert parser["with"]["display_name"] == "${{ matrix.test_config.config_file_path || matrix.test_config.name }}"
         assert "matrix.vllm_ascend_branch" in parser["with"]["prefix"]
         assert "needs.parse-trigger.outputs.filter" in parser["with"]["should_run"]
-        assert parser["with"]["runner"] == "linux-arm64-cpu-32-hk"
+        assert "runner" not in parser["with"]
 
 
 @pytest.mark.parametrize(
@@ -50,11 +47,11 @@ def test_nightly_profiling_jobs(soc, producers):
 def test_producer_only_uploads_raw(name):
     workflow = load_workflow(name)
     job = next(iter(workflow["jobs"].values()))
-    step = next(step for step in job["steps"] if "python3 -m tools.profiling.workflow upload" in step.get("run", ""))
+    step = next(step for step in job["steps"] if "python3 -m tools.profiling.capture upload" in step.get("run", ""))
     script = step["run"]
-    assert "python3 -m tools.profiling.workflow storage" in script
-    assert "python3 -m tools.profiling.workflow upload" in script
-    assert "python3 -m tools.profiling.workflow parse" not in script
+    assert "python3 -m tools.profiling.storage status" in script
+    assert "python3 -m tools.profiling.capture upload" in script
+    assert "python3 -m tools.profiling.parse parse" not in script
     assert not step.get("continue-on-error", False)
     if "multi_node" not in name:
         assert "inputs.vllm_ascend_branch" in step["env"]["PROFILE_KEY_PREFIX"]
@@ -66,23 +63,23 @@ def test_parser_uses_one_runner_per_node_and_finalizes_manifest():
     parser = workflow["jobs"]["parse"]
     finalize = workflow["jobs"]["finalize"]
     for job in (prepare, parser, finalize):
-        assert job["runs-on"] == "${{ inputs.runner }}"
+        assert job["runs-on"] == "linux-arm64-cpu-16"
         assert job["container"]["image"] == "${{ inputs.image }}"
 
     assert prepare["if"] == "${{ inputs.should_run }}"
     assert prepare["outputs"]["matrix"] == "${{ steps.plan.outputs.matrix }}"
     plan_script = prepare["steps"][-1]["run"]
-    assert "python3 -m tools.profiling.workflow storage" in plan_script
-    assert "python3 -m tools.profiling.workflow plan" in plan_script
+    assert "python3 -m tools.profiling.storage status" in plan_script
+    assert "python3 -m tools.profiling.parse plan" in plan_script
 
     assert parser["strategy"]["matrix"] == "${{ fromJSON(needs.prepare.outputs.matrix) }}"
     parse_script = parser["steps"][-1]["run"]
-    assert "python3 -m tools.profiling.workflow parse" in parse_script
+    assert "python3 -m tools.profiling.parse parse" in parse_script
     assert "--node-index ${{ matrix.node_index }}" in parse_script
-    assert "--max-process-number 16" in parse_script
+    assert "needs.prepare.outputs.has_work == 'true'" in parser["if"]
 
     finalize_script = finalize["steps"][-1]["run"]
-    assert "python3 -m tools.profiling.workflow finalize" in finalize_script
+    assert "python3 -m tools.profiling.parse finalize" in finalize_script
 
 
 def test_pr_nightly_dispatch_forwards_profiling_to_all_socs():
@@ -93,3 +90,26 @@ def test_pr_nightly_dispatch_forwards_profiling_to_all_socs():
         job = jobs[f"dispatch-{soc}"]
         script = next(step["run"] for step in job["steps"] if step["name"].startswith("Dispatch nightly-"))
         assert '-f profile_options_json="$PROFILE_OPTIONS_JSON"' in script
+
+
+@pytest.mark.parametrize(
+    ("soc", "stage"), [("a2", "multi-node"), ("a3", "multi-node"), ("a3", "double-node"), ("a5", "multi-node")]
+)
+def test_profiling_clones_private_validation_branch(soc, stage):
+    job = load_workflow(f"schedule_nightly_test_{soc}.yaml")["jobs"][f"{stage}-tests"]
+    assert "https://github.com/nv-action/vllm-benchmarks.git" in job["with"]["vllm_ascend_remote_url"]
+    assert "needs.setup-vars.outputs.profile_options" in job["with"]["vllm_ascend_remote_url"]
+    assert "inputs.vllm_ascend_ref" in job["with"]["vllm_ascend_ref"]
+
+
+@pytest.mark.parametrize("name", ["_e2e_nightly_single_node.yaml", "_e2e_nightly_single_node_560t.yaml"])
+def test_private_image_overlay_is_limited_to_profiling_and_case_config(name):
+    job = next(iter(load_workflow(name)["jobs"].values()))
+    steps = job["steps"]
+    overlay = next(step for step in steps if step["name"] == "Overlay profiling Python source on existing image")
+    assert "fromJSON(inputs.profile_options_json).enabled" in overlay["if"]
+    assert "inputs.request_id == ''" in overlay["if"]
+    assert "tests/e2e/common/single_node/test_single_node.py" in overlay["run"]
+    assert 'config_path="${CONFIG_BASE_PATH}/${CONFIG_YAML_PATH}"' in overlay["run"]
+    assert "vllm_ascend/worker" not in overlay["run"]
+    assert steps.index(overlay) < next(i for i, step in enumerate(steps) if step["name"] == "Configure profiling")

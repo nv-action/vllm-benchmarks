@@ -31,22 +31,10 @@ spec:
                 value: {{ log_prefix | default("/root/.cache/ascend-logs") }}
               - name: ASCEND_PROFILE_ROOT
                 value: {{ (log_prefix ~ "/profile_artifact") | tojson }}
-              - name: ASCEND_PROFILE_ENABLED
-                value: {{ profile_enabled | default("false") | tojson }}
-              - name: ASCEND_PROFILE_START_AFTER
-                value: {{ profile_start_after | default("15") | tojson }}
-              - name: ASCEND_PROFILE_DURATION
-                value: {{ profile_duration | default("8") | tojson }}
-              - name: ASCEND_PROFILE_WITH_STACK
-                value: {{ profile_with_stack | default("false") | tojson }}
-              - name: ASCEND_PROFILE_SCOPE
-                value: {{ profile_scope | default("representative") | tojson }}
-              - name: ASCEND_PROFILE_MAX_SIZE
-                value: {{ profile_max_size | default("50G") | tojson }}
-              - name: ASCEND_PROFILE_OUTPUT
-                value: {{ profile_output | default("parsed") | tojson }}
-              - name: ASCEND_PROFILE_CASES
-                value: {{ profile_cases | default("") | tojson }}
+{% for name, value in profile_env.items() %}
+              - name: {{ name }}
+                value: {{ value | tojson }}
+{% endfor %}
               - name: WORKSPACE
                 value: "/vllm-workspace"
               - name: FAIL_TAG
@@ -169,22 +157,10 @@ spec:
                 value: {{ log_prefix | default("/root/.cache/ascend-logs") }}
               - name: ASCEND_PROFILE_ROOT
                 value: {{ (log_prefix ~ "/profile_artifact") | tojson }}
-              - name: ASCEND_PROFILE_ENABLED
-                value: {{ profile_enabled | default("false") | tojson }}
-              - name: ASCEND_PROFILE_START_AFTER
-                value: {{ profile_start_after | default("15") | tojson }}
-              - name: ASCEND_PROFILE_DURATION
-                value: {{ profile_duration | default("8") | tojson }}
-              - name: ASCEND_PROFILE_WITH_STACK
-                value: {{ profile_with_stack | default("false") | tojson }}
-              - name: ASCEND_PROFILE_SCOPE
-                value: {{ profile_scope | default("representative") | tojson }}
-              - name: ASCEND_PROFILE_MAX_SIZE
-                value: {{ profile_max_size | default("50G") | tojson }}
-              - name: ASCEND_PROFILE_OUTPUT
-                value: {{ profile_output | default("parsed") | tojson }}
-              - name: ASCEND_PROFILE_CASES
-                value: {{ profile_cases | default("") | tojson }}
+{% for name, value in profile_env.items() %}
+              - name: {{ name }}
+                value: {{ value | tojson }}
+{% endfor %}
               - name: WORKSPACE
                 value: "/vllm-workspace"
               - name: FAIL_TAG
