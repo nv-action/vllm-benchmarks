@@ -596,8 +596,12 @@ jobs:
           PROFILE_KEY_PREFIX: nightly-profiling/${{ github.repository }}/${{ github.run_id }}/${{ github.run_attempt }}/multi-node/${{ steps.vars.outputs.benchmark_job_name }}
         run: |
           PROFILE_ROOT="$LOG_PREFIX/profile_artifact"
-          python3 -c 'import boto3' 2>/dev/null || python3 -m pip install --quiet boto3
-          python3 -m pip install --quiet esdk-obs-python || true
+          python3 -c 'import boto3; print("Using boto3 " + boto3.__version__)' || \
+            timeout 300s python3 -m pip install --disable-pip-version-check --no-input \
+              --index-url https://repo.huaweicloud.com/repository/pypi/simple --timeout 15 --retries 1 boto3
+          python3 -c 'import obs' 2>/dev/null || \
+            timeout 300s python3 -m pip install --disable-pip-version-check --no-input \
+              --index-url https://repo.huaweicloud.com/repository/pypi/simple --timeout 15 --retries 1 esdk-obs-python || true
           echo "::group::OBS storage before profiling upload"
           python3 -m tools.profiling.storage status
           echo "::endgroup::"

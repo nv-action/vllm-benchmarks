@@ -55,8 +55,12 @@ jobs:
           PROFILE_KEY_PREFIX: ${{ inputs.prefix }}
         run: |
           set -euo pipefail
-          python3 -m pip install --quiet boto3
-          python3 -m pip install --quiet esdk-obs-python || true
+          python3 -c 'import boto3; print("Using boto3 " + boto3.__version__)' || \
+            timeout 300s python3 -m pip install --disable-pip-version-check --no-input \
+              --index-url https://repo.huaweicloud.com/repository/pypi/simple --timeout 15 --retries 1 boto3
+          python3 -c 'import obs' 2>/dev/null || \
+            timeout 300s python3 -m pip install --disable-pip-version-check --no-input \
+              --index-url https://repo.huaweicloud.com/repository/pypi/simple --timeout 15 --retries 1 esdk-obs-python || true
           echo "::group::OBS storage before parsed upload"
           python3 -m tools.profiling.storage status
           echo "::endgroup::"
@@ -98,7 +102,9 @@ jobs:
           echo "CPU cores: $(nproc)"
           free -h
           df -h /tmp
-          python3 -m pip install --quiet boto3
+          python3 -c 'import boto3; print("Using boto3 " + boto3.__version__)' || \
+            timeout 300s python3 -m pip install --disable-pip-version-check --no-input \
+              --index-url https://repo.huaweicloud.com/repository/pypi/simple --timeout 15 --retries 1 boto3
           python3 -m tools.profiling.parse parse \
             --root /tmp/profile_parse/node-${{ matrix.node_index }} \
             --prefix "$PROFILE_KEY_PREFIX" \
@@ -127,7 +133,9 @@ jobs:
           PROFILE_KEY_PREFIX: ${{ inputs.prefix }}
         run: |
           set -euo pipefail
-          python3 -m pip install --quiet boto3
+          python3 -c 'import boto3; print("Using boto3 " + boto3.__version__)' || \
+            timeout 300s python3 -m pip install --disable-pip-version-check --no-input \
+              --index-url https://repo.huaweicloud.com/repository/pypi/simple --timeout 15 --retries 1 boto3
           python3 -m tools.profiling.parse finalize \
             --root /tmp/profile_finalize \
             --prefix "$PROFILE_KEY_PREFIX"

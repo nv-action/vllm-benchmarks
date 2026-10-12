@@ -113,3 +113,28 @@ def test_private_image_overlay_is_limited_to_profiling_and_case_config(name):
     assert 'config_path="${CONFIG_BASE_PATH}/${CONFIG_YAML_PATH}"' in overlay["run"]
     assert "vllm_ascend/worker" not in overlay["run"]
     assert steps.index(overlay) < next(i for i, step in enumerate(steps) if step["name"] == "Configure profiling")
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "_e2e_profile_parse.yaml",
+        "_e2e_nightly_single_node.yaml",
+        "_e2e_nightly_single_node_560t.yaml",
+        "_e2e_nightly_multi_node.yaml",
+    ],
+)
+def test_obs_dependency_installation_uses_bounded_mirror_fallback(name):
+    scripts = [
+        step["run"]
+        for job in load_workflow(name)["jobs"].values()
+        for step in job.get("steps", [])
+        if "run" in step and "import boto3" in step["run"]
+    ]
+    assert scripts
+    for script in scripts:
+        assert "Using boto3" in script
+        assert "timeout 300s python3 -m pip install" in script
+        assert "--index-url https://repo.huaweicloud.com/repository/pypi/simple" in script
+        assert "--timeout 15 --retries 1 boto3" in script
+        assert "pip install --quiet" not in script
