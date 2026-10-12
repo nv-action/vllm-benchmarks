@@ -79,16 +79,16 @@ on:
 
 jobs:
   generate-matrix:
-    runs-on: linux-amd64-cpu-4
+    runs-on: linux-amd64-cpu-4-gy006
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - id: set-matrix
         run: |
           if [ "${{ inputs.build_type }}" = "daily" ]; then
-            MATRIX='{"include":[{"arch_name":"amd64","arch_runner":"linux-amd64-cpu-4","arch_platform":"linux/amd64","os":"ubuntu"},{"arch_name":"amd64","arch_runner":"linux-amd64-cpu-4","arch_platform":"linux/amd64","os":"openeuler"},{"arch_name":"arm64","arch_runner":"linux-aarch64-cpu-4","arch_platform":"linux/arm64","os":"ubuntu"},{"arch_name":"arm64","arch_runner":"linux-aarch64-cpu-4","arch_platform":"linux/arm64","os":"openeuler"}]}'
+            MATRIX='{"include":[{"arch_name":"amd64","arch_runner":"linux-amd64-cpu-4-gy006","arch_platform":"linux/amd64","os":"ubuntu"},{"arch_name":"amd64","arch_runner":"linux-amd64-cpu-4-gy006","arch_platform":"linux/amd64","os":"openeuler"},{"arch_name":"arm64","arch_runner":"linux-aarch64-cpu-4-gy006","arch_platform":"linux/arm64","os":"ubuntu"},{"arch_name":"arm64","arch_runner":"linux-aarch64-cpu-4-gy006","arch_platform":"linux/arm64","os":"openeuler"}]}'
           else
-            MATRIX='{"include":[{"arch_name":"arm64","arch_runner":"linux-aarch64-cpu-4","arch_platform":"linux/arm64","os":"ubuntu"}]}'
+            MATRIX='{"include":[{"arch_name":"arm64","arch_runner":"linux-aarch64-cpu-4-gy006","arch_platform":"linux/arm64","os":"ubuntu"}]}'
           fi
           echo "matrix=${MATRIX}" >> $GITHUB_OUTPUT
 
@@ -126,10 +126,11 @@ jobs:
       - name: Build nightly-${{ inputs.target }} image
         id: build
         env:
-          GIT_PROXY: https://gh-proxy.test.osinfra.cn/
-          PIP_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
-          PIP_EXTRA_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/ascend/repos/pypi
-          PIP_TRUSTED_HOST: cache-service.nginx-pypi-cache.svc.cluster.local
+          # 公网源：pypi.org 主源 + huaweicloud ascend 包 extra 源（https，无需 trusted-host）
+          # GIT_PROXY 已移除：github.com 经 buildkitd 代理链由 squid url_rewrite 到 gh-proxy
+          PIP_INDEX_URL: https://pypi.org/simple
+          PIP_EXTRA_INDEX_URL: https://repo.huaweicloud.com/ascend/repos/pypi
+          PIP_TRUSTED_HOST: ""
         shell: bash
         run: |
           BRANCH_TAG="${{ inputs.vllm_ascend_branch }}"
@@ -190,7 +191,6 @@ jobs:
             --platform ${{ matrix.arch_platform }}
             -f .github/workflows/dockerfiles/Dockerfile.nightly.${{ inputs.target }}
             --build-arg VLLM_ASCEND_BRANCH="${BRANCH_TAG}"
-            --build-arg GIT_PROXY="${GIT_PROXY}"
             --build-arg PIP_INDEX_URL="${PIP_INDEX_URL}"
             --build-arg PIP_EXTRA_INDEX_URL="${PIP_EXTRA_INDEX_URL}"
             --build-arg PIP_TRUSTED_HOST="${PIP_TRUSTED_HOST}"
@@ -262,7 +262,7 @@ jobs:
 
   merge-image:
     name: Merge multi-arch nightly-${{ inputs.target }}
-    runs-on: linux-amd64-cpu-4
+    runs-on: linux-amd64-cpu-4-gy006
     needs: build
     # Run even if some matrix instances failed. Each OS variant is merged independently,
     # only when BOTH arch images exist. Owner gate keeps it disabled in upstream forks.
