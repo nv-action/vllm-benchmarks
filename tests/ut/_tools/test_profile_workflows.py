@@ -10,6 +10,16 @@ def load_workflow(name: str) -> dict:
     return yaml.load((WORKFLOWS / name).read_text(), Loader=yaml.BaseLoader)
 
 
+def test_private_a3_nightly_uses_registered_runner():
+    workflow = load_workflow("schedule_nightly_test_a3.yaml")
+    assert "linux-aarch64-a3-800t-" not in (WORKFLOWS / "schedule_nightly_test_a3.yaml").read_text()
+    assert workflow["jobs"]["parse-trigger"]["runs-on"] == "linux-aarch64-a3-0"
+    for name in ("multi-node-tests", "double-node-tests"):
+        assert workflow["jobs"][name]["with"]["runner"] == "linux-aarch64-a3-0"
+    reusable = load_workflow("_e2e_nightly_multi_node.yaml")
+    assert reusable["on"]["workflow_call"]["inputs"]["runner"]["default"] == "linux-aarch64-a3-0"
+
+
 @pytest.mark.parametrize(
     ("soc", "producers"),
     [
