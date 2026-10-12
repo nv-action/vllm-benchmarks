@@ -19,15 +19,31 @@ jobs:
     steps:
       - name: Checkout current profiling implementation
         uses: actions/checkout@v7
-      - name: Install OBS client dependencies
+      - name: Check boto3 and install only if missing
+        timeout-minutes: 3
         run: |
-          python3 -m pip install --quiet boto3
-          python3 -m pip install --quiet esdk-obs-python || true
-      - name: Check current OBS capacity
+          echo '========== OBS dependency check =========='
+          if python3 -c 'import boto3; print("Using existing boto3 " + boto3.__version__)'; then
+            echo 'Reusing the image dependency; no package download needed.'
+          else
+            echo 'boto3 is unavailable; installing with a 120-second limit.'
+            timeout 120s python3 -m pip install --disable-pip-version-check --no-input \
+              --timeout 15 --retries 1 boto3
+            python3 -c 'import boto3; print("Installed boto3 " + boto3.__version__)'
+          fi
+      - name: Check current OBS capacity (optional SDK)
+        timeout-minutes: 1
+        continue-on-error: true
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.HW_OBS_PROFILE_AK }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.HW_OBS_PROFILE_SK }}
-        run: python3 -m tools.profiling.storage status
+        run: |
+          echo '========== OBS capacity (best effort; no dependency installation) =========='
+          if python3 -c 'import obs' 2>/dev/null; then
+            python3 -m tools.profiling.storage status
+          else
+            echo 'esdk-obs-python is absent; skipping capacity query only.'
+          fi
       - name: Verify upload, signed download, public download and cleanup
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.HW_OBS_PROFILE_AK }}
