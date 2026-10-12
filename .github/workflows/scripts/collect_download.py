@@ -47,66 +47,78 @@ def validate_path(raw_path: str, *, require_exists: bool = True) -> Path:
     return path
 
 
-def parse_request(raw: str) -> dict[str, str]:
-    """Parse a path or a compact JSON node-to-path mapping."""
+class _DownloadObject(list[tuple[str, object]]):
+    """Keep every JSON object entry, including repeated node keys."""
+
+
+def parse_request(raw: str) -> dict[str, list[str]]:
+    """Parse paths into a node-to-paths mapping."""
     if raw.startswith("'") and raw.endswith("'"):
         raw = raw[1:-1]
     if raw.startswith(("{", "[", '"')):
-        parsed = json.loads(raw)
+        parsed = json.loads(raw, object_pairs_hook=_DownloadObject)
         if isinstance(parsed, str):
-            paths = {"node0": parsed}
+            paths = {"node0": [parsed]}
+        elif isinstance(parsed, _DownloadObject):
+            paths = {}
+            for node, value in parsed:
+                paths.setdefault(node, []).append(value)
         elif isinstance(parsed, list):
             paths = {}
             for item in parsed:
-                if not isinstance(item, dict) or len(item) != 1:
-                    raise ValueError("each download list entry must map one node to a path")
-                if any(node in paths for node in item):
-                    raise ValueError("--download node mappings must not repeat a node")
-                paths.update(item)
-        elif isinstance(parsed, dict):
-            paths = parsed
+                if not isinstance(item, _DownloadObject) or len(item) != 1:
+                    raise ValueError("each download list entry must map one node to one path")
+                node, value = item[0]
+                paths.setdefault(node, []).append(value)
         else:
             raise ValueError("--download must be a path or node mapping")
     else:
-        paths = {"node0": raw}
+        paths = {"node0": [raw]}
     if not paths:
         raise ValueError("--download node mapping must not be empty")
-    for node, path in paths.items():
+    for node, node_paths in paths.items():
         if not isinstance(node, str) or not node.startswith("node") or not node[4:].isdigit():
             raise ValueError("--download node keys must be node0, node1, ...")
         if node != f"node{int(node[4:])}":
             raise ValueError("--download node numbers must not have leading zeros")
-        if not isinstance(path, str):
-            raise ValueError("--download node paths must be strings")
-        validate_path(path, require_exists=False)
+        if not node_paths:
+            raise ValueError("--download node path lists must not be empty")
+        for path in node_paths:
+            if not isinstance(path, str):
+                raise ValueError("--download node paths must be strings")
+            validate_path(path, require_exists=False)
     return paths
 
 
-def archive_path(source: Path, destination: Path) -> None:
+def archive_path(sources: list[Path], destination: Path) -> None:
     """Compress files without following links or including common credentials."""
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tarfile.open(destination, "w:gz") as archive:
-        if source.is_file():
-            archive.add(source, arcname=source.name, recursive=False)
-            return
-        for root, dirs, files in os.walk(source, followlinks=False):
-            root_path = Path(root)
-            dirs[:] = [
-                name
-                for name in dirs
-                if name not in {".git", ".ssh", ".aws", ".kube"} and not (root_path / name).is_symlink()
-            ]
-            for name in files:
-                item = root_path / name
-                if (
-                    item == destination
-                    or name == ".env"
-                    or name.endswith((".pem", ".key"))
-                    or item.is_symlink()
-                    or not item.is_file()
-                ):
-                    continue
-                archive.add(item, arcname=item.relative_to(source), recursive=False)
+        for index, source in enumerate(sources, start=1):
+            # Keep the existing layout for one path; separate multiple paths
+            # so files from different directories cannot overwrite each other.
+            prefix = Path(f"path-{index}") if len(sources) > 1 else Path()
+            if source.is_file():
+                archive.add(source, arcname=prefix / source.name, recursive=False)
+                continue
+            for root, dirs, files in os.walk(source, followlinks=False):
+                root_path = Path(root)
+                dirs[:] = [
+                    name
+                    for name in dirs
+                    if name not in {".git", ".ssh", ".aws", ".kube"} and not (root_path / name).is_symlink()
+                ]
+                for name in files:
+                    item = root_path / name
+                    if (
+                        item == destination
+                        or name == ".env"
+                        or name.endswith((".pem", ".key"))
+                        or item.is_symlink()
+                        or not item.is_file()
+                    ):
+                        continue
+                    archive.add(item, arcname=prefix / item.relative_to(source), recursive=False)
 
 
 def main() -> None:
@@ -124,20 +136,22 @@ def main() -> None:
         if args.node_count < 1 or any(int(node[4:]) >= args.node_count for node in paths):
             parser.error("--download references a node outside this job")
     if args.list:
-        for node, path in sorted(paths.items(), key=lambda item: int(item[0][4:])):
-            print(f"{node}\t{validate_path(path, require_exists=False)}")
+        for node, node_paths in sorted(paths.items(), key=lambda item: int(item[0][4:])):
+            resolved = [str(validate_path(path, require_exists=False)) for path in node_paths]
+            print(f"{node}\t{json.dumps(resolved, separators=(',', ':'))}")
         return
     if args.path_for_node:
         if args.node in paths:
-            print(validate_path(paths[args.node]))
+            resolved = [str(validate_path(path)) for path in paths[args.node]]
+            print(json.dumps(resolved, separators=(",", ":")))
         return
     if args.node not in paths:
         parser.error(f"--download does not specify {args.node}")
-    source = validate_path(paths[args.node], require_exists=not args.check_only)
+    sources = [validate_path(path, require_exists=not args.check_only) for path in paths[args.node]]
     if not args.check_only:
         if args.destination is None:
             parser.error("destination is required unless --check-only is used")
-        archive_path(source, Path(args.destination))
+        archive_path(sources, Path(args.destination))
 
 
 if __name__ == "__main__":
