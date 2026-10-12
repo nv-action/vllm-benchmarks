@@ -32,7 +32,7 @@ from tests.e2e.common.multi_node.external_dp.utils import (
     wait_http_unready,
 )
 from tests.e2e.common.multi_node.utils import get_net_interface
-from tools.profiling.workflow import ProfileSpec, make_instance, with_profiler_config
+from tools.profiling.capture import ProfileSpec, ServeInstance, configure_profiler_command
 
 logger = logging.getLogger(__name__)
 
@@ -322,6 +322,13 @@ def create_kv_pool_manager(
     raise TypeError(f"Unsupported KV pool config: {type(config.kv_pool).__name__}")
 
 
+def profile_instance_for_rank(rank: RankInfo) -> ServeInstance:
+    """Use the same target identity for server configuration and capture."""
+    role = {"prefiller": "prefill", "decoder": "decode"}.get(rank.role, "unified")
+    name = f"{role}-{rank.dp_rank}" if role != "unified" else f"dp-{rank.dp_rank}"
+    return ServeInstance.from_endpoint(name, f"http://{rank.host}:{rank.port}", role, rank.dp_rank, rank.node_index)
+
+
 class ServerCommandBuilder:
     """Render rank templates into vLLM serve commands."""
 
@@ -344,10 +351,7 @@ class ServerCommandBuilder:
         cmd = ["vllm", "serve", self.config.model, *rendered_args]
         spec = ProfileSpec.from_env()
         if spec.enabled:
-            role = {"prefiller": "prefill", "decoder": "decode"}.get(rank.role, "standalone")
-            name = f"{role}-{rank.dp_rank}" if role != "standalone" else f"dp-{rank.dp_rank}"
-            instance = make_instance(name, f"http://{rank.host}:{rank.port}", role, rank.dp_rank, rank.node_index)
-            cmd = with_profiler_config(cmd, instance, spec)
+            cmd = configure_profiler_command(cmd, profile_instance_for_rank(rank), spec)
 
         env = {key: str(value) for key, value in rendered_env.items()}
         display_cmd = format_server_cmd(cmd, env)

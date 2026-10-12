@@ -114,6 +114,41 @@ After analysis, the `*ascend_pt` directory will contain many files, with the mai
 
 - `trace_view.json`: Chrome tracing format data, can be opened with [MindStudio Insight](https://www.hiascend.com/document/detail/zh/mindstudio/81RC1/GUI_baseddevelopmenttool/msascendinsightug/Insight_userguide_0002.html)
 
+### Download CI Profiling Artifacts
+
+CI accepts a `profile_options_json` object, for example `{"enabled":true,"duration":8,"cases":"performance"}`. Defaults and validation are defined by `ProfileSpec`; workflows pass the options through as JSON and expand them to `ASCEND_PROFILE_*` variables at the test boundary. Boolean values accept JSON booleans or case-insensitive `true`/`false` strings. Removed options such as `max_size` are rejected.
+
+Each CI job initializes its profiling results once in a fresh, run-specific directory. Starting another service configuration updates only the server inventory, so earlier benchmark cases remain available for upload. For manual runs, choose a directory that does not exist and initialize it before starting the tests:
+
+```bash
+export ASCEND_PROFILE_ENABLED=true
+export ASCEND_PROFILE_ROOT=/tmp/my-profile-run
+python3 -m tools.profiling.capture initialize --root "$ASCEND_PROFILE_ROOT"
+# Run the YAML-driven benchmark tests with the same environment.
+```
+
+If no profiling cases are selected, upload succeeds with a `skipped` manifest and no offline parsing jobs are started. Missing expected manifests or incomplete artifacts are failures, not skips. Offline analysis requires the parser to return successfully, `analyse.done` to exist, and `trace_view.json` to be non-empty; the tools do not load the entire trace just to validate its JSON syntax.
+
+When CI profiling is enabled, the raw upload step ends with a `Profiling downloads` summary. The offline parsing workflow's finalize step summarizes both raw archives and parsed rank archives across that benchmark job's nodes. Partial failures still leave links to successfully uploaded artifacts; an unconfirmed manifest upload is not listed.
+
+Profiling artifacts use the public-read bucket `ascend-profile-artifacts` in `cn-southwest-2`. The bucket, endpoint, and region are defined once in `tools/profiling/storage.py`. CI authenticates OBS operations using the GitHub secrets `HW_OBS_PROFILE_AK` and `HW_OBS_PROFILE_SK`; other benchmark artifacts retain their existing storage credentials. Uploading does not change bucket policies or object ACLs.
+
+Each summary includes unsigned HTTPS links and ready-to-copy `obsutil` commands. Public objects can be downloaded without AK/SK or temporary signed URLs. For a single file, copy its link from the summary:
+
+```bash
+curl -fL '<HTTPS link from the download summary>' -o profile.tar.gz
+```
+
+The links use `https://ascend-profile-artifacts.obs.cn-southwest-2.myhuaweicloud.com/<object-key>`. For batch downloads with [obsutil](https://support.huaweicloud.com/utiltg-obs/obs_11_0023.html), recursive copying also needs permission to list objects. Public access to an individual object does not by itself guarantee that permission. If using authenticated obsutil, configure your own authorized credentials interactively, then copy the commands from the summary (do not distribute CI credentials):
+
+```bash
+obsutil config -interactive
+obsutil cp "obs://ascend-profile-artifacts/<job-prefix>/raw/" ./profile-download/raw/ -r -j=4
+obsutil cp "obs://ascend-profile-artifacts/<job-prefix>/parsed/" ./profile-download/parsed/ -r -j=4
+```
+
+These commands download the selected prefix, including its JSON manifests, with up to four concurrent object transfers. They do not extract or parse the archives. The Python parsing tool is not a download-only command: `python -m tools.profiling.parse parse` requires `--node-index` and performs analysis and upload; `finalize` is a separate command.
+
 ### Supplementary: Profiling in PD Disaggregation Scenarios
 
 In PD (Prefill-Decode) disaggregation deployments, the Prefiller and Decoder are **separate vLLM instances**, each with its own API server. Profiling must be configured and controlled **independently** on each node:

@@ -32,10 +32,10 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_STEADY_STATE_THRESHOLD = 0.95
-MIN_STEADY_STATE_WINDOW_S = 10.0
-DEFAULT_TIMELINE_WIDTH = 64
-DEFAULT_CHART_HEIGHT = 8
+
+# =============================================================================
+# Shared data models
+# =============================================================================
 
 SteadyStateStatus = Literal["found", "not_found", "unavailable"]
 
@@ -48,16 +48,6 @@ class RequestTiming:
     start_time: float
     end_time: float
     success: bool
-
-
-@dataclass(frozen=True)
-class TimingLoadStats:
-    """Counts collected while loading request timing artifacts."""
-
-    records_read: int
-    valid_timings: int
-    successful_timings: int
-    invalid_records: int
 
 
 @dataclass(frozen=True)
@@ -90,22 +80,208 @@ class SteadyStateResult:
     timeline: tuple[TimelinePoint, ...] = ()
 
 
+# =============================================================================
+# AISBench timing data loading
+# =============================================================================
+
+
+class TimingDataUnavailable(RuntimeError):
+    """Raised when no unambiguous AISBench timing artifact can be selected."""
+
+
+class InvalidTimingRecord(ValueError):
+    """Raised when one AISBench request record cannot produce a timing."""
+
+
+@dataclass(frozen=True)
+class TimingLoadStats:
+    """Counts collected while loading request timing artifacts."""
+
+    records_read: int
+    valid_timings: int
+    successful_timings: int
+    invalid_records: int
+
+
+@dataclass(frozen=True)
+class TimingLoadResult:
+    """Valid request timings and the statistics collected while loading them."""
+
+    timings: list[RequestTiming]
+    stats: TimingLoadStats
+
+
+class AisbenchTimingAdapter:
+    """Convert AISBench detail records into benchmark-agnostic timings."""
+
+    def __init__(self, result_dir: str | Path, dataset_type: str) -> None:
+        """Bind the adapter to one AISBench result directory and dataset name."""
+        self.result_dir = Path(result_dir).resolve()
+        self.dataset_type = dataset_type
+        self._connections: dict[str, sqlite3.Connection] = {}
+
+    def _find_details_file(self) -> Path:
+        """Select the expected details JSONL or the sole unambiguous fallback."""
+        expected = self.result_dir / f"{self.dataset_type}_details.jsonl"
+        if expected.is_file():
+            return expected
+
+        candidates = sorted(self.result_dir.glob("*_details.jsonl"))
+        if not candidates:
+            raise TimingDataUnavailable(f"no *_details.jsonl file found in {self.result_dir}")
+        if len(candidates) > 1:
+            names = ", ".join(path.name for path in candidates)
+            raise TimingDataUnavailable(f"multiple *_details.jsonl files found ({names}); refusing to guess")
+        return candidates[0]
+
+    def _get_connection(self, db_name: str) -> sqlite3.Connection:
+        """Return a cached read-only connection to an AISBench timing database."""
+        if Path(db_name).name != db_name:
+            raise InvalidTimingRecord("invalid AISBench database name")
+        if db_name not in self._connections:
+            db_path = (self.result_dir / "db_data" / db_name).resolve()
+            if not db_path.is_file():
+                raise TimingDataUnavailable(f"AISBench timing database does not exist: {db_path}")
+            try:
+                self._connections[db_name] = sqlite3.connect(f"{db_path.as_uri()}?mode=ro", uri=True)
+            except sqlite3.Error as exc:
+                raise TimingDataUnavailable(
+                    f"cannot open AISBench timing database {db_path}: {type(exc).__name__}"
+                ) from exc
+        return self._connections[db_name]
+
+    def _resolve_time_points(self, record: dict[str, object]) -> list[float]:
+        """Resolve inline or SQLite-backed time points into a flat float list."""
+        time_points_value = record.get("time_points")
+        if isinstance(time_points_value, list):
+            try:
+                return [float(point) for point in time_points_value]
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise InvalidTimingRecord("time_points contains a non-numeric value") from exc
+        if not isinstance(time_points_value, dict) or "__db_ref__" not in time_points_value:
+            raise InvalidTimingRecord("time_points is neither a list nor an AISBench database reference")
+
+        db_name = record.get("db_name")
+        if not isinstance(db_name, str) or not db_name:
+            raise InvalidTimingRecord("database-backed time_points has no db_name")
+        try:
+            database_row = (
+                self._get_connection(db_name)
+                .execute(
+                    "SELECT arr_blob FROM numpy_store WHERE id = ?",
+                    (time_points_value["__db_ref__"],),
+                )
+                .fetchone()
+            )
+        except sqlite3.Error as exc:
+            db_path = (self.result_dir / "db_data" / db_name).resolve()
+            raise TimingDataUnavailable(
+                f"cannot read AISBench timing database {db_path}: {type(exc).__name__}"
+            ) from exc
+        if database_row is None:
+            raise InvalidTimingRecord(f"numpy_store row does not exist in {db_name}")
+        try:
+            array = np.load(BytesIO(database_row[0]), allow_pickle=False)
+            return [float(point) for point in np.asarray(array).reshape(-1)]
+        except (TypeError, ValueError, OSError) as exc:
+            raise InvalidTimingRecord(f"numpy_store row in {db_name} is not a valid NumPy array") from exc
+
+    def _parse_record(self, record: object, line_number: int) -> RequestTiming:
+        """Validate one details record and convert it to a request timing."""
+        if not isinstance(record, dict):
+            raise InvalidTimingRecord("detail record is not a JSON object")
+        time_points = self._resolve_time_points(record)
+        if len(time_points) < 2:
+            raise InvalidTimingRecord("time_points contains fewer than two entries")
+        start_time = time_points[0]
+        end_time = time_points[-1]
+        if not math.isfinite(start_time) or not math.isfinite(end_time):
+            raise InvalidTimingRecord("time_points contains a non-finite endpoint")
+        if end_time < start_time:
+            raise InvalidTimingRecord("request end time precedes its start time")
+        return RequestTiming(
+            request_id=str(record.get("uuid", record.get("id", line_number))),
+            start_time=start_time,
+            end_time=end_time,
+            success=record.get("success") is True,
+        )
+
+    def _close_connections(self) -> None:
+        """Close every cached timing database connection."""
+        for connection in self._connections.values():
+            connection.close()
+        self._connections.clear()
+
+    def load_request_timings(self) -> TimingLoadResult:
+        """Read valid records, warning and skipping malformed request entries."""
+        details_file = self._find_details_file()
+        timings: list[RequestTiming] = []
+        records_read = 0
+        invalid_records = 0
+        try:
+            with details_file.open(encoding="utf-8") as file:
+                for line_number, line in enumerate(file, start=1):
+                    if not line.strip():
+                        continue
+                    records_read += 1
+                    try:
+                        try:
+                            record = json.loads(line)
+                        except json.JSONDecodeError as exc:
+                            raise InvalidTimingRecord(f"invalid JSON: {exc}") from exc
+                        timings.append(self._parse_record(record, line_number))
+                    except InvalidTimingRecord as exc:
+                        invalid_records += 1
+                        logger.warning(
+                            "Skipping invalid AISBench timing record %s:%d: %s",
+                            details_file,
+                            line_number,
+                            exc,
+                        )
+        except (OSError, UnicodeError) as exc:
+            raise TimingDataUnavailable(
+                f"cannot read AISBench timing details {details_file}: {type(exc).__name__}"
+            ) from exc
+        finally:
+            self._close_connections()
+        return TimingLoadResult(
+            timings=timings,
+            stats=TimingLoadStats(
+                records_read=records_read,
+                valid_timings=len(timings),
+                successful_timings=sum(timing.success for timing in timings),
+                invalid_records=invalid_records,
+            ),
+        )
+
+
+# =============================================================================
+# Steady-state analysis
+# =============================================================================
+
+DEFAULT_STEADY_STATE_THRESHOLD = 0.95
+MIN_STEADY_STATE_WINDOW_S = 10.0
+
+
 @dataclass(frozen=True)
 class _Event:
+    """One concurrency-changing request event in absolute benchmark time."""
+
     time: float
     kind: Literal["end", "instant", "start"]
 
 
 def _empty_result(
     *,
-    status: SteadyStateStatus,
     total_requests: int,
     target_concurrency: int,
     threshold_ratio: float,
     reason: str,
 ) -> SteadyStateResult:
+    """Construct a result for cases with no usable successful requests."""
+
     return SteadyStateResult(
-        status=status,
+        status="unavailable",
         total_requests=total_requests,
         successful_requests=0,
         target_concurrency=target_concurrency,
@@ -132,7 +308,6 @@ def unavailable_steady_state(
 
     _validate_parameters(target_concurrency, threshold_ratio)
     return _empty_result(
-        status="unavailable",
         total_requests=0,
         target_concurrency=target_concurrency,
         threshold_ratio=threshold_ratio,
@@ -141,10 +316,25 @@ def unavailable_steady_state(
 
 
 def _validate_parameters(target_concurrency: int, threshold_ratio: float) -> None:
+    """Validate the user-facing steady-state analysis parameters."""
+
     if target_concurrency <= 0:
         raise ValueError("target_concurrency must be greater than zero")
     if not 0 < threshold_ratio <= 1:
         raise ValueError("threshold_ratio must be in the interval (0, 1]")
+
+
+def _build_events(requests: Sequence[RequestTiming]) -> list[_Event]:
+    """Convert request timings into deterministically ordered concurrency events."""
+    events: list[_Event] = []
+    for request in requests:
+        if request.start_time == request.end_time:
+            events.append(_Event(request.end_time, "instant"))
+        else:
+            events.extend((_Event(request.start_time, "start"), _Event(request.end_time, "end")))
+    event_order = {"end": 0, "instant": 1, "start": 2}
+    events.sort(key=lambda event: (event.time, event_order[event.kind]))
+    return events
 
 
 def analyze_steady_state(
@@ -164,7 +354,6 @@ def analyze_steady_state(
     successful_requests = [request for request in requests if request.success]
     if not successful_requests:
         return _empty_result(
-            status="unavailable",
             total_requests=total_requests,
             target_concurrency=target_concurrency,
             threshold_ratio=threshold_ratio,
@@ -179,44 +368,37 @@ def analyze_steady_state(
 
     benchmark_zero = min(request.start_time for request in successful_requests)
     completed_times = sorted(request.end_time for request in successful_requests)
-    events: list[_Event] = []
-    for request in successful_requests:
-        if request.start_time == request.end_time:
-            events.append(_Event(request.end_time, "instant"))
-        else:
-            events.extend((_Event(request.start_time, "start"), _Event(request.end_time, "end")))
-    event_order = {"end": 0, "instant": 1, "start": 2}
-    events.sort(key=lambda event: (event.time, event_order[event.kind]))
+    events = _build_events(successful_requests)
 
     threshold_concurrency = math.ceil(target_concurrency * threshold_ratio)
-    running = 0
-    completed = 0
+    running_requests = 0
+    completed_requests = 0
     observed_peak = 0
     steady_start_abs: float | None = None
     last_down_crossing: float | None = None
     timeline: list[TimelinePoint] = []
 
     for event in events:
-        before = running
+        running_before_event = running_requests
         if event.kind == "end":
-            running -= 1
-            completed += 1
+            running_requests -= 1
+            completed_requests += 1
         elif event.kind == "instant":
-            completed += 1
+            completed_requests += 1
         else:
-            running += 1
-            observed_peak = max(observed_peak, running)
+            running_requests += 1
+            observed_peak = max(observed_peak, running_requests)
 
-        if steady_start_abs is None and before < threshold_concurrency <= running:
+        if steady_start_abs is None and running_before_event < threshold_concurrency <= running_requests:
             steady_start_abs = event.time
-        if before >= threshold_concurrency > running:
+        if running_before_event >= threshold_concurrency > running_requests:
             last_down_crossing = event.time
 
         timeline.append(
             TimelinePoint(
                 time_s=event.time - benchmark_zero,
-                running_requests=running,
-                completed_requests=completed,
+                running_requests=running_requests,
+                completed_requests=completed_requests,
             )
         )
 
@@ -270,6 +452,14 @@ def analyze_steady_state(
     )
 
 
+# =============================================================================
+# Summary and terminal reporting
+# =============================================================================
+
+DEFAULT_TIMELINE_WIDTH = 64
+DEFAULT_CHART_HEIGHT = 8
+
+
 def steady_state_summary(case_name: str, result: SteadyStateResult) -> dict[str, object]:
     """Convert a result to the stable machine-readable summary schema."""
 
@@ -302,6 +492,8 @@ def steady_state_summary(case_name: str, result: SteadyStateResult) -> dict[str,
 
 
 def _sample_timeline(result: SteadyStateResult, width: int) -> tuple[list[int], list[int], float]:
+    """Sample the event-exact timeline into fixed-width chart columns."""
+
     if not result.timeline:
         return [0] * width, [0] * width, 0.0
     duration_s = result.timeline[-1].time_s
@@ -322,7 +514,7 @@ def _sample_timeline(result: SteadyStateResult, width: int) -> tuple[list[int], 
     return running, completed, duration_s
 
 
-def time_to_column(time_s: float, duration_s: float, width: int) -> int:
+def _time_to_column(time_s: float, duration_s: float, width: int) -> int:
     """Map a benchmark-relative time to a shared zero-based chart column."""
 
     if width <= 0:
@@ -334,6 +526,8 @@ def time_to_column(time_s: float, duration_s: float, width: int) -> int:
 
 
 def _linear_value_to_row(value: int, max_value: int, height: int) -> int:
+    """Map a bounded Y value to a row using a linear top-down scale."""
+
     bounded_value = max(0, min(value, max_value))
     return (height - 1) - round(bounded_value / max_value * (height - 1))
 
@@ -421,6 +615,8 @@ def _draw_step_line(
     height: int,
     levels_by_row: dict[int, int],
 ) -> list[list[str]]:
+    """Render sampled values as a connected Unicode step-line canvas."""
+
     connections = [[set() for _ in values] for _ in range(height)]
     rows = [_value_to_row(value, max_value, height, levels_by_row) for value in values]
     if len(values) == 1:
@@ -449,17 +645,23 @@ def _draw_step_line(
 
 
 def _draw_horizontal_guide(canvas: list[list[str]], row: int, marker_column: int) -> None:
+    """Draw a horizontal guide from the Y axis to a selected point."""
+
     for column in range(marker_column + 1):
         character = canvas[row][column]
         canvas[row][column] = "─" if character in (" ", "─") else "┼"
 
 
 def _draw_vertical_boundary(canvas: list[list[str]], column: int) -> None:
+    """Draw a vertical boundary while preserving existing line intersections."""
+
     for row in range(len(canvas)):
         canvas[row][column] = "┆" if canvas[row][column] == " " else "┼"
 
 
 def _nice_tick_interval(duration_s: float) -> float:
+    """Choose a readable 1/2/5-based interval for roughly six time ticks."""
+
     if duration_s <= 0:
         return 1.0
     raw_interval = duration_s / 6
@@ -477,12 +679,16 @@ def _nice_tick_interval(duration_s: float) -> float:
 
 
 def _format_tick(time_s: float) -> str:
+    """Format a chart time without unnecessary fractional digits."""
+
     if math.isclose(time_s, round(time_s)):
         return f"{round(time_s)}s"
     return f"{time_s:g}s"
 
 
 def _render_time_axis(duration_s: float, width: int) -> tuple[str, str]:
+    """Render aligned time-axis marks and non-overlapping labels."""
+
     interval = _nice_tick_interval(duration_s)
     tick_times = [0.0]
     tick = interval
@@ -492,7 +698,7 @@ def _render_time_axis(duration_s: float, width: int) -> tuple[str, str]:
     if duration_s > 0:
         tick_times.append(duration_s)
 
-    tick_columns = {time_to_column(tick_time, duration_s, width): tick_time for tick_time in tick_times}
+    tick_columns = {_time_to_column(tick_time, duration_s, width): tick_time for tick_time in tick_times}
     axis = ["─"] * width
     labels = [" "] * width
     occupied = [False] * width
@@ -521,6 +727,8 @@ def _render_chart(
     mandatory_levels: Sequence[int] = (),
     height: int = DEFAULT_CHART_HEIGHT,
 ) -> list[str]:
+    """Render one labeled terminal chart with thresholds and window markers."""
+
     if not values:
         return [title, "  unavailable"]
     max_value = max(max_value, 1)
@@ -545,20 +753,20 @@ def _render_chart(
     for marker_time, marker_value in ((start_s, start_value), (end_s, end_value)):
         if marker_time is None or marker_value is None:
             continue
-        column = time_to_column(marker_time, duration_s, len(values))
+        column = _time_to_column(marker_time, duration_s, len(values))
         row = _value_to_row(marker_value, max_value, height, labels)
         _draw_horizontal_guide(canvas, row, column)
 
     for marker_time in (start_s, end_s):
         if marker_time is None:
             continue
-        column = time_to_column(marker_time, duration_s, len(values))
+        column = _time_to_column(marker_time, duration_s, len(values))
         _draw_vertical_boundary(canvas, column)
 
     for marker_time, marker_value in ((start_s, start_value), (end_s, end_value)):
         if marker_time is None or marker_value is None:
             continue
-        column = time_to_column(marker_time, duration_s, len(values))
+        column = _time_to_column(marker_time, duration_s, len(values))
         row = _value_to_row(marker_value, max_value, height, labels)
         canvas[row][column] = "●"
 
@@ -575,6 +783,8 @@ def _render_chart(
 
 
 def _group_title(case_name: str, result: SteadyStateResult) -> str:
+    """Build the GitHub Actions group title for an analysis result."""
+
     if result.status == "found":
         assert result.steady_start_s is not None
         assert result.steady_end_s is not None
@@ -701,152 +911,3 @@ def render_terminal(
         lines.extend(["", "Summary:", f"  {summary_path}"])
     lines.append("::endgroup::")
     return "\n".join(lines)
-
-
-class TimingDataUnavailable(RuntimeError):
-    """Raised when no unambiguous AISBench timing artifact can be selected."""
-
-
-class InvalidTimingRecord(ValueError):
-    """Raised when one AISBench request record cannot produce a timing."""
-
-
-@dataclass(frozen=True)
-class TimingLoadResult:
-    """Valid request timings and the statistics collected while loading them."""
-
-    timings: list[RequestTiming]
-    stats: TimingLoadStats
-
-
-class AisbenchTimingAdapter:
-    """Convert AISBench detail records into benchmark-agnostic timings."""
-
-    def __init__(self, result_dir: str | Path, dataset_type: str) -> None:
-        self.result_dir = Path(result_dir).resolve()
-        self.dataset_type = dataset_type
-        self._connections: dict[str, sqlite3.Connection] = {}
-
-    def _find_details_file(self) -> Path:
-        expected = self.result_dir / f"{self.dataset_type}_details.jsonl"
-        if expected.is_file():
-            return expected
-
-        candidates = sorted(self.result_dir.glob("*_details.jsonl"))
-        if not candidates:
-            raise TimingDataUnavailable(f"no *_details.jsonl file found in {self.result_dir}")
-        if len(candidates) > 1:
-            names = ", ".join(path.name for path in candidates)
-            raise TimingDataUnavailable(f"multiple *_details.jsonl files found ({names}); refusing to guess")
-        return candidates[0]
-
-    def _connection(self, db_name: str) -> sqlite3.Connection:
-        if Path(db_name).name != db_name:
-            raise InvalidTimingRecord(f"invalid AISBench database name: {db_name!r}")
-        if db_name not in self._connections:
-            db_path = (self.result_dir / "db_data" / db_name).resolve()
-            if not db_path.is_file():
-                raise TimingDataUnavailable(f"AISBench timing database does not exist: {db_path}")
-            try:
-                self._connections[db_name] = sqlite3.connect(f"{db_path.as_uri()}?mode=ro", uri=True)
-            except sqlite3.Error as exc:
-                raise TimingDataUnavailable(f"cannot open AISBench timing database {db_path}: {exc}") from exc
-        return self._connections[db_name]
-
-    def _resolve_time_points(self, record: dict[str, object]) -> list[float]:
-        value = record.get("time_points")
-        if isinstance(value, list):
-            try:
-                return [float(point) for point in value]
-            except (TypeError, ValueError, OverflowError) as exc:
-                raise InvalidTimingRecord(f"time_points contains a non-numeric value: {exc}") from exc
-        if not isinstance(value, dict) or "__db_ref__" not in value:
-            raise InvalidTimingRecord("time_points is neither a list nor an AISBench database reference")
-
-        db_name = record.get("db_name")
-        if not isinstance(db_name, str) or not db_name:
-            raise InvalidTimingRecord("database-backed time_points has no db_name")
-        try:
-            row = (
-                self._connection(db_name)
-                .execute(
-                    "SELECT arr_blob FROM numpy_store WHERE id = ?",
-                    (value["__db_ref__"],),
-                )
-                .fetchone()
-            )
-        except sqlite3.Error as exc:
-            db_path = (self.result_dir / "db_data" / db_name).resolve()
-            raise TimingDataUnavailable(f"cannot read AISBench timing database {db_path}: {exc}") from exc
-        if row is None:
-            raise InvalidTimingRecord(f"numpy_store row {value['__db_ref__']!r} does not exist in {db_name}")
-        try:
-            array = np.load(BytesIO(row[0]), allow_pickle=False)
-            return [float(point) for point in np.asarray(array).reshape(-1)]
-        except (TypeError, ValueError, OSError) as exc:
-            raise InvalidTimingRecord(
-                f"numpy_store row {value['__db_ref__']!r} in {db_name} is not a valid NumPy array"
-            ) from exc
-
-    def load_request_timings(self) -> TimingLoadResult:
-        """Read valid records, warning and skipping malformed request entries."""
-
-        details_file = self._find_details_file()
-        timings: list[RequestTiming] = []
-        records_read = 0
-        invalid_records = 0
-        try:
-            try:
-                with details_file.open(encoding="utf-8") as file:
-                    for line_number, line in enumerate(file, start=1):
-                        if not line.strip():
-                            continue
-                        records_read += 1
-                        try:
-                            try:
-                                record = json.loads(line)
-                            except json.JSONDecodeError as exc:
-                                raise InvalidTimingRecord(f"invalid JSON: {exc}") from exc
-                            if not isinstance(record, dict):
-                                raise InvalidTimingRecord("detail record is not a JSON object")
-                            time_points = self._resolve_time_points(record)
-                            if len(time_points) < 2:
-                                raise InvalidTimingRecord("time_points contains fewer than two entries")
-                            start_time = time_points[0]
-                            end_time = time_points[-1]
-                            if not math.isfinite(start_time) or not math.isfinite(end_time):
-                                raise InvalidTimingRecord("time_points contains a non-finite endpoint")
-                            if end_time < start_time:
-                                raise InvalidTimingRecord("request end time precedes its start time")
-                            request_id = str(record.get("uuid", record.get("id", line_number)))
-                            timings.append(
-                                RequestTiming(
-                                    request_id=request_id,
-                                    start_time=start_time,
-                                    end_time=end_time,
-                                    success=record.get("success") is True,
-                                )
-                            )
-                        except InvalidTimingRecord as exc:
-                            invalid_records += 1
-                            logger.warning(
-                                "Skipping invalid AISBench timing record %s:%d: %s",
-                                details_file,
-                                line_number,
-                                exc,
-                            )
-            except (OSError, UnicodeError) as exc:
-                raise TimingDataUnavailable(f"cannot read AISBench timing details {details_file}: {exc}") from exc
-        finally:
-            for connection in self._connections.values():
-                connection.close()
-            self._connections.clear()
-        return TimingLoadResult(
-            timings=timings,
-            stats=TimingLoadStats(
-                records_read=records_read,
-                valid_timings=len(timings),
-                successful_timings=sum(timing.success for timing in timings),
-                invalid_records=invalid_records,
-            ),
-        )

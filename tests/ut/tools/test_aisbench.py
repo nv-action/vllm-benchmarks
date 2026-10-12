@@ -1,6 +1,8 @@
 import asyncio
 import json
+import runpy
 import sys
+import types
 from importlib.machinery import ModuleSpec
 from pathlib import Path
 from types import ModuleType
@@ -9,7 +11,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from tools import aisbench
-from tools.profiling.steady_state import RequestTiming, TimingLoadResult, TimingLoadStats
+from tools.profiling import capture
+from tools.profiling.steady_state import unavailable_steady_state
 
 
 def test_profiled_request_config_loads_with_mmengine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -89,8 +92,44 @@ def test_profiled_request_config_loads_with_mmengine(tmp_path: Path, monkeypatch
             sys.modules[module_name] = previous_profile_model
 
 
+def test_performance_analysis_runs_before_baseline_assertion(monkeypatch: pytest.MonkeyPatch):
+    runner = aisbench.AisbenchRunner.__new__(aisbench.AisbenchRunner)
+    runner.threshold = 1
+    runner.baseline = 100
+    runner.input_throughput_threshold = None
+    runner.tpot_threshold = None
+    calls: list[str] = []
+
+    def get_result() -> None:
+        calls.append("result")
+        runner.result_json = {"Output Token Throughput": {"total": "1 token/s"}}
+
+    monkeypatch.setattr(runner, "_get_result_performance", get_result)
+    monkeypatch.setattr(runner, "_try_analyze_steady_state", lambda: calls.append("steady"))
+
+    with pytest.raises(AssertionError):
+        runner._performance_verify()
+
+    assert calls == ["result", "steady"]
+
+
+def test_performance_analysis_runs_when_result_is_unreadable(monkeypatch: pytest.MonkeyPatch):
+    runner = aisbench.AisbenchRunner.__new__(aisbench.AisbenchRunner)
+    analyze = MagicMock()
+    monkeypatch.setattr(runner, "_get_result_performance", MagicMock(side_effect=FileNotFoundError("missing result")))
+    monkeypatch.setattr(runner, "_try_analyze_steady_state", analyze)
+
+    with pytest.raises(FileNotFoundError, match="missing result"):
+        runner._performance_verify()
+
+    analyze.assert_called_once_with()
+
+
 @pytest.mark.parametrize("reasoning_effort", [None, "low"])
-def test_request_config_reasoning_effort(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reasoning_effort: str | None):
+@pytest.mark.parametrize("profiling", [False, True])
+def test_request_config_reasoning_effort(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reasoning_effort: str | None, profiling
+):
     request_conf = tmp_path / "vllm_api_general_chat.py"
     request_conf.write_text(
         "model='test',\n"
@@ -126,181 +165,119 @@ def test_request_config_reasoning_effort(tmp_path: Path, monkeypatch: pytest.Mon
         task_type="accuracy",
         temperature=None,
         no_pred=False,
-        profile_targets=(),
+        profile_targets=(object(),) if profiling else (),
     )
 
     runner._init_request_conf()
 
     content = (tmp_path / "vllm_api_general_chat_custom.py").read_text(encoding="utf-8")
     assert 'chat_template_kwargs={"thinking": True}' in content
+    assert runner.profile_targets == ()
+    assert "ProfiledVLLMCustomAPIChat" not in content
     if reasoning_effort is None:
         assert "reasoning_effort=" not in content
     else:
         assert 'reasoning_effort="low"' in content
 
 
-def test_try_analyze_steady_state_writes_one_flushed_group_without_changing_result(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    runner = aisbench.AisbenchRunner.__new__(aisbench.AisbenchRunner)
-    original_result = [object(), {"Output Token Throughput": {"total": "1 token/s"}}]
-    runner.__dict__.update(
-        case_name="perf/example",
-        batch_size=2,
-        request_rate=0,
-        performance_result_dir=tmp_path,
-        performance_dataset_type="dataset",
-        steady_state_result=None,
-        result=original_result,
-    )
-    timings = [
-        RequestTiming("a", 0, 12, True),
-        RequestTiming("b", 1, 11, True),
-    ]
-    monkeypatch.setattr(aisbench, "STEADY_STATE_OUTPUT_DIR", tmp_path / "steady_state")
-    monkeypatch.setattr(
-        aisbench.AisbenchTimingAdapter,
-        "load_request_timings",
-        lambda self: TimingLoadResult(timings, TimingLoadStats(2, 2, 2, 0)),
-    )
-    print_output = MagicMock()
-    monkeypatch.setattr("builtins.print", print_output)
-
-    runner._try_analyze_steady_state()
-
-    print_output.assert_called_once()
-    output = print_output.call_args.args[0]
-    assert print_output.call_args.kwargs == {"flush": True}
-    assert output.startswith("::group::🟢 [STEADY STATE] perf/example | FOUND |")
-    assert output.endswith("::endgroup::")
-    assert "Starting Steady State Analysis" not in output
-    assert f"Directory:             {tmp_path}" in output
-    assert "Records read:          2" in output
-    assert "Request rate:          0" in output
-    assert runner.result is original_result
-    assert runner.steady_state_result.status == "found"
-    summary_path = tmp_path / "steady_state" / "perf_example" / "summary.json"
-    summary = json.loads(summary_path.read_text(encoding="utf-8"))
-    assert summary["steady_state"]["start"] == {"time_s": 1, "completed_requests": 0}
-    assert summary["steady_state"]["end"] == {"time_s": 11, "completed_requests": 1}
-
-
-def test_try_analyze_steady_state_error_renders_zero_chart(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-):
-    runner = aisbench.AisbenchRunner.__new__(aisbench.AisbenchRunner)
-    original_result = object()
-    runner.__dict__.update(
-        case_name="perf",
-        batch_size=2,
-        request_rate=0,
-        performance_result_dir=tmp_path,
-        performance_dataset_type="dataset",
-        steady_state_result=None,
-        result=original_result,
-    )
-    monkeypatch.setattr(
-        aisbench.AisbenchTimingAdapter,
-        "load_request_timings",
-        MagicMock(side_effect=RuntimeError("broken timing artifact")),
-    )
-    monkeypatch.setattr(aisbench, "STEADY_STATE_OUTPUT_DIR", tmp_path / "steady_state")
-
-    runner._try_analyze_steady_state()
-
-    assert runner.steady_state_result.status == "unavailable"
-    assert runner.steady_state_result.reason == "analysis failed: broken timing artifact"
-    assert runner.result is original_result
-    output = capsys.readouterr().out
-    assert "Concurrency Timeline" in output
-    assert "Completed Requests" in output
-    assert "zero-filled charts below are placeholders, not measurements" in output
-
-
-def test_rate_controlled_workload_reads_timings(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-):
-    runner = aisbench.AisbenchRunner.__new__(aisbench.AisbenchRunner)
-    original_result = object()
-    runner.__dict__.update(
-        case_name="fixed-qps",
-        batch_size=2,
-        request_rate=10,
-        performance_result_dir=tmp_path,
-        performance_dataset_type="dataset",
-        steady_state_result=None,
-        result=original_result,
-    )
-    timings = [RequestTiming("a", 0, 12, True), RequestTiming("b", 1, 11, True)]
-    load_timings = MagicMock(return_value=TimingLoadResult(timings, TimingLoadStats(2, 2, 2, 0)))
-    monkeypatch.setattr(aisbench.AisbenchTimingAdapter, "load_request_timings", load_timings)
-    monkeypatch.setattr(aisbench, "STEADY_STATE_OUTPUT_DIR", tmp_path / "steady_state")
-
-    runner._try_analyze_steady_state()
-
-    load_timings.assert_called_once_with()
-    assert runner.result is original_result
-    assert runner.steady_state_result.status == "found"
-    assert "::group::🟢 [STEADY STATE] fixed-qps | FOUND |" in capsys.readouterr().out
-    summary_path = tmp_path / "steady_state" / "fixed-qps" / "summary.json"
-    assert json.loads(summary_path.read_text(encoding="utf-8"))["steady_state"]["duration_s"] == 10
-
-
-@pytest.mark.parametrize("request_rate", [0, 10])
-def test_missing_details_writes_unavailable_summary(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], request_rate: float
-):
+@pytest.mark.parametrize("threshold", [1])
+def test_steady_state_failure_does_not_affect_performance_verification(monkeypatch, caplog, threshold):
     runner = aisbench.AisbenchRunner.__new__(aisbench.AisbenchRunner)
     runner.__dict__.update(
-        case_name="perf",
-        batch_size=2,
-        request_rate=request_rate,
-        performance_result_dir=tmp_path,
-        performance_dataset_type="dataset",
-        steady_state_result=None,
+        result_json={"Output Token Throughput": {"total": "10token/s"}} if threshold is not None else {},
+        result_csv=None,
+        baseline=10,
+        threshold=threshold,
+        input_throughput_threshold=None,
+        tpot_threshold=None,
     )
-    monkeypatch.setattr(aisbench, "STEADY_STATE_OUTPUT_DIR", tmp_path / "steady_state")
+    monkeypatch.setattr(runner, "_get_result_performance", lambda: None)
 
-    runner._try_analyze_steady_state()
+    def fail_analysis() -> None:
+        raise RuntimeError("steady-state failure: private-service:8000")
 
-    assert runner.steady_state_result.status == "unavailable"
-    output = capsys.readouterr().out
-    assert "::group::🔴 [STEADY STATE] perf | UNAVAILABLE | timing data unavailable" in output
-    assert "Reason:" in output
-    assert "Concurrency Timeline" in output
-    assert "Completed Requests" in output
-    summary_path = tmp_path / "steady_state" / "perf" / "summary.json"
-    assert json.loads(summary_path.read_text(encoding="utf-8"))["status"] == "unavailable"
+    monkeypatch.setattr(runner, "_try_analyze_steady_state", fail_analysis)
+
+    runner._performance_verify()
+    assert "RuntimeError" in caplog.text
+    assert "private-service" not in caplog.text
+    assert all(record.exc_info is None for record in caplog.records)
 
 
-def test_performance_analysis_runs_before_baseline_assertion(monkeypatch: pytest.MonkeyPatch):
+@pytest.mark.parametrize("method", ["stream_infer", "text_infer"])
+@pytest.mark.parametrize("marker_fails", [False, True])
+def test_request_marker_never_suppresses_inference(tmp_path, monkeypatch, method, marker_fails):
+    class Model:
+        async def stream_infer(self, body, output):
+            if body == "fail":
+                raise RuntimeError("inference failure")
+            return body
+
+        text_infer = stream_infer
+
+    for name in ("ais_bench", "ais_bench.benchmark", "ais_bench.benchmark.models"):
+        monkeypatch.setitem(sys.modules, name, types.ModuleType(name))
+    sys.modules["ais_bench.benchmark.models"].VLLMCustomAPIChat = Model
+    calls = []
+
+    def mark(path):
+        calls.append(path)
+        if marker_fails:
+            raise PermissionError("marker unavailable")
+
+    monkeypatch.setattr(capture, "record_first_request", mark)
+    monkeypatch.setenv("ASCEND_PROFILE_REQUEST_MARKER", str(tmp_path / "marker"))
+    namespace = runpy.run_path(str(Path(capture.__file__).with_name("aisbench_request_marker.py")))
+    model = namespace["ProfiledVLLMCustomAPIChat"]()
+    infer = getattr(model, method)
+    assert asyncio.run(infer("first", None)) == "first"
+    assert asyncio.run(infer("second", None)) == "second"
+    with pytest.raises(RuntimeError, match="inference failure"):
+        asyncio.run(infer("fail", None))
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("failure", [None, "save", "serialize", "render"])
+def test_steady_state_outputs_are_independent_and_namespaced(tmp_path, monkeypatch, capsys, failure):
+    monkeypatch.setattr(aisbench, "STEADY_STATE_OUTPUT_DIR", tmp_path)
     runner = aisbench.AisbenchRunner.__new__(aisbench.AisbenchRunner)
-    runner.threshold = 1
-    runner.baseline = 100
-    runner.input_throughput_threshold = None
-    runner.tpot_threshold = None
-    calls: list[str] = []
+    runner.__dict__.update(
+        case_name="performance", profile_case_name="config-a__performance", performance_result_dir=None, request_rate=0
+    )
+    result = unavailable_steady_state(target_concurrency=1, reason="no timing data")
+    if failure == "save":
+        (tmp_path / runner.profile_case_name).write_text("a file blocks directory creation")
+    if failure == "serialize":
 
-    def get_result() -> None:
-        calls.append("result")
-        runner.result_json = {"Output Token Throughput": {"total": "1 token/s"}}
+        def fail_serialize(*_, **kwargs):
+            raise TypeError("serialization failed")
 
-    monkeypatch.setattr(runner, "_get_result_performance", get_result)
-    monkeypatch.setattr(runner, "_try_analyze_steady_state", lambda: calls.append("steady"))
+        monkeypatch.setattr(aisbench.json, "dump", fail_serialize)
+    if failure == "render":
 
-    with pytest.raises(AssertionError):
-        runner._performance_verify()
+        def fail_render(*_, **kwargs):
+            raise RuntimeError("render failed")
 
-    assert calls == ["result", "steady"]
+        monkeypatch.setattr(aisbench, "render_terminal", fail_render)
+        with pytest.raises(RuntimeError, match="render failed"):
+            runner._emit_steady_state(result, None)
+    else:
+        runner._emit_steady_state(result, None)
+        assert "[STEADY STATE] performance" in capsys.readouterr().out
+    if failure not in {"save", "serialize"}:
+        assert json.loads((tmp_path / runner.profile_case_name / "summary.json").read_text())["status"] == "unavailable"
+    if failure is None:
+        runner.profile_case_name = "config-b__performance"
+        runner._emit_steady_state(result, None)
+        assert len(list(tmp_path.glob("*/summary.json"))) == 2
 
 
-def test_performance_analysis_runs_when_result_is_unreadable(monkeypatch: pytest.MonkeyPatch):
+def test_profile_finish_failure_is_optional(caplog):
     runner = aisbench.AisbenchRunner.__new__(aisbench.AisbenchRunner)
-    analyze = MagicMock()
-    monkeypatch.setattr(runner, "_get_result_performance", MagicMock(side_effect=FileNotFoundError("missing result")))
-    monkeypatch.setattr(runner, "_try_analyze_steady_state", analyze)
 
-    with pytest.raises(FileNotFoundError, match="missing result"):
-        runner._performance_verify()
+    class Controller:
+        def finish(self):
+            raise OSError("simulated")
 
-    analyze.assert_called_once_with()
+    runner._finish_profiling(Controller())
+    assert "Profiling collection failed (OSError)" in caplog.text

@@ -1,11 +1,8 @@
-name: Parse nightly profiling artifacts
+name: Parse nightly profiling traces
 
 on:
   workflow_call:
     inputs:
-      runner:
-        required: true
-        type: string
       image:
         required: true
         type: string
@@ -22,14 +19,10 @@ on:
         required: true
         type: boolean
     secrets:
-      OBS_ACCESS_KEY_ID:
-        required: false
-      OBS_SECRET_ACCESS_KEY:
-        required: false
-      AWS_ACCESS_KEY_ID:
-        required: false
-      AWS_SECRET_ACCESS_KEY:
-        required: false
+      HW_OBS_PROFILE_AK:
+        required: true
+      HW_OBS_PROFILE_SK:
+        required: true
 
 defaults:
   run:
@@ -39,14 +32,15 @@ jobs:
   prepare:
     name: Plan ${{ inputs.display_name }}
     if: ${{ inputs.should_run }}
-    runs-on: ${{ inputs.runner }}
+    runs-on: linux-arm64-cpu-16
     timeout-minutes: 30
     container:
       image: ${{ inputs.image }}
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
+      has_work: ${{ steps.plan.outputs.has_work }}
     steps:
-      - name: Checkout profiling source
+      - name: Checkout profiling tools
         uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
@@ -56,33 +50,36 @@ jobs:
         id: plan
         working-directory: profile-source
         env:
-          AWS_ACCESS_KEY_ID: ${{ github.repository_owner == 'vllm-project' && secrets.OBS_ACCESS_KEY_ID || secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ github.repository_owner == 'vllm-project' && secrets.OBS_SECRET_ACCESS_KEY || secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.HW_OBS_PROFILE_AK }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.HW_OBS_PROFILE_SK }}
           PROFILE_KEY_PREFIX: ${{ inputs.prefix }}
         run: |
           set -euo pipefail
-          python3 -c 'import boto3' 2>/dev/null || python3 -m pip install --quiet boto3
+          python3 -m pip install --quiet boto3
           python3 -m pip install --quiet esdk-obs-python || true
-          python3 -m tools.profiling.workflow storage || true
-          python3 -m tools.profiling.workflow plan \
+          echo "::group::OBS storage before parsed upload"
+          python3 -m tools.profiling.storage status
+          echo "::endgroup::"
+          python3 -m tools.profiling.parse plan \
             --root /tmp/profile_plan \
             --prefix "$PROFILE_KEY_PREFIX" \
             --plan-output /tmp/profile_plan/matrix.json
           echo "matrix=$(cat /tmp/profile_plan/matrix.json)" >> "$GITHUB_OUTPUT"
+          echo "has_work=$(jq '.node_index | length > 0' /tmp/profile_plan/matrix.json)" >> "$GITHUB_OUTPUT"
 
   parse:
     name: ${{ inputs.display_name }} / node-${{ matrix.node_index }}
     needs: [prepare]
-    if: needs.prepare.result == 'success'
+    if: needs.prepare.result == 'success' && needs.prepare.outputs.has_work == 'true'
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
-    runs-on: ${{ inputs.runner }}
-    timeout-minutes: 240
+    runs-on: linux-arm64-cpu-16
+    timeout-minutes: 360
     container:
       image: ${{ inputs.image }}
     steps:
-      - name: Checkout profiling source
+      - name: Checkout profiling tools
         uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
@@ -91,33 +88,32 @@ jobs:
       - name: Parse ranks with concurrent compression and upload
         working-directory: profile-source
         env:
-          AWS_ACCESS_KEY_ID: ${{ github.repository_owner == 'vllm-project' && secrets.OBS_ACCESS_KEY_ID || secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ github.repository_owner == 'vllm-project' && secrets.OBS_SECRET_ACCESS_KEY || secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.HW_OBS_PROFILE_AK }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.HW_OBS_PROFILE_SK }}
           PROFILE_KEY_PREFIX: ${{ inputs.prefix }}
         run: |
           set -euo pipefail
           echo '========== Profiling offline parse =========='
           echo "Node shard: ${{ matrix.node_index }}"
-          echo "Available CPUs: $(nproc)"
+          echo "CPU cores: $(nproc)"
           free -h
           df -h /tmp
-          python3 -c 'import boto3' 2>/dev/null || python3 -m pip install --quiet boto3
-          python3 -m tools.profiling.workflow parse \
+          python3 -m pip install --quiet boto3
+          python3 -m tools.profiling.parse parse \
             --root /tmp/profile_parse/node-${{ matrix.node_index }} \
             --prefix "$PROFILE_KEY_PREFIX" \
-            --node-index ${{ matrix.node_index }} \
-            --max-process-number 16
+            --node-index ${{ matrix.node_index }}
 
   finalize:
     name: Finalize ${{ inputs.display_name }}
     needs: [prepare, parse]
-    if: always() && needs.prepare.result == 'success'
-    runs-on: ${{ inputs.runner }}
+    if: always() && needs.prepare.result == 'success' && needs.prepare.outputs.has_work == 'true'
+    runs-on: linux-arm64-cpu-16
     timeout-minutes: 30
     container:
       image: ${{ inputs.image }}
     steps:
-      - name: Checkout profiling source
+      - name: Checkout profiling tools
         uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
@@ -126,12 +122,12 @@ jobs:
       - name: Publish parsed profile manifest
         working-directory: profile-source
         env:
-          AWS_ACCESS_KEY_ID: ${{ github.repository_owner == 'vllm-project' && secrets.OBS_ACCESS_KEY_ID || secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ github.repository_owner == 'vllm-project' && secrets.OBS_SECRET_ACCESS_KEY || secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.HW_OBS_PROFILE_AK }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.HW_OBS_PROFILE_SK }}
           PROFILE_KEY_PREFIX: ${{ inputs.prefix }}
         run: |
           set -euo pipefail
-          python3 -c 'import boto3' 2>/dev/null || python3 -m pip install --quiet boto3
-          python3 -m tools.profiling.workflow finalize \
+          python3 -m pip install --quiet boto3
+          python3 -m tools.profiling.parse finalize \
             --root /tmp/profile_finalize \
             --prefix "$PROFILE_KEY_PREFIX"
