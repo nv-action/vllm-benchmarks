@@ -1,51 +1,55 @@
-# TEMPORARY: backfill the a3-16 model cache for the 36-case extended e2e set.
+# TEMPORARY: backfill the a3-16 model cache (shared NFS, /root/.cache) used
+# by the main2main / gate e2e on linux-aarch64-a3-16-sh-001.
 #
-# Purpose 2026-09-16: the gate's wide e2e (run 34994732545, tree b7e0cdac)
-# lost 10 suites to offline-cache misses — modelscope ValueError / HF
-# LocalEntryNotFoundError, all "Cannot find the requested files in the
-# cached path and outgoing traffic has been disabled".  Repo ids are pinned
-# from the suite errors and the test sources themselves:
+# Round 2, 2026-10-13: main2main run 38220121641 (tree cc59a7d7) lost most of
+# the round-1 e2e to offline-cache misses — modelscope "Cannot find the
+# requested files in the cached path and outgoing traffic has been disabled".
+# Repo ids pinned from the per-case traceback repo_id= lines:
 #
-#   modelscope, FULL weights (the engine loads them):
-#     allenai/OLMoE-1B-7B-0125-Instruct    lora/test_olmoe_lora.py MODEL_PATH
-#     vllm-ascend/olmoe-instruct-text2sql-spider
-#                                          conftest.py olmoe_lora_files fixture
-#     Howeee/Qwen2.5-1.5B-apeach           pooling/test_classification.py
-#                                          (HfRunner loads real weights)
-#     deepseek-ai/dspark_qwen3_8b_block7   spec_decode/utils.py DSPARK["spec"]
-#                                          (test_dspark, test_dynamic)
-#     Qwen/Qwen3.5-0.8B                    spec_decode/test_extract_hidden_states.py
-#                                          HYBRID_MODEL (load_format=dummy, but
-#                                          0.8B is ~2GB — take the full repo)
+#   CONFIRMED misses (traceback names the repo):
+#     openai-mirror/whisper-large-v3-turbo   test_vlm.py::test_whisper (1.6GB)
+#     Qwen/Qwen2-Audio-7B-Instruct           test_vlm.py::test_multimodal_audio (16.8GB)
+#     vllm-ascend/Qwen3-8B-W8A8              test_qwen3_8b_w8a8.py::test_dense_w8a8_eagle3_full_graph (11.3GB)
+#     vllm-ascend/DeepSeek-V2-Lite-W8A8      model_runner_v2/test_deepseek_v2_lite_w8a8_basic.py eager+graph (17.2GB)
+#     deepseek-ai/DeepSeek-V2-Lite-Chat      test_prefix_caching.py tp2 case (31.4GB)
 #
-#   modelscope, CONFIG ONLY (backend-level tests: _test_mla_attention_
-#   correctness / SFA precision build VllmConfig directly and never load
-#   weights — the failure happens at ModelConfig parse.  DeepSeek-V3.2-Exp
-#   is a 671B repo; a full fetch is infeasible and unnecessary):
-#     deepseek-ai/DeepSeek-V2              one_card/test_mla_precision.py
-#     deepseek-ai/DeepSeek-V3.2-Exp        one_card/test_sfa_v1_precision.py
+#   From the round-1 suite roster (suite blocked on a model it loads):
+#     Qwen/Qwen3-0.6B                        7 small suites (sampler, cpu
+#                                            offload x2, multi_instance, uva,
+#                                            model_runner_v2/test_basic, pause_resume) (1.5GB)
+#     vllm-ascend/DeepSeek-V3-Pruning        test_deepseek_multistream_moe.py (27.9GB)
+#     vllm-ascend/DeepSeek-V3.2-W8A8-Pruning four_card/test_deepseek_v3_2_w8a8_pruning.py (22.9GB)
+#     UploadWeight/DeepSeek-V4-Flash-DSpark-w4a8-test
+#                                            model_runner_v2/test_deepseek_v4.py
+#                                            dspark 4-card — 169.8GB, downloaded
+#                                            LAST so a timeout loses the least
+#                                            (re-dispatch resumes idempotently)
+#     Qwen/Qwen2.5-VL-7B-Instruct            test_disaggregated_encoder.py — never
+#                                            reached in the run; insurance (16.6GB)
 #
-#   HF hub (test patches VLLM_USE_MODELSCOPE=False, or the repo is
-#   HF-only; HF cache /root/.cache/huggingface shares the same NFS):
-#     charent/self_cognition_Alice         lora/test_qwen3_multi_loras.py (required)
-#     charent/self_cognition_Bob           same file (required)
-#     RedHatAI/Qwen3-8B-speculator.eagle3  spec_decode/utils.py EAGLE["spec"]
-#                                          (optional: today a graceful
-#                                          get_safetensors_params_metadata
-#                                          warning only — downloading it
-#                                          removes recurring triage noise)
+#   Extended-36 gate set (same cache):
+#     vllm-ascend/DeepSeek-V2-Lite-W8A8      (confirmed above)
+#     wemaster/deepseek_mtp_main_random_bf16 (12.0GB)
+#     LLM-Research/Meta-Llama-3.1-8B-Instruct (32.1GB)
+#     vllm-ascend/EAGLE-LLaMA3.1-Instruct-8B (1.6GB)
 #
-# Excluded on purpose (not model misses):
-#   one_card/compile/test_graphex_qknorm_rope_fusion.py — EADDRINUSE port
-#     12345 (suite-scheduling collision);
-#   four_card/test_minimax_m3.py — NPU free memory 56.59 < 58.21 GiB
-#     (device contention; Eco-Tech/MiniMax-M3-w8a8-0626 IS cached).
+#   Excluded on purpose (upstream skips, not model misses):
+#     Qwen/Qwen3-30B-A3B    test_data_parallel_tp2.py is
+#                           @pytest.mark.skip(reason="broken, fix me") — the case
+#                           never started; 60GB not needed.
+#     vllm-ascend/HunyuanOCR  test_multimodal_vl[hunyuan-vl] skips: "HunyuanVL is
+#                           not supported by the pinned vLLM versions".
 #
-# Same shape as the 09-10 backfill: cann container, modelscope<1.38 in an
-# isolated venv, dots in repo names stored as triple underscores.
-# HF downloads try huggingface.co then fall back to hf-mirror.com; they are
-# best-effort for the optional repo and fatal for the charent adapters.
-# Delete this file once all repos are confirmed offline-readable.
+# Round 1 (2026-09-16, run 35047990352) covered the 36-case extended set:
+# OLMoE, olmoe-lora adapter, Qwen2.5-1.5B-apeach, dspark_qwen3_8b_block7,
+# Qwen3.5-0.8B, DeepSeek-V2 + DeepSeek-V3.2-Exp (config-only), charent
+# adapters (HF), RedHatAI eagle3 (HF, optional then).
+#
+# Same mechanics: cann container, modelscope<1.38 in an isolated venv, dots
+# in repo names stored as triple underscores.  HF downloads try
+# huggingface.co then hf-mirror.com.  Re-dispatching is idempotent —
+# modelscope/HF skip files already fully cached.  Delete this file once all
+# repos are confirmed offline-readable.
 name: 'temp: backfill a3-16 cache (36-case extended set)'
 
 on:
@@ -56,44 +60,48 @@ defaults:
     shell: bash -el {0}
 
 env:
+  # modelscope, FULL weights — smallest first, DSpark last (see header)
   MS_MODELS_FULL: |
-    allenai/OLMoE-1B-7B-0125-Instruct
-    vllm-ascend/olmoe-instruct-text2sql-spider
-    Howeee/Qwen2.5-1.5B-apeach
-    deepseek-ai/dspark_qwen3_8b_block7
-    Qwen/Qwen3.5-0.8B
-  # Backend-level tests parse the model config only; weights never load.
-  MS_MODELS_CONFIG_ONLY: |
-    deepseek-ai/DeepSeek-V2
-    deepseek-ai/DeepSeek-V3.2-Exp
+    openai-mirror/whisper-large-v3-turbo
+    Qwen/Qwen3-0.6B
+    RedHatAI/Qwen3-8B-speculator.eagle3
+    vllm-ascend/EAGLE-LLaMA3.1-Instruct-8B
+    vllm-ascend/Qwen3-8B-W8A8
+    wemaster/deepseek_mtp_main_random_bf16
+    Qwen/Qwen2.5-VL-7B-Instruct
+    Qwen/Qwen2-Audio-7B-Instruct
+    vllm-ascend/DeepSeek-V2-Lite-W8A8
+    vllm-ascend/DeepSeek-V3.2-W8A8-Pruning
+    vllm-ascend/DeepSeek-V3-Pruning
+    deepseek-ai/DeepSeek-V2-Lite-Chat
+    LLM-Research/Meta-Llama-3.1-8B-Instruct
+    UploadWeight/DeepSeek-V4-Flash-DSpark-w4a8-test
+  # HF hub (test patches VLLM_USE_MODELSCOPE=False for the eagle3
+  # speculator, so the engine reads it from the HF cache)
   HF_MODELS_REQUIRED: |
-    charent/self_cognition_Alice
-    charent/self_cognition_Bob
-  HF_MODELS_OPTIONAL: |
     RedHatAI/Qwen3-8B-speculator.eagle3
 
 jobs:
   backfill:
     name: Download models on a3-16
     runs-on: linux-aarch64-a3-16-sh-001
-    timeout-minutes: 240
+    timeout-minutes: 360
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-a3-ubuntu22.04-py3.12
     steps:
       - name: Pre-check cache state (fs + node fingerprint)
         env:
           MS_FULL: ${{ env.MS_MODELS_FULL }}
-          MS_CFG: ${{ env.MS_MODELS_CONFIG_ONLY }}
         run: |
           echo "runner=$(hostname)"
           echo "fs-of-cache: $(df -T /root/.cache 2>/dev/null | tail -1)"
           du -sh /root/.cache/modelscope 2>/dev/null || echo "(no modelscope cache yet)"
           du -sh /root/.cache/huggingface 2>/dev/null || echo "(no HF cache yet)"
-          for m in $MS_FULL $MS_CFG; do
+          for m in $MS_FULL; do
             d="/root/.cache/modelscope/hub/models/${m}"
             if [ -d "$d" ]; then du -sh "$d"; else echo "MISSING $d"; fi
           done
-          for m in $HF_MODELS_REQUIRED $HF_MODELS_OPTIONAL; do
+          for m in $HF_MODELS_REQUIRED; do
             [ -z "$m" ] && continue
             d="/root/.cache/huggingface/hub/models--${m%%/*}--${m##*/}"
             if [ -d "$d" ]; then du -sh "$d"; else echo "MISSING $d"; fi
@@ -128,28 +136,9 @@ jobs:
           done <<< "$MS_FULL"
           if [ -n "$failed" ]; then echo "download failed:$failed"; exit 1; fi
 
-      - name: Download modelscope models (config only)
-        env:
-          MS_CFG: ${{ env.MS_MODELS_CONFIG_ONLY }}
-        run: |
-          set -euo pipefail
-          failed=""
-          while read -r model; do
-            [ -z "$model" ] && continue
-            echo "▶ Downloading model $model (config/tokenizer files only)"
-            t0=$SECONDS
-            if ! /tmp/msdl_venv/bin/modelscope download "$model" \
-                 --include '*.json' '*.model' '*.py'; then
-              failed="$failed $model"
-            fi
-            echo "[took $((SECONDS - t0))s] $model"
-          done <<< "$MS_CFG"
-          if [ -n "$failed" ]; then echo "download failed:$failed"; exit 1; fi
-
       - name: Download HF-hub models (huggingface.co, then hf-mirror.com)
         env:
           HF_REQ: ${{ env.HF_MODELS_REQUIRED }}
-          HF_OPT: ${{ env.HF_MODELS_OPTIONAL }}
         run: |
           set -uo pipefail
           failed=""
@@ -183,14 +172,12 @@ jobs:
             echo "[took $((SECONDS - t0))s] $model"
           done <<EOF
           $(while read -r m; do [ -z "$m" ] || echo "$m:required"; done <<< "$HF_REQ")
-          $(while read -r m; do [ -z "$m" ] || echo "$m:optional"; done <<< "$HF_OPT")
           EOF
           if [ -n "$failed" ]; then echo "download failed:$failed"; exit 1; fi
 
       - name: Reproduce the e2e offline read (no network)
         env:
           MS_FULL: ${{ env.MS_MODELS_FULL }}
-          MS_CFG: ${{ env.MS_MODELS_CONFIG_ONLY }}
         run: |
           set -uxo pipefail
           # the e2e installs modelscope<1.38 via requirements-dev.txt
@@ -201,10 +188,9 @@ jobs:
           import traceback
           from modelscope import snapshot_download
           from huggingface_hub import snapshot_download as hf_snapshot
-          ms_models = [m for m in os.environ.get("MS_FULL", "").split()
-                       + os.environ.get("MS_CFG", "").split() if m]
+          ms_models = [m for m in os.environ.get("MS_FULL", "").split() if m]
           hf_models = [m for m in os.environ.get("HF_MODELS_REQUIRED", "").split()
-                       + os.environ.get("HF_MODELS_OPTIONAL", "").split() if m]
+                       if m]
           for m in ms_models:
               try:
                   p = snapshot_download(m, local_files_only=True)
@@ -227,10 +213,12 @@ jobs:
         if: always()
         run: |
           du -sh /root/.cache/modelscope /root/.cache/huggingface 2>/dev/null
-          find /root/.cache/modelscope/hub -maxdepth 3 \
-            \( -iname "*OLMoE*" -o -iname "*apeach*" -o -iname "*dspark*" \
-               -o -iname "*Qwen3___5*" -o -iname "*DeepSeek-V3___2-Exp*" \
-               -o -iname "*DeepSeek-V2*" \) | sort
-          find /root/.cache/modelscope/hub/models/vllm-ascend \
-            -maxdepth 1 -iname "*olmoe*" 2>/dev/null
-          ls /root/.cache/huggingface/hub/ 2>/dev/null | grep -i "charent\|RedHatAI" || true
+          find /root/.cache/modelscope/hub/models -maxdepth 2 \
+            \( -iname "*whisper*" -o -iname "*Qwen3-0___6B*" \
+               -o -iname "*speculator.eagle3*" -o -iname "*EAGLE-LLaMA3.1*" \
+               -o -iname "*Qwen3-8B-W8A8*" -o -iname "*deepseek_mtp*" \
+               -o -iname "*Qwen2___5-VL-7B*" -o -iname "*Qwen2-Audio*" \
+               -o -iname "*DeepSeek-V2-Lite*" -o -iname "*DeepSeek-V3___2-W8A8*" \
+               -o -iname "*DeepSeek-V3-Pruning*" -o -iname "*Meta-Llama-3.1*" \
+               -o -iname "*DSpark*" \) | sort
+          ls /root/.cache/huggingface/hub/ 2>/dev/null | grep -i "RedHatAI" || true
