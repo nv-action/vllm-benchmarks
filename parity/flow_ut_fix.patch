@@ -1,5 +1,5 @@
 diff --git a/main2main_flow/scripts/utils/ut_check.py b/main2main_flow/scripts/utils/ut_check.py
-index 8f3eec0..b1c7512 100644
+index 8f3eec0..b8b83cc 100644
 --- a/main2main_flow/scripts/utils/ut_check.py
 +++ b/main2main_flow/scripts/utils/ut_check.py
 @@ -114,6 +114,20 @@ def _collect_cpu_ut_files(repo: Path) -> list[str]:
@@ -71,8 +71,81 @@ index 8f3eec0..b1c7512 100644
      end = min(len(clean), idx + max_chars)
      excerpt = clean[start:end].strip()
      # 截断到下一个测试标题/分隔（pytest 的 ____ name ____ 或 ==== 段）。
-@@ -368,6 +412,18 @@ def _build_ut_env(repo: Path, vllm_path: str | Path, fake_bin_dir: Path) -> dict
+@@ -361,18 +405,96 @@ def _make_fake_npu_smi() -> Path:
+     return fake_bin_dir
+ 
+ 
+-def _build_ut_env(repo: Path, vllm_path: str | Path, fake_bin_dir: Path) -> dict:
++# What upstream's cpu-UT lane gets from a SOC-less build: setup.py's
++# gen_build_info() writes the device family resolved from SOC_VERSION, and
++# on the CPU runner every SOC step is gated `npu_type != 'cpu'`, so
++# _build_info.py carries the no-SOC default — device_config.py maps a
++# missing __device_type__/ASCEND910B1 to AscendDeviceType.A2.
++_PURE_CPU_BUILD_INFO = "# Auto-generated file\n__device_type__ = 'A2'\n"
++
++
++def _make_pure_cpu_view(repo: Path) -> Path | None:
++    """Shadow-import view of vllm_ascend with a pure-CPU device profile.
++
++    The device profile is baked at BUILD time: ``_build_info.py`` is
++    generated in-tree by the install (a3 SOC here) and
++    ``get_current_hardware_profile()`` reads it at import — no env var can
++    change it.  The production a3 install is correct for the e2e lanes,
++    but the UT batch must simulate the same pure-CPU environment as
++    upstream's cpu-UT lane (device semantics A2), otherwise unpatched
++    profile-dependent tests diverge from CI for build reasons that have
++    nothing to do with the code under test (run 38412395758: the W4A8
++    SiTU fusion path fires on A3 and crashes on its own mock).
++
++    So prepend a symlink farm of the ``vllm_ascend`` package whose
++    ``_build_info.py`` is a real file with upstream's SOC-less content.
++    Everything else resolves through the symlink to the real tree
++    (tracebacks keep pointing at the graded sources).  The tree under
++    test is never modified — the untouched-guard stays clean, the e2e
++    lanes keep their a3 profile, and nothing recompiles (CPU-sim never
++    loads the custom-op .so files).  A3-specific tests patch the profile
++    in-test (as upstream's do), so A3 coverage survives.  Disable with
++    MAIN2MAIN_UT_PURE_CPU=0 to grade the tree's own build profile.
++    """
++    if os.environ.get("MAIN2MAIN_UT_PURE_CPU", "1").lower() in (
++            "0", "false", "no", "off"):
++        return None
++    pkg = repo / "vllm_ascend"
++    if not (pkg / "__init__.py").exists():
++        # Not a built/installed ascend tree — nothing to shadow; callers
++        # grade the tree as-is rather than failing the check here.
++        return None
++    view_root = WORKSPACE_DIR / "ut_purecpu_view"
++    shutil.rmtree(view_root, ignore_errors=True)
++    view_pkg = view_root / "vllm_ascend"
++    view_pkg.mkdir(parents=True)
++    for entry in os.scandir(pkg):
++        if entry.name == "_build_info.py":
++            continue
++        try:
++            os.symlink(os.path.abspath(entry.path), view_pkg / entry.name)
++        except OSError:
++            # A partial view is worse than no view: fall back to grading
++            # the tree's own profile instead of silently shadowing half a
++            # package.
++            shutil.rmtree(view_root, ignore_errors=True)
++            ts_print("[pre_ci] ut: pure-CPU view creation failed — "
++                     "falling back to the tree's own build profile")
++            return None
++    (view_pkg / "_build_info.py").write_text(_PURE_CPU_BUILD_INFO,
++                                             encoding="utf-8")
++    return view_root
++
++
++def _build_ut_env(repo: Path, vllm_path: str | Path, fake_bin_dir: Path,
++                  pure_cpu_view: Path | None = None) -> dict:
+     """Env replicating CI's CPU-UT lane: pure CPU, mocked NPU, offline hub.
+ 
+     The flow repo root is appended to PYTHONPATH so the ut_namespace
      plugin resolves even when the caller's environment doesn't carry it.
++    When ``pure_cpu_view`` is given, its parent is PREPENDED so the batch
++    imports the shadow ``vllm_ascend`` (pure-CPU device profile) instead
++    of the tree's own build — see :func:`_make_pure_cpu_view`.
      """
      env = os.environ.copy()
 +    # Production main2main runs csrc-l1-restore in the SAME job, which
@@ -90,3 +163,33 @@ index 8f3eec0..b1c7512 100644
      ascend_abs = str(repo.resolve())
      vllm_abs = str(Path(vllm_path).resolve())
      flow_root = str(Path(__file__).resolve().parents[3])
+     existing = env.get("PYTHONPATH", "")
+-    parts = [ascend_abs, vllm_abs]
++    parts = [str(pure_cpu_view), ascend_abs, vllm_abs] if pure_cpu_view \
++        else [ascend_abs, vllm_abs]
+     if existing:
+         parts.append(existing)
+     parts.append(flow_root)
+@@ -533,6 +655,12 @@ def check_ut(repo: Path, vllm_path: str | Path | None = None,
+     log_path = (venv_dir or WORKSPACE_DIR) / UT_FULL_LOG_NAME
+ 
+     fake_bin_dir = _make_fake_npu_smi()
++    pure_cpu_view = _make_pure_cpu_view(repo)
++    if pure_cpu_view:
++        ts_print(f"[pre_ci] ut: pure-CPU device profile active "
++                 f"(shadow vllm_ascend at {pure_cpu_view}, "
++                 f"A2 like upstream's SOC-less cpu-ut build); set "
++                 f"MAIN2MAIN_UT_PURE_CPU=0 to grade the tree's own profile")
+ 
+     all_violations: list[str] = []
+     baseline_violations: list[str] = []
+@@ -581,7 +709,8 @@ def check_ut(repo: Path, vllm_path: str | Path | None = None,
+ 
+     try:
+         for label, batch_vllm, vllm_version in versions:
+-            env = _build_ut_env(repo, batch_vllm, fake_bin_dir)
++            env = _build_ut_env(repo, batch_vllm, fake_bin_dir,
++                                pure_cpu_view=pure_cpu_view)
+             if vllm_version:
+                 # A raw git worktree has no installed vllm metadata, so
+                 # vllm_ascend.utils.vllm_version_is cannot infer the lane
