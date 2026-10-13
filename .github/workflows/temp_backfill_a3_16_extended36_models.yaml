@@ -208,10 +208,13 @@ jobs:
 
       - name: Phase A - upstream-faithful UT control
         run: |
-          set -uo pipefail
+          set +e
           # Upstream cpu-UT lane: no npu-smi on the PATH, spawn + autoload off,
           # single plain pytest process over tests/ut. Control only: a failure
           # here means vllm-ascend main itself is red, not the flow harness.
+          # bash -el (workflow default) turns errexit on; set +e is REQUIRED
+          # or a red pytest aborts the script before A_EXIT is captured
+          # (run 38401477482: 1 failed/10531 passed yet zero step output).
           FAKEBIN="/tmp/parity-fakebin"
           mkdir -p "${FAKEBIN}"
           printf '#!/bin/sh\nexit 1\n' > "${FAKEBIN}/npu-smi"
@@ -228,8 +231,9 @@ jobs:
           tail -30 /tmp/phase-a-ut.log
 
       - name: Phase B - flow harness acceptance (check_ut + mypy)
+        if: always()
         run: |
-          set -uo pipefail
+          set +e
           # Production main2main jobs run csrc-l1-restore in the same job,
           # which exports the build-cache vars via GITHUB_ENV. Reproduce that
           # leak so Phase B grades the tree the way production does; the flow
