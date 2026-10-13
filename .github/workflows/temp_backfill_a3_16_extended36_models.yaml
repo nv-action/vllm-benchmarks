@@ -54,6 +54,13 @@ jobs:
     env:
       MAIN2MAIN_WORKSPACE: /tmp/parity-ws
       MAIN2MAIN_IMAGE_TAG: 9.1.0-a3-ubuntu22.04-py3.12
+      # UT on an A3 host must simulate PURE CPU — the same semantics as
+      # upstream's cpu-ut lane (csrc/SOC steps gated off npu_type != 'cpu',
+      # build_info defaults to ASCEND910B1).  The device profile is baked at
+      # BUILD time from _build_info (env cannot change it), so the UT lane
+      # must install a 910b1-profile build instead of the production a3 one.
+      # A3-specific tests patch the profile in-test, so A3 coverage survives.
+      UT_SOC: ascend910b1
 
     steps:
       - name: Checkout vllm-project/vllm-ascend
@@ -161,14 +168,14 @@ jobs:
             vllm_ascend/*.so
             vllm_ascend/lib
             vllm_ascend/include
-          key: vllm-ascend-build-v2-${{ steps.get_arch.outputs.arch }}-${{ env.MAIN2MAIN_IMAGE_TAG }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
+          key: vllm-ascend-build-v2-${{ steps.get_arch.outputs.arch }}-${{ env.MAIN2MAIN_IMAGE_TAG }}-${{ env.UT_SOC }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
           fail-on-cache-miss: false
 
       - name: Install vllm-project/vllm-ascend
         working-directory: ${{ github.workspace }}
         env:
           CSRC_CACHE_HIT: ${{ steps.cache-csrc.outputs.cache-hit }}
-          SOC_VERSION: ascend910_9391
+          SOC_VERSION: ${{ env.UT_SOC }}
           MAX_JOBS: '184'
         run: |
           pip install uc-manager
@@ -191,7 +198,7 @@ jobs:
             vllm_ascend/*.so
             vllm_ascend/lib
             vllm_ascend/include
-          key: vllm-ascend-build-v2-${{ steps.get_arch.outputs.arch }}-${{ env.MAIN2MAIN_IMAGE_TAG }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
+          key: vllm-ascend-build-v2-${{ steps.get_arch.outputs.arch }}-${{ env.MAIN2MAIN_IMAGE_TAG }}-${{ env.UT_SOC }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
 
       - name: Install main2main_flow + apply UT-harness fixes (pre-push verification)
         env:
