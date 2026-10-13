@@ -1,0 +1,306 @@
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Temp harness parity (a3-16)
+
+# Harness parity acceptance: grade UNMODIFIED vllm-ascend main with the
+# main2main_flow checks (check_ut + _check_mypy) and require green.
+# Phase A = upstream cpu-UT recipe verbatim (control): if A is green while B
+# is red, the divergence is the flow harness, not vllm-ascend main.
+# benchmarks is only the test vehicle; fixes land in main2main_flow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ascend_ref: {description: 'vllm-ascend ref to grade (unmodified)', default: 'main', type: string}
+      flow_ref: {description: 'main2main_flow ref whose checks are under test', default: 'main', type: string}
+      vllm_ref: {description: 'vLLM pairing (empty = .github/vllm-main-verified.commit)', default: '', type: string}
+
+permissions: {}
+
+concurrency:
+  group: main2main-a3-16
+  cancel-in-progress: false
+
+jobs:
+  harness-parity:
+    runs-on: linux-aarch64-a3-16-sh-001
+    timeout-minutes: 240
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-a3-ubuntu22.04-py3.12
+      env:
+        VLLM_LOGGING_LEVEL: ERROR
+        VLLM_USE_MODELSCOPE: True
+        HF_HUB_OFFLINE: 1
+        UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+        UV_EXTRA_INDEX_URL: "https://repo.huaweicloud.com/ascend/repos/pypi http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu/"
+        UV_INDEX_STRATEGY: unsafe-best-match
+        UV_INSECURE_HOST: cache-service.nginx-pypi-cache.svc.cluster.local
+        UV_HTTP_TIMEOUT: 120
+        UV_NO_CACHE: 1
+        UV_SYSTEM_PYTHON: 1
+    defaults:
+      run:
+        shell: bash -el {0}
+    env:
+      MAIN2MAIN_WORKSPACE: /tmp/parity-ws
+      MAIN2MAIN_IMAGE_TAG: 9.1.0-a3-ubuntu22.04-py3.12
+
+    steps:
+      - name: Checkout vllm-project/vllm-ascend
+        uses: actions/checkout@v7
+        with:
+          repository: vllm-project/vllm-ascend
+          ref: ${{ inputs.ascend_ref }}
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Record tree state (untouched guard)
+        id: tree
+        run: |
+          set -eu
+          ASCEND_SHA=$(git rev-parse HEAD)
+          VLLM_PIN=$(tr -d '[:space:]' < .github/vllm-main-verified.commit)
+          DIRTY=$(git status --porcelain | wc -l)
+          if [ "$DIRTY" -ne 0 ]; then
+            git status --porcelain
+            echo "::error::checkout is dirty - grading must run on an untouched tree"
+            exit 1
+          fi
+          echo "ascend_sha=$ASCEND_SHA" >> "$GITHUB_OUTPUT"
+          echo "vllm_pin=$VLLM_PIN" >> "$GITHUB_OUTPUT"
+          echo "Grading vllm-ascend $ASCEND_SHA (unmodified), vLLM pin $VLLM_PIN"
+
+      - name: Checkout vllm-project/vllm
+        uses: actions/checkout@v7
+        with:
+          repository: vllm-project/vllm
+          ref: ${{ steps.tree.outputs.vllm_pin }}
+          path: vllm-upstream
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: |
+          sed -Ei 's@(ports|archive).ubuntu.com@cache-service.nginx-pypi-cache.svc.cluster.local:8081@g' /etc/apt/sources.list
+          pip config set global.index-url http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+          pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
+          apt-get update -y
+          if [ -s "$GITHUB_WORKSPACE/packages.txt" ]; then
+            xargs -r apt-get -y install < "$GITHUB_WORKSPACE/packages.txt"
+          fi
+          apt-get -y install git curl ca-certificates gcc g++ cmake libnuma-dev zstd clang-15 jq gh shellcheck ripgrep
+          update-alternatives --install /usr/bin/clang clang /usr/bin/clang-15 20
+          update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-15 20
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/vllm-upstream"
+          pip install uv pytest
+
+      - name: Prepare ascend workspace
+        run: |
+          set -eu
+          echo "vllm-upstream/" >> .git/info/exclude
+          mkdir -p "${MAIN2MAIN_WORKSPACE}"
+
+      - name: Install Mooncake wheel
+        run: |
+          set -euxo pipefail
+          apt-get install -y --no-install-recommends \
+            libibverbs1 ibverbs-providers librdmacm1 libnuma1 libcurl4
+          ldconfig
+          MOONCAKE_WHEEL="mooncake_transfer_engine_ascend-0.3.9-cp312-cp312-manylinux_2_35_aarch64.whl"
+          pip install --no-cache-dir --no-deps \
+            "https://vllm-ascend.obs.cn-north-4.myhuaweicloud.com/vllm-ascend/${MOONCAKE_WHEEL}"
+
+      - name: Install vllm-project/vllm from source
+        working-directory: vllm-upstream
+        run: |
+          VLLM_TARGET_DEVICE=empty uv pip install .
+          pip uninstall -y triton
+
+      - name: Get csrc hash
+        id: get_csrc_hash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          cd "$GITHUB_WORKSPACE"
+          CSRC_MANIFEST=$(git ls-files -s -- csrc setup.py CMakeLists.txt cmake)
+          if [ -z "$CSRC_MANIFEST" ]; then
+            echo "::error::No tracked csrc inputs found."
+            exit 1
+          fi
+          CSRC_HASH=$(printf '%s\n' "$CSRC_MANIFEST" | sha256sum | awk '{print $1}')
+          echo "CSRC_HASH=$CSRC_HASH" >> "$GITHUB_OUTPUT"
+
+      - name: Get architecture
+        id: get_arch
+        run: |
+          ARCH=$(uname -m)
+          case "$ARCH" in
+            x86_64) echo "arch=X64" >> "$GITHUB_OUTPUT" ;;
+            aarch64) echo "arch=ARM64" >> "$GITHUB_OUTPUT" ;;
+            *) echo "arch=$ARCH" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Restore vllm-ascend csrc cache
+        id: cache-csrc
+        uses: runs-on/cache/restore@v5
+        with:
+          path: |
+            vllm_ascend/_cann_ops_custom
+            vllm_ascend/*.so
+            vllm_ascend/lib
+            vllm_ascend/include
+          key: vllm-ascend-build-v2-${{ steps.get_arch.outputs.arch }}-${{ env.MAIN2MAIN_IMAGE_TAG }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
+          fail-on-cache-miss: false
+
+      - name: Install vllm-project/vllm-ascend
+        working-directory: ${{ github.workspace }}
+        env:
+          CSRC_CACHE_HIT: ${{ steps.cache-csrc.outputs.cache-hit }}
+          SOC_VERSION: ascend910_9391
+          MAX_JOBS: '184'
+        run: |
+          pip install uc-manager
+          uv pip install -r requirements-dev.txt
+          uv pip install --force-reinstall --no-deps triton-ascend==3.2.2
+          if [ "$CSRC_CACHE_HIT" = "true" ]; then
+            echo "csrc cache hit: skip kernel compilation"
+            COMPILE_CUSTOM_KERNELS=0 uv pip install -e .
+          else
+            echo "csrc cache miss: compile kernels on the NPU runner"
+            uv pip install -e . --no-build-isolation
+          fi
+
+      - name: Save vllm-ascend csrc cache
+        if: steps.cache-csrc.outputs.cache-hit != 'true'
+        uses: runs-on/cache/save@v5
+        with:
+          path: |
+            vllm_ascend/_cann_ops_custom
+            vllm_ascend/*.so
+            vllm_ascend/lib
+            vllm_ascend/include
+          key: vllm-ascend-build-v2-${{ steps.get_arch.outputs.arch }}-${{ env.MAIN2MAIN_IMAGE_TAG }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
+
+      - name: Install main2main_flow
+        env:
+          FLOW_REF: ${{ inputs.flow_ref }}
+        run: |
+          set -euxo pipefail
+          M2M_FLOW_DIR="/tmp/main2main_flow"
+          if [ ! -d "${M2M_FLOW_DIR}/.git" ]; then
+            git clone https://github.com/vllm-ascend/main2main_flow.git "${M2M_FLOW_DIR}"
+          fi
+          git -C "${M2M_FLOW_DIR}" fetch origin "${FLOW_REF}"
+          git -C "${M2M_FLOW_DIR}" checkout --detach FETCH_HEAD
+          pip install -e "${M2M_FLOW_DIR}"
+
+      - name: Phase A - upstream-faithful UT control
+        run: |
+          set -uo pipefail
+          # Upstream cpu-UT lane: no npu-smi on the PATH, spawn + autoload off,
+          # single plain pytest process over tests/ut. Control only: a failure
+          # here means vllm-ascend main itself is red, not the flow harness.
+          FAKEBIN="/tmp/parity-fakebin"
+          mkdir -p "${FAKEBIN}"
+          printf '#!/bin/sh\nexit 1\n' > "${FAKEBIN}/npu-smi"
+          chmod +x "${FAKEBIN}/npu-smi"
+          export PATH="${FAKEBIN}:${PATH}"
+          export VLLM_WORKER_MULTIPROC_METHOD=spawn
+          export TORCH_DEVICE_BACKEND_AUTOLOAD=0
+          cd "$GITHUB_WORKSPACE"
+          timeout 2700 pytest -sv --color=yes tests/ut \
+            > /tmp/phase-a-ut.log 2>&1
+          A_EXIT=$?
+          echo "phase_a_exit=${A_EXIT}" > /tmp/parity-ws/phase_a_exit.txt
+          echo "Phase A (upstream recipe) exit code: ${A_EXIT}"
+          tail -30 /tmp/phase-a-ut.log
+
+      - name: Phase B - flow harness acceptance (check_ut + mypy)
+        run: |
+          set -uo pipefail
+          # Production main2main jobs run csrc-l1-restore in the same job,
+          # which exports the build-cache vars via GITHUB_ENV. Reproduce that
+          # leak so Phase B grades the tree the way production does; the flow
+          # checks must be green DESPITE the leak.
+          export VLLM_ASCEND_BUILD_CACHE_DIR="${RUNNER_TEMP}/vllm-ascend-incremental-build-cache"
+          export VLLM_ASCEND_BUILD_CACHE_EVENT_LOG="${RUNNER_TEMP}/vllm-ascend-incremental-build-cache.event.log"
+          python3 - <<'PY'
+          import json
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          ascend = Path.cwd()
+          vllm = ascend / "vllm-upstream"
+          flow_ws = Path("/tmp/parity-ws")
+
+          from main2main_flow.scripts.utils.pre_ci_check import _check_mypy
+          from main2main_flow.scripts.utils.ut_check import check_ut
+
+          mypy_res = _check_mypy(ascend, vllm_path=vllm)
+          if mypy_res.get("skipped"):
+              print("::error::mypy check skipped - environment broken", flush=True)
+              sys.exit(2)
+          ut_res = check_ut(ascend, vllm_path=vllm)
+          if ut_res.get("skipped"):
+              print("::error::UT check skipped - environment broken", flush=True)
+              sys.exit(2)
+          sha = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True,
+                               text=True, cwd=ascend).stdout.strip()
+          report = {
+              "ascend_sha": sha,
+              "vllm_pair": "vllm-upstream (from .github/vllm-main-verified.commit)",
+              "mypy": mypy_res,
+              "ut": {k: v for k, v in ut_res.items() if k != "detail"},
+              "ut_detail": ut_res.get("detail", ""),
+          }
+          (flow_ws / "parity_report.json").write_text(json.dumps(report, indent=2))
+          print(json.dumps({k: report[k] for k in ("ascend_sha", "mypy", "ut")},
+                           indent=2, default=str))
+          bad = len(mypy_res.get("violations", [])) + len(ut_res.get("violations", []))
+          print(f"TOTAL VIOLATIONS: {bad}")
+          sys.exit(1 if bad else 0)
+          PY
+          B_EXIT=$?
+          echo "Phase B exit code: ${B_EXIT}"
+          exit ${B_EXIT}
+
+      - name: Upload parity artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: parity-artifacts
+          path: |
+            /tmp/phase-a-ut.log
+            /tmp/parity-ws/parity_report.json
+            /tmp/parity-ws/ut_venv/ut_full.log
+            /tmp/parity-ws/ut_venv/ut_isolated_*.log
+            /tmp/parity-ws/mypy_venv/*.log
+          if-no-files-found: warn
+
+      - name: Parity summary
+        if: always()
+        run: |
+          set -u
+          {
+            echo "## Harness parity result"
+            echo ""
+            echo "Graded tree: \`${{ steps.tree.outputs.ascend_sha }}\` (unmodified vllm-ascend \`${{ inputs.ascend_ref }}\`)"
+            echo ""
+            echo "| Phase | Result |"
+            echo "|---|---|"
+            A_EXIT_VAL="$(cut -d= -f2 /tmp/parity-ws/phase_a_exit.txt 2>/dev/null)"
+            echo "| A (upstream cpu-UT recipe) | exit ${A_EXIT_VAL:-unknown} |"
+            echo "| B (flow harness) | see job status; violations counted in parity_report.json |"
+          } >> "${GITHUB_STEP_SUMMARY}"
