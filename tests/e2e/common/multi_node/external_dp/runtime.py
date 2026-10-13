@@ -326,7 +326,7 @@ def profile_instance_for_rank(rank: RankInfo) -> ServeInstance:
     """Use the same target identity for server configuration and capture."""
     role = {"prefiller": "prefill", "decoder": "decode"}.get(rank.role, "unified")
     name = f"{role}-{rank.dp_rank}" if role != "unified" else f"dp-{rank.dp_rank}"
-    return ServeInstance.from_endpoint(name, f"http://{rank.host}:{rank.port}", role, rank.dp_rank, rank.node_index)
+    return ServeInstance.from_endpoint(name, f"http://{rank.host}:{rank.port}", node_index=rank.node_index)
 
 
 class ServerCommandBuilder:

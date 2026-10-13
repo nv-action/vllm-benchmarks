@@ -218,6 +218,7 @@ class AisbenchTimingAdapter:
         timings: list[RequestTiming] = []
         records_read = 0
         invalid_records = 0
+        first_error = None
         try:
             with details_file.open(encoding="utf-8") as file:
                 for line_number, line in enumerate(file, start=1):
@@ -232,18 +233,21 @@ class AisbenchTimingAdapter:
                         timings.append(self._parse_record(record, line_number))
                     except InvalidTimingRecord as exc:
                         invalid_records += 1
-                        logger.warning(
-                            "Skipping invalid AISBench timing record %s:%d: %s",
-                            details_file,
-                            line_number,
-                            exc,
-                        )
+                        if first_error is None:
+                            first_error = f"line {line_number}: {exc}"
         except (OSError, UnicodeError) as exc:
             raise TimingDataUnavailable(
                 f"cannot read AISBench timing details {details_file}: {type(exc).__name__}"
             ) from exc
         finally:
             self._close_connections()
+        if invalid_records:
+            logger.warning(
+                "Skipped %d invalid AISBench timing records in %s; first error: %s",
+                invalid_records,
+                details_file,
+                first_error,
+            )
         return TimingLoadResult(
             timings=timings,
             stats=TimingLoadStats(
@@ -341,12 +345,16 @@ def analyze_steady_state(
     requests: Sequence[RequestTiming],
     target_concurrency: int,
     threshold_ratio: float = DEFAULT_STEADY_STATE_THRESHOLD,
+    *,
+    benchmark_zero: float,
 ) -> SteadyStateResult:
     """Reconstruct request concurrency and locate the broad steady-state window.
 
     The window begins at the first upward threshold crossing and ends at the
     last downward crossing. End events sort before start events at equal
-    timestamps so a hand-off cannot create a false concurrency peak.
+    timestamps so a hand-off cannot create a false concurrency peak. Request
+    timings are validated by the loader; benchmark_zero is the first-request
+    marker shared with profiling, including warmup.
     """
 
     _validate_parameters(target_concurrency, threshold_ratio)
@@ -360,13 +368,6 @@ def analyze_steady_state(
             reason="no successful request timing data",
         )
 
-    for request in successful_requests:
-        if not math.isfinite(request.start_time) or not math.isfinite(request.end_time):
-            raise ValueError(f"request {request.request_id!r} has a non-finite timestamp")
-        if request.end_time < request.start_time:
-            raise ValueError(f"request {request.request_id!r} ends before it starts")
-
-    benchmark_zero = min(request.start_time for request in successful_requests)
     completed_times = sorted(request.end_time for request in successful_requests)
     events = _build_events(successful_requests)
 
@@ -376,7 +377,7 @@ def analyze_steady_state(
     observed_peak = 0
     steady_start_abs: float | None = None
     last_down_crossing: float | None = None
-    timeline: list[TimelinePoint] = []
+    timeline = [TimelinePoint(time_s=0.0, running_requests=0, completed_requests=0)]
 
     for event in events:
         running_before_event = running_requests
@@ -424,7 +425,7 @@ def analyze_steady_state(
     steady_start_s = steady_start_abs - benchmark_zero
     steady_end_s = last_down_crossing - benchmark_zero
     steady_duration_s = steady_end_s - steady_start_s
-    total_duration_s = max(completed_times) - benchmark_zero
+    total_duration_s = max(completed_times) - min(request.start_time for request in successful_requests)
     min_window_s = max(MIN_STEADY_STATE_WINDOW_S, total_duration_s * 0.1)
     warning = None
     if steady_duration_s < min_window_s:
@@ -478,6 +479,7 @@ def steady_state_summary(case_name: str, result: SteadyStateResult) -> dict[str,
         }
     return {
         "case_name": case_name,
+        "time_origin": "first AISBench request (including warmup)",
         "status": result.status,
         "total_requests": result.total_requests,
         "successful_requests": result.successful_requests,
@@ -517,8 +519,6 @@ def _sample_timeline(result: SteadyStateResult, width: int) -> tuple[list[int], 
 def _time_to_column(time_s: float, duration_s: float, width: int) -> int:
     """Map a benchmark-relative time to a shared zero-based chart column."""
 
-    if width <= 0:
-        raise ValueError("timeline width must be greater than zero")
     if duration_s <= 0:
         return 0
     bounded_time = max(0.0, min(time_s, duration_s))
@@ -541,15 +541,8 @@ def _assign_chart_levels(
 ) -> dict[int, int]:
     """Assign important Y values to distinct rows before adding optional ticks."""
 
-    if height <= 0:
-        raise ValueError("chart height must be greater than zero")
-    if max_value <= 0:
-        raise ValueError("chart max value must be greater than zero")
-
     bounded_mandatory = {max(0, min(level, max_value)) for level in (*mandatory_levels, 0, max_value)}
     mandatory = sorted(bounded_mandatory, reverse=True)
-    if len(mandatory) > height:
-        raise ValueError(f"{len(mandatory)} mandatory Y levels cannot fit in {height} chart rows")
 
     levels_by_row: dict[int, int] = {}
     previous_row = -1
@@ -731,7 +724,6 @@ def _render_chart(
 
     if not values:
         return [title, "  unavailable"]
-    max_value = max(max_value, 1)
     mandatory = [*mandatory_levels]
     if highlighted_value is not None:
         mandatory.append(highlighted_value)
@@ -818,6 +810,7 @@ def render_terminal(
 
     ratio_percent = result.threshold_ratio * 100
     lines = [f"::group::{_group_title(case_name, result)}"]
+    lines.append("Time zero: first AISBench request (including warmup); charts count formal requests only.")
     if timing_directory is not None or timing_stats is not None:
         lines.extend(["", "Timing Data"])
         if timing_directory is not None:

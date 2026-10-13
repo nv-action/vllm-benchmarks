@@ -531,12 +531,6 @@ jobs:
           python3 -c 'import boto3; print("Using boto3 " + boto3.__version__)' || \
             timeout 300s python3 -m pip install --disable-pip-version-check --no-input \
               --index-url https://repo.huaweicloud.com/repository/pypi/simple --timeout 15 --retries 1 boto3
-          python3 -c 'import obs' 2>/dev/null || \
-            timeout 300s python3 -m pip install --disable-pip-version-check --no-input \
-              --index-url https://repo.huaweicloud.com/repository/pypi/simple --timeout 15 --retries 1 esdk-obs-python || true
-          echo "::group::OBS storage before profiling upload"
-          python3 -m tools.profiling.storage status
-          echo "::endgroup::"
           echo "::group::Upload raw profiling traces"
           python3 -m tools.profiling.capture upload --root "$ASCEND_PROFILE_ROOT" --prefix "$PROFILE_KEY_PREFIX"
           echo "::endgroup::"

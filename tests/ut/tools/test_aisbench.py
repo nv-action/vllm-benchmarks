@@ -1,12 +1,10 @@
 import asyncio
+import importlib.util
 import json
-import runpy
 import sys
 import types
-from importlib.machinery import ModuleSpec
 from pathlib import Path
-from types import ModuleType
-from unittest.mock import MagicMock
+from unittest.mock import Mock
 
 import pytest
 
@@ -15,121 +13,8 @@ from tools.profiling import capture
 from tools.profiling.steady_state import unavailable_steady_state
 
 
-def test_profiled_request_config_loads_with_mmengine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    config_class = pytest.importorskip("mmengine.config").Config
-
-    class VLLMCustomAPIChat:
-        async def stream_infer(self, *_):
-            return "stream"
-
-        async def text_infer(self, *_):
-            return "text"
-
-    for name in ("ais_bench", "ais_bench.benchmark", "ais_bench.benchmark.models"):
-        module = ModuleType(name)
-        module.__spec__ = ModuleSpec(name, loader=None)
-        monkeypatch.setitem(sys.modules, name, module)
-    sys.modules["ais_bench.benchmark.models"].VLLMCustomAPIChat = VLLMCustomAPIChat
-    module_name = "tools.profiling.aisbench_request_marker"
-    previous_profile_model = sys.modules.pop(module_name, None)
-    try:
-        request_conf = tmp_path / "vllm_api_stream_chat.py"
-        request_conf.write_text(
-            "from ais_bench.benchmark.models import VLLMCustomAPIChat\n"
-            "models = [\n"
-            "    dict(\n"
-            "        type=VLLMCustomAPIChat,\n"
-            "        model='test',\n"
-            "        host_port=8000,\n"
-            "    )\n"
-            "]\n",
-            encoding="utf-8",
-        )
-        monkeypatch.setattr(aisbench, "REQUEST_CONF_DIR", str(tmp_path))
-        runner = aisbench.AisbenchRunner.__new__(aisbench.AisbenchRunner)
-        runner.__dict__.update(
-            model="test-model",
-            model_path="/model",
-            port=8001,
-            host_ip="localhost",
-            max_out_len=1024,
-            batch_size=1,
-            trust_remote_code=True,
-            request_conf="vllm_api_stream_chat",
-            request_rate=0,
-            top_p=None,
-            top_k=None,
-            seed=None,
-            min_p=None,
-            presence_penalty=None,
-            repetition_penalty=None,
-            thinking=False,
-            reasoning_effort=None,
-            task_type="performance",
-            temperature=None,
-            no_pred=False,
-            profile_targets=(object(),),
-            profile_marker=tmp_path / "first_request",
-            dataset_conf="gsm8k/perf",
-            num_prompts=1,
-        )
-        runner._init_request_conf()
-        custom = tmp_path / "vllm_api_stream_chat_custom.py"
-        assert "profiled_model(" not in custom.read_text(encoding="utf-8")
-        popen = MagicMock()
-        monkeypatch.setattr(aisbench.subprocess, "Popen", popen)
-        runner._run_aisbench_task()
-        assert popen.call_args.kwargs["env"]["ASCEND_PROFILE_REQUEST_MARKER"] == str(runner.profile_marker)
-        monkeypatch.setenv("ASCEND_PROFILE_REQUEST_MARKER", str(runner.profile_marker))
-        model = config_class.fromfile(str(custom)).models[0]["type"]()
-        assert asyncio.run(model.stream_infer({}, None)) == "stream"
-        first_request = runner.profile_marker.read_text()
-        assert asyncio.run(model.text_infer({}, None)) == "text"
-        assert runner.profile_marker.read_text() == first_request
-    finally:
-        sys.modules.pop(module_name, None)
-        if previous_profile_model is not None:
-            sys.modules[module_name] = previous_profile_model
-
-
-def test_performance_analysis_runs_before_baseline_assertion(monkeypatch: pytest.MonkeyPatch):
-    runner = aisbench.AisbenchRunner.__new__(aisbench.AisbenchRunner)
-    runner.threshold = 1
-    runner.baseline = 100
-    runner.input_throughput_threshold = None
-    runner.tpot_threshold = None
-    calls: list[str] = []
-
-    def get_result() -> None:
-        calls.append("result")
-        runner.result_json = {"Output Token Throughput": {"total": "1 token/s"}}
-
-    monkeypatch.setattr(runner, "_get_result_performance", get_result)
-    monkeypatch.setattr(runner, "_try_analyze_steady_state", lambda: calls.append("steady"))
-
-    with pytest.raises(AssertionError):
-        runner._performance_verify()
-
-    assert calls == ["result", "steady"]
-
-
-def test_performance_analysis_runs_when_result_is_unreadable(monkeypatch: pytest.MonkeyPatch):
-    runner = aisbench.AisbenchRunner.__new__(aisbench.AisbenchRunner)
-    analyze = MagicMock()
-    monkeypatch.setattr(runner, "_get_result_performance", MagicMock(side_effect=FileNotFoundError("missing result")))
-    monkeypatch.setattr(runner, "_try_analyze_steady_state", analyze)
-
-    with pytest.raises(FileNotFoundError, match="missing result"):
-        runner._performance_verify()
-
-    analyze.assert_called_once_with()
-
-
 @pytest.mark.parametrize("reasoning_effort", [None, "low"])
-@pytest.mark.parametrize("profiling", [False, True])
-def test_request_config_reasoning_effort(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reasoning_effort: str | None, profiling
-):
+def test_request_config_reasoning_effort(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reasoning_effort: str | None):
     request_conf = tmp_path / "vllm_api_general_chat.py"
     request_conf.write_text(
         "model='test',\n"
@@ -165,52 +50,215 @@ def test_request_config_reasoning_effort(
         task_type="accuracy",
         temperature=None,
         no_pred=False,
-        profile_targets=(object(),) if profiling else (),
+        profile_targets=(),
     )
 
     runner._init_request_conf()
 
     content = (tmp_path / "vllm_api_general_chat_custom.py").read_text(encoding="utf-8")
     assert 'chat_template_kwargs={"thinking": True}' in content
-    assert runner.profile_targets == ()
-    assert "ProfiledVLLMCustomAPIChat" not in content
     if reasoning_effort is None:
         assert "reasoning_effort=" not in content
     else:
         assert 'reasoning_effort="low"' in content
 
 
-@pytest.mark.parametrize("threshold", [1])
-def test_steady_state_failure_does_not_affect_performance_verification(monkeypatch, caplog, threshold):
+@pytest.fixture
+def benchmark_setup(tmp_path, monkeypatch):
+    """Provide local AISBench inputs and replace only external execution."""
+    for name, value in capture.ProfileSpec(enabled=True).environment().items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("ASCEND_PROFILE_ROOT", str(tmp_path))
+    monkeypatch.setattr(aisbench, "STEADY_STATE_OUTPUT_DIR", tmp_path / "steady_state")
+    monkeypatch.setattr(aisbench, "REQUEST_CONF_DIR", str(tmp_path))
+    instance = capture.ServeInstance.from_endpoint("server", "http://server:8000", root=tmp_path)
+    capture.ServeManifest((instance,)).write(tmp_path / "serve_manifest.json")
+    (tmp_path / "chat.py").write_text("models = [dict(\n    type=VLLMCustomAPIChat,\n    model='model',\n)]\n")
+    config = {
+        "case_name": "load",
+        "profile_case_name": "model__load",
+        "case_type": "performance",
+        "dataset_path_local": str(tmp_path),
+        "model_path": str(tmp_path),
+        "request_conf": "chat",
+        "dataset_conf": "dataset",
+        "max_out_len": 16,
+        "batch_size": 2,
+    }
+    monkeypatch.setattr(aisbench.AisbenchRunner, "_init_dataset_conf", lambda self: None)
+    monkeypatch.setattr(aisbench.AisbenchRunner, "_run_aisbench_task", lambda self: None)
+    monkeypatch.setattr(aisbench.AisbenchRunner, "_wait_for_task", lambda self: None)
+    controller = Mock()
+    controller.finish.return_value = {"status": "success"}
+    monkeypatch.setattr(aisbench, "ProfileController", Mock(return_value=controller))
+    collect = Mock()
+    monkeypatch.setattr(aisbench, "collect_raw_artifacts", collect)
+    return config, controller, collect
+
+
+def test_benchmark_profile_lifecycle(tmp_path, benchmark_setup):
+    config, controller, collect = benchmark_setup
+    marker = tmp_path / "steady_state" / "model__load" / "first_request"
+    marker.parent.mkdir(parents=True)
+    marker.write_text("previous timestamp")
+    runner = aisbench.AisbenchRunner("model", 8000, config, verify=False)
+    generated = (tmp_path / "chat_custom.py").read_text()
+    compile(generated, "chat_custom.py", "exec")
+    assert "type=ProfiledVLLMCustomAPIChat" in generated
+    assert not marker.exists()
+    controller.start.assert_called_once()
+    controller.finish.assert_called_once()
+    collect.assert_called_once_with(tmp_path, "model__load", runner.profile_targets, {"status": "success"})
+
+
+@pytest.mark.parametrize("error_type", [ValueError, KeyboardInterrupt])
+def test_profile_cleanup_does_not_mask_benchmark_error(benchmark_setup, monkeypatch, error_type):
+    config, controller, collect = benchmark_setup
+    benchmark_error = error_type("benchmark failed")
+    monkeypatch.setattr(aisbench.AisbenchRunner, "_wait_for_task", Mock(side_effect=benchmark_error))
+    controller.finish.side_effect = OSError("profile shutdown failed")
+    with pytest.raises(error_type) as error:
+        aisbench.AisbenchRunner("model", 8000, config, verify=False)
+    assert error.value is benchmark_error
+    controller.finish.assert_called_once()
+    collect.assert_not_called()
+
+
+@pytest.mark.parametrize("selected", [False, True])
+def test_aisbench_process_receives_marker_and_case_capture_mode(tmp_path, monkeypatch, selected):
+    monkeypatch.setenv("ASCEND_PROFILE_ENABLED", "true")
     runner = aisbench.AisbenchRunner.__new__(aisbench.AisbenchRunner)
-    runner.__dict__.update(
-        result_json={"Output Token Throughput": {"total": "10token/s"}} if threshold is not None else {},
-        result_csv=None,
-        baseline=10,
-        threshold=threshold,
-        input_throughput_threshold=None,
-        tpot_threshold=None,
+    runner.dataset_conf = "dataset"
+    runner.request_conf = "chat"
+    runner.task_type = "performance"
+    runner.num_prompts = None
+    runner.profile_marker = tmp_path / "first_request"
+    runner.profile_targets = ("server",) if selected else ()
+    popen = Mock()
+    monkeypatch.setattr(aisbench.subprocess, "Popen", popen)
+    runner._run_aisbench_task()
+    env = popen.call_args.kwargs["env"]
+    assert env["ASCEND_PROFILE_REQUEST_MARKER"] == str(runner.profile_marker)
+    assert env["ASCEND_PROFILE_ENABLED"] == str(selected).lower()
+    assert str(Path(aisbench.__file__).resolve().parents[1]) in env["PYTHONPATH"].split(aisbench.os.pathsep)
+
+
+@pytest.mark.parametrize("stage", ["setup", "manifest", "empty", "unsupported", "marker", "start", "collect"])
+def test_selected_profile_failure_fails_benchmark(tmp_path, benchmark_setup, monkeypatch, stage):
+    config, controller, collect = benchmark_setup
+    if stage == "setup":
+        monkeypatch.setenv("ASCEND_PROFILE_ENABLED", "invalid")
+    elif stage == "manifest":
+        (tmp_path / "serve_manifest.json").unlink()
+    elif stage == "empty":
+        capture.ServeManifest(()).write(tmp_path / "serve_manifest.json")
+    elif stage == "unsupported":
+        (tmp_path / "chat.py").write_text("models = [dict(type=OtherAPI)]")
+    elif stage == "marker":
+        (tmp_path / "steady_state").write_text("not a directory")
+    elif stage == "start":
+        controller.start.side_effect = OSError("start failed")
+    else:
+        collect.side_effect = OSError("collection failed")
+    completed = Mock()
+    monkeypatch.setattr(aisbench.AisbenchRunner, "_wait_for_task", completed)
+    with pytest.raises((ValueError, OSError, capture.ArtifactError)):
+        aisbench.AisbenchRunner("model", 8000, config, verify=False)
+    if stage == "collect":
+        completed.assert_called_once()
+    else:
+        completed.assert_not_called()
+
+
+@pytest.mark.parametrize("failure", ["unsupported", "marker"])
+def test_timing_setup_failure_does_not_fail_ordinary_benchmark(tmp_path, benchmark_setup, monkeypatch, failure):
+    config, controller, collect = benchmark_setup
+    monkeypatch.setenv("ASCEND_PROFILE_ENABLED", "false")
+    if failure == "unsupported":
+        (tmp_path / "chat.py").write_text("models = [dict(type=OtherAPI)]")
+    else:
+        (tmp_path / "steady_state").write_text("not a directory")
+    runner = aisbench.AisbenchRunner("model", 8000, config, verify=False)
+    assert runner.profile_marker is None
+    controller.start.assert_not_called()
+    collect.assert_not_called()
+
+
+@pytest.mark.parametrize("profile", [False, True])
+def test_graph_and_capture_share_first_request_origin(tmp_path, benchmark_setup, monkeypatch, profile):
+    config, controller, _ = benchmark_setup
+    monkeypatch.setenv("ASCEND_PROFILE_ENABLED", str(profile))
+    monkeypatch.setattr(capture, "time", types.SimpleNamespace(perf_counter=lambda: 10.0))
+    monkeypatch.setattr(
+        aisbench.AisbenchRunner, "_run_aisbench_task", lambda self: capture.record_first_request(self.profile_marker)
     )
+    runner = aisbench.AisbenchRunner("model", 8000, config, verify=False)
+    assert "type=ProfiledVLLMCustomAPIChat" in (tmp_path / "chat_custom.py").read_text()
+    assert float(runner.profile_marker.read_text()) == 10
+    if profile:
+        assert aisbench.ProfileController.call_args.args[2] == runner.profile_marker
+    else:
+        controller.start.assert_not_called()
+    (tmp_path / "dataset_details.jsonl").write_text(
+        "\n".join(
+            json.dumps(record)
+            for record in [
+                {"time_points": [30, 35], "success": False},
+                {"time_points": [50, 80], "success": True},
+                {"time_points": [55, 75], "success": True},
+            ]
+        )
+    )
+    runner.performance_result_dir = tmp_path
+    runner.performance_dataset_type = "dataset"
+    emit = Mock()
+    monkeypatch.setattr(runner, "_emit_steady_state", emit)
+    runner._try_analyze_steady_state()
+    result = emit.call_args.args[0]
+    assert (result.steady_start_s, result.steady_end_s, result.steady_duration_s) == (45, 65, 20)
+    assert result.timeline[0].time_s == 0
+    assert result.timeline[0].running_requests == 0
+    assert result.timeline[1].time_s == 40
+
+
+@pytest.mark.parametrize("throughput", [5, 10])
+def test_steady_analysis_failure_keeps_performance_verdict(monkeypatch, throughput):
+    runner = aisbench.AisbenchRunner.__new__(aisbench.AisbenchRunner)
+    runner.result_json = {"Output Token Throughput": {"total": f"{throughput}token/s"}}
+    runner.baseline, runner.threshold = 10, 1
+    runner.input_throughput_threshold = runner.tpot_threshold = None
     monkeypatch.setattr(runner, "_get_result_performance", lambda: None)
+    monkeypatch.setattr(runner, "_try_analyze_steady_state", Mock(side_effect=RuntimeError("analysis failed")))
+    if throughput < 10:
+        with pytest.raises(AssertionError, match="Performance verification failed"):
+            runner._performance_verify()
+    else:
+        runner._performance_verify()
 
-    def fail_analysis() -> None:
-        raise RuntimeError("steady-state failure: private-service:8000")
 
-    monkeypatch.setattr(runner, "_try_analyze_steady_state", fail_analysis)
-
-    runner._performance_verify()
-    assert "RuntimeError" in caplog.text
-    assert "private-service" not in caplog.text
-    assert all(record.exc_info is None for record in caplog.records)
+@pytest.mark.parametrize("save_fails", [False, True])
+def test_steady_summary_and_console_output(tmp_path, monkeypatch, capsys, save_fails):
+    monkeypatch.setattr(aisbench, "STEADY_STATE_OUTPUT_DIR", tmp_path)
+    runner = aisbench.AisbenchRunner.__new__(aisbench.AisbenchRunner)
+    runner.case_name, runner.profile_case_name = "load", "model__load"
+    runner.performance_result_dir, runner.request_rate = None, 0
+    output = tmp_path / "model__load"
+    if save_fails:
+        output.write_text("not a directory")
+    runner._emit_steady_state(unavailable_steady_state(target_concurrency=2, reason="no timings"), None)
+    assert "UNAVAILABLE" in capsys.readouterr().out
+    if not save_fails:
+        assert json.loads((output / "summary.json").read_text())["status"] == "unavailable"
 
 
 @pytest.mark.parametrize("method", ["stream_infer", "text_infer"])
 @pytest.mark.parametrize("marker_fails", [False, True])
-def test_request_marker_never_suppresses_inference(tmp_path, monkeypatch, method, marker_fails):
+@pytest.mark.parametrize("profile", [False, True])
+def test_request_adapter_delegates_inference(monkeypatch, tmp_path, method, marker_fails, profile):
     class Model:
         async def stream_infer(self, body, output):
-            if body == "fail":
-                raise RuntimeError("inference failure")
+            if body == "error":
+                raise ValueError("inference failed")
             return body
 
         text_infer = stream_infer
@@ -218,66 +266,23 @@ def test_request_marker_never_suppresses_inference(tmp_path, monkeypatch, method
     for name in ("ais_bench", "ais_bench.benchmark", "ais_bench.benchmark.models"):
         monkeypatch.setitem(sys.modules, name, types.ModuleType(name))
     sys.modules["ais_bench.benchmark.models"].VLLMCustomAPIChat = Model
-    calls = []
-
-    def mark(path):
-        calls.append(path)
-        if marker_fails:
-            raise PermissionError("marker unavailable")
-
-    monkeypatch.setattr(capture, "record_first_request", mark)
-    monkeypatch.setenv("ASCEND_PROFILE_REQUEST_MARKER", str(tmp_path / "marker"))
-    namespace = runpy.run_path(str(Path(capture.__file__).with_name("aisbench_request_marker.py")))
-    model = namespace["ProfiledVLLMCustomAPIChat"]()
-    infer = getattr(model, method)
-    assert asyncio.run(infer("first", None)) == "first"
-    assert asyncio.run(infer("second", None)) == "second"
-    with pytest.raises(RuntimeError, match="inference failure"):
-        asyncio.run(infer("fail", None))
-    assert len(calls) == 1
-
-
-@pytest.mark.parametrize("failure", [None, "save", "serialize", "render"])
-def test_steady_state_outputs_are_independent_and_namespaced(tmp_path, monkeypatch, capsys, failure):
-    monkeypatch.setattr(aisbench, "STEADY_STATE_OUTPUT_DIR", tmp_path)
-    runner = aisbench.AisbenchRunner.__new__(aisbench.AisbenchRunner)
-    runner.__dict__.update(
-        case_name="performance", profile_case_name="config-a__performance", performance_result_dir=None, request_rate=0
-    )
-    result = unavailable_steady_state(target_concurrency=1, reason="no timing data")
-    if failure == "save":
-        (tmp_path / runner.profile_case_name).write_text("a file blocks directory creation")
-    if failure == "serialize":
-
-        def fail_serialize(*_, **kwargs):
-            raise TypeError("serialization failed")
-
-        monkeypatch.setattr(aisbench.json, "dump", fail_serialize)
-    if failure == "render":
-
-        def fail_render(*_, **kwargs):
-            raise RuntimeError("render failed")
-
-        monkeypatch.setattr(aisbench, "render_terminal", fail_render)
-        with pytest.raises(RuntimeError, match="render failed"):
-            runner._emit_steady_state(result, None)
-    else:
-        runner._emit_steady_state(result, None)
-        assert "[STEADY STATE] performance" in capsys.readouterr().out
-    if failure not in {"save", "serialize"}:
-        assert json.loads((tmp_path / runner.profile_case_name / "summary.json").read_text())["status"] == "unavailable"
-    if failure is None:
-        runner.profile_case_name = "config-b__performance"
-        runner._emit_steady_state(result, None)
-        assert len(list(tmp_path.glob("*/summary.json"))) == 2
-
-
-def test_profile_finish_failure_is_optional(caplog):
-    runner = aisbench.AisbenchRunner.__new__(aisbench.AisbenchRunner)
-
-    class Controller:
-        def finish(self):
-            raise OSError("simulated")
-
-    runner._finish_profiling(Controller())
-    assert "Profiling collection failed (OSError)" in caplog.text
+    marker = Mock(side_effect=OSError("marker failed") if marker_fails else None)
+    monkeypatch.setattr(capture, "record_first_request", marker)
+    path = tmp_path / "first_request"
+    monkeypatch.setenv("ASCEND_PROFILE_REQUEST_MARKER", str(path))
+    monkeypatch.setenv("ASCEND_PROFILE_ENABLED", str(profile))
+    name = "tools.profiling.aisbench_request_marker"
+    spec = importlib.util.spec_from_file_location(name, Path(capture.__file__).with_name("aisbench_request_marker.py"))
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, name, module)
+    spec.loader.exec_module(module)
+    infer = getattr(module.ProfiledVLLMCustomAPIChat(), method)
+    if marker_fails and profile:
+        with pytest.raises(OSError, match="marker failed"):
+            asyncio.run(infer("first", None))
+        return
+    for body in ("first", "second"):
+        assert asyncio.run(infer(body, None)) == body
+    with pytest.raises(ValueError, match="inference failed"):
+        asyncio.run(infer("error", None))
+    marker.assert_called_once_with(path)

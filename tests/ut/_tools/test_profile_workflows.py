@@ -12,12 +12,12 @@ def load_workflow(name: str) -> dict:
 
 def test_private_a3_nightly_uses_registered_runner():
     workflow = load_workflow("schedule_nightly_test_a3.yaml")
-    assert "linux-aarch64-a3-800t-" not in (WORKFLOWS / "schedule_nightly_test_a3.yaml").read_text()
-    assert workflow["jobs"]["parse-trigger"]["runs-on"] == "linux-aarch64-a3-0"
+    assert "linux-aarch64-a3-0" not in (WORKFLOWS / "schedule_nightly_test_a3.yaml").read_text()
+    assert workflow["jobs"]["parse-trigger"]["runs-on"] == "linux-aarch64-a3-800t-0"
     for name in ("multi-node-tests", "double-node-tests"):
-        assert workflow["jobs"][name]["with"]["runner"] == "linux-aarch64-a3-0"
+        assert workflow["jobs"][name]["with"]["runner"] == "linux-aarch64-a3-800t-0"
     reusable = load_workflow("_e2e_nightly_multi_node.yaml")
-    assert reusable["on"]["workflow_call"]["inputs"]["runner"]["default"] == "linux-aarch64-a3-0"
+    assert reusable["on"]["workflow_call"]["inputs"]["runner"]["default"] == "linux-aarch64-a3-800t-0"
 
 
 @pytest.mark.parametrize(
@@ -59,7 +59,8 @@ def test_producer_only_uploads_raw(name):
     job = next(iter(workflow["jobs"].values()))
     step = next(step for step in job["steps"] if "python3 -m tools.profiling.capture upload" in step.get("run", ""))
     script = step["run"]
-    assert "python3 -m tools.profiling.storage status" in script
+    assert "tools.profiling.storage status" not in script
+    assert "esdk-obs-python" not in script
     assert "python3 -m tools.profiling.capture upload" in script
     assert "python3 -m tools.profiling.parse parse" not in script
     assert not step.get("continue-on-error", False)
@@ -72,14 +73,16 @@ def test_parser_uses_one_runner_per_node_and_finalizes_manifest():
     prepare = workflow["jobs"]["prepare"]
     parser = workflow["jobs"]["parse"]
     finalize = workflow["jobs"]["finalize"]
-    for job in (prepare, parser, finalize):
-        assert job["runs-on"] == "linux-arm64-cpu-16"
-        assert job["container"]["image"] == "${{ inputs.image }}"
+    for job in (prepare, finalize):
+        assert job["runs-on"] == "linux-aarch64-cpu-4"
+        assert job["container"]["image"].endswith(":nightly-cpu-py3.12")
+    assert parser["runs-on"] == "linux-arm64-cpu-16"
+    assert parser["container"]["image"] == "${{ inputs.image }}"
 
     assert prepare["if"] == "${{ inputs.should_run }}"
     assert prepare["outputs"]["matrix"] == "${{ steps.plan.outputs.matrix }}"
     plan_script = prepare["steps"][-1]["run"]
-    assert "python3 -m tools.profiling.storage status" in plan_script
+    assert "tools.profiling.storage status" not in plan_script
     assert "python3 -m tools.profiling.parse plan" in plan_script
 
     assert parser["strategy"]["matrix"] == "${{ fromJSON(needs.prepare.outputs.matrix) }}"
@@ -95,6 +98,7 @@ def test_parser_uses_one_runner_per_node_and_finalizes_manifest():
 def test_pr_nightly_dispatch_forwards_profiling_to_all_socs():
     workflow = load_workflow("pr_nightly_command.yml")
     jobs = workflow["jobs"]
+    assert "--profile-scope" not in (WORKFLOWS / "pr_nightly_command.yml").read_text()
     assert jobs["authorize"]["outputs"]["profile_options_json"] == "${{ steps.resolve.outputs.profile_options_json }}"
     for soc in ("a2", "a3", "a3-560t", "310p", "a5"):
         job = jobs[f"dispatch-{soc}"]
@@ -148,3 +152,22 @@ def test_obs_dependency_installation_uses_bounded_mirror_fallback(name):
         assert "--index-url https://repo.huaweicloud.com/repository/pypi/simple" in script
         assert "--timeout 15 --retries 1 boto3" in script
         assert "pip install --quiet" not in script
+
+
+def test_a3_profiling_runs_queue_without_cancelling_previous_run():
+    workflow = load_workflow("schedule_nightly_test_a3.yaml")
+    assert (
+        workflow["concurrency"]["cancel-in-progress"] == "${{ !fromJSON(inputs.profile_options_json || '{}').enabled }}"
+    )
+    assert "inputs.test_cases" not in workflow["concurrency"]["group"]
+
+
+def test_glm_validation_case_is_registered_as_two_nodes():
+    config = load_workflow("configs/nightly_config.yaml")
+    case = next(
+        case
+        for case in config["a3"]["double_node"]["test_config"]
+        if case["name"] == "GLM-5.2-W8A8C8-A3_3.5k_1.5k_0_20"
+    )
+    assert case["config_file_path"] == "GLM-5.2-W8A8C8-A3_3.5k_1.5k_0_20.yaml"
+    assert case["size"] == "2"

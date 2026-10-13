@@ -46,6 +46,7 @@ from tools.profiling.steady_state import (
     steady_state_summary,
     unavailable_steady_state,
 )
+from tools.profiling.storage import ArtifactError
 
 BENCHMARK_HOME = os.getenv("BENCHMARK_HOME", os.path.abspath("./benchmark"))
 DATASET_CONF_DIR = os.path.join(BENCHMARK_HOME, "ais_bench", "benchmark", "configs", "datasets")
@@ -87,10 +88,11 @@ class AisbenchRunner:
         aisbench_cmd = " ".join(aisbench_cmd) + f" --debug > {self.stdout_file} 2>&1 &"
         print(f"running aisbench cmd: {aisbench_cmd}")
         env = os.environ.copy()
-        if self.profile_targets:
+        if self.profile_marker is not None:
             repo_root = str(Path(__file__).resolve().parents[1])
             env["PYTHONPATH"] = os.pathsep.join(filter(None, (repo_root, env.get("PYTHONPATH", ""))))
             env["ASCEND_PROFILE_REQUEST_MARKER"] = str(self.profile_marker)
+            env["ASCEND_PROFILE_ENABLED"] = str(bool(self.profile_targets)).lower()
         self.proc: subprocess.Popen = subprocess.Popen(aisbench_cmd, shell=True, env=env)
 
     def __init__(self, model: str, port: int, aisbench_config: dict, host_ip: str = "localhost", verify=True):
@@ -167,7 +169,13 @@ class AisbenchRunner:
         try:
             self._run_aisbench_task()
             self._wait_for_task()
-        finally:
+        except BaseException:
+            try:
+                self._finish_profiling(controller)
+            except Exception as exc:
+                logging.error("Profiling cleanup also failed: %s", exc)
+            raise
+        else:
             self._finish_profiling(controller)
         if verify:
             self.baseline = aisbench_config.get("baseline", 1)
@@ -188,54 +196,48 @@ class AisbenchRunner:
                 self._spec_decode_verify()
 
     def _prepare_profiling(self) -> None:
-        """Resolve optional profiling targets without blocking benchmark setup."""
-        self.profile_spec = ProfileSpec()
+        """Resolve capture targets and prepare the shared performance time origin."""
+        self.profile_spec = ProfileSpec.from_env()
         self.profile_targets = ()
+        self.profile_marker: Path | None = None
+        if self.profile_spec.includes_case(self.case_name, self.task_type):
+            self.profile_targets = ServeManifest.read(profile_root() / "serve_manifest.json").instances
+            if not self.profile_targets:
+                raise ArtifactError("Profiling is enabled but the serve manifest has no targets")
+        if self.task_type != "performance":
+            return
+        safe_case = re.sub(r"[^A-Za-z0-9_.-]+", "_", self.profile_case_name).strip("._") or "unknown"
+        marker = (STEADY_STATE_OUTPUT_DIR / safe_case / "first_request").resolve()
         try:
-            self.profile_spec = ProfileSpec.from_env()
-            if not self.profile_spec.includes_case(self.case_name, self.task_type):
-                return
-            root = profile_root()
-            safe_profile_case = re.sub(r"[^A-Za-z0-9_.-]", "_", self.profile_case_name)
-            self.profile_marker = root / f"{safe_profile_case}.first_request"
-            manifest_path = root / "serve_manifest.json"
-            if manifest_path.exists():
-                self.profile_targets = ServeManifest.read(manifest_path).select_targets(self.profile_spec.scope)
-            else:
-                logging.warning("No serve manifest for profiling; benchmark runs without profiling")
-        except Exception as exc:
-            logging.warning("Profiling setup failed (%s); benchmark runs without profiling", type(exc).__name__)
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.unlink(missing_ok=True)
+        except OSError as exc:
+            if self.profile_targets:
+                raise
+            logging.warning("Cannot prepare benchmark time origin: %s", exc)
+        else:
+            self.profile_marker = marker
 
     def _start_profiling(self) -> ProfileController | None:
-        """Reset this case's marker and start its optional profiling controller."""
+        """Start the controller for a selected profiling case."""
         if not self.profile_targets:
             return None
-        try:
-            self.profile_marker.parent.mkdir(parents=True, exist_ok=True)
-            self.profile_marker.unlink(missing_ok=True)
-            target_names = ", ".join(target.name for target in self.profile_targets)
-            print(
-                f"Profiling case {self.profile_case_name}: targets={target_names}, "
-                f"start-after={self.profile_spec.start_after}s, duration={self.profile_spec.duration}s",
-                flush=True,
-            )
-            controller = ProfileController(self.profile_spec, self.profile_targets, self.profile_marker)
-            controller.start()
-            return controller
-        except Exception as exc:
-            logging.warning("Profiling start failed (%s); benchmark runs without profiling", type(exc).__name__)
-            return None
+        target_names = ", ".join(target.name for target in self.profile_targets)
+        print(
+            f"Profiling case {self.profile_case_name}: targets={target_names}, "
+            f"start-after={self.profile_spec.start_after}s, duration={self.profile_spec.duration}s",
+            flush=True,
+        )
+        controller = ProfileController(self.profile_spec, self.profile_targets, self.profile_marker)
+        controller.start()
+        return controller
 
     def _finish_profiling(self, controller: ProfileController | None) -> None:
-        """Stop profiling and collect results without masking benchmark failures."""
+        """Stop profiling, save artifacts, and propagate capture/collection failures."""
         if controller is None:
             return
-        try:
-            result = controller.finish()
-            print(f"Profiling case {self.profile_case_name} finished: status={result['status']}", flush=True)
-            collect_raw_artifacts(profile_root(), self.profile_case_name, self.profile_targets, result)
-        except Exception as exc:
-            logging.warning("Profiling collection failed (%s); benchmark result is unchanged", type(exc).__name__)
+        result = controller.finish()
+        collect_raw_artifacts(profile_root(), self.profile_case_name, self.profile_targets, result)
 
     def _init_dataset_conf(self):
         if self.task_type in ("accuracy", "spec_decode"):
@@ -304,7 +306,7 @@ class AisbenchRunner:
         if self.no_pred:
             content = re.sub(r"pred_postprocessor.*", "#pred_postprocessor", content)
         conf_path_new = os.path.join(REQUEST_CONF_DIR, f"{self.request_conf}_custom.py")
-        if self.profile_targets:
+        if self.task_type == "performance" and self.profile_marker is not None:
             content, replacements = re.subn(
                 r"\btype\s*=\s*VLLMCustomAPIChat\b",
                 "type=ProfiledVLLMCustomAPIChat",
@@ -312,8 +314,10 @@ class AisbenchRunner:
                 count=1,
             )
             if replacements != 1:
-                logging.warning("Unsupported AISBench model type; benchmark runs without profiling")
-                self.profile_targets = ()
+                if self.profile_targets:
+                    raise ArtifactError("Unsupported AISBench model type for profiling")
+                logging.warning("Unsupported AISBench model type for the shared timeline origin")
+                self.profile_marker = None
             else:
                 content = "from tools.profiling.aisbench_request_marker import ProfiledVLLMCustomAPIChat\n" + content
         with open(conf_path_new, "w", encoding="utf-8") as f:
@@ -385,7 +389,7 @@ class AisbenchRunner:
             with output_file.open("w", encoding="utf-8") as file:
                 json.dump(steady_state_summary(self.case_name, result), file, indent=2, ensure_ascii=False)
         except Exception as exc:
-            logging.warning("Steady-state summary could not be saved (%s)", type(exc).__name__)
+            logging.warning("Steady-state summary could not be saved: %s: %s", type(exc).__name__, exc)
             output_file = None
         print(
             render_terminal(
@@ -409,7 +413,12 @@ class AisbenchRunner:
                 self.performance_dataset_type,
             ).load_request_timings()
             timing_stats = load_result.stats
-            result = analyze_steady_state(load_result.timings, target_concurrency=self.batch_size)
+            if self.profile_marker is None:
+                raise TimingDataUnavailable("benchmark time origin is unavailable")
+            benchmark_zero = float(self.profile_marker.read_text())
+            result = analyze_steady_state(
+                load_result.timings, target_concurrency=self.batch_size, benchmark_zero=benchmark_zero
+            )
         except TimingDataUnavailable as exc:
             result = unavailable_steady_state(target_concurrency=self.batch_size, reason=str(exc))
         self._emit_steady_state(result, timing_stats)
@@ -432,7 +441,7 @@ class AisbenchRunner:
                 self._try_analyze_steady_state()
             except Exception as exc:
                 logging.warning(
-                    "Unexpected steady-state failure (%s); benchmark result is unchanged", type(exc).__name__
+                    "Unexpected steady-state failure (%s: %s); benchmark result is unchanged", type(exc).__name__, exc
                 )
         if self.threshold is not None:
             output_throughput = self.result_json["Output Token Throughput"]["total"].replace("token/s", "")

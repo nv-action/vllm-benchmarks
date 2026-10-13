@@ -16,15 +16,15 @@ from tests.e2e.common.multi_node.benchmark_results import (
     write_results_json,
 )
 from tests.e2e.common.multi_node.internal_dp.multi_node_config import (
+    DEFAULT_SERVER_PORT,
     MultiNodeConfig,
     MultiNodeConfigLoader,
     ProxyLauncher,
 )
-from tests.e2e.common.multi_node.internal_dp.profiling import configure_profiling
 from tests.e2e.conftest import RemoteOpenAIServer
 from tests.e2e.nightly.scripts.result_postprocess import postprocess_benchmark_results
 from tools.aisbench import run_aisbench_cases
-from tools.profiling.capture import ProfileSpec
+from tools.profiling.capture import ProfileSpec, ServeInstance, ServeManifest, configure_profiler_command, profile_root
 
 logger = logging.getLogger(__name__)
 
@@ -163,10 +163,38 @@ def _save_benchmark_results_json(config: MultiNodeConfig, results: list[Any]) ->
     )
 
 
+def _configure_profiling(config: MultiNodeConfig, spec: ProfileSpec) -> None:
+    """Configure every node and associate headless traces with their controlling API."""
+    if not spec.enabled:
+        return
+    api_nodes = {node.ip: node for node in config.nodes if not node.headless}
+    instances = {}
+    for node in config.nodes:
+        if config.disagg_cfg and config.disagg_cfg.is_prefiller(node.index):
+            name = f"prefill-{config.disagg_cfg.prefiller_indices.index(node.index)}"
+        elif config.disagg_cfg and config.disagg_cfg.is_decoder(node.index):
+            name = f"decode-{config.disagg_cfg.decoder_indices.index(node.index)}"
+        else:
+            name = f"dp-{node.index}"
+        api_node = node
+        if node.headless:
+            leader_ip = (
+                config.disagg_cfg.master_ip_for_node(node.index, config.nodes)
+                if config.disagg_cfg
+                else config.master_ip
+            )
+            api_node = api_nodes[leader_ip]
+        port = (api_node.envs or {}).get("SERVER_PORT", DEFAULT_SERVER_PORT)
+        instances[node.index] = ServeInstance.from_endpoint(name, f"http://{api_node.ip}:{port}", node_index=node.index)
+    if config.is_master:
+        ServeManifest(tuple(instances.values())).write(profile_root() / "serve_manifest.json")
+    config.server_cmd = configure_profiler_command(config.server_cmd, instances[config.cur_node.index], spec)
+
+
 @pytest.mark.asyncio
 async def test_multi_node() -> None:
     config = MultiNodeConfigLoader.from_yaml()
-    configure_profiling(config, ProfileSpec.from_env())
+    _configure_profiling(config, ProfileSpec.from_env())
     if config.special_dependencies:
         for k, v in config.special_dependencies.items():
             command = [

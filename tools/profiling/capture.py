@@ -2,7 +2,6 @@
 
 import argparse
 import json
-import logging
 import os
 import shlex
 import shutil
@@ -23,21 +22,15 @@ from tools.profiling.storage import (
     ArtifactError,
     create_obs_client,
     create_transfer_config,
-    directory_size_bytes,
     print_download_summary,
     upload_archive,
     upload_json,
 )
 
-logger = logging.getLogger(__name__)
-
-
 # =============================================================================
 # Configuration and serving topology
 # =============================================================================
 
-ServeRole = Literal["unified", "prefill", "decode"]
-ProfileScope = Literal["representative", "all"]
 ProfileOutput = Literal["parsed", "raw"]
 
 
@@ -57,16 +50,15 @@ def _parse_bool(value: bool | str) -> bool:
 class ProfileSpec:
     """User-selectable settings for one scheduled profiling session.
 
-    ``start_after`` and ``duration`` are seconds relative to the first AISBench
-    request. ``scope`` controls target selection, while ``cases`` optionally
-    restricts profiling to named performance cases.
+    ``start_after`` is measured from the first AISBench request, including
+    warmup; ``duration`` is the capture length in seconds. All serving instances
+    are captured; ``cases`` optionally restricts profiling to named performance cases.
     """
 
     enabled: bool = False
     start_after: int = 15
     duration: int = 8
     with_stack: bool = False
-    scope: ProfileScope = "representative"
     output: ProfileOutput = "parsed"
     cases: tuple[str, ...] = ()
 
@@ -92,10 +84,9 @@ class ProfileSpec:
             raise ValueError("Profile cases must be a comma-separated string")
         if "\n" in cases or "\r" in cases:
             raise ValueError("Profile cases must be single-line")
-        scope = options.get("scope", defaults.scope)
         output = options.get("output", defaults.output)
-        if scope not in ("representative", "all") or output not in ("parsed", "raw"):
-            raise ValueError("Invalid profile scope or output mode")
+        if output not in ("parsed", "raw"):
+            raise ValueError("Invalid profile output mode")
         for name in ("start_after", "duration"):
             if name in options and (isinstance(options[name], bool) or not isinstance(options[name], (int, str))):
                 raise ValueError("Profile times must be integers")
@@ -104,7 +95,6 @@ class ProfileSpec:
             start_after=int(options.get("start_after", defaults.start_after)),
             duration=int(options.get("duration", defaults.duration)),
             with_stack=_parse_bool(options.get("with_stack", defaults.with_stack)),
-            scope=cast(ProfileScope, scope),
             output=cast(ProfileOutput, output),
             cases=tuple(case.strip() for case in cases.split(",") if case.strip()),
         )
@@ -135,8 +125,6 @@ class ServeInstance:
     name: str
     endpoint: str
     raw_trace_dir: str
-    role: ServeRole = "unified"
-    dp_rank: int = 0
     node_index: int = 0
 
     @classmethod
@@ -144,10 +132,8 @@ class ServeInstance:
         cls,
         name: str,
         endpoint: str,
-        role: ServeRole = "unified",
-        dp_rank: int = 0,
-        node_index: int = 0,
         *,
+        node_index: int = 0,
         root: Path | None = None,
     ) -> "ServeInstance":
         """Create an instance with a filesystem-safe raw trace directory."""
@@ -155,7 +141,7 @@ class ServeInstance:
 
         safe_name = re.sub(r"[^A-Za-z0-9_.-]", "_", name)
         artifact_root = profile_root() if root is None else root.resolve()
-        return cls(name, endpoint, str(artifact_root / "raw" / safe_name), role, dp_rank, node_index)
+        return cls(name, endpoint, str(artifact_root / "raw" / safe_name), node_index)
 
 
 @dataclass(frozen=True)
@@ -176,20 +162,6 @@ class ServeManifest:
         if data.get("version") != 1:
             raise ValueError(f"Unsupported serve manifest version: {data.get('version')!r}")
         return cls(tuple(ServeInstance(**item) for item in data["instances"]))
-
-    def select_targets(self, scope: ProfileScope) -> tuple[ServeInstance, ...]:
-        """Resolve ``scope`` into a deterministic tuple of profiling targets."""
-        instances = self.instances
-        if scope == "all":
-            return instances
-        roles = {item.role for item in instances}
-        if "prefill" in roles or "decode" in roles:
-            return tuple(
-                min((i for i in instances if i.role == role), key=lambda i: i.dp_rank)
-                for role in ("prefill", "decode")
-                if role in roles
-            )
-        return (min(instances, key=lambda i: i.dp_rank),) if instances else ()
 
 
 def profile_root() -> Path:
@@ -229,17 +201,16 @@ def configure_profiler_command(command: list[str] | str, instance: ServeInstance
 
 STOP_TIMEOUT_SECONDS = 900
 POLL_INTERVAL_SECONDS = 1
-MAX_PROFILE_SIZE_BYTES = 50 * 1024**3
 
 
 def record_first_request(marker: Path) -> None:
-    """Atomically record the first request's monotonic timestamp once."""
+    """Record the shared graph/capture origin using AISBench's clock, once."""
     try:
         fd = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
     except FileExistsError:
         return
     with os.fdopen(fd, "w") as file:
-        file.write(str(time.monotonic()))
+        file.write(str(time.perf_counter()))
 
 
 class _ProfileClient:
@@ -257,7 +228,7 @@ class _ProfileClient:
 
 
 class ProfileController:
-    """Own one benchmark case's start/stop lifecycle without failing the benchmark."""
+    """Own one benchmark case's start/stop lifecycle and report capture failures."""
 
     def __init__(
         self, spec: ProfileSpec, targets: tuple[ServeInstance, ...], marker: Path, client: _ProfileClient | None = None
@@ -265,7 +236,7 @@ class ProfileController:
         self.spec, self.targets, self.marker = spec, targets, marker
         self.client = client or _ProfileClient()
         self.finished = threading.Event()
-        self.result: dict = {"status": "skipped", "targets": {}}
+        self.result: dict = {"status": "partial", "targets": {}}
         self.thread = threading.Thread(target=self._run_profile_window, daemon=True)
 
     def start(self) -> None:
@@ -277,7 +248,7 @@ class ProfileController:
         self.finished.set()
         self.thread.join(STOP_TIMEOUT_SECONDS + 60)
         if self.thread.is_alive():
-            self.result = {"status": "partial", "reason": "controller_timeout", "targets": {}}
+            raise ArtifactError("Profiling controller timed out while stopping; traces are still in use")
         return self.result
 
     def _call_profile_endpoints(
@@ -295,7 +266,7 @@ class ProfileController:
                     future.result()
                     error = None
                 except Exception as exc:
-                    error = type(exc).__name__
+                    error = f"{type(exc).__name__}: {exc}"
                 errors_by_target.update(dict.fromkeys(futures[future], error))
             return errors_by_target
 
@@ -307,30 +278,21 @@ class ProfileController:
                     first_request = float(self.marker.read_text())
                     break
             else:
-                self.result = {"status": "skipped", "reason": "no_request_before_benchmark_end", "targets": {}}
+                self.result = {"status": "partial", "reason": "no_request_before_benchmark_end", "targets": {}}
                 return
-            if self.finished.wait(max(0, first_request + self.spec.start_after - time.monotonic())):
-                self.result = {"status": "skipped", "reason": "benchmark_ended_before_start", "targets": {}}
+            if self.finished.wait(max(0, first_request + self.spec.start_after - time.perf_counter())):
+                self.result = {"status": "partial", "reason": "benchmark_ended_before_start", "targets": {}}
                 return
             print(f"[Profiling] start_profile -> {', '.join(t.name for t in self.targets)}", flush=True)
             start_errors = self._call_profile_endpoints(self.client.start_profile, self.targets)
-            started_at = time.monotonic()
+            started_at = time.perf_counter()
             active_targets = tuple(target for target in self.targets if start_errors[target.name] is None)
-            reason = "duration_reached"
+            reason = "start_failed"
             try:
-                while active_targets and not self.finished.wait(POLL_INTERVAL_SECONDS):
-                    if time.monotonic() - started_at >= self.spec.duration:
-                        break
-                    if any(
-                        directory_size_bytes(Path(target.raw_trace_dir)) >= MAX_PROFILE_SIZE_BYTES
-                        for target in active_targets
-                    ):
-                        reason = "size_limit_exceeded"
-                        break
-                if self.finished.is_set() and time.monotonic() - started_at < self.spec.duration:
-                    reason = "benchmark_ended"
+                if active_targets:
+                    reason = "benchmark_ended" if self.finished.wait(self.spec.duration) else "duration_reached"
             finally:
-                actual_duration = time.monotonic() - started_at
+                actual_duration = time.perf_counter() - started_at
                 print(f"[Profiling] stop_profile ({reason}) -> {', '.join(t.name for t in self.targets)}", flush=True)
                 # A failed start response may still have started some workers.
                 stop_errors = self._call_profile_endpoints(self.client.stop_profile, self.targets)
@@ -352,8 +314,7 @@ class ProfileController:
                 },
             }
         except Exception as exc:
-            logger.warning("Profiling controller failed (%s); benchmark result is unchanged", type(exc).__name__)
-            self.result = {"status": "partial", "reason": type(exc).__name__, "targets": {}}
+            self.result = {"status": "partial", "reason": f"{type(exc).__name__}: {exc}", "targets": {}}
 
 
 # =============================================================================
@@ -373,8 +334,7 @@ def collect_raw_artifacts(
     """Archive raw traces and append one case to the local result manifest.
 
     Successful target directories are cleared only after their gzip archives
-    have closed. Collection failures are recorded instead of escaping into the
-    benchmark process.
+    have closed. Failures are raised after the case manifest has been saved.
     """
     import regex as re
 
@@ -389,8 +349,7 @@ def collect_raw_artifacts(
         try:
             if not raw_trace_dir.exists() or not any(raw_trace_dir.iterdir()):
                 raise ArtifactError(f"No profiler output in {raw_trace_dir}")
-            raw_size_bytes = directory_size_bytes(raw_trace_dir)
-            print(f"[Profiling] Compress raw {case_name}/{target.name}: {raw_size_bytes} bytes before", flush=True)
+            started_at = time.monotonic()
             with tarfile.open(archive_path, "w:gz", compresslevel=GZIP_COMPRESSION_LEVEL) as tar:
                 tar.add(raw_trace_dir, arcname=target.name)
             target_state.update(
@@ -399,7 +358,8 @@ def collect_raw_artifacts(
                 output="raw",
             )
             print(
-                f"[Profiling] Compressed raw {case_name}/{target.name}: {archive_path.stat().st_size} bytes after",
+                f"[Profiling] Compressed raw {case_name}/{target.name}: {target_state['size_bytes']} bytes "
+                f"in {time.monotonic() - started_at:.1f}s",
                 flush=True,
             )
             for child in raw_trace_dir.iterdir():
@@ -408,7 +368,7 @@ def collect_raw_artifacts(
                 else:
                     child.unlink()
         except Exception as exc:
-            target_state["artifact_error"] = str(exc) if isinstance(exc, ArtifactError) else type(exc).__name__
+            target_state["artifact_error"] = f"{type(exc).__name__}: {exc}"
         return {
             "name": target.name,
             "node_index": target.node_index,
@@ -431,6 +391,14 @@ def collect_raw_artifacts(
     manifest["cases"].append(case_record)
     manifest["status"] = "partial" if any(case["status"] != "success" for case in manifest["cases"]) else "success"
     manifest_path.write_text(json.dumps(manifest, indent=2))
+    if case_record["status"] != "success":
+        failures = [
+            f"{target['name']}: {field}: {target[field]}"
+            for target in target_records
+            for field in ("start_error", "stop_error", "artifact_error")
+            if target.get(field)
+        ]
+        raise ArtifactError(f"Profiling {case_name} incomplete ({case_record['reason']}): {'; '.join(failures)}")
 
 
 def upload_raw_artifacts(root: Path, prefix: str, bucket: str, endpoint: str, region: str) -> dict:
@@ -451,15 +419,13 @@ def upload_raw_artifacts(root: Path, prefix: str, bucket: str, endpoint: str, re
         try:
             upload_archive(client, transfer_config, root, raw_prefix, bucket, target_record, "raw")
         except Exception as exc:
-            target_record["upload_error"] = str(exc) if isinstance(exc, ArtifactError) else type(exc).__name__
+            target_record["upload_error"] = f"{type(exc).__name__}: {exc}"
 
     target_records = [target for case in manifest["cases"] for target in case["targets"]]
     with ThreadPoolExecutor(max_workers=RAW_UPLOAD_CONCURRENCY) as pool:
         list(pool.map(upload_target, target_records))
     for target_record in target_records:
-        if target_record.get("obs_url"):
-            print(f"Profiling artifact uploaded: {target_record['obs_url']}", flush=True)
-        elif target_record.get("upload_error"):
+        if target_record.get("upload_error"):
             print(
                 f"Profiling artifact upload failed: {target_record['archive']}: {target_record['upload_error']}",
                 flush=True,
@@ -538,7 +504,7 @@ def main() -> None:
     except ArtifactError as exc:
         raise SystemExit(f"[Profiling] {exc}") from None
     except (BotoCoreError, ClientError, S3UploadFailedError) as exc:
-        raise SystemExit(f"[Profiling] OBS operation failed: {type(exc).__name__}") from None
+        raise SystemExit(f"[Profiling] OBS operation failed: {type(exc).__name__}: {exc}") from None
 
 
 if __name__ == "__main__":

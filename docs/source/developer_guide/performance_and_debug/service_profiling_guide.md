@@ -116,7 +116,11 @@ After analysis, the `*ascend_pt` directory will contain many files, with the mai
 
 ### Download CI Profiling Artifacts
 
-CI accepts a `profile_options_json` object, for example `{"enabled":true,"duration":8,"cases":"performance"}`. Defaults and validation are defined by `ProfileSpec`; workflows pass the options through as JSON and expand them to `ASCEND_PROFILE_*` variables at the test boundary. Boolean values accept JSON booleans or case-insensitive `true`/`false` strings. Removed options such as `max_size` are rejected.
+CI accepts a `profile_options_json` object, for example `{"enabled":true,"start_after":40,"duration":8,"cases":"performance"}`. Defaults and validation are defined by `ProfileSpec`; workflows pass the options through as JSON and expand them to `ASCEND_PROFILE_*` variables at the test boundary. Boolean values accept JSON booleans or case-insensitive `true`/`false` strings. Removed JSON options such as `scope` and `max_size` are rejected.
+
+Profiling captures all serving instances. Every worker, including internal DP headless nodes, receives a profiler configuration and a separate trace directory. Start/stop requests go to each distinct serving API endpoint once; a headless node is controlled through its group's API endpoint. P/D deployments capture both groups.
+
+Both ordinary performance runs and profiling runs record their first AISBench request, including warmup, as time zero using AISBench's `perf_counter` clock. The steady-state chart and `start_after` use this same origin: a stable region beginning at 40 seconds suggests `start_after=40`. Charts count only formal benchmark requests; the interval before those requests is not warmup concurrency data. Failed requests do not move time zero, and warmup duration does not change the steady-window length check. Timing/chart failures only warn during ordinary benchmarks. For a selected profiling case, missing timing markers, setup/control errors, incomplete capture windows, and artifact failures fail the task. Available artifacts and capture status are saved before reporting collection failures.
 
 Each CI job initializes its profiling results once in a fresh, run-specific directory. Starting another service configuration updates only the server inventory, so earlier benchmark cases remain available for upload. For manual runs, choose a directory that does not exist and initialize it before starting the tests:
 
@@ -128,6 +132,10 @@ python3 -m tools.profiling.capture initialize --root "$ASCEND_PROFILE_ROOT"
 ```
 
 If no profiling cases are selected, upload succeeds with a `skipped` manifest and no offline parsing jobs are started. Missing expected manifests or incomplete artifacts are failures, not skips. Offline analysis requires the parser to return successfully, `analyse.done` to exist, and `trace_view.json` to be non-empty; the tools do not load the entire trace just to validate its JSON syntax.
+
+Offline planning and finalization use 4-core CPU runners and the `nightly-cpu-py3.12` image. Actual parsing retains the 16-core runner and the matching nightly image for `torch_npu`. Finalization runs after all node shards finish, including failed shards, to summarize available results. Profiling dependency installation uses the Huawei Cloud public PyPI mirror (`https://repo.huaweicloud.com/repository/pypi/simple/`) on all runners, including A2 in Hong Kong. These settings do not change the benchmark's pip/uv configuration.
+
+Each node parses one rank at a time with torch_npu's default analysis settings, overlapping parsing with compression/upload of the previous rank. At most one parsed rank waits for publication. Finished and failed parsing attempts release their temporary output; raw inputs remain in OBS. There is no fixed trace-size limit or disk-capacity prediction. If a runner runs out of space, reduce `duration` and retry. Transfers rely on the SDK's error handling without additional application-level HEAD size checks. Bucket capacity can be inspected separately in the OBS console.
 
 When CI profiling is enabled, the raw upload step ends with a `Profiling downloads` summary. The offline parsing workflow's finalize step summarizes both raw archives and parsed rank archives across that benchmark job's nodes. Partial failures still leave links to successfully uploaded artifacts; an unconfirmed manifest upload is not listed.
 

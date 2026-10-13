@@ -269,9 +269,6 @@ jobs:
             elif [ "$PENDING_OPTION" = "--profile-duration" ]; then
               PROFILE_OPTIONS_JSON=$(jq -c --arg value "$WORD" '.duration = $value' <<< "$PROFILE_OPTIONS_JSON")
               PENDING_OPTION=""
-            elif [ "$PENDING_OPTION" = "--profile-scope" ]; then
-              PROFILE_OPTIONS_JSON=$(jq -c --arg value "$WORD" '.scope = $value' <<< "$PROFILE_OPTIONS_JSON")
-              PENDING_OPTION=""
             elif [ "$PENDING_OPTION" = "--profile-output" ]; then
               PROFILE_OPTIONS_JSON=$(jq -c --arg value "$WORD" '.output = $value' <<< "$PROFILE_OPTIONS_JSON")
               PENDING_OPTION=""
@@ -312,7 +309,7 @@ jobs:
               PROFILE_OPTIONS_JSON=$(jq -c '.enabled = true' <<< "$PROFILE_OPTIONS_JSON")
             elif [ "$WORD" = "--profile-with-stack" ]; then
               PROFILE_OPTIONS_JSON=$(jq -c '.with_stack = true' <<< "$PROFILE_OPTIONS_JSON")
-            elif [[ "$WORD" =~ ^--profile-(start-after|duration|scope|output|cases)$ ]]; then
+            elif [[ "$WORD" =~ ^--profile-(start-after|duration|output|cases)$ ]]; then
               PENDING_OPTION="$WORD"
             elif [ "$WORD" = "--good-commit" ]; then
               NEXT_IS_GOOD_COMMIT=1

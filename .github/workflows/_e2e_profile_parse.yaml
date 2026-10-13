@@ -28,14 +28,18 @@ defaults:
   run:
     shell: bash -el {0}
 
+# Use the same public PyPI mirror for all profiling dependencies.
+env:
+  PIP_INDEX_URL: https://repo.huaweicloud.com/repository/pypi/simple/
+
 jobs:
   prepare:
     name: Plan ${{ inputs.display_name }}
     if: ${{ inputs.should_run }}
-    runs-on: linux-arm64-cpu-16
+    runs-on: linux-aarch64-cpu-4
     timeout-minutes: 30
     container:
-      image: ${{ inputs.image }}
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-cpu-py3.12
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       has_work: ${{ steps.plan.outputs.has_work }}
@@ -58,12 +62,6 @@ jobs:
           python3 -c 'import boto3; print("Using boto3 " + boto3.__version__)' || \
             timeout 300s python3 -m pip install --disable-pip-version-check --no-input \
               --index-url https://repo.huaweicloud.com/repository/pypi/simple --timeout 15 --retries 1 boto3
-          python3 -c 'import obs' 2>/dev/null || \
-            timeout 300s python3 -m pip install --disable-pip-version-check --no-input \
-              --index-url https://repo.huaweicloud.com/repository/pypi/simple --timeout 15 --retries 1 esdk-obs-python || true
-          echo "::group::OBS storage before parsed upload"
-          python3 -m tools.profiling.storage status
-          echo "::endgroup::"
           python3 -m tools.profiling.parse plan \
             --root /tmp/profile_plan \
             --prefix "$PROFILE_KEY_PREFIX" \
@@ -114,10 +112,10 @@ jobs:
     name: Finalize ${{ inputs.display_name }}
     needs: [prepare, parse]
     if: always() && needs.prepare.result == 'success' && needs.prepare.outputs.has_work == 'true'
-    runs-on: linux-arm64-cpu-16
+    runs-on: linux-aarch64-cpu-4
     timeout-minutes: 30
     container:
-      image: ${{ inputs.image }}
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-cpu-py3.12
     steps:
       - name: Checkout profiling tools
         uses: actions/checkout@v7

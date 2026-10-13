@@ -1,368 +1,364 @@
+"""Exercise real archives and manifests with in-memory OBS and a fake analyser."""
+
+import io
 import json
-import runpy
-import shlex
 import sys
 import tarfile
 import types
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from pathlib import Path
+from threading import Event
 from unittest.mock import Mock
 
 import pytest
-import yaml
-from boto3.exceptions import S3UploadFailedError
-from botocore.exceptions import ClientError, EndpointConnectionError
+from botocore.exceptions import ClientError
 
 from tools.profiling import capture, parse, storage
 
 
-def test_obs_defaults_and_virtual_hosted_client(monkeypatch):
-    client_factory = Mock()
-    monkeypatch.setattr("boto3.client", client_factory)
-    storage.create_obs_client(storage.DEFAULT_ENDPOINT, storage.DEFAULT_REGION)
-    args, kwargs = client_factory.call_args
-    assert args == ("s3",)
-    assert kwargs["endpoint_url"] == "https://obs.cn-southwest-2.myhuaweicloud.com"
-    assert kwargs["region_name"] == "cn-southwest-2"
-    assert kwargs["config"].s3["addressing_style"] == "virtual"
-    assert storage.DEFAULT_BUCKET == "ascend-profile-artifacts"
-    assert capture.DEFAULT_BUCKET == parse.DEFAULT_BUCKET == storage.DEFAULT_BUCKET
-    assert (
-        storage.obs_http_url(f"obs://{storage.DEFAULT_BUCKET}/job/raw/server trace.tar.gz", storage.DEFAULT_ENDPOINT)
-        == "https://ascend-profile-artifacts.obs.cn-southwest-2.myhuaweicloud.com/job/raw/server%20trace.tar.gz"
-    )
-
-
-@pytest.mark.parametrize(
-    "workflow_name", ["nightly_single_node", "nightly_single_node_560t", "nightly_multi_node", "profile_parse"]
-)
-def test_workflows_isolate_profile_credentials(workflow_name):
-    root = Path(__file__).resolve().parents[3]
-    workflow = yaml.load((root / f".github/workflows/_e2e_{workflow_name}.yaml").read_text(), Loader=yaml.BaseLoader)
-    parser_workflow = workflow_name == "profile_parse"
-    secrets = workflow["on"]["workflow_call"]["secrets"]
-    for name in ("HW_OBS_PROFILE_AK", "HW_OBS_PROFILE_SK"):
-        assert secrets[name]["required"] == str(parser_workflow).lower()
-    profile_steps = []
-    benchmark_steps = []
-    for job in workflow["jobs"].values():
-        for step in job.get("steps", []):
-            if "tools.profiling.storage status" in step.get("run", "") or "tools.profiling.parse " in step.get(
-                "run", ""
-            ):
-                profile_steps.append(step)
-                assert step["env"]["AWS_ACCESS_KEY_ID"] == "${{ secrets.HW_OBS_PROFILE_AK }}"
-                assert step["env"]["AWS_SECRET_ACCESS_KEY"] == "${{ secrets.HW_OBS_PROFILE_SK }}"
-            if step.get("uses", "").startswith("ascend-gha-runners/artifact/upload@"):
-                benchmark_steps.append(step)
-                assert step["with"]["access_key"] == "${{ secrets.OBS_ACCESS_KEY_ID }}"
-                assert step["with"]["secret_key"] == "${{ secrets.OBS_SECRET_ACCESS_KEY }}"
-    assert len(profile_steps) == (3 if parser_workflow else 1)
-    assert bool(benchmark_steps) == (not parser_workflow)
-
-
 class MemoryObs:
-    def __init__(self, objects: dict[str, bytes] | None = None):
-        self.objects = objects or {}
+    """Implement only the OBS operations used by the artifact pipeline."""
 
-    def upload_file(self, source, _bucket, key, Callback=None, **_kwargs):
+    def __init__(self):
+        self.objects = {}
+        self.uploads = []
+        self.fail_upload = None
+
+    def upload_file(self, source, bucket, key, Callback=None, **kwargs):
+        if key == self.fail_upload:
+            raise OSError("upload failed")
         data = Path(source).read_bytes()
-        self.objects[key] = data
+        self.objects[bucket, key] = data
+        self.uploads.append(key)
         if Callback:
             Callback(len(data))
 
-    def download_file(self, bucket, key, destination, Callback=None, **_kwargs):
-        if key not in self.objects:
-            raise ClientError({"Error": {"Code": "NoSuchKey", "Message": key}}, "GetObject")
-        data = self.objects[key]
-        path = Path(destination)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
+    def download_file(self, bucket, key, destination, Callback=None, **kwargs):
+        if (bucket, key) not in self.objects:
+            raise ClientError({"Error": {"Code": "NoSuchKey"}}, "GetObject")
+        data = self.objects[bucket, key]
+        Path(destination).write_bytes(data)
         if Callback:
             Callback(len(data))
 
-    def head_object(self, _Bucket=None, Key=None, **_kwargs):
-        return {"ContentLength": len(self.objects[Key])}
 
-
-def test_storage_upload_helpers_verify_remote_size(tmp_path: Path):
+@pytest.fixture
+def obs(monkeypatch):
     client = MemoryObs()
-    archive = tmp_path / "case" / "server.tar.gz"
-    archive.parent.mkdir()
-    archive.write_bytes(b"archive")
-    manifest = tmp_path / "manifest.json"
-    manifest.write_text("{}")
-    record = {"archive": "case/server.tar.gz"}
-
-    storage.upload_archive(client, object(), tmp_path, "job/raw", "bucket", record, "raw")
-    storage.upload_json(client, manifest, "bucket", "job/raw/profile_manifest.json")
-
-    assert storage.GZIP_COMPRESSION_LEVEL == 1
-    assert record["obs_url"] == "obs://bucket/job/raw/case/server.tar.gz"
-    assert client.objects["job/raw/case/server.tar.gz"] == b"archive"
-    assert client.objects["job/raw/profile_manifest.json"] == b"{}"
-
-    client.head_object = lambda **_kwargs: {"ContentLength": 0}
-    with pytest.raises(RuntimeError, match="OBS size mismatch"):
-        storage.upload_json(client, manifest, "bucket", "job/raw/profile_manifest.json")
+    for module in (capture, parse):
+        monkeypatch.setattr(module, "create_obs_client", lambda *_: client)
+        monkeypatch.setattr(module, "create_transfer_config", lambda: None)
+    return client
 
 
-def test_plan_artifact_shards_uses_manifest_node_indexes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    manifest = {
-        "cases": [
-            {"targets": [{"node_index": 2}, {"node_index": 0}]},
-            {"targets": [{"node_index": 2}]},
-        ]
-    }
-    client = MemoryObs({"job/raw/profile_manifest.json": json.dumps(manifest).encode()})
-    monkeypatch.setattr(parse, "create_obs_client", lambda *_: client)
-    monkeypatch.setattr(parse, "create_transfer_config", object)
-
-    assert parse.plan_artifact_shards(tmp_path, "job", "bucket", "endpoint", "region") == [0, 2]
-
-
-@pytest.mark.parametrize("failure", [None, "parse", "upload", "manifest"])
-def test_parse_artifacts_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys, failure):
-    source = tmp_path / "source" / "server"
-    for rank in ("rank0_ascend_pt", "rank1_ascend_pt"):
-        trace = source / rank
-        trace.mkdir(parents=True)
-        (trace / "profiler_info.json").write_text("{}")
-    archive = tmp_path / "server.tar.gz"
-    with tarfile.open(archive, "w:gz") as tar:
-        tar.add(source, arcname="server")
-
-    raw_manifest = {
-        "status": "success",
-        "cases": [
-            {
-                "case": "case-a",
-                "status": "success",
-                "targets": [
-                    {
-                        "name": "server",
-                        "node_index": 0,
-                        "archive": "case-a/server.tar.gz",
-                        "obs_url": "obs://bucket/job/raw/case-a/server.tar.gz",
-                        "size_bytes": archive.stat().st_size,
-                        "output": "raw",
-                    }
-                ],
-            }
-        ],
-    }
-    client = MemoryObs(
-        {
-            "job/raw/profile_manifest.json": json.dumps(raw_manifest).encode(),
-            "job/raw/case-a/server.tar.gz": archive.read_bytes(),
-        }
+@pytest.fixture
+def raw_job(tmp_path):
+    root = tmp_path / "capture"
+    capture.initialize_profile_run(root, capture.ProfileSpec(enabled=True))
+    targets = tuple(
+        capture.ServeInstance.from_endpoint(f"worker-{node}", f"http://worker-{node}:8000", node_index=node, root=root)
+        for node in (0, 1)
     )
-    monkeypatch.setattr(parse, "create_obs_client", lambda *_: client)
-    monkeypatch.setattr(parse, "create_transfer_config", object)
-    # Exercise both pools with more than one worker, as future CI may do.
-    monkeypatch.setattr(parse, "RANK_PARSE_CONCURRENCY", 2)
-    monkeypatch.setattr(parse, "PUBLISH_CONCURRENCY", 2)
-    original_upload = client.upload_file
+    for target in targets:
+        trace = Path(target.raw_trace_dir) / "rank_ascend_pt"
+        trace.mkdir(parents=True)
+        (trace / "raw.bin").write_bytes(b"raw profiler data")
+        (trace / "profiler_info.json").write_text("{}")
+    capture.collect_raw_artifacts(root, "load", targets, {"status": "success", "actual_duration": 8})
+    return root, targets
 
-    def upload(source, bucket, key, **kwargs):
-        if (failure == "upload" and key.endswith("rank0_ascend_pt.tar.gz")) or (
-            failure == "manifest" and key == "job/parsed/profile_manifest.json"
-        ):
-            raise ClientError({"Error": {"Code": "AccessDenied", "Message": "private-service:8000"}}, "PutObject")
-        original_upload(source, bucket, key, **kwargs)
 
-    monkeypatch.setattr(client, "upload_file", upload)
+@pytest.fixture
+def rank_job(tmp_path, obs):
+    target_dir = tmp_path / "work" / "worker"
+    traces = [target_dir / f"rank-{index}_ascend_pt" for index in range(4)]
+    for trace in traces:
+        trace.mkdir(parents=True)
+        (trace / "raw.bin").write_bytes(b"raw profiler data")
 
-    def analyse(trace_dir: str, max_process_number: int) -> None:
-        assert max_process_number == 4
-        if failure == "parse" and Path(trace_dir).name == "rank0_ascend_pt":
-            return  # Simulate torch-npu returning without complete output.
-        output = Path(trace_dir) / "ASCEND_PROFILER_OUTPUT"
+    def analyse(directory):
+        output = Path(directory) / "ASCEND_PROFILER_OUTPUT"
         output.mkdir()
+        (output / "trace_view.json").write_text('{"traceEvents":[]}')
         (output / "analyse.done").touch()
-        (output / "trace_view.json").write_text("{}")
 
-    profiler_module = types.ModuleType("torch_npu.profiler.profiler")
-    profiler_module.analyse = analyse
-    monkeypatch.setitem(sys.modules, "torch_npu", types.ModuleType("torch_npu"))
-    monkeypatch.setitem(sys.modules, "torch_npu.profiler", types.ModuleType("torch_npu.profiler"))
-    monkeypatch.setitem(sys.modules, "torch_npu.profiler.profiler", profiler_module)
-
-    args = (tmp_path / "parse", "job", "bucket", "https://obs.example.com", "region")
-    shard = parse.parse_artifact_shard(*args, node_index=0, max_process_number=4)
-    assert len(shard["failures"]) == (1 if failure in ("parse", "upload") else 0)
-    if failure:
-        expected_error = ClientError if failure == "manifest" else storage.ArtifactError
-        with pytest.raises(expected_error):
-            parse.finalize_parsed_manifest(*args)
-        result = json.loads((args[0] / "parsed/profile_manifest.json").read_text())
-    else:
-        result = parse.finalize_parsed_manifest(*args)
-
-    target = result["cases"][0]["targets"][0]
-    assert result["status"] == ("partial" if failure in ("parse", "upload") else "success")
-    assert "endpoint" not in target
-    assert target["raw_obs_url"] == "obs://bucket/job/raw/case-a/server.tar.gz"
-    assert target["ranks"][1]["output"] == "parsed"
-    assert target["ranks"][1]["obs_url"].startswith("obs://bucket/job/parsed/")
-    assert ("job/parsed/profile_manifest.json" in client.objects) == (failure != "manifest")
-    assert "job/raw/case-a/server.tar.gz" in client.objects
-    assert "private-service" not in json.dumps(shard) + json.dumps(result)
-    output = capsys.readouterr().out
-    assert "private-service" not in output
-    summary = output.split("Profiling downloads", 1)[1]
-    assert "https://bucket.obs.example.com/job/raw/case-a/server.tar.gz" in summary
-    assert "https://bucket.obs.example.com/job/parsed/case-a/server/rank1_ascend_pt.tar.gz" in summary
-    assert "obsutil cp obs://bucket/job/parsed/ ./profile-download/parsed/ -r -j=4" in summary
-    if failure in ("parse", "upload"):
-        assert "rank0_ascend_pt.tar.gz" not in summary
-        _, failures = parse._merge_parsed_shards(raw_manifest, [shard])
-        assert len(failures) == 1
-    if failure == "manifest":
-        assert "https://bucket.obs.example.com/job/parsed/profile_manifest.json" not in summary
+    context = parse._ParseContext(
+        root=tmp_path,
+        raw_root=tmp_path / "raw",
+        raw_prefix="job/raw",
+        parsed_root=tmp_path / "parsed",
+        parsed_prefix="job/parsed",
+        bucket="bucket",
+        node_index=0,
+        analyse=analyse,
+        download_client=obs,
+        upload_client=obs,
+        transfer_config=None,
+    )
+    return context, target_dir, traces
 
 
-def test_parse_artifacts_rejects_missing_raw_manifest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    client = MemoryObs()
-    monkeypatch.setattr(parse, "create_obs_client", lambda *_: client)
-    monkeypatch.setattr(parse, "create_transfer_config", object)
-
-    with pytest.raises(ClientError):
-        parse.parse_artifact_shard(tmp_path, "job", "bucket", "endpoint", "region", node_index=0)
-
-
-def test_no_selected_cases_skip_the_entire_parse_pipeline(tmp_path, monkeypatch):
-    raw = {"status": "skipped", "cases": []}
-    client = MemoryObs({"job/raw/profile_manifest.json": json.dumps(raw).encode()})
-    monkeypatch.setattr(parse, "create_obs_client", lambda *_: client)
-    monkeypatch.setattr(parse, "create_transfer_config", object)
-    args = (tmp_path, "job", "bucket", "https://obs.example.com", "region")
-    assert parse.plan_artifact_shards(*args) == []
-    assert parse.parse_artifact_shard(*args, node_index=0)["status"] == "skipped"
-    assert parse.finalize_parsed_manifest(*args) == raw
-    assert list(client.objects) == ["job/raw/profile_manifest.json"]
+def test_collection_accumulates_cases_and_preserves_archived_data(raw_job):
+    root, targets = raw_job
+    first_manifest = json.loads((root / "profile_manifest.json").read_text())
+    for target, record in zip(targets, first_manifest["cases"][0]["targets"]):
+        assert not list(Path(target.raw_trace_dir).iterdir())
+        with tarfile.open(root / record["archive"]) as archive:
+            assert archive.extractfile(f"{target.name}/rank_ascend_pt/raw.bin").read() == b"raw profiler data"
+        (Path(target.raw_trace_dir) / "next.bin").write_bytes(b"next case")
+    capture.collect_raw_artifacts(root, "next", targets, {"status": "success"})
+    manifest = json.loads((root / "profile_manifest.json").read_text())
+    assert manifest["status"] == "success"
+    assert [case["case"] for case in manifest["cases"]] == ["load", "next"]
+    with pytest.raises(FileExistsError):
+        capture.initialize_profile_run(root, capture.ProfileSpec())
+    assert json.loads((root / "profile_manifest.json").read_text()) == manifest
 
 
-@pytest.mark.parametrize("missing", [None, "analyse.done", "trace_view.json", "empty_trace"])
-def test_analysis_checks_completion_and_artifact_presence_only(tmp_path, missing):
-    def analyse(trace_dir, **_):
-        output = Path(trace_dir) / "ASCEND_PROFILER_OUTPUT"
-        output.mkdir()
-        if missing != "analyse.done":
-            (output / "analyse.done").touch()
-        if missing != "trace_view.json":
-            (output / "trace_view.json").write_text("" if missing == "empty_trace" else "not validated as JSON")
-
-    context = types.SimpleNamespace(analyse=analyse, node_index=0, max_process_number=4)
-    kwargs = dict(raw_archive="server.tar.gz", trace_index=1, trace_count=1, trace_dir=tmp_path)
-    if missing:
-        with pytest.raises(storage.ArtifactError, match="Incomplete parsed trace"):
-            parse._analyse_rank_trace(context, **kwargs)
-    else:
-        assert parse._analyse_rank_trace(context, **kwargs).name == "ASCEND_PROFILER_OUTPUT"
+def test_compression_failure_keeps_source(tmp_path, monkeypatch):
+    root = tmp_path / "capture"
+    capture.initialize_profile_run(root, capture.ProfileSpec(enabled=True))
+    target = capture.ServeInstance.from_endpoint("worker", "http://worker", root=root)
+    raw = Path(target.raw_trace_dir)
+    raw.mkdir(parents=True)
+    (raw / "trace").write_bytes(b"data")
+    monkeypatch.setattr(capture.tarfile, "open", Mock(side_effect=OSError("disk full")))
+    with pytest.raises(storage.ArtifactError, match="disk full"):
+        capture.collect_raw_artifacts(root, "load", (target,), {"status": "success"})
+    manifest = json.loads((root / "profile_manifest.json").read_text())
+    assert manifest["status"] == "partial"
+    assert manifest["cases"][0]["targets"][0]["artifact_error"] == "OSError: disk full"
+    assert (raw / "trace").read_bytes() == b"data"
 
 
-@pytest.mark.parametrize("raw_status", ["success", "partial"])
-def test_finalize_preserves_raw_failures_and_records_missing_shards(tmp_path, monkeypatch, capsys, raw_status):
-    raw = {
-        "status": raw_status,
-        "cases": [
+def test_raw_upload_reports_partial_results(raw_job, obs, capsys):
+    root, _ = raw_job
+    obs.fail_upload = "job/raw/load/worker-1.tar.gz"
+    manifest = capture.upload_raw_artifacts(root, "job", "bucket", "https://obs.example", "region")
+    assert manifest["status"] == "partial"
+    first, second = manifest["cases"][0]["targets"]
+    assert first["obs_url"] == "obs://bucket/job/raw/load/worker-0.tar.gz"
+    assert second["upload_error"] == "OSError: upload failed"
+    assert json.loads(obs.objects["bucket", "job/raw/profile_manifest.json"]) == manifest
+    assert obs.uploads[-1] == "job/raw/profile_manifest.json"
+    summary = capsys.readouterr().out.split("Profiling downloads", 1)[1]
+    assert "https://bucket.obs.example/job/raw/load/worker-0.tar.gz" in summary
+    assert "https://bucket.obs.example/job/raw/load/worker-1.tar.gz" not in summary
+
+
+def test_incomplete_capture_saves_artifacts_and_fails_the_job(raw_job, obs, monkeypatch):
+    root, targets = raw_job
+    for target in targets:
+        (Path(target.raw_trace_dir) / "partial.bin").write_bytes(b"partial trace")
+    with pytest.raises(storage.ArtifactError, match="stop_error: HTTP 500"):
+        capture.collect_raw_artifacts(
+            root,
+            "failed",
+            targets,
             {
-                "case": "case-a",
-                "status": raw_status,
-                "targets": [
-                    {
-                        "name": "server",
-                        "node_index": 1,
-                        "obs_url": "obs://bucket/job/raw/server.tar.gz",
-                    }
-                ],
-            }
-        ],
-    }
-    client = MemoryObs({"job/raw/profile_manifest.json": json.dumps(raw).encode()})
-    monkeypatch.setattr(parse, "create_obs_client", lambda *_: client)
-    monkeypatch.setattr(parse, "create_transfer_config", object)
-
-    with pytest.raises(storage.ArtifactError, match="1 parse/upload failures, 1 missing shards"):
-        parse.finalize_parsed_manifest(tmp_path, "job", "bucket", "https://obs.example.com", "region")
-
-    result = json.loads(client.objects["job/parsed/profile_manifest.json"])
-    target = result["cases"][0]["targets"][0]
-    assert result["status"] == result["cases"][0]["status"] == "partial"
-    assert target["parse_error"] == "Parsed shard result is missing"
-    assert "endpoint" not in target
-    assert "https://bucket.obs.example.com/job/raw/server.tar.gz" in capsys.readouterr().out
+                "status": "partial",
+                "reason": "duration_reached",
+                "targets": {targets[0].name: {"stop_error": "HTTP 500"}},
+            },
+        )
+    manifest = json.loads((root / "profile_manifest.json").read_text())
+    assert manifest["status"] == "partial"
+    case = manifest["cases"][-1]
+    assert case["status"] == "partial"
+    assert all((root / target["archive"]).is_file() for target in case["targets"])
+    monkeypatch.setattr(
+        sys, "argv", ["capture", "upload", "--root", str(root), "--prefix", "job", "--bucket", "bucket"]
+    )
+    with pytest.raises(SystemExit, match="incomplete"):
+        capture.main()
+    assert json.loads(obs.objects["bucket", "job/raw/profile_manifest.json"])["status"] == "partial"
 
 
-def test_merge_preserves_raw_partial_status():
-    raw = {"status": "partial", "cases": [{"case": "case-a", "status": "partial", "targets": [{"name": "server"}]}]}
-    shard = {"targets": [{"case_index": 0, "target_index": 0, "record": {"name": "server", "ranks": []}}]}
+@pytest.mark.parametrize("failure", [None, "analysis", "incomplete", "upload", "download", "missing_shard"])
+def test_parse_and_finalize_node_shards(tmp_path, raw_job, obs, monkeypatch, capsys, failure):
+    root, _ = raw_job
+    capture.upload_raw_artifacts(root, "job", "bucket", "https://obs.example", "region")
+    nodes = parse.plan_artifact_shards(tmp_path / "plan", "job", "bucket", "https://obs.example", "region")
+    assert nodes == [0, 1]
 
-    result, failures = parse._merge_parsed_shards(raw, [shard])
+    def analyse(directory):
+        trace = Path(directory)
+        if trace.parent.name == "worker-1" and failure == "analysis":
+            raise RuntimeError("analysis failed")
+        output = trace / "ASCEND_PROFILER_OUTPUT"
+        output.mkdir()
+        (output / "trace_view.json").write_text('{"traceEvents":[]}')
+        if trace.parent.name != "worker-1" or failure != "incomplete":
+            (output / "analyse.done").touch()
 
-    assert failures == []
-    assert result["status"] == result["cases"][0]["status"] == "partial"
+    for name in ("torch_npu", "torch_npu.profiler", "torch_npu.profiler.profiler"):
+        monkeypatch.setitem(sys.modules, name, types.ModuleType(name))
+    sys.modules["torch_npu.profiler.profiler"].analyse = analyse
+    if failure == "upload":
+        obs.fail_upload = "job/parsed/load/worker-1/rank_ascend_pt.tar.gz"
+    if failure == "download":
+        del obs.objects["bucket", "job/raw/load/worker-1.tar.gz"]
+    for node in nodes:
+        if node == 1 and failure == "missing_shard":
+            continue
+        shard = parse.parse_artifact_shard(
+            tmp_path / f"node-{node}", "job", "bucket", "https://obs.example", "region", node
+        )
+        expected = "partial" if node == 1 and failure else "success"
+        assert shard["status"] == expected
+        assert [target["record"]["node_index"] for target in shard["targets"]] == [node]
+
+    arguments = (tmp_path / "final", "job", "bucket", "https://obs.example", "region")
+    if failure:
+        with pytest.raises(storage.ArtifactError, match="incomplete"):
+            parse.finalize_parsed_manifest(*arguments)
+    else:
+        assert parse.finalize_parsed_manifest(*arguments)["status"] == "success"
+    manifest = json.loads(obs.objects["bucket", "job/parsed/profile_manifest.json"])
+    assert manifest["status"] == ("partial" if failure else "success")
+    first, second = manifest["cases"][0]["targets"]
+    assert first["raw_obs_url"].endswith("/raw/load/worker-0.tar.gz")
+    assert first["ranks"][0]["obs_url"].endswith("/parsed/load/worker-0/rank_ascend_pt.tar.gz")
+    if failure:
+        assert second.get("parse_error") or any(
+            rank.get("parse_error") or rank.get("upload_error") for rank in second["ranks"]
+        )
+    assert obs.uploads[-1] == "job/parsed/profile_manifest.json"
+    data = obs.objects["bucket", "job/parsed/load/worker-0/rank_ascend_pt.tar.gz"]
+    with tarfile.open(fileobj=io.BytesIO(data)) as archive:
+        files = {Path(member.name).name for member in archive.getmembers() if member.isfile()}
+    assert files == {"trace_view.json", "analyse.done", "profiler_info.json"}
+    summary = capsys.readouterr().out.rsplit("Profiling downloads", 1)[1]
+    assert "https://bucket.obs.example/job/raw/load/worker-0.tar.gz" in summary
+    assert "https://bucket.obs.example/job/parsed/load/worker-0/rank_ascend_pt.tar.gz" in summary
 
 
-def test_parse_cli_requires_node_and_reports_partial_after_publication(monkeypatch):
-    monkeypatch.setattr(sys, "argv", ["parse", "parse", "--root", "/tmp/profile", "--prefix", "job"])
-    with pytest.raises(SystemExit) as error:
-        parse.main()
-    assert error.value.code == 2
+@pytest.mark.parametrize("upload_fails", [False, True])
+def test_rank_parsing_keeps_one_result_waiting_for_publication(rank_job, obs, monkeypatch, upload_fails):
+    context, target_dir, traces = rank_job
+    upload_started = Event()
+    release_upload = Event()
+    second_parsed = Event()
+    third_started = Event()
+    upload_file = obs.upload_file
+    first_key = "job/parsed/load/worker/rank-0_ascend_pt.tar.gz"
+    if upload_fails:
+        obs.fail_upload = first_key
 
-    monkeypatch.setattr(sys, "argv", [*sys.argv, "--node-index", "0"])
-    monkeypatch.setattr(parse, "parse_artifact_shard", lambda *_: {"status": "partial", "failures": ["rank failed"]})
-    with pytest.raises(storage.ArtifactError, match="1 parse/upload failures"):
-        parse.main()
+    def slow_upload(source, bucket, key, **kwargs):
+        if key == first_key:
+            upload_started.set()
+            assert release_upload.wait(5)
+        upload_file(source, bucket, key, **kwargs)
+
+    def analyse(directory):
+        index = traces.index(Path(directory))
+        if index == 2:
+            third_started.set()
+        if index >= 2:
+            assert not traces[index - 2].exists()
+        context.analyse(directory)
+        if index == 1:
+            second_parsed.set()
+
+    monkeypatch.setattr(obs, "upload_file", slow_upload)
+    target_record = {"name": "worker"}
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(
+            parse._parse_target_ranks,
+            replace(context, analyse=analyse),
+            case_name="load",
+            raw_archive="load/worker.tar.gz",
+            target_record=target_record,
+            target_dir=target_dir,
+        )
+        try:
+            assert upload_started.wait(5)
+            assert second_parsed.wait(5)
+            assert not third_started.wait(0.1)
+            assert len(list(target_dir.rglob("ASCEND_PROFILER_OUTPUT"))) == 2
+        finally:
+            release_upload.set()
+        future.result(timeout=5)
+
+    failures = parse._target_failures(target_record)
+    assert failures == (["worker/rank-0_ascend_pt: upload_error: OSError: upload failed"] if upload_fails else [])
+    assert len(obs.uploads) == (3 if upload_fails else 4)
+    assert all("obs_url" in rank for rank in target_record["ranks"][int(upload_fails) :])
+    assert not any(trace.exists() for trace in traces)
+    assert not list(context.parsed_root.rglob("*.tar.gz"))
 
 
-def test_download_summary_quotes_keys_and_shell_arguments(capsys):
-    prefix = "job's results"
-    manifest = {
-        "status": "success",
-        "cases": [
-            {"case": "case-a", "targets": [{"name": "server", "obs_url": f"obs://bucket/{prefix}/raw/a #中.tar.gz"}]}
-        ],
-    }
+@pytest.mark.parametrize("failure", ["analysis", "incomplete", "compression", "upload"])
+@pytest.mark.parametrize("failed_index", [0, 3])
+def test_rank_failures_release_workspace_and_preserve_other_results(rank_job, obs, monkeypatch, failure, failed_index):
+    context, target_dir, traces = rank_job
+    failed_trace = traces[failed_index]
 
-    storage.print_download_summary(manifest, "bucket", prefix, "https://obs.example.com", "raw", False)
+    def analyse(directory):
+        trace = Path(directory)
+        if traces.index(trace) > failed_index + 1:
+            assert not failed_trace.exists()
+        context.analyse(directory)
+        if trace == failed_trace:
+            if failure == "analysis":
+                raise RuntimeError("analysis failed after writing output")
+            if failure == "incomplete":
+                (trace / "ASCEND_PROFILER_OUTPUT" / "analyse.done").unlink()
 
-    output = capsys.readouterr().out
-    assert "https://bucket.obs.example.com/job%27s%20results/raw/a%20%23%E4%B8%AD.tar.gz" in output
-    command = next(line for line in output.splitlines() if line.startswith("obsutil cp"))
-    assert shlex.split(command) == [
-        "obsutil",
-        "cp",
-        f"obs://bucket/{prefix}/raw/",
-        "./profile-download/raw/",
-        "-r",
-        "-j=4",
-    ]
+    archive_name = f"{failed_trace.name}.tar.gz"
+    if failure == "upload":
+        obs.fail_upload = f"job/parsed/load/worker/{archive_name}"
+    if failure == "compression":
+        tar_open = tarfile.open
+
+        def fail_compression(path, *args, **kwargs):
+            if Path(path).name == archive_name:
+                Path(path).write_bytes(b"incomplete archive")
+                raise OSError("compression failed")
+            return tar_open(path, *args, **kwargs)
+
+        monkeypatch.setattr(parse.tarfile, "open", fail_compression)
+
+    target_record = {"name": "worker"}
+    parse._parse_target_ranks(
+        replace(context, analyse=analyse),
+        case_name="load",
+        raw_archive="load/worker.tar.gz",
+        target_record=target_record,
+        target_dir=target_dir,
+    )
+    error_field = "parse_error" if failure in ("analysis", "incomplete") else "upload_error"
+    assert target_record["ranks"][failed_index][error_field]
+    assert len(parse._target_failures(target_record)) == 1
+    assert all("obs_url" in rank for index, rank in enumerate(target_record["ranks"]) if index != failed_index)
+    assert len(obs.uploads) == 3
+    assert not any(trace.exists() for trace in traces)
+    assert not list(context.parsed_root.rglob("*.tar.gz"))
 
 
-@pytest.mark.parametrize("module, command", [(capture, "upload"), (parse, "plan")])
-@pytest.mark.parametrize(
-    "error",
-    [
-        EndpointConnectionError(endpoint_url="http://private-service:8000"),
-        S3UploadFailedError("private-service:8000"),
-        storage.ArtifactError("OBS size mismatch"),
-    ],
-)
-def test_cli_errors_exit_without_infrastructure_details(tmp_path, monkeypatch, module, command, error):
-    (tmp_path / "profile_manifest.json").write_text('{"status": "success", "cases": []}')
+def test_empty_job_skips_parsing_but_missing_manifest_fails(tmp_path, obs):
+    root = tmp_path / "capture"
+    capture.initialize_profile_run(root, capture.ProfileSpec(enabled=True))
+    manifest = capture.upload_raw_artifacts(root, "job", "bucket", "https://obs.example", "region")
+    assert manifest["status"] == "skipped"
+    arguments = (tmp_path / "parse", "job", "bucket", "https://obs.example", "region")
+    assert parse.plan_artifact_shards(*arguments) == []
+    assert parse.parse_artifact_shard(*arguments, node_index=0)["status"] == "skipped"
+    assert parse.finalize_parsed_manifest(*arguments)["status"] == "skipped"
+    assert obs.uploads == ["job/raw/profile_manifest.json"]
+    with pytest.raises(storage.ArtifactError, match="manifest is missing"):
+        capture.upload_raw_artifacts(tmp_path / "absent", "job", "bucket", "https://obs.example", "region")
 
-    def fail_client(*_):
-        raise error
 
-    monkeypatch.setattr(storage, "create_obs_client", fail_client)
-    monkeypatch.setattr(sys, "argv", ["profile", command, "--root", str(tmp_path), "--prefix", "job"])
-
-    with pytest.raises(SystemExit) as result:
-        runpy.run_path(module.__file__, run_name="__main__")
-
-    message = str(result.value)
-    assert "private-service" not in message
-    assert (
-        "OBS size mismatch" in message if isinstance(error, storage.ArtifactError) else type(error).__name__ in message
+def test_json_upload_propagates_sdk_failure_and_download_url(tmp_path):
+    client = MemoryObs()
+    source = tmp_path / "summary.json"
+    source.write_text("{}")
+    client.fail_upload = "summary.json"
+    with pytest.raises(OSError, match="upload failed"):
+        storage.upload_json(client, source, "bucket", "summary.json")
+    assert storage.obs_http_url("obs://bucket/job/a b#1.tar.gz", "https://obs.example") == (
+        "https://bucket.obs.example/job/a%20b%231.tar.gz"
     )
