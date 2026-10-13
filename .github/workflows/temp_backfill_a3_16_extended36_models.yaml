@@ -69,6 +69,7 @@ jobs:
         id: tree
         run: |
           set -eu
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           ASCEND_SHA=$(git rev-parse HEAD)
           VLLM_PIN=$(tr -d '[:space:]' < .github/vllm-main-verified.commit)
           DIRTY=$(git status --porcelain | wc -l)
