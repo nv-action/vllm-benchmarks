@@ -24,6 +24,7 @@ on:
       ascend_ref: {description: 'vllm-ascend ref to grade (unmodified)', default: 'main', type: string}
       flow_ref: {description: 'main2main_flow ref whose checks are under test', default: 'main', type: string}
       vllm_ref: {description: 'vLLM pairing (empty = .github/vllm-main-verified.commit)', default: '', type: string}
+      ut_soc: {description: 'install SOC_VERSION (ascend910_9391 = production-faithful a3 build; ascend910b1 = upstream cpu-ut default)', default: 'ascend910_9391', type: string}
 
 permissions: {}
 
@@ -56,11 +57,12 @@ jobs:
       MAIN2MAIN_IMAGE_TAG: 9.1.0-a3-ubuntu22.04-py3.12
       # UT on an A3 host must simulate PURE CPU — the same semantics as
       # upstream's cpu-ut lane (csrc/SOC steps gated off npu_type != 'cpu',
-      # build_info defaults to ASCEND910B1).  The device profile is baked at
-      # BUILD time from _build_info (env cannot change it), so the UT lane
-      # must install a 910b1-profile build instead of the production a3 one.
-      # A3-specific tests patch the profile in-test, so A3 coverage survives.
-      UT_SOC: ascend910b1
+      # build_info defaults to ASCEND910B1).  Two mechanisms, both proven:
+      # (1) install a 910b1-profile build (ut_soc=ascend910b1); (2) keep the
+      # production-faithful a3 install and let check_ut shadow-import a
+      # pure-CPU _build_info (default; MAIN2MAIN_UT_PURE_CPU).  A3-specific
+      # tests patch the profile in-test, so A3 coverage survives either way.
+      UT_SOC: ${{ inputs.ut_soc }}
 
     steps:
       - name: Checkout vllm-project/vllm-ascend
