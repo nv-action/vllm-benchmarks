@@ -204,7 +204,7 @@ jobs:
             vllm_ascend/include
           key: vllm-ascend-build-v2-${{ steps.get_arch.outputs.arch }}-${{ env.MAIN2MAIN_IMAGE_TAG }}-${{ env.UT_SOC }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
 
-      - name: Install main2main_flow + apply UT-harness fixes (pre-push verification)
+      - name: Install main2main_flow (UT-harness markers asserted)
         env:
           FLOW_REF: ${{ inputs.flow_ref }}
         run: |
@@ -215,24 +215,16 @@ jobs:
           fi
           git -C "${M2M_FLOW_DIR}" fetch origin "${FLOW_REF}"
           git -C "${M2M_FLOW_DIR}" checkout --detach FETCH_HEAD
-          # The flow UT-harness fixes (csrc env scrub, batch order = pytest
-          # collection order, failure-excerpt anchoring) are still LOCAL on
-          # the flow branch — the user requires a clean verification run
-          # BEFORE pushing.  Apply them as a patch so this run grades
-          # exactly what will be pushed.  A stale patch (main moved) fails
-          # loudly here instead of silently grading unfixed code.
-          BENCH_DIR="/tmp/m2m-bench"
-          if [ ! -d "${BENCH_DIR}/.git" ]; then
-            git clone --depth 1 --branch wf/harness-parity \
-              https://github.com/nv-action/vllm-benchmarks.git "${BENCH_DIR}"
-          fi
-          git -C "${M2M_FLOW_DIR}" apply --check "${BENCH_DIR}/parity/flow_ut_fix.patch"
-          git -C "${M2M_FLOW_DIR}" apply "${BENCH_DIR}/parity/flow_ut_fix.patch"
+          # The UT-harness fixes (csrc env scrub, batch order = pytest
+          # collection order, failure-excerpt anchoring, pure-CPU
+          # _build_info swap) live on the flow branch itself since
+          # main 9c6e324..e645dde — the patch vehicle is retired.  Assert
+          # the markers so a regressed ref fails LOUDLY here instead of
+          # silently grading unfixed harness code.
           grep -q "files.sort()" "${M2M_FLOW_DIR}/main2main_flow/scripts/utils/ut_check.py"
           grep -q "section_start" "${M2M_FLOW_DIR}/main2main_flow/scripts/utils/ut_check.py"
           grep -q "VLLM_ASCEND_BUILD_CACHE_DIR" "${M2M_FLOW_DIR}/main2main_flow/scripts/utils/ut_check.py"
           grep -q "_swap_pure_cpu_build_info" "${M2M_FLOW_DIR}/main2main_flow/scripts/utils/ut_check.py"
-          git -C "${M2M_FLOW_DIR}" diff --stat
           pip install -e "${M2M_FLOW_DIR}"
 
       - name: Phase A - upstream-faithful UT control
