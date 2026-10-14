@@ -83,7 +83,7 @@ spec:
               - sh
               - -c
               - |
-                bash /root/.cache/tests/run.sh \
+                bash "$LOG_PREFIX/validation-source/run.sh" \
                   "{{ soc_version | default("") }}" \
                   "{{ max_good_age_days | default("3") }}"
 {% set soc = soc_version | default("a3") | lower %}
@@ -201,7 +201,7 @@ spec:
               - sh
               - -c
               - |
-                bash /root/.cache/tests/run.sh \
+                bash "$LOG_PREFIX/validation-source/run.sh" \
                   "{{ soc_version | default("") }}" \
                   "{{ max_good_age_days | default("3") }}"
 {% set soc = soc_version | default("a3") | lower %}

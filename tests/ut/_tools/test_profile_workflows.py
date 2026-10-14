@@ -1,3 +1,7 @@
+import os
+import subprocess
+import sys
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -127,6 +131,104 @@ def test_private_image_overlay_is_limited_to_profiling_and_case_config(name):
     assert 'config_path="${CONFIG_BASE_PATH}/${CONFIG_YAML_PATH}"' in overlay["run"]
     assert "vllm_ascend/worker" not in overlay["run"]
     assert steps.index(overlay) < next(i for i, step in enumerate(steps) if step["name"] == "Configure profiling")
+
+
+def test_private_multi_node_overlay_is_scoped_to_each_run():
+    job = load_workflow("_e2e_nightly_multi_node.yaml")["jobs"]["e2e"]
+    steps = job["steps"]
+    prepare = next(step for step in steps if step["name"] == "Prepare scripts")
+    script = prepare["run"]
+    assert 'script_dir="$LOG_PREFIX/validation-source"' in script
+    assert "fromJSON(inputs.profile_options_json).enabled && inputs.request_id == ''" in script
+    assert "git archive --format=tar HEAD" in script
+    for path in (
+        "tools/profiling",
+        "tools/aisbench.py",
+        "tests/e2e/common/multi_node",
+        "tests/e2e/nightly/scripts/result_postprocess.py",
+    ):
+        assert path in script
+    assert '"$config_path" > "$script_dir/profile-overlay.tar"' in script
+    assert "vllm_ascend/worker" not in script
+    assert steps.index(prepare) < next(i for i, step in enumerate(steps) if step["name"] == "Launch cluster")
+    root = WORKFLOWS.parents[1]
+    template = (root / "tests/e2e/common/multi_node/lws.yaml.jinja2").read_text()
+    assert template.count('bash "$LOG_PREFIX/validation-source/run.sh"') == 2
+    assert "/root/.cache/tests/run.sh" not in template
+    run_script = (root / "tests/e2e/common/multi_node/run.sh").read_text()
+    assert "    overlay_profiling_source\n    show_vllm_info" in run_script
+
+
+@pytest.mark.parametrize(
+    ("enabled", "is_pr", "node", "has_archive", "expected"),
+    [
+        ("true", "false", "0", True, "copied"),
+        ("true", "false", "1", True, "copied"),
+        ("false", "false", "0", False, "skipped"),
+        ("true", "true", "0", False, "skipped"),
+        ("true", "false", "0", False, "failed"),
+    ],
+)
+def test_multi_node_overlay_copies_source_without_changing_runtime(
+    tmp_path, enabled, is_pr, node, has_archive, expected
+):
+    root = WORKFLOWS.parents[1]
+    run_script = (root / "tests/e2e/common/multi_node/run.sh").read_text()
+    overlay = (
+        "overlay_profiling_source() {"
+        + run_script.split("overlay_profiling_source() {", 1)[1].split("\ninstall_vllm_ascend()", 1)[0]
+    )
+    source = tmp_path / "validation-source"
+    source.mkdir()
+    target = tmp_path / "workspace/vllm-ascend"
+    target.mkdir(parents=True)
+    files = (
+        "tools/aisbench.py",
+        "tools/profiling/capture.py",
+        "tests/e2e/common/multi_node/internal_dp/test_multi_node.py",
+        "tests/e2e/common/multi_node/external_dp/runtime.py",
+        "tests/e2e/cases/models/configs/GLM/case.yaml",
+    )
+    for name in files:
+        path = target / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("# image source\n")
+    runtime = target / "vllm_ascend/worker/worker.py"
+    runtime.parent.mkdir(parents=True)
+    runtime.write_text("# installed runtime\n")
+    if has_archive:
+        payload = tmp_path / "payload"
+        with tarfile.open(source / "profile-overlay.tar", "w") as archive:
+            for name in files:
+                path = payload / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("# validation source\n")
+                archive.add(path, arcname=name)
+        (source / "profile-source.commit").write_text("validation-sha\n")
+    result = subprocess.run(
+        ["bash", "-eu", "-c", 'print_section() { echo "$1"; }\n' + overlay + "\noverlay_profiling_source"],
+        env={
+            **os.environ,
+            "PATH": f"{Path(sys.executable).parent}:{os.environ['PATH']}",
+            "SCRIPT_DIR": str(source),
+            "WORKSPACE": str(target.parent),
+            "IS_PR_TEST": is_pr,
+            "ASCEND_PROFILE_ENABLED": enabled,
+            "LWS_WORKER_INDEX": node,
+            "CONFIG_BASE_PATH": "tests/e2e/cases/models/configs/GLM",
+            "CONFIG_YAML_PATH": "case.yaml",
+        },
+        text=True,
+        capture_output=True,
+    )
+    assert (result.returncode != 0) == (expected == "failed"), result.stderr
+    for name in files:
+        assert (target / name).read_text() == ("# validation source\n" if expected == "copied" else "# image source\n")
+    assert runtime.read_text() == "# installed runtime\n"
+    if expected == "copied":
+        assert f"node {node}" in result.stdout
+        assert "Validation source SHA: validation-sha" in result.stdout
+        assert str(target / files[-1]) in result.stdout
 
 
 @pytest.mark.parametrize(

@@ -227,8 +227,20 @@ jobs:
 
       - name: Prepare scripts
         run: |
-          install -D tests/e2e/common/multi_node/run.sh /root/.cache/tests/run.sh
-          install -D tests/e2e/nightly/scripts/bisect_args.sh /root/.cache/tests/bisect_args.sh
+          script_dir="$LOG_PREFIX/validation-source"
+          install -D tests/e2e/common/multi_node/run.sh "$script_dir/run.sh"
+          install -D tests/e2e/nightly/scripts/bisect_args.sh "$script_dir/bisect_args.sh"
+          # Private validation only: use new test code without rebuilding the nightly image.
+          if [ '${{ fromJSON(inputs.profile_options_json).enabled && inputs.request_id == '' }}' = 'true' ]; then
+            config_path="${{ inputs.config_base_path }}/${{ inputs.config_file_path }}"
+            git archive --format=tar HEAD \
+              tools/profiling tools/aisbench.py \
+              tests/e2e/common/multi_node \
+              tests/e2e/nightly/scripts/result_postprocess.py \
+              "$config_path" > "$script_dir/profile-overlay.tar"
+            git rev-parse HEAD > "$script_dir/profile-source.commit"
+            echo "[Profiling] Prepared validation source $(cat "$script_dir/profile-source.commit") for $config_path"
+          fi
 
       - name: Clear resources
         run: |

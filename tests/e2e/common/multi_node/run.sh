@@ -169,6 +169,22 @@ checkout_src() {
     fi
 }
 
+overlay_profiling_source() {
+    # Temporary private validation path; leave the installed NPU runtime untouched.
+    if [[ "${ASCEND_PROFILE_ENABLED:-false}" != "true" || "$IS_PR_TEST" == "true" ]]; then
+        return 0
+    fi
+    local target_dir="$WORKSPACE/vllm-ascend"
+    print_section "Overlay profiling validation source (node ${LWS_WORKER_INDEX:-0})"
+    tar -xf "$SCRIPT_DIR/profile-overlay.tar" -C "$target_dir"
+    python3 -m compileall -q "$target_dir/tools/profiling" "$target_dir/tools/aisbench.py" \
+        "$target_dir/tests/e2e/common/multi_node"
+    echo "[Profiling] Validation source SHA: $(cat "$SCRIPT_DIR/profile-source.commit")"
+    echo "[Profiling] Test code: $target_dir/tests/e2e/common/multi_node"
+    echo "[Profiling] AISBench wrapper: $target_dir/tools/aisbench.py"
+    echo "[Profiling] Case YAML: $target_dir/$CONFIG_BASE_PATH/$CONFIG_YAML_PATH"
+}
+
 install_vllm_ascend() {
     echo "====> Install vllm-ascend"
     pip install uv
@@ -549,6 +565,7 @@ main() {
         install_vllm_ascend
         install_aisbench
     fi
+    overlay_profiling_source
     show_vllm_info
     show_triton_ascend_info
     cd "$WORKSPACE/vllm-ascend"
