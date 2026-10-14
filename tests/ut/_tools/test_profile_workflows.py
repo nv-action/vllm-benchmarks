@@ -140,7 +140,7 @@ def test_private_multi_node_overlay_is_scoped_to_each_run():
     script = prepare["run"]
     assert 'script_dir="$LOG_PREFIX/validation-source"' in script
     assert "fromJSON(inputs.profile_options_json).enabled && inputs.request_id == ''" in script
-    assert "git archive --format=tar HEAD" in script
+    assert 'git -c safe.directory="$GITHUB_WORKSPACE" archive --format=tar HEAD' in script
     for path in (
         "tools/profiling",
         "tools/aisbench.py",
@@ -157,6 +157,33 @@ def test_private_multi_node_overlay_is_scoped_to_each_run():
     assert "/root/.cache/tests/run.sh" not in template
     run_script = (root / "tests/e2e/common/multi_node/run.sh").read_text()
     assert "    overlay_profiling_source\n    show_vllm_info" in run_script
+
+
+def test_overlay_archive_handles_different_repository_owner(tmp_path):
+    root = WORKFLOWS.parents[1]
+    steps = load_workflow("_e2e_nightly_multi_node.yaml")["jobs"]["e2e"]["steps"]
+    script = next(step["run"] for step in steps if step["name"] == "Prepare scripts")
+    archive_script = script[script.index("  git -c ") : script.index('  echo "[Profiling]')]
+    config = "tests/e2e/cases/models/configs/GLM/GLM-5.2-W8A8C8-A3_3.5k_1.5k_0_20.yaml"
+    env = {
+        **os.environ,
+        "GIT_TEST_ASSUME_DIFFERENT_OWNER": "1",
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_SYSTEM": os.devnull,
+        "GITHUB_WORKSPACE": str(root),
+        "script_dir": str(tmp_path),
+        "config_path": config,
+    }
+    unsafe = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, env=env, text=True, capture_output=True)
+    assert unsafe.returncode != 0
+    assert "dubious ownership" in unsafe.stderr
+    result = subprocess.run(["bash", "-eu", "-c", archive_script], cwd=root, env=env, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+    assert len((tmp_path / "profile-source.commit").read_text().strip()) == 40
+    with tarfile.open(tmp_path / "profile-overlay.tar") as archive:
+        assert config in archive.getnames()
+        assert "tools/profiling/capture.py" in archive.getnames()
+        assert "tools/aisbench.py" in archive.getnames()
 
 
 @pytest.mark.parametrize(

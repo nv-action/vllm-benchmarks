@@ -233,12 +233,12 @@ jobs:
           # Private validation only: use new test code without rebuilding the nightly image.
           if [ '${{ fromJSON(inputs.profile_options_json).enabled && inputs.request_id == '' }}' = 'true' ]; then
             config_path="${{ inputs.config_base_path }}/${{ inputs.config_file_path }}"
-            git archive --format=tar HEAD \
+            git -c safe.directory="$GITHUB_WORKSPACE" archive --format=tar HEAD \
               tools/profiling tools/aisbench.py \
               tests/e2e/common/multi_node \
               tests/e2e/nightly/scripts/result_postprocess.py \
               "$config_path" > "$script_dir/profile-overlay.tar"
-            git rev-parse HEAD > "$script_dir/profile-source.commit"
+            git -c safe.directory="$GITHUB_WORKSPACE" rev-parse HEAD > "$script_dir/profile-source.commit"
             echo "[Profiling] Prepared validation source $(cat "$script_dir/profile-source.commit") for $config_path"
           fi
 
