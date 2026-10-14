@@ -354,7 +354,7 @@ def analyze_steady_state(
     last downward crossing. End events sort before start events at equal
     timestamps so a hand-off cannot create a false concurrency peak. Request
     timings are validated by the loader; benchmark_zero is the first-request
-    marker shared with profiling, including warmup.
+    marker shared with profiling, excluding warmup.
     """
 
     _validate_parameters(target_concurrency, threshold_ratio)
@@ -479,7 +479,7 @@ def steady_state_summary(case_name: str, result: SteadyStateResult) -> dict[str,
         }
     return {
         "case_name": case_name,
-        "time_origin": "first AISBench request (including warmup)",
+        "time_origin": "first formal AISBench request (excluding warmup)",
         "status": result.status,
         "total_requests": result.total_requests,
         "successful_requests": result.successful_requests,
@@ -810,7 +810,7 @@ def render_terminal(
 
     ratio_percent = result.threshold_ratio * 100
     lines = [f"::group::{_group_title(case_name, result)}"]
-    lines.append("Time zero: first AISBench request (including warmup); charts count formal requests only.")
+    lines.append("Time zero: first formal AISBench request (excluding warmup); shared with profiling start_after.")
     if timing_directory is not None or timing_stats is not None:
         lines.extend(["", "Timing Data"])
         if timing_directory is not None:

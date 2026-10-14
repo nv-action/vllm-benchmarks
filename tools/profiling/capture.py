@@ -50,9 +50,10 @@ def _parse_bool(value: bool | str) -> bool:
 class ProfileSpec:
     """User-selectable settings for one scheduled profiling session.
 
-    ``start_after`` is measured from the first AISBench request, including
+    ``start_after`` is measured from the first formal AISBench request, after
     warmup; ``duration`` is the capture length in seconds. All serving instances
-    are captured; ``cases`` optionally restricts profiling to named performance cases.
+    are captured; ``benchmark_names`` optionally selects performance benchmark names
+    from the test YAML, not case types or serving instance names.
     """
 
     enabled: bool = False
@@ -60,7 +61,7 @@ class ProfileSpec:
     duration: int = 8
     with_stack: bool = False
     output: ProfileOutput = "parsed"
-    cases: tuple[str, ...] = ()
+    benchmark_names: tuple[str, ...] = ()
 
     @classmethod
     def from_env(cls) -> "ProfileSpec":
@@ -79,11 +80,11 @@ class ProfileSpec:
         defaults = cls()
         if not isinstance(options, dict) or options.keys() - {field.name for field in fields(cls)}:
             raise ValueError("Unknown profiling options; expected a JSON object with ProfileSpec fields")
-        cases = options.get("cases", ",".join(defaults.cases))
-        if not isinstance(cases, str):
-            raise ValueError("Profile cases must be a comma-separated string")
-        if "\n" in cases or "\r" in cases:
-            raise ValueError("Profile cases must be single-line")
+        benchmark_names = options.get("benchmark_names", ",".join(defaults.benchmark_names))
+        if not isinstance(benchmark_names, str):
+            raise ValueError("Profile benchmark_names must be a comma-separated string")
+        if "\n" in benchmark_names or "\r" in benchmark_names:
+            raise ValueError("Profile benchmark_names must be single-line")
         output = options.get("output", defaults.output)
         if output not in ("parsed", "raw"):
             raise ValueError("Invalid profile output mode")
@@ -96,7 +97,7 @@ class ProfileSpec:
             duration=int(options.get("duration", defaults.duration)),
             with_stack=_parse_bool(options.get("with_stack", defaults.with_stack)),
             output=cast(ProfileOutput, output),
-            cases=tuple(case.strip() for case in cases.split(",") if case.strip()),
+            benchmark_names=tuple(name.strip() for name in benchmark_names.split(",") if name.strip()),
         )
         if spec.start_after < 0 or spec.duration <= 0:
             raise ValueError("Profile times must be positive (start-after may be zero)")
@@ -104,7 +105,7 @@ class ProfileSpec:
 
     def options(self) -> dict:
         """Return the canonical JSON options passed between CI workflows."""
-        return {**asdict(self), "cases": ",".join(self.cases)}
+        return {**asdict(self), "benchmark_names": ",".join(self.benchmark_names)}
 
     def environment(self) -> dict[str, str]:
         """Expand options only at the test process/container boundary."""
@@ -113,9 +114,13 @@ class ProfileSpec:
             for name, value in self.options().items()
         }
 
-    def includes_case(self, case_name: str, case_type: str) -> bool:
-        """Return whether a benchmark case should be profiled."""
-        return self.enabled and case_type == "performance" and (not self.cases or case_name in self.cases)
+    def includes_benchmark(self, benchmark_name: str, case_type: str) -> bool:
+        """Return whether a named performance benchmark should be profiled."""
+        return (
+            self.enabled
+            and case_type == "performance"
+            and (not self.benchmark_names or benchmark_name in self.benchmark_names)
+        )
 
 
 @dataclass(frozen=True)

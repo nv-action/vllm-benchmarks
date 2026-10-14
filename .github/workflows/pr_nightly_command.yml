@@ -272,8 +272,8 @@ jobs:
             elif [ "$PENDING_OPTION" = "--profile-output" ]; then
               PROFILE_OPTIONS_JSON=$(jq -c --arg value "$WORD" '.output = $value' <<< "$PROFILE_OPTIONS_JSON")
               PENDING_OPTION=""
-            elif [ "$PENDING_OPTION" = "--profile-cases" ]; then
-              PROFILE_OPTIONS_JSON=$(jq -c --arg value "$WORD" '.cases = $value' <<< "$PROFILE_OPTIONS_JSON")
+            elif [ "$PENDING_OPTION" = "--profile-benchmark-names" ]; then
+              PROFILE_OPTIONS_JSON=$(jq -c --arg value "$WORD" '.benchmark_names = $value' <<< "$PROFILE_OPTIONS_JSON")
               PENDING_OPTION=""
             elif [ "$NEXT_IS_GOOD_COMMIT" = "1" ]; then
               BISECT_GOOD_COMMIT="$WORD"
@@ -309,7 +309,7 @@ jobs:
               PROFILE_OPTIONS_JSON=$(jq -c '.enabled = true' <<< "$PROFILE_OPTIONS_JSON")
             elif [ "$WORD" = "--profile-with-stack" ]; then
               PROFILE_OPTIONS_JSON=$(jq -c '.with_stack = true' <<< "$PROFILE_OPTIONS_JSON")
-            elif [[ "$WORD" =~ ^--profile-(start-after|duration|output|cases)$ ]]; then
+            elif [[ "$WORD" =~ ^--profile-(start-after|duration|output|benchmark-names)$ ]]; then
               PENDING_OPTION="$WORD"
             elif [ "$WORD" = "--good-commit" ]; then
               NEXT_IS_GOOD_COMMIT=1

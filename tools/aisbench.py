@@ -197,7 +197,7 @@ class AisbenchRunner:
         self.profile_spec = ProfileSpec.from_env()
         self.profile_targets = ()
         self.profile_marker: Path | None = None
-        if self.profile_spec.includes_case(self.case_name, self.task_type):
+        if self.profile_spec.includes_benchmark(self.case_name, self.task_type):
             self.profile_targets = ServeManifest.read(profile_root() / "serve_manifest.json").instances
             if not self.profile_targets:
                 raise ArtifactError("Profiling is enabled but the serve manifest has no targets")
@@ -250,6 +250,15 @@ class AisbenchRunner:
             with open(conf_path, encoding="utf-8") as f:
                 content = f.read()
             content = re.sub(r"path=.*", f'path="{self.dataset_path}",', content)
+            if self.profile_marker is not None:
+                content, replacements = re.subn(r"\btype\s*=\s*GenInferencer\b", "type=TimedGenInferencer", content)
+                if replacements == 0:
+                    if self.profile_targets:
+                        raise ArtifactError("Unsupported AISBench inferencer type for profiling")
+                    logging.warning("Unsupported AISBench inferencer type for the shared timeline origin")
+                    self.profile_marker = None
+                else:
+                    content = "from tools.profiling.aisbench_request_marker import TimedGenInferencer\n" + content
             conf_path_new = os.path.join(DATASET_CONF_DIR, f"{self.dataset_conf}_custom.py")
             with open(conf_path_new, "w", encoding="utf-8") as f:
                 f.write(content)
@@ -303,20 +312,6 @@ class AisbenchRunner:
         if self.no_pred:
             content = re.sub(r"pred_postprocessor.*", "#pred_postprocessor", content)
         conf_path_new = os.path.join(REQUEST_CONF_DIR, f"{self.request_conf}_custom.py")
-        if self.task_type == "performance" and self.profile_marker is not None:
-            content, replacements = re.subn(
-                r"\btype\s*=\s*VLLMCustomAPIChat\b",
-                "type=ProfiledVLLMCustomAPIChat",
-                content,
-                count=1,
-            )
-            if replacements != 1:
-                if self.profile_targets:
-                    raise ArtifactError("Unsupported AISBench model type for profiling")
-                logging.warning("Unsupported AISBench model type for the shared timeline origin")
-                self.profile_marker = None
-            else:
-                content = "from tools.profiling.aisbench_request_marker import ProfiledVLLMCustomAPIChat\n" + content
         with open(conf_path_new, "w", encoding="utf-8") as f:
             f.write(content)
         print(f"The request config is\n {content}")

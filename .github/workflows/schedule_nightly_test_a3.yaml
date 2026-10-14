@@ -79,7 +79,7 @@ on:
         default: '{}'
         type: string
       profile_options_json:
-        description: 'JSON profiling options: enabled, start_after, duration, with_stack, output, cases'
+        description: 'JSON profiling options: enabled, start_after, duration, with_stack, output, benchmark_names'
         type: string
         default: '{}'
 permissions:

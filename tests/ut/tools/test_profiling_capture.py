@@ -19,18 +19,25 @@ def test_profile_options_and_environment(monkeypatch):
         monkeypatch.delenv(name, raising=False)
     assert capture.ProfileSpec.from_env() == capture.ProfileSpec()
     spec = capture.ProfileSpec.from_options(
-        {"enabled": "True", "with_stack": "FALSE", "start_after": "0", "duration": "12", "cases": "small, large,,"}
+        {
+            "enabled": "True",
+            "with_stack": "FALSE",
+            "start_after": "0",
+            "duration": "12",
+            "benchmark_names": "small, large,,",
+        }
     )
-    assert spec == capture.ProfileSpec(enabled=True, start_after=0, duration=12, cases=("small", "large"))
+    assert spec == capture.ProfileSpec(enabled=True, start_after=0, duration=12, benchmark_names=("small", "large"))
+    assert spec.environment()["ASCEND_PROFILE_BENCHMARK_NAMES"] == "small,large"
     for name, value in spec.environment().items():
         monkeypatch.setenv(name, value)
     assert capture.ProfileSpec.from_env() == spec
     assert capture.ProfileSpec.from_options(spec.options()) == spec
-    assert spec.includes_case("small", "performance")
-    assert not spec.includes_case("small", "accuracy")
-    assert not spec.includes_case("other", "performance")
-    assert capture.ProfileSpec(enabled=True).includes_case("other", "performance")
-    assert not capture.ProfileSpec().includes_case("small", "performance")
+    assert spec.includes_benchmark("small", "performance")
+    assert not spec.includes_benchmark("small", "accuracy")
+    assert not spec.includes_benchmark("other", "performance")
+    assert capture.ProfileSpec(enabled=True).includes_benchmark("other", "performance")
+    assert not capture.ProfileSpec().includes_benchmark("small", "performance")
 
 
 @pytest.mark.parametrize(
@@ -42,7 +49,8 @@ def test_profile_options_and_environment(monkeypatch):
         {"duration": 1.5},
         {"scope": "all"},
         {"scope": "representative"},
-        {"cases": []},
+        {"benchmark_names": []},
+        {"cases": "small"},
     ],
 )
 def test_invalid_profile_options(options):

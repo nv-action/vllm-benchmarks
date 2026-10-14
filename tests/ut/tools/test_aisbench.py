@@ -71,9 +71,11 @@ def benchmark_setup(tmp_path, monkeypatch):
     monkeypatch.setenv("ASCEND_PROFILE_ROOT", str(tmp_path))
     monkeypatch.setattr(aisbench, "STEADY_STATE_OUTPUT_DIR", tmp_path / "steady_state")
     monkeypatch.setattr(aisbench, "REQUEST_CONF_DIR", str(tmp_path))
+    monkeypatch.setattr(aisbench, "DATASET_CONF_DIR", str(tmp_path))
     instance = capture.ServeInstance.from_endpoint("server", "http://server:8000", root=tmp_path)
     capture.ServeManifest((instance,)).write(tmp_path / "serve_manifest.json")
     (tmp_path / "chat.py").write_text("models = [dict(\n    type=VLLMCustomAPIChat,\n    model='model',\n)]\n")
+    (tmp_path / "dataset.py").write_text("inferencer = dict(type=GenInferencer)\npath='dataset'\n")
     config = {
         "case_name": "load",
         "profile_case_name": "model__load",
@@ -85,7 +87,6 @@ def benchmark_setup(tmp_path, monkeypatch):
         "max_out_len": 16,
         "batch_size": 2,
     }
-    monkeypatch.setattr(aisbench.AisbenchRunner, "_init_dataset_conf", lambda self: None)
     monkeypatch.setattr(aisbench.AisbenchRunner, "_run_aisbench_task", lambda self: None)
     monkeypatch.setattr(aisbench.AisbenchRunner, "_wait_for_task", lambda self: None)
     controller = Mock()
@@ -102,9 +103,10 @@ def test_benchmark_profile_lifecycle(tmp_path, benchmark_setup):
     marker.parent.mkdir(parents=True)
     marker.write_text("previous timestamp")
     runner = aisbench.AisbenchRunner("model", 8000, config, verify=False)
-    generated = (tmp_path / "chat_custom.py").read_text()
-    compile(generated, "chat_custom.py", "exec")
-    assert "type=ProfiledVLLMCustomAPIChat" in generated
+    generated = (tmp_path / "dataset_custom.py").read_text()
+    compile(generated, "dataset_custom.py", "exec")
+    assert "type=TimedGenInferencer" in generated
+    assert "type=VLLMCustomAPIChat" in (tmp_path / "chat_custom.py").read_text()
     assert not marker.exists()
     controller.start.assert_called_once()
     controller.finish.assert_called_once()
@@ -153,7 +155,7 @@ def test_selected_profile_failure_fails_benchmark(tmp_path, benchmark_setup, mon
     elif stage == "empty":
         capture.ServeManifest(()).write(tmp_path / "serve_manifest.json")
     elif stage == "unsupported":
-        (tmp_path / "chat.py").write_text("models = [dict(type=OtherAPI)]")
+        (tmp_path / "dataset.py").write_text("inferencer = dict(type=OtherInferencer)")
     elif stage == "marker":
         (tmp_path / "steady_state").write_text("not a directory")
     elif stage == "start":
@@ -175,7 +177,7 @@ def test_timing_setup_failure_does_not_fail_ordinary_benchmark(tmp_path, benchma
     config, controller, collect = benchmark_setup
     monkeypatch.setenv("ASCEND_PROFILE_ENABLED", "false")
     if failure == "unsupported":
-        (tmp_path / "chat.py").write_text("models = [dict(type=OtherAPI)]")
+        (tmp_path / "dataset.py").write_text("inferencer = dict(type=OtherInferencer)")
     else:
         (tmp_path / "steady_state").write_text("not a directory")
     runner = aisbench.AisbenchRunner("model", 8000, config, verify=False)
@@ -185,40 +187,56 @@ def test_timing_setup_failure_does_not_fail_ordinary_benchmark(tmp_path, benchma
 
 
 @pytest.mark.parametrize("profile", [False, True])
-def test_graph_and_capture_share_first_request_origin(tmp_path, benchmark_setup, monkeypatch, profile):
+@pytest.mark.parametrize("first_fails", [False, True])
+def test_graph_and_capture_share_formal_request_origin(
+    tmp_path, benchmark_setup, timed_inferencer, monkeypatch, profile, first_fails
+):
     config, controller, _ = benchmark_setup
     monkeypatch.setenv("ASCEND_PROFILE_ENABLED", str(profile))
-    monkeypatch.setattr(capture, "time", types.SimpleNamespace(perf_counter=lambda: 10.0))
-    monkeypatch.setattr(
-        aisbench.AisbenchRunner, "_run_aisbench_task", lambda self: capture.record_first_request(self.profile_marker)
-    )
+    clock = Mock(return_value=10.0)
+    monkeypatch.setattr(capture, "time", types.SimpleNamespace(perf_counter=clock))
+
+    def run(self):
+        monkeypatch.setenv("ASCEND_PROFILE_REQUEST_MARKER", str(self.profile_marker))
+        # AISBench uses a separate inferencer for warmup. Long warmup must not
+        # shift the graph or start the capture timer.
+        asyncio.run(timed_inferencer().warmup(["warmup"], warmup_times=2))
+        assert not self.profile_marker.exists()
+        clock.return_value = 1000.0
+        inferencer = timed_inferencer()
+        if first_fails:
+            with pytest.raises(ValueError, match="inference failed"):
+                asyncio.run(inferencer.do_request("error", None, None))
+            clock.return_value += 20
+        asyncio.run(inferencer.do_request("formal", None, None))
+
+    monkeypatch.setattr(aisbench.AisbenchRunner, "_run_aisbench_task", run)
     runner = aisbench.AisbenchRunner("model", 8000, config, verify=False)
-    assert "type=ProfiledVLLMCustomAPIChat" in (tmp_path / "chat_custom.py").read_text()
-    assert float(runner.profile_marker.read_text()) == 10
+    assert float(runner.profile_marker.read_text()) == 1000
     if profile:
         assert aisbench.ProfileController.call_args.args[2] == runner.profile_marker
     else:
         controller.start.assert_not_called()
-    (tmp_path / "dataset_details.jsonl").write_text(
-        "\n".join(
-            json.dumps(record)
-            for record in [
-                {"time_points": [30, 35], "success": False},
-                {"time_points": [50, 80], "success": True},
-                {"time_points": [55, 75], "success": True},
-            ]
-        )
-    )
+    start = clock.return_value
+    records = [
+        {"time_points": [start, start + 30], "success": True},
+        {"time_points": [start + 5, start + 25], "success": True},
+    ]
+    if first_fails:
+        records.insert(0, {"time_points": [1000, 1005], "success": False})
+    (tmp_path / "dataset_details.jsonl").write_text("\n".join(json.dumps(record) for record in records))
     runner.performance_result_dir = tmp_path
     runner.performance_dataset_type = "dataset"
     emit = Mock()
     monkeypatch.setattr(runner, "_emit_steady_state", emit)
     runner._try_analyze_steady_state()
     result = emit.call_args.args[0]
-    assert (result.steady_start_s, result.steady_end_s, result.steady_duration_s) == (45, 65, 20)
+    offset = 20 if first_fails else 0
+    assert (result.steady_start_s, result.steady_end_s, result.steady_duration_s) == (offset + 5, offset + 25, 20)
     assert result.timeline[0].time_s == 0
     assert result.timeline[0].running_requests == 0
-    assert result.timeline[1].time_s == 40
+    assert result.timeline[1].time_s == offset
+    assert result.timeline[-1].time_s == offset + 30
 
 
 @pytest.mark.parametrize("throughput", [5, 10])
@@ -251,38 +269,49 @@ def test_steady_summary_and_console_output(tmp_path, monkeypatch, capsys, save_f
         assert json.loads((output / "summary.json").read_text())["status"] == "unavailable"
 
 
-@pytest.mark.parametrize("method", ["stream_infer", "text_infer"])
-@pytest.mark.parametrize("marker_fails", [False, True])
-@pytest.mark.parametrize("profile", [False, True])
-def test_request_adapter_delegates_inference(monkeypatch, tmp_path, method, marker_fails, profile):
-    class Model:
-        async def stream_infer(self, body, output):
-            if body == "error":
+@pytest.fixture
+def timed_inferencer(monkeypatch):
+    class Inferencer:
+        async def warmup(self, data_list, warmup_times=1, concurrency=1):
+            return await asyncio.gather(*(self.do_request(data_list[0], None, None) for _ in range(warmup_times)))
+
+        async def do_request(self, data, token_bucket, session):
+            if data == "error":
                 raise ValueError("inference failed")
-            return body
+            return data
 
-        text_infer = stream_infer
-
-    for name in ("ais_bench", "ais_bench.benchmark", "ais_bench.benchmark.models"):
+    package = "ais_bench.benchmark.openicl.icl_inferencer"
+    for name in ("ais_bench", "ais_bench.benchmark", "ais_bench.benchmark.openicl", package):
         monkeypatch.setitem(sys.modules, name, types.ModuleType(name))
-    sys.modules["ais_bench.benchmark.models"].VLLMCustomAPIChat = Model
-    marker = Mock(side_effect=OSError("marker failed") if marker_fails else None)
-    monkeypatch.setattr(capture, "record_first_request", marker)
-    path = tmp_path / "first_request"
-    monkeypatch.setenv("ASCEND_PROFILE_REQUEST_MARKER", str(path))
-    monkeypatch.setenv("ASCEND_PROFILE_ENABLED", str(profile))
+    sys.modules[package].GenInferencer = Inferencer
     name = "tools.profiling.aisbench_request_marker"
     spec = importlib.util.spec_from_file_location(name, Path(capture.__file__).with_name("aisbench_request_marker.py"))
     module = importlib.util.module_from_spec(spec)
     monkeypatch.setitem(sys.modules, name, module)
     spec.loader.exec_module(module)
-    infer = getattr(module.ProfiledVLLMCustomAPIChat(), method)
+    return module.TimedGenInferencer
+
+
+@pytest.mark.parametrize("marker_fails", [False, True])
+@pytest.mark.parametrize("profile", [False, True])
+@pytest.mark.parametrize("warmup_times", [0, 2])
+def test_request_adapter_delegates_inference(
+    monkeypatch, tmp_path, timed_inferencer, marker_fails, profile, warmup_times
+):
+    marker = Mock(side_effect=OSError("marker failed") if marker_fails else None)
+    monkeypatch.setattr(sys.modules[timed_inferencer.__module__], "record_first_request", marker)
+    path = tmp_path / "first_request"
+    monkeypatch.setenv("ASCEND_PROFILE_REQUEST_MARKER", str(path))
+    monkeypatch.setenv("ASCEND_PROFILE_ENABLED", str(profile))
+    inferencer = timed_inferencer()
+    assert asyncio.run(inferencer.warmup(["warmup"], warmup_times=warmup_times)) == ["warmup"] * warmup_times
+    marker.assert_not_called()
     if marker_fails and profile:
         with pytest.raises(OSError, match="marker failed"):
-            asyncio.run(infer("first", None))
+            asyncio.run(inferencer.do_request("first", None, None))
         return
-    for body in ("first", "second"):
-        assert asyncio.run(infer(body, None)) == body
+    for data in ("first", "second"):
+        assert asyncio.run(inferencer.do_request(data, None, None)) == data
     with pytest.raises(ValueError, match="inference failed"):
-        asyncio.run(infer("error", None))
+        asyncio.run(inferencer.do_request("error", None, None))
     marker.assert_called_once_with(path)

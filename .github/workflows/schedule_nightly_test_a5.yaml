@@ -72,7 +72,7 @@ on:
         default: '{"cann_version":"9.1.0_20260731131545","base_image_date":"auto"}'
         type: string
       profile_options_json:
-        description: 'JSON profiling options: enabled, start_after, duration, with_stack, output, cases'
+        description: 'JSON profiling options: enabled, start_after, duration, with_stack, output, benchmark_names'
         type: string
         default: '{}'
       bisect_args_json:

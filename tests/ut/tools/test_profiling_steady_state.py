@@ -79,6 +79,7 @@ def test_steady_window_uses_first_and_last_crossings():
     assert (result.completed_at_start, result.completed_at_end) == (0, 3)
     assert (result.timeline[-1].running_requests, result.timeline[-1].completed_requests) == (0, 4)
     assert result.warning is None
+    assert steady_state_summary("load", result)["time_origin"] == "first formal AISBench request (excluding warmup)"
     assert steady_state_summary("load", result)["steady_state"] == {
         "start": {"time_s": 1, "completed_requests": 0},
         "end": {"time_s": 45, "completed_requests": 3},
@@ -98,7 +99,7 @@ def test_handoffs_and_instant_requests_do_not_inflate_concurrency():
     assert min(point.running_requests for point in result.timeline) == 0
 
 
-def test_warmup_offset_does_not_change_steady_window_validation():
+def test_idle_time_before_success_does_not_change_steady_window_validation():
     requests = [RequestTiming("a", 1000, 1020, True), RequestTiming("b", 1000, 1020, True)]
     result = analyze_steady_state(requests, 2, benchmark_zero=0)
     assert result.steady_start_s == 1000
