@@ -129,9 +129,6 @@ class AisbenchRunner:
         assert self.dataset_path is not None and self.model_path is not None, (
             f"Failed to download dataset or model: dataset={self.dataset_path}, model={self.model_path}"
         )
-        self.port = port
-        self.host_ip = host_ip
-        self.task_type = aisbench_config["case_type"]
         self._prepare_profiling()
         self.request_conf = aisbench_config["request_conf"]
         self.dataset_conf = aisbench_config.get("dataset_conf")
