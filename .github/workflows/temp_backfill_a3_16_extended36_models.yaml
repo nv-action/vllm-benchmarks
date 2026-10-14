@@ -56,12 +56,14 @@ jobs:
       MAIN2MAIN_WORKSPACE: /tmp/parity-ws
       MAIN2MAIN_IMAGE_TAG: 9.1.0-a3-ubuntu22.04-py3.12
       # UT on an A3 host must simulate PURE CPU — the same semantics as
-      # upstream's cpu-ut lane (csrc/SOC steps gated off npu_type != 'cpu',
+      # upstream's cpu-UT lane (csrc/SOC steps gated off npu_type != 'cpu',
       # build_info defaults to ASCEND910B1).  Two mechanisms, both proven:
       # (1) install a 910b1-profile build (ut_soc=ascend910b1); (2) keep the
-      # production-faithful a3 install and let check_ut shadow-import a
-      # pure-CPU _build_info (default; MAIN2MAIN_UT_PURE_CPU).  A3-specific
-      # tests patch the profile in-test, so A3 coverage survives either way.
+      # production-faithful a3 install and let check_ut rewrite the
+      # gitignored _build_info __device_type__ to the SOC-less default A2
+      # for the batch, restoring afterwards (default; MAIN2MAIN_UT_PURE_CPU).
+      # A3-specific tests patch the profile in-test, so A3 coverage
+      # survives either way.
       UT_SOC: ${{ inputs.ut_soc }}
 
     steps:
@@ -229,6 +231,7 @@ jobs:
           grep -q "files.sort()" "${M2M_FLOW_DIR}/main2main_flow/scripts/utils/ut_check.py"
           grep -q "section_start" "${M2M_FLOW_DIR}/main2main_flow/scripts/utils/ut_check.py"
           grep -q "VLLM_ASCEND_BUILD_CACHE_DIR" "${M2M_FLOW_DIR}/main2main_flow/scripts/utils/ut_check.py"
+          grep -q "_swap_pure_cpu_build_info" "${M2M_FLOW_DIR}/main2main_flow/scripts/utils/ut_check.py"
           git -C "${M2M_FLOW_DIR}" diff --stat
           pip install -e "${M2M_FLOW_DIR}"
 
