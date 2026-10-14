@@ -140,7 +140,9 @@ def test_private_multi_node_overlay_is_scoped_to_each_run():
     script = prepare["run"]
     assert 'script_dir="$LOG_PREFIX/validation-source"' in script
     assert "fromJSON(inputs.profile_options_json).enabled && inputs.request_id == ''" in script
-    assert 'git -c safe.directory="$GITHUB_WORKSPACE" archive --format=tar HEAD' in script
+    assert 'git config --global --add safe.directory "$(pwd -P)"' in script
+    assert "git -c safe.directory" not in script
+    assert "git archive --format=tar HEAD" in script
     for path in (
         "tools/profiling",
         "tools/aisbench.py",
@@ -163,12 +165,12 @@ def test_overlay_archive_handles_different_repository_owner(tmp_path):
     root = WORKFLOWS.parents[1]
     steps = load_workflow("_e2e_nightly_multi_node.yaml")["jobs"]["e2e"]["steps"]
     script = next(step["run"] for step in steps if step["name"] == "Prepare scripts")
-    archive_script = script[script.index("  git -c ") : script.index('  echo "[Profiling]')]
+    archive_script = script[script.index("  git config --global ") : script.index('  echo "[Profiling]')]
     config = "tests/e2e/cases/models/configs/GLM/GLM-5.2-W8A8C8-A3_3.5k_1.5k_0_20.yaml"
     env = {
         **os.environ,
         "GIT_TEST_ASSUME_DIFFERENT_OWNER": "1",
-        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_GLOBAL": str(tmp_path / "gitconfig"),
         "GIT_CONFIG_SYSTEM": os.devnull,
         "GITHUB_WORKSPACE": str(root),
         "script_dir": str(tmp_path),
@@ -179,6 +181,15 @@ def test_overlay_archive_handles_different_repository_owner(tmp_path):
     assert "dubious ownership" in unsafe.stderr
     result = subprocess.run(["bash", "-eu", "-c", archive_script], cwd=root, env=env, text=True, capture_output=True)
     assert result.returncode == 0, result.stderr
+    trusted = subprocess.run(
+        ["git", "config", "--global", "--get-all", "safe.directory"],
+        cwd=root,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    assert trusted.stdout.strip() == str(root.resolve())
     assert len((tmp_path / "profile-source.commit").read_text().strip()) == 40
     with tarfile.open(tmp_path / "profile-overlay.tar") as archive:
         assert config in archive.getnames()
