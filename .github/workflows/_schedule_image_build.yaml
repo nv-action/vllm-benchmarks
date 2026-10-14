@@ -348,7 +348,8 @@ jobs:
         build-args: |
           CANN_QUAY_URL=${{ inputs.cann_swr_url }}
           CANN_VERSION=${{ inputs.cann_image_version }}
-          COMPILE_CUSTOM_KERNELS=${{ steps.cache-csrc.outputs.cache-hit == 'true' && '0' || '1' }}
+          # 临时强制 1：强制 csrc cmake 编译，验证 gitcode.com 第三方压缩包下载链路
+          COMPILE_CUSTOM_KERNELS=1
           VLLM_COMMIT=${{ inputs.vllm_commit }}
           BUILD_TYPE=${{ inputs.build_type || 'release' }}
           MEMCACHE_VERSION=${{ inputs.memcache_version || '1.2.0' }}
