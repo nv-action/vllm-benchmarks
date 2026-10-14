@@ -311,3 +311,18 @@ def test_glm_validation_case_is_registered_as_two_nodes():
     )
     assert case["config_file_path"] == "GLM-5.2-W8A8C8-A3_3.5k_1.5k_0_20.yaml"
     assert case["size"] == "2"
+
+
+def test_deepseek_validation_runs_warmup_before_selected_perf():
+    config_path = (
+        WORKFLOWS.parents[1] / "tests/e2e/cases/models/configs/DeepSeek/DeepSeek-V4.1-Flash-w8a8-PD-prefix.yaml"
+    )
+    benchmarks = yaml.safe_load(config_path.read_text())["benchmarks"]
+    assert list(benchmarks) == ["perf_TPOT50_128k_1_prefix90_warmup", "perf_TPOT50_16k_1"]
+    warmup = benchmarks["perf_TPOT50_128k_1_prefix90_warmup"]
+    assert warmup["num_prompts"] == warmup["batch_size"] == 4
+    assert warmup["max_out_len"] == 1
+    perf = benchmarks["perf_TPOT50_16k_1"]
+    assert perf["num_prompts"] == 256
+    assert perf["batch_size"] == 64
+    assert perf["request_rate"] == 2.7
