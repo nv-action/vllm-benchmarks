@@ -439,9 +439,11 @@ jobs:
           # against a feature branch is tested with that branch's CI wiring
           # instead of always main's.
           PR_BASE=$(gh api "$PR_URL" --jq '.base.ref')
-          echo "vllm_ascend_ref=$PR_SHA" >> "$GITHUB_OUTPUT"
-          echo "pr_base=$PR_BASE" >> "$GITHUB_OUTPUT"
-          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          {
+            echo "vllm_ascend_ref=$PR_SHA"
+            echo "pr_base=$PR_BASE"
+            echo "pr_number=$PR_NUMBER"
+          } >> "$GITHUB_OUTPUT"
 
           if [ "$TEST_CASES" = "all" ]; then
             if [ "$IS_A3_560T" = "true" ]; then

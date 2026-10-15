@@ -178,7 +178,7 @@ jobs:
       - name: Archive wheel
         uses: actions/upload-artifact@v7
         with:
-          name: vllm-ascend-${{ matrix.os }}-py${{ matrix.python-version }}-wheel
+          name: vllm-ascend-${{ matrix.runner_info.os }}-py${{ matrix.python-version }}-wheel
           path: dist/
 
       - name: Release
@@ -265,7 +265,7 @@ jobs:
       - name: Archive wheel
         uses: actions/upload-artifact@v7
         with:
-          name: vllm-ascend-a3-${{ matrix.os }}-py${{ matrix.python-version }}-wheel
+          name: vllm-ascend-a3-${{ matrix.runner_info.os }}-py${{ matrix.python-version }}-wheel
           path: dist/
 
 
@@ -346,7 +346,7 @@ jobs:
       - name: Archive wheel
         uses: actions/upload-artifact@v7
         with:
-          name: vllm-ascend-310p-${{ matrix.os }}-py${{ matrix.python-version }}-wheel
+          name: vllm-ascend-310p-${{ matrix.runner_info.os }}-py${{ matrix.python-version }}-wheel
           path: dist/
 
 
@@ -428,7 +428,7 @@ jobs:
       - name: Archive wheel
         uses: actions/upload-artifact@v7
         with:
-          name: vllm-ascend-a5-${{ matrix.os }}-py${{ matrix.python-version }}-wheel
+          name: vllm-ascend-a5-${{ matrix.runner_info.os }}-py${{ matrix.python-version }}-wheel
           path: dist/
 
 

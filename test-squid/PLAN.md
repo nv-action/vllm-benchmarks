@@ -111,7 +111,7 @@
 
 文件：`.github/workflows/test-squid-download-upload.yaml`
 
-```
+```yaml
 on: workflow_dispatch
 
 jobs:
@@ -136,7 +136,6 @@ jobs:
 
   summary:
     needs: download-upload-suite
-    steps: actions/download-artifact 拉全部 timings → 汇总表格输出
 ```
 
 不做的：
@@ -144,8 +143,7 @@ jobs:
 - 不做镜像 build / NPU 测试（本测试只关心网络下载/上传链路）
 
 ## 5. 文件结构
-
-```
+```text
 test-squid/
   PLAN.md               # 本计划
   run-suite.sh          # 下载/上传测试主脚本（命令提取自上述 CI 源码）
