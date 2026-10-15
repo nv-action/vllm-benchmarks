@@ -1,6 +1,9 @@
 """Private PR validation must use the requested code and immutable images."""
 
 import importlib.util
+import json
+import os
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,10 +22,53 @@ def workflow(name):
 def test_only_explicit_triggers_remain():
     for path in WORKFLOWS.glob("*.y*ml"):
         events = workflow(path.name)["on"]
-        assert not {"schedule", "push", "pull_request", "pull_request_target", "workflow_run"}.intersection(events)
+        assert not {"schedule", "push", "pull_request_target", "workflow_run"}.intersection(events)
+        if "pull_request" in events:
+            assert path.name == "schedule_nightly_image_build_with_base.yaml"
+            assert events["pull_request"] == {"branches": ["main"], "types": ["labeled"]}
         if "issue_comment" in events:
             assert path.name == "slash_command_dispatch.yml"
     assert "repository_dispatch" not in workflow("schedule_daily_test.yaml")["on"]
+
+
+def test_image_build_chain_preserves_private_publish_gates():
+    entry = workflow("schedule_nightly_image_build_with_base.yaml")["jobs"]
+    assert entry["setup-matrix"]["if"] == (
+        "${{ github.event_name != 'pull_request' || github.event.label.name == 'nightly-image-build' }}"
+    )
+    build = entry["build-image"]
+    assert build["uses"] == "./.github/workflows/_schedule_nightly_pair_image_build.yaml"
+    assert build["with"]["should_push"] == (
+        "${{ github.repository == 'vllm-project/vllm-ascend' && github.event_name != 'pull_request' }}"
+    )
+    assert build["with"]["skip_base"] == "${{ github.event_name == 'pull_request' }}"
+    pair = workflow("_schedule_nightly_pair_image_build.yaml")["jobs"]
+    assert pair["build-base"]["if"] == ("${{ !inputs.skip_base && github.repository == 'vllm-project/vllm-ascend' }}")
+    assert pair["build-nightly"]["needs"] == "build-base"
+    assert pair["build-nightly"]["with"]["os_filter"] == "${{ inputs.os }}"
+    assert pair["build-nightly"]["with"]["base_image_branch"] == (
+        "${{ inputs.base_image_branch || inputs.vllm_ascend_branch }}"
+    )
+
+
+@pytest.mark.parametrize(
+    "build_type,os_filter,expected_os",
+    [
+        ("release", "all", ["ubuntu"]),
+        ("release", "ubuntu", ["ubuntu"]),
+        ("daily", "all", ["ubuntu", "openeuler", "ubuntu", "openeuler"]),
+        ("daily", "ubuntu", ["ubuntu", "ubuntu"]),
+        ("daily", "openeuler", ["openeuler", "openeuler"]),
+    ],
+)
+def test_nightly_image_matrix_filters_os(build_type, os_filter, expected_os, tmp_path):
+    jobs = workflow("_nightly_image_build.yaml")["jobs"]
+    script = jobs["generate-matrix"]["steps"][0]["run"]
+    script = script.replace("${{ inputs.build_type }}", build_type).replace("${{ inputs.os_filter }}", os_filter)
+    output = tmp_path / "github-output"
+    subprocess.run(["bash", "-eu", "-c", script], env={**os.environ, "GITHUB_OUTPUT": str(output)}, check=True)
+    matrix = json.loads(output.read_text().removeprefix("matrix="))
+    assert [item["os"] for item in matrix["include"]] == expected_os
 
 
 @pytest.mark.parametrize("soc", ["a2", "a3", "a3_560t"])
