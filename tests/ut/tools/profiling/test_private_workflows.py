@@ -149,3 +149,23 @@ def test_parser_checks_tools_without_importing_runtime(verifier, monkeypatch, tm
     monkeypatch.setattr(verifier.importlib.util, "find_spec", find_spec)
     verifier.verify_source(tmp_path, "pr-sha", tools_only=True)
     assert checked == ["tools.profiling", "tools.aisbench"]
+
+
+def test_validation_benchmarks_preserve_load_and_warmup():
+    configs = ROOT / "tests/e2e/cases/models/configs"
+    deepseek = yaml.safe_load((configs / "DeepSeek/DeepSeek-V4.1-Flash-w8a8-PD-prefix.yaml").read_text())
+    assert deepseek["dp_load_balancing"] == "external"
+    assert deepseek["num_nodes"] == 2
+    benchmarks = deepseek["benchmarks"]
+    assert list(benchmarks) == ["perf_TPOT50_128k_1_prefix90_warmup", "perf_TPOT50_16k_1"]
+    assert benchmarks["perf_TPOT50_128k_1_prefix90_warmup"]["num_prompts"] == 4
+    perf = benchmarks["perf_TPOT50_16k_1"]
+    assert (perf["num_prompts"], perf["batch_size"], perf["request_rate"]) == (192, 64, 2.7)
+    assert "test_content" not in deepseek
+    glm = yaml.safe_load((configs / "GLM/GLM-5.2-W8A8C8-A3_3.5k_1.5k_0_20.yaml").read_text())
+    assert glm["dp_load_balancing"] == "internal"
+    assert glm["num_nodes"] == 2
+    assert list(glm["benchmarks"]) == ["perf_TPOT20"]
+    for soc in ("A2", "A3"):
+        qwen = yaml.safe_load((configs / f"Qwen/Qwen3.8-27B-w8a8-{soc}.yaml").read_text())
+        assert list(qwen["test_cases"][0]["benchmarks"]) == ["perf"]
