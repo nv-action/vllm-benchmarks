@@ -306,6 +306,7 @@
         ],
         "a3": [
             "AI-ModelScope/AI21-Jamba-1.5-Mini",
+            "AI-ModelScope/gpt2",
             "AI-ModelScope/NVLM-D-72B",
             "AngelSlim/Qwen3-32B_eagle3",
             "AngelSlim/Qwen3-a3B_eagle3",

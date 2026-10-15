@@ -17,9 +17,10 @@
 
 name: E2E-upstream
 
-# on:
-#   schedule:
-#     - cron: '0 8 * * 0' # every Sunday at 8:00
+# 原定时触发（每周日 8:00）暂时停用；保留 workflow_dispatch 以便手动触发，
+# 同时满足 actionlint 对 "on" 段的要求。
+on:
+  workflow_dispatch:
 # Bash shells do not use ~/.profile or ~/.bashrc so these shells need to be explicitly
 # declared as "shell: bash -el {0}" on steps that need to be properly activated.
 # It's used to activate ascend-toolkit environment variables.

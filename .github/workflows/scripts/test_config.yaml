@@ -46,6 +46,16 @@ curated_tests:
   a5:
     - tests/e2e/pull_request/four_card/test_data_parallel_tp2.py
     - tests/e2e/pull_request/one_card/test_msa_index_score.py
+  # Squid 代理验证专用最小套件：每个 NPU runner label 仅 1 个最便宜测试
+  # （20s/60s/20s），目的在于驱动 E2E 真实流水线的全部 HTTP 链路
+  # （container.image 拉取、pip、csrc 缓存、模型下载、artifact 上传），
+  # 同时把 NPU 测试本体 compute 压到最低。
+  squid-verify:
+    - tests/e2e/pull_request/one_card/test_msa_index_score.py            # -> a2-1（a2b3-0/1）
+    - tests/e2e/pull_request/one_card/_310p/test_vl_model_310p.py         # 文件名含 _310p -> 310p-1（scoring 测试环境 numpy/pyarrow 冲突，弃用）
+    # 注：two_card 组的 partition a3-2 指向的 linux-aarch64-a3-2 runner 已在
+    # infra 重构中移除（现为 a3-x/a3-800i-* 系列），two_card 用例当前无法调度，
+    # 故不纳入本套件。
 
 # === Skipped Tests ===
 # Removed from any selection after directory scanning, so they are never

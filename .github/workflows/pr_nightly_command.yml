@@ -54,6 +54,7 @@ jobs:
       pr_number: ${{ steps.resolve.outputs.pr_number }}
       vllm_ref: ${{ steps.resolve.outputs.vllm_ref }}
       vllm_ref_flag: ${{ steps.resolve.outputs.vllm_ref_flag }}
+      download_path: ${{ steps.resolve.outputs.download_path }}
       blocked: ${{ steps.block_window.outputs.blocked }}
     steps:
       - name: Install system dependencies
@@ -71,6 +72,7 @@ jobs:
           token: ${{ secrets.PAT_TOKEN }}
           sparse-checkout: |
             .github/workflows/scripts/resolve_nightly_tests.py
+            .github/workflows/scripts/collect_download.py
             .github/workflows/configs/nightly_config.yaml
             .github/workflows/configs/weekly_config.yaml
           sparse-checkout-cone-mode: false
@@ -225,11 +227,13 @@ jobs:
 
           BRANCH="main"
           VLLM_REF=""
+          DOWNLOAD_PATH=""
           TEST_CASES=""
           AOP_ENABLED="false"
           IS_A3_560T="false"
           NEXT_IS_BRANCH=0
           NEXT_IS_VLLM_REF=0
+          NEXT_IS_DOWNLOAD=0
           NEXT_IS_GOOD_COMMIT=0
           NEXT_IS_BAD_COMMIT=0
           NEXT_IS_FAIL_CONFIRM_RETRIES=0
@@ -270,6 +274,9 @@ jobs:
               VLLM_REF="$WORD"
               NEXT_IS_VLLM_REF=0
               PENDING_OPTION=""
+            elif [ "$NEXT_IS_DOWNLOAD" = "1" ]; then
+              DOWNLOAD_PATH="$WORD"
+              NEXT_IS_DOWNLOAD=0
             elif [ "$NEXT_IS_GOOD_COMMIT" = "1" ]; then
               BISECT_GOOD_COMMIT="$WORD"
               NEXT_IS_GOOD_COMMIT=0
@@ -295,6 +302,8 @@ jobs:
             elif [ "$WORD" = "--vllm-ref" ]; then
               NEXT_IS_VLLM_REF=1
               PENDING_OPTION="$WORD"
+            elif [ "$WORD" = "--download" ]; then
+              NEXT_IS_DOWNLOAD=1
             elif [ "$WORD" = "--aop_enabled" ]; then
               if [ -z "$TEST_CASES" ]; then
                 echo "ERROR: --aop_enabled must appear after at least one test case"
@@ -339,6 +348,13 @@ jobs:
           if [ -n "$PENDING_OPTION" ]; then
             echo "ERROR: $PENDING_OPTION requires a value"
             exit 1
+          fi
+          if [ "$NEXT_IS_DOWNLOAD" = "1" ]; then
+            echo "ERROR: --download requires a value"
+            exit 1
+          fi
+          if [ -n "$DOWNLOAD_PATH" ]; then
+            python3 .github/workflows/scripts/collect_download.py "$DOWNLOAD_PATH" --list >/dev/null
           fi
 
           if [ -n "$BISECT_GOOD_COMMIT" ] &&
@@ -401,6 +417,7 @@ jobs:
           {
             echo "test_cases=$TEST_CASES"
             echo "branch=$BRANCH"
+            echo "download_path=$DOWNLOAD_PATH"
             echo "aop_enabled=$AOP_ENABLED"
             echo "vllm_ref=$VLLM_REF"
             echo "vllm_ref_flag=$VLLM_REF_FLAG"
@@ -422,9 +439,11 @@ jobs:
           # against a feature branch is tested with that branch's CI wiring
           # instead of always main's.
           PR_BASE=$(gh api "$PR_URL" --jq '.base.ref')
-          echo "vllm_ascend_ref=$PR_SHA" >> "$GITHUB_OUTPUT"
-          echo "pr_base=$PR_BASE" >> "$GITHUB_OUTPUT"
-          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          {
+            echo "vllm_ascend_ref=$PR_SHA"
+            echo "pr_base=$PR_BASE"
+            echo "pr_number=$PR_NUMBER"
+          } >> "$GITHUB_OUTPUT"
 
           if [ "$TEST_CASES" = "all" ]; then
             if [ "$IS_A3_560T" = "true" ]; then
@@ -487,8 +506,15 @@ jobs:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
           BISECT_ARGS_JSON: ${{ needs.authorize.outputs.bisect_args_json }}
           VLLM_REF_FLAG: ${{ needs.authorize.outputs.vllm_ref_flag }}
+          DOWNLOAD_PATH: ${{ needs.authorize.outputs.download_path }}
         run: |
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
+          # -f download_path is only passed when --download was used, so refs
+          # whose workflow does not define the input are unaffected.
+          DOWNLOAD_ARGS=()
+          if [ -n "$DOWNLOAD_PATH" ]; then
+            DOWNLOAD_ARGS+=(-f "download_path=$DOWNLOAD_PATH")
+          fi
           gh workflow run schedule_nightly_test_a2.yaml \
             --repo "$REPO" \
             --ref '${{ needs.authorize.outputs.pr_base || 'main' }}' \
@@ -499,6 +525,7 @@ jobs:
             -f vllm_ascend_ref='${{ needs.authorize.outputs.vllm_ascend_ref }}' \
             -f aop_enabled='${{ needs.authorize.outputs.aop_enabled }}' \
             $VLLM_REF_FLAG \
+            "${DOWNLOAD_ARGS[@]}" \
             -f bisect_args_json="$BISECT_ARGS_JSON"
           sleep 8
           A2_RUN_ID=$(gh api "repos/$REPO/actions/workflows/schedule_nightly_test_a2.yaml/runs?per_page=1" \
@@ -531,8 +558,15 @@ jobs:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
           BISECT_ARGS_JSON: ${{ needs.authorize.outputs.bisect_args_json }}
           VLLM_REF_FLAG: ${{ needs.authorize.outputs.vllm_ref_flag }}
+          DOWNLOAD_PATH: ${{ needs.authorize.outputs.download_path }}
         run: |
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
+          # -f download_path is only passed when --download was used, so refs
+          # whose workflow does not define the input are unaffected.
+          DOWNLOAD_ARGS=()
+          if [ -n "$DOWNLOAD_PATH" ]; then
+            DOWNLOAD_ARGS+=(-f "download_path=$DOWNLOAD_PATH")
+          fi
           gh workflow run schedule_nightly_test_a3.yaml \
             --repo "$REPO" \
             --ref '${{ needs.authorize.outputs.pr_base || 'main' }}' \
@@ -543,6 +577,7 @@ jobs:
             -f vllm_ascend_ref='${{ needs.authorize.outputs.vllm_ascend_ref }}' \
             -f aop_enabled='${{ needs.authorize.outputs.aop_enabled }}' \
             $VLLM_REF_FLAG \
+            "${DOWNLOAD_ARGS[@]}" \
             -f bisect_args_json="$BISECT_ARGS_JSON"
           sleep 8
           A3_RUN_ID=$(gh api "repos/$REPO/actions/workflows/schedule_nightly_test_a3.yaml/runs?per_page=1" \
@@ -575,8 +610,15 @@ jobs:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
           BISECT_ARGS_JSON: ${{ needs.authorize.outputs.bisect_args_json }}
           VLLM_REF_FLAG: ${{ needs.authorize.outputs.vllm_ref_flag }}
+          DOWNLOAD_PATH: ${{ needs.authorize.outputs.download_path }}
         run: |
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
+          # -f download_path is only passed when --download was used, so refs
+          # whose workflow does not define the input are unaffected.
+          DOWNLOAD_ARGS=()
+          if [ -n "$DOWNLOAD_PATH" ]; then
+            DOWNLOAD_ARGS+=(-f "download_path=$DOWNLOAD_PATH")
+          fi
           gh workflow run schedule_nightly_test_a3_560t.yaml \
             --repo "$REPO" \
             --ref '${{ needs.authorize.outputs.pr_base || 'main' }}' \
@@ -587,6 +629,7 @@ jobs:
             -f vllm_ascend_ref='${{ needs.authorize.outputs.vllm_ascend_ref }}' \
             -f aop_enabled='${{ needs.authorize.outputs.aop_enabled }}' \
             $VLLM_REF_FLAG \
+            "${DOWNLOAD_ARGS[@]}" \
             -f bisect_args_json="$BISECT_ARGS_JSON"
           sleep 8
           A3_560T_RUN_ID=$(gh api "repos/$REPO/actions/workflows/schedule_nightly_test_a3_560t.yaml/runs?per_page=1" \
@@ -618,8 +661,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
           VLLM_REF_FLAG: ${{ needs.authorize.outputs.vllm_ref_flag }}
+          DOWNLOAD_PATH: ${{ needs.authorize.outputs.download_path }}
         run: |
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
+          # -f download_path is only passed when --download was used, so refs
+          # whose workflow does not define the input are unaffected.
+          DOWNLOAD_ARGS=()
+          if [ -n "$DOWNLOAD_PATH" ]; then
+            DOWNLOAD_ARGS+=(-f "download_path=$DOWNLOAD_PATH")
+          fi
           gh workflow run schedule_nightly_test_a5.yaml \
             --repo "$REPO" \
             --ref '${{ needs.authorize.outputs.pr_base || 'main' }}' \
@@ -629,7 +679,8 @@ jobs:
             -f skip_build_image=true \
             -f vllm_ascend_ref='${{ needs.authorize.outputs.vllm_ascend_ref }}' \
             -f aop_enabled='${{ needs.authorize.outputs.aop_enabled }}' \
-            $VLLM_REF_FLAG
+            $VLLM_REF_FLAG \
+            "${DOWNLOAD_ARGS[@]}"
           sleep 8
           A5_RUN_ID=$(gh api "repos/$REPO/actions/workflows/schedule_nightly_test_a5.yaml/runs?per_page=1" \
             --jq '.workflow_runs[0].id')
@@ -660,8 +711,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
           VLLM_REF_FLAG: ${{ needs.authorize.outputs.vllm_ref_flag }}
+          DOWNLOAD_PATH: ${{ needs.authorize.outputs.download_path }}
         run: |
           REPO='${{ github.event.client_payload.github.payload.repository.full_name }}'
+          # -f download_path is only passed when --download was used, so refs
+          # whose workflow does not define the input are unaffected.
+          DOWNLOAD_ARGS=()
+          if [ -n "$DOWNLOAD_PATH" ]; then
+            DOWNLOAD_ARGS+=(-f "download_path=$DOWNLOAD_PATH")
+          fi
           gh workflow run schedule_nightly_test_310p.yaml \
             --repo "$REPO" \
             --ref '${{ needs.authorize.outputs.pr_base || 'main' }}' \
@@ -671,7 +729,8 @@ jobs:
             -f skip_build_image=true \
             -f vllm_ascend_ref='${{ needs.authorize.outputs.vllm_ascend_ref }}' \
             -f aop_enabled='${{ needs.authorize.outputs.aop_enabled }}' \
-            $VLLM_REF_FLAG
+            $VLLM_REF_FLAG \
+            "${DOWNLOAD_ARGS[@]}"
           sleep 8
           _310P_RUN_ID=$(gh api "repos/$REPO/actions/workflows/schedule_nightly_test_310p.yaml/runs?per_page=1" \
             --jq '.workflow_runs[0].id')

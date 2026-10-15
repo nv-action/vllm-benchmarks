@@ -140,12 +140,10 @@ def _expand_spec(raw, daily_by_soc):
         except json.JSONDecodeError as exc:
             raise SystemExit(f"::error::Invalid JSON for daily_test_cases: {exc}")
         if not isinstance(parsed, dict):
-            raise SystemExit("::error::daily_test_cases JSON must be an object "
-                             'mapping SOC to an array of test names.')
+            raise SystemExit("::error::daily_test_cases JSON must be an object mapping SOC to an array of test names.")
         for soc, requested in parsed.items():
             if not isinstance(requested, (str, list)):
-                print(f"::warning::daily_test_cases value for '{soc}' is not a "
-                      "string or list; skipped.")
+                print(f"::warning::daily_test_cases value for '{soc}' is not a string or list; skipped.")
                 continue
             spec[str(soc)] = [requested] if isinstance(requested, str) else requested
         return spec
@@ -157,7 +155,7 @@ def _expand_spec(raw, daily_by_soc):
                 for soc in daily_by_soc:
                     spec.setdefault(soc, []).append(DAILY_ALL_TOKEN)
             else:
-                soc = token[len(DAILY_TOKEN_PREFIX):]
+                soc = token[len(DAILY_TOKEN_PREFIX) :]
                 if soc in daily_by_soc:
                     spec.setdefault(soc, []).append(DAILY_ALL_TOKEN)
                 else:
@@ -169,8 +167,7 @@ def _expand_spec(raw, daily_by_soc):
                     spec.setdefault(soc, []).append(token)
                     matched = True
             if not matched:
-                print(f"::warning::Daily test name '{token}' is not configured for "
-                      "any SOC; skipped.")
+                print(f"::warning::Daily test name '{token}' is not configured for any SOC; skipped.")
     return spec
 
 
@@ -195,12 +192,10 @@ def _resolve(raw, daily_by_soc, nightly_by_soc):
             elif item in daily_names_set:
                 want.add(item)
             else:
-                print(f"::warning::Daily test name '{item}' is not configured for "
-                      f"SOC '{soc}'; skipped.")
+                print(f"::warning::Daily test name '{item}' is not configured for SOC '{soc}'; skipped.")
         missing = want - known_all
         for name in sorted(missing):
-            print(f"::warning::Daily test name '{name}' not found in "
-                  "nightly_config.yaml; skipped.")
+            print(f"::warning::Daily test name '{name}' not found in nightly_config.yaml; skipped.")
         want -= missing
         if want:
             result[soc] = [name for name in daily_ordered if name in want]
@@ -224,8 +219,7 @@ def _resolve_direct(raw, nightly_ordered):
         except json.JSONDecodeError as exc:
             raise SystemExit(f"::error::Invalid JSON for daily_test_cases: {exc}")
         if not isinstance(spec, dict):
-            raise SystemExit("::error::daily_test_cases JSON must be an object "
-                             'mapping SOC to an array of test names.')
+            raise SystemExit("::error::daily_test_cases JSON must be an object mapping SOC to an array of test names.")
         result = {}
         for soc, requested in spec.items():
             if soc not in nightly_sets:
@@ -241,8 +235,7 @@ def _resolve_direct(raw, nightly_ordered):
                 elif item in all_names:
                     want.add(item)
                 else:
-                    print(f"::warning::Test name '{item}' not found for SOC '{soc}' "
-                          "in nightly_config.yaml; skipped.")
+                    print(f"::warning::Test name '{item}' not found for SOC '{soc}' in nightly_config.yaml; skipped.")
             if want:
                 result[soc] = [name for name in nightly_ordered[soc] if name in want]
         return result
@@ -255,7 +248,7 @@ def _resolve_direct(raw, nightly_ordered):
                 for soc in nightly_sets:
                     spec[soc] = DAILY_ALL_TOKEN
             else:
-                soc = token[len(DAILY_TOKEN_PREFIX):]
+                soc = token[len(DAILY_TOKEN_PREFIX) :]
                 if soc in nightly_sets:
                     spec[soc] = DAILY_ALL_TOKEN
                 else:
@@ -267,8 +260,7 @@ def _resolve_direct(raw, nightly_ordered):
                     spec.setdefault(soc, set()).add(token)
                     matched = True
             if not matched:
-                print(f"::warning::Test name '{token}' not found in "
-                      "nightly_config.yaml for any SOC; skipped.")
+                print(f"::warning::Test name '{token}' not found in nightly_config.yaml for any SOC; skipped.")
 
     result = {}
     for soc, requested in spec.items():
