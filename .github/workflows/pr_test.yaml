@@ -530,8 +530,11 @@ jobs:
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           pip install regex
+          # Squid 验证临时改动：all 模式不再跑全量套件，改用 squid-verify
+          # 精选最小套件（每 NPU runner label 1 个最便宜测试），驱动真实
+          # E2E 流水线的全部 HTTP 链路并跳过重 compute。
           python3 .github/workflows/scripts/select_tests.py \
-            --all-tests \
+            --curated squid-verify \
             --skip-cpu-ut
 
       - name: Set no-tests output when no tests selected
