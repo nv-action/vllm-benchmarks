@@ -1,7 +1,6 @@
 name: "Issue Create/Update Labeler"
 on:
-  issues:
-    types: [opened, edited]
+  workflow_dispatch:
 
 permissions:
   issues: write

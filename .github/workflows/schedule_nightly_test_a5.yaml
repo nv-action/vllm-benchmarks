@@ -184,7 +184,7 @@ jobs:
       - name: Checkout profiling tools
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.vllm_ascend_ref || github.sha }}
           path: profile-source
           sparse-checkout: tools/profiling
 
@@ -353,7 +353,7 @@ jobs:
     with:
       image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a5'
       prefix: nightly-profiling/${{ github.repository }}/${{ github.run_id }}/${{ github.run_attempt }}/multi-node/${{ matrix.vllm_ascend_branch }}-${{ matrix.test_config.name }}
-      ref: ${{ github.sha }}
+      ref: ${{ inputs.vllm_ascend_ref || github.sha }}
       should_run: >-
         ${{ needs.parse-trigger.outputs.filter == 'all' ||
             contains(needs.parse-trigger.outputs.filter, format(',{0},', matrix.test_config.name)) }}
@@ -378,7 +378,7 @@ jobs:
     with:
       image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a5'
       prefix: nightly-profiling/${{ github.repository }}/${{ github.run_id }}/${{ github.run_attempt }}/single-node/${{ matrix.vllm_ascend_branch }}-${{ matrix.test_config.name }}
-      ref: ${{ github.sha }}
+      ref: ${{ inputs.vllm_ascend_ref || github.sha }}
       should_run: >-
         ${{ matrix.test_config.config_file_path != '' &&
             (needs.parse-trigger.outputs.filter == 'all' ||

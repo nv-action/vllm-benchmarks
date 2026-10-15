@@ -1,7 +1,6 @@
 name: Cancel runs on PR close
 on:
-  pull_request:
-    types: [closed]
+  workflow_dispatch:
 
 permissions:
   actions: write

@@ -18,7 +18,7 @@
 name: PR Create
 
 on:
-  pull_request_target:
+  workflow_dispatch:
 
 permissions:
   pull-requests: write

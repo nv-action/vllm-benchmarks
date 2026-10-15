@@ -188,7 +188,7 @@ jobs:
       - name: Checkout profiling tools
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.vllm_ascend_ref || github.sha }}
           path: profile-source
           sparse-checkout: tools/profiling
 
@@ -249,7 +249,7 @@ jobs:
     with:
       soc_version: a2
       runner: linux-amd64-cpu-8-hk
-      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a2'
+      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend@sha256:f4afde2c0688de0d4285e8990e4a49a8f3e768c6c44946b75533cb8382325999'
       ascend_log_prefix: ${{ needs.setup-vars.outputs.ascend_log_prefix }}/${{ matrix.vllm_ascend_branch }}
       vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
       request_id: ${{ inputs.request_id || '' }}
@@ -322,7 +322,7 @@ jobs:
     with:
       runner: ${{ matrix.test_config.os }}
       soc_version: a2
-      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a2'
+      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend@sha256:f4afde2c0688de0d4285e8990e4a49a8f3e768c6c44946b75533cb8382325999'
       tests: ${{ matrix.test_config.tests }}
       config_file_path: ${{ matrix.test_config.config_file_path }}
       config_base_path: ${{ matrix.test_config.config_base_path }}
@@ -372,9 +372,9 @@ jobs:
         test_config: ${{ fromJSON(needs.setup-vars.outputs.multi_node) }}
     uses: ./.github/workflows/_e2e_profile_parse.yaml
     with:
-      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a2'
+      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend@sha256:f4afde2c0688de0d4285e8990e4a49a8f3e768c6c44946b75533cb8382325999'
       prefix: nightly-profiling/${{ github.repository }}/${{ github.run_id }}/${{ github.run_attempt }}/multi-node/${{ matrix.vllm_ascend_branch }}-${{ matrix.test_config.name }}
-      ref: ${{ github.sha }}
+      ref: ${{ inputs.vllm_ascend_ref || github.sha }}
       should_run: >-
         ${{ needs.parse-trigger.outputs.filter == 'all' ||
             contains(needs.parse-trigger.outputs.filter, format(',{0},', matrix.test_config.name)) }}
@@ -397,9 +397,9 @@ jobs:
         test_config: ${{ fromJSON(needs.setup-vars.outputs.single_node) }}
     uses: ./.github/workflows/_e2e_profile_parse.yaml
     with:
-      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a2'
+      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend@sha256:f4afde2c0688de0d4285e8990e4a49a8f3e768c6c44946b75533cb8382325999'
       prefix: nightly-profiling/${{ github.repository }}/${{ github.run_id }}/${{ github.run_attempt }}/single-node/${{ matrix.vllm_ascend_branch }}-${{ matrix.test_config.name }}
-      ref: ${{ github.sha }}
+      ref: ${{ inputs.vllm_ascend_ref || github.sha }}
       should_run: >-
         ${{ matrix.test_config.config_file_path != '' &&
             (needs.parse-trigger.outputs.filter == 'all' ||
@@ -465,7 +465,7 @@ jobs:
       soc_version: a2
       model_list: ${{ toJson(matrix.test_config.model_list) }}
       model_filter: ${{ needs.parse-trigger.outputs.filter }}
-      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a2'
+      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend@sha256:f4afde2c0688de0d4285e8990e4a49a8f3e768c6c44946b75533cb8382325999'
       is_run: >-
         ${{
           needs.parse-trigger.outputs.run == 'true' && (
@@ -497,7 +497,7 @@ jobs:
       soc_version: a2
       model_list: ${{ toJson(matrix.test_config.model_list) }}
       model_filter: ${{ needs.parse-trigger.outputs.filter }}
-      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a2'
+      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend@sha256:f4afde2c0688de0d4285e8990e4a49a8f3e768c6c44946b75533cb8382325999'
       is_run: >-
         ${{
           needs.parse-trigger.outputs.run == 'true' &&

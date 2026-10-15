@@ -1,11 +1,7 @@
 name: 'model downloader'
 
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/misc/model_dataset_list.json'
-      - '.github/workflows/labeled_download_model_dataset.yaml'
-    types: [labeled, synchronize]
+  workflow_dispatch:
 
 defaults:
   run:

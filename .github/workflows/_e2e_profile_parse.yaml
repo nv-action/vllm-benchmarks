@@ -47,6 +47,14 @@ jobs:
           ref: ${{ inputs.ref }}
           path: profile-source
 
+      - name: Verify profiling source
+        working-directory: profile-source
+        run: |
+          git config --global --add safe.directory "$(pwd -P)"
+          echo "[Profiling image] ${{ inputs.image }}"
+          python3 .github/workflows/scripts/verify_profile_source.py \
+            --root . --ref '${{ inputs.ref }}' --tools-only
+
       - name: Identify profiling artifacts
         id: profile_id
         working-directory: profile-source
@@ -86,6 +94,14 @@ jobs:
           ref: ${{ inputs.ref }}
           path: profile-source
 
+      - name: Verify profiling source
+        working-directory: profile-source
+        run: |
+          git config --global --add safe.directory "$(pwd -P)"
+          echo "[Profiling image] ${{ inputs.image }}"
+          python3 .github/workflows/scripts/verify_profile_source.py \
+            --root . --ref '${{ inputs.ref }}' --tools-only
+
       - name: Identify profiling artifacts
         id: profile_id
         working-directory: profile-source
@@ -106,7 +122,7 @@ jobs:
           echo "Node shard: ${{ matrix.node_index }}; CPU cores: $(nproc)"
           free -h
           df -h /tmp
-          python3 -m pip install --quiet boto3
+          python3 -c 'import boto3' 2>/dev/null || timeout 300 python3 -m pip install --quiet --timeout 15 --retries 1 boto3
           python3 -m tools.profiling.parse parse \
             --manifest /tmp/profile_input/profile_manifest.json \
             --root /tmp/profile_parse/node-${{ matrix.node_index }} \
@@ -135,6 +151,14 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
           path: profile-source
+
+      - name: Verify profiling source
+        working-directory: profile-source
+        run: |
+          git config --global --add safe.directory "$(pwd -P)"
+          echo "[Profiling image] ${{ inputs.image }}"
+          python3 .github/workflows/scripts/verify_profile_source.py \
+            --root . --ref '${{ inputs.ref }}' --tools-only
 
       - name: Identify profiling artifacts
         id: profile_id

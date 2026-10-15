@@ -189,11 +189,14 @@ jobs:
       - name: uninstall vlm vllm-ascend and remove code (if pr test)
         if: ${{ inputs.request_id != '' }}
         run: |
+          echo "[Profiling image] ${{ inputs.image }}"
+          git -C /vllm-workspace/vllm-ascend rev-parse HEAD
+          git -C /vllm-workspace/vllm rev-parse HEAD
           pip uninstall -y vllm-ascend || true
           cp -r /vllm-workspace/vllm-ascend/benchmark /tmp/aisbench-backup || true
           rm -rf  /vllm-workspace/vllm-ascend
 
-      - name: Checkout vllm-project/vllm-ascend repo
+      - name: Checkout validation PR
         if: ${{ inputs.request_id != '' }}
         uses: actions/checkout@v7
         with:
@@ -222,7 +225,7 @@ jobs:
           CARDS=$(echo "${{ inputs.runner }}" | sed -E 's/.*a3-(800i-)?([0-9]+).*/\2/')
           echo "MAX_JOBS=$((CARDS * 23))" >> $GITHUB_ENV
 
-      - name: Install vllm-project/vllm-ascend
+      - name: Install validation PR
         if: ${{ inputs.request_id != '' }}
         working-directory: /vllm-workspace/vllm-ascend
         env:
@@ -233,6 +236,8 @@ jobs:
           pip install uc-manager
           uv pip install -r requirements-dev.txt
           uv pip install -e .
+          python3 .github/workflows/scripts/verify_profile_source.py \
+            --root . --ref '${{ inputs.vllm_ascend_ref }}'
 
       - name: Install aisbench
         if: ${{ inputs.request_id != '' }}
