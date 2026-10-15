@@ -139,10 +139,12 @@ jobs:
 ```
 
 不做的：
+
 - 不在 workflow 中注入/配置代理（squid 已由 runner pod 注入）
 - 不做镜像 build / NPU 测试（本测试只关心网络下载/上传链路）
 
 ## 5. 文件结构
+
 ```text
 test-squid/
   PLAN.md               # 本计划
