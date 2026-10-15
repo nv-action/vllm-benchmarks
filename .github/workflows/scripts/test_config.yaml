@@ -52,7 +52,7 @@ curated_tests:
   # 同时把 NPU 测试本体 compute 压到最低。
   squid-verify:
     - tests/e2e/pull_request/one_card/test_msa_index_score.py            # -> a2-1（a2b3-0/1）
-    - tests/e2e/pull_request/one_card/_310p/test_scoring_310p.py         # 文件名含 _310p -> 310p-1
+    - tests/e2e/pull_request/one_card/_310p/test_vl_model_310p.py         # 文件名含 _310p -> 310p-1（scoring 测试环境 numpy/pyarrow 冲突，弃用）
     - tests/e2e/pull_request/two_card/test_activation.py                 # -> a3-2
 
 # === Skipped Tests ===
