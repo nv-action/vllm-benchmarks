@@ -15,9 +15,17 @@
 # This file is a part of the vllm-ascend project.
 #
 
-# 说明：本 PR 仅含注释，无任何功能变更。用于在已注入 Squid 缓存代理的 NPU runner
-# （a2b3-0/1、a3-800t、a2b1/a2/a2b4/910b/310p 等）上以 ready-all 全量触发 E2E，
+# 说明：本 PR 用于在已注入 Squid 缓存代理的 NPU runner
+# （a2b3-0/1、a3-800t、a2b1/a2/a2b4/910b/310p 等）上以 main2main 全量触发 E2E，
 # 验证 E2E 负载（container.image 拉取、pip/csrc 缓存、模型与数据集下载）在代理环境下的连通性。
+
+# 修复 E2E startup_failure：被调用的 _selected_tests.yaml 声明请求
+# `pull-requests: write`，而本 workflow 未声明 permissions 时仓库默认仅只读，
+# 导致图级校验失败（"requesting 'pull-requests: write', but is only allowed
+# 'pull-requests: none'"）。此处显式授权，供所有被调 workflow 继承。
+permissions:
+  contents: read
+  pull-requests: write
 
 name: E2E
 
