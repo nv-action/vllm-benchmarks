@@ -20,6 +20,10 @@
 | `yum install` / `dnf install` | `_build_csrc_cache.yaml` 的 "Config mirrors (openeuler)"；Dockerfile.a3.openEuler | 数百 MB |
 | apt 源替换（ports/archive.ubuntu.com → repo.huaweicloud.com） | `_schedule_image_build.yaml` L294-310 | - |
 
+> 注：openEuler 同时提供 `dnf` 与 `yum`（yum 为兼容壳）。真实 CI 写的是 `yum install`
+> （`_build_csrc_cache.yaml` L108 / L164），因此测试**优先探测 `yum`** 以对齐真实命令路径；
+> 且与 apt 分支对称，拆成「刷元数据」+「装包」两个阶段（`yum makecache` / `yum install -y zstd`）。
+
 ### B. Python 包下载（pip / uv）
 
 | 子项 | 源码出处 | 真实载荷 |
@@ -120,7 +124,7 @@ jobs:
     container: cann:9.1.0-a3-<ubuntu22.04|openeuler24.03>-py3.12   # 与 _build_csrc_cache 相同
     steps:
       1. 环境探测：打印 HTTP(S)_PROXY / SSL 相关 env，确认 squid 注入生效（只读，不配置）
-      2. A 系统包：apt-get update + install zstd / yum install zstd（真实命令）
+      2. A 系统包：apt-get update + install zstd / yum makecache + yum install zstd（真实命令）
       3. B pip：pip install 小轮子 + uv pip download 小包 + pytorch 元数据下载
       4. C git：git ls-remote github.com + 浅克隆小仓库
       5. D 模型：安装 modelscope（可选下载极小型模型）
