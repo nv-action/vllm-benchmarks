@@ -27,8 +27,8 @@ jobs:
             cluster: a2
           - runner: linux-aarch64-a3-800t-0
             cluster: a3
-          - runner: linux-aarch64-a5-0
-            cluster: a5
+          # 注：原 a5 条目（linux-aarch64-a5-0）对应的 runner scale set 已在 infra
+          # 重构中下线，job 会永久 queued，故移除。
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-cpu
 
