@@ -179,8 +179,8 @@ jobs:
       max-parallel: 2
       matrix:
         runner_info:
-          - {runner: linux-aarch64-cpu-4, tag: arm64}
-          - {runner: linux-amd64-cpu-4, tag: amd64}
+          - {runner: linux-aarch64-cpu-4-cn12-001, tag: arm64}
+          - {runner: linux-amd64-cpu-4-cn12-001, tag: amd64}
 
     steps:
 
@@ -367,7 +367,9 @@ jobs:
           PYTORCH_INDEX_URL=http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu
           ASCEND_INDEX_URL=http://cache-service.nginx-pypi-cache.svc.cluster.local/ascend/repos/pypi
           GIT_PROXY=https://gh-proxy.test.osinfra.cn/
-          COMPILE_CUSTOM_KERNELS=${{ steps.cache-csrc.outputs.cache-hit == 'true' && '0' || '1' }}
+          # TODO(ci): 临时强制 0 以验证构建管线（跳过自定义算子编译，避免 buildkitd OOM）；
+          # 首次构建成功后应恢复为基于 csrc 缓存命中的逻辑
+          COMPILE_CUSTOM_KERNELS=0
           VLLM_COMMIT=${{ inputs.vllm_commit }}
           BUILD_TYPE=${{ inputs.build_type || 'release' }}
           MEMCACHE_VERSION=${{ inputs.memcache_version || '1.2.0' }}
@@ -431,7 +433,7 @@ jobs:
         retention-days: 1
 
   merge-image:
-    runs-on: linux-amd64-cpu-4
+    runs-on: linux-amd64-cpu-4-cn12-001
     needs: build-push-digest
     if: ${{ inputs.should_push && !inputs.temp_only }}
     steps:
@@ -632,7 +634,7 @@ jobs:
 
   merge-image-temp:
     name: merge-image-temp
-    runs-on: linux-amd64-cpu-4
+    runs-on: linux-amd64-cpu-4-cn12-001
     needs: build-push-digest
     if: ${{ inputs.should_push && inputs.temp_only }}
     steps:
