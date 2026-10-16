@@ -137,7 +137,8 @@ check_npu_info() {
 
 check_and_config() {
     echo "====> Configure mirrors and git proxy"
-    git config --global url."https://ghfast.top/https://github.com/".insteadOf "https://github.com/"
+    # Fetch the validation PR directly; a proxy may not expose its latest refs.
+    git config --global --unset-all url."https://ghfast.top/https://github.com/".insteadOf || true
     pip config set global.index-url https://mirrors.huaweicloud.com/repository/pypi/simple/
     pip config set global.trusted-host mirrors.huaweicloud.com
     export PIP_EXTRA_INDEX_URL="https://mirrors.huaweicloud.com/ascend/repos/pypi"
@@ -146,6 +147,7 @@ check_and_config() {
 
 checkout_src() {
     echo "====> Checkout source code"
+    git -C "$WORKSPACE/vllm-ascend" rev-parse HEAD
     mkdir -p "$WORKSPACE"
     cd "$WORKSPACE"
     pip uninstall -y vllm-ascend || true
@@ -156,14 +158,8 @@ checkout_src() {
         echo "Cloning vllm-ascend from $VLLM_ASCEND_REMOTE_URL"
         git clone --depth 1 --recurse-submodules "$VLLM_ASCEND_REMOTE_URL" "$WORKSPACE/vllm-ascend"
         cd "$WORKSPACE/vllm-ascend"
-        PR_REF=$(git ls-remote origin 'refs/pull/*/head' | grep "^${VLLM_ASCEND_REF}" | awk '{print $2}' | head -1)
-        if [ -n "$PR_REF" ]; then
-            git fetch --depth 1 origin "$PR_REF"
-            git checkout FETCH_HEAD
-        else
-            git fetch origin '+refs/pull/*/head:refs/remotes/pull/*' 2>/dev/null || true
-            git checkout "$VLLM_ASCEND_REF"
-        fi
+        git fetch --depth 1 origin "$VLLM_ASCEND_REF"
+        git checkout --detach FETCH_HEAD
         git submodule update --init --recursive
     fi
 }
@@ -219,6 +215,15 @@ run_tests_with_log() {
     pytest -sv --show-capture=no "$MULTI_NODE_TEST_PATH" 2>&1 | tee "$log_file"
     ret=$?
     echo "pytest exit code: ret=${ret}"
+    # Save every AISBench experiment before AOP can rerun tests or pods are deleted.
+    # Each test pod has its own checkout; the destination belongs to this run.
+    if [ -d outputs ]; then
+        local outputs_dest="${LOG_PREFIX}/aisbench_outputs/node-${LWS_WORKER_INDEX:-0}"
+        if ! mkdir -p "$outputs_dest" || ! cp -a outputs/. "$outputs_dest/"; then
+            echo "::error::Failed to preserve AISBench outputs at $outputs_dest"
+            ret=1
+        fi
+    fi
     set -e
     if [ "${LWS_WORKER_INDEX:-}" = "0" ]; then
         if [ $ret -eq 0 ]; then
@@ -555,6 +560,8 @@ main() {
         checkout_src
         install_vllm_ascend
         install_aisbench
+        cd "$WORKSPACE/vllm-ascend"
+        python3 .github/workflows/scripts/verify_profile_source.py --root . --ref "$VLLM_ASCEND_REF"
     fi
     show_vllm_info
     show_triton_ascend_info
