@@ -14,7 +14,7 @@ backup_requested_directory() {
         echo "Requested path already archived on $node"
         return 0
     fi
-    if ! requested=$(python3 "$LOG_PREFIX/validation-source/collect_download.py" "$DOWNLOAD_SPEC" \
+    if ! requested=$(python3 /root/.cache/tests/collect_download.py "$DOWNLOAD_SPEC" \
         --path-for-node --node "$node"); then
         echo "WARNING: Invalid download request for $node" >&2
         return 1
@@ -28,7 +28,7 @@ backup_requested_directory() {
         echo "WARNING: Could not create temporary archive on $node" >&2
         return 1
     fi
-    if ! python3 "$LOG_PREFIX/validation-source/collect_download.py" "$DOWNLOAD_SPEC" \
+    if ! python3 /root/.cache/tests/collect_download.py "$DOWNLOAD_SPEC" \
         "$temporary_archive" --node "$node"; then
         rm -f "$temporary_archive"
         echo "WARNING: Could not archive requested path on $node" >&2

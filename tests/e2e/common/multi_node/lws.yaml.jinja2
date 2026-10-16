@@ -31,12 +31,6 @@ spec:
                 value: {{ log_prefix | default("/root/.cache/ascend-logs") }}
               - name: DOWNLOAD_SPEC
                 value: {{ download_spec | default("") | tojson }}
-              - name: ASCEND_PROFILE_ROOT
-                value: {{ (log_prefix ~ "/profile_artifact") | tojson }}
-{% for name, value in profile_env.items() %}
-              - name: {{ name }}
-                value: {{ value | tojson }}
-{% endfor %}
               - name: WORKSPACE
                 value: "/vllm-workspace"
               - name: FAIL_TAG
@@ -46,7 +40,7 @@ spec:
               - name: VLLM_ASCEND_REF
                 value: {{ vllm_ascend_ref | default("main") }}
               - name: VLLM_ASCEND_REMOTE_URL
-                value: {{ vllm_ascend_remote_url | default("https://github.com/nv-action/vllm-benchmarks.git") }}
+                value: {{ vllm_ascend_remote_url | default("https://github.com/vllm-project/vllm-ascend.git") }}
               - name: BENCHMARK_JOB_NAME
                 value: {{ benchmark_job_name | default("") }}
               - name: VLLM_CI_RUNNER
@@ -85,7 +79,7 @@ spec:
               - sh
               - -c
               - |
-                bash "$LOG_PREFIX/validation-source/run.sh" \
+                bash /root/.cache/tests/run.sh \
                   "{{ soc_version | default("") }}" \
                   "{{ max_good_age_days | default("3") }}"
 {% set soc = soc_version | default("a3") | lower %}
@@ -159,12 +153,6 @@ spec:
                 value: {{ log_prefix | default("/root/.cache/ascend-logs") }}
               - name: DOWNLOAD_SPEC
                 value: {{ download_spec | default("") | tojson }}
-              - name: ASCEND_PROFILE_ROOT
-                value: {{ (log_prefix ~ "/profile_artifact") | tojson }}
-{% for name, value in profile_env.items() %}
-              - name: {{ name }}
-                value: {{ value | tojson }}
-{% endfor %}
               - name: WORKSPACE
                 value: "/vllm-workspace"
               - name: FAIL_TAG
@@ -174,7 +162,7 @@ spec:
               - name: VLLM_ASCEND_REF
                 value: {{ vllm_ascend_ref | default("main") }}
               - name: VLLM_ASCEND_REMOTE_URL
-                value: {{ vllm_ascend_remote_url | default("https://github.com/nv-action/vllm-benchmarks.git") }}
+                value: {{ vllm_ascend_remote_url | default("https://github.com/vllm-project/vllm-ascend.git") }}
               - name: BENCHMARK_JOB_NAME
                 value: {{ benchmark_job_name | default("") }}
               - name: VLLM_CI_RUNNER
@@ -205,7 +193,7 @@ spec:
               - sh
               - -c
               - |
-                bash "$LOG_PREFIX/validation-source/run.sh" \
+                bash /root/.cache/tests/run.sh \
                   "{{ soc_version | default("") }}" \
                   "{{ max_good_age_days | default("3") }}"
 {% set soc = soc_version | default("a3") | lower %}

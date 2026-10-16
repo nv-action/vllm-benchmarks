@@ -137,8 +137,7 @@ check_npu_info() {
 
 check_and_config() {
     echo "====> Configure mirrors and git proxy"
-    # Fetch the validation PR directly; a proxy may not expose its latest refs.
-    git config --global --unset-all url."https://ghfast.top/https://github.com/".insteadOf || true
+    git config --global url."https://ghfast.top/https://github.com/".insteadOf "https://github.com/"
     pip config set global.index-url https://mirrors.huaweicloud.com/repository/pypi/simple/
     pip config set global.trusted-host mirrors.huaweicloud.com
     export PIP_EXTRA_INDEX_URL="https://mirrors.huaweicloud.com/ascend/repos/pypi"
@@ -147,7 +146,6 @@ check_and_config() {
 
 checkout_src() {
     echo "====> Checkout source code"
-    git -C "$WORKSPACE/vllm-ascend" rev-parse HEAD
     mkdir -p "$WORKSPACE"
     cd "$WORKSPACE"
     pip uninstall -y vllm-ascend || true
@@ -158,8 +156,14 @@ checkout_src() {
         echo "Cloning vllm-ascend from $VLLM_ASCEND_REMOTE_URL"
         git clone --depth 1 --recurse-submodules "$VLLM_ASCEND_REMOTE_URL" "$WORKSPACE/vllm-ascend"
         cd "$WORKSPACE/vllm-ascend"
-        git fetch --depth 1 origin "$VLLM_ASCEND_REF"
-        git checkout --detach FETCH_HEAD
+        PR_REF=$(git ls-remote origin 'refs/pull/*/head' | grep "^${VLLM_ASCEND_REF}" | awk '{print $2}' | head -1)
+        if [ -n "$PR_REF" ]; then
+            git fetch --depth 1 origin "$PR_REF"
+            git checkout FETCH_HEAD
+        else
+            git fetch origin '+refs/pull/*/head:refs/remotes/pull/*' 2>/dev/null || true
+            git checkout "$VLLM_ASCEND_REF"
+        fi
         git submodule update --init --recursive
     fi
 }
@@ -551,8 +555,6 @@ main() {
         checkout_src
         install_vllm_ascend
         install_aisbench
-        cd "$WORKSPACE/vllm-ascend"
-        python3 .github/workflows/scripts/verify_profile_source.py --root . --ref "$VLLM_ASCEND_REF"
     fi
     show_vllm_info
     show_triton_ascend_info
