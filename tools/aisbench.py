@@ -30,6 +30,14 @@ import regex as re
 from modelscope import snapshot_download  # type: ignore
 
 from tools.profiling import safe_name
+from tools.profiling.capture import (
+    ProfileController,
+    ProfileSpec,
+    ServeManifest,
+    collect_raw_artifacts,
+    prepare_capture,
+    profile_root,
+)
 from tools.profiling.steady_state import (
     AisbenchTimingAdapter,
     SteadyStateResult,
@@ -40,6 +48,7 @@ from tools.profiling.steady_state import (
     steady_state_summary,
     unavailable_steady_state,
 )
+from tools.profiling.storage import ArtifactError
 
 BENCHMARK_HOME = os.getenv("BENCHMARK_HOME", os.path.abspath("./benchmark"))
 DATASET_CONF_DIR = os.path.join(BENCHMARK_HOME, "ais_bench", "benchmark", "configs", "datasets")
@@ -80,7 +89,14 @@ class AisbenchRunner:
         self.stdout_file = f"output_{self.task_type}.txt"
         aisbench_cmd = " ".join(aisbench_cmd) + f" --debug > {self.stdout_file} 2>&1 &"
         print(f"running aisbench cmd: {aisbench_cmd}")
-        self.proc: subprocess.Popen = subprocess.Popen(aisbench_cmd, shell=True)
+        env = None
+        if self.profile_marker is not None:
+            env = os.environ.copy()
+            repo_root = str(Path(__file__).resolve().parents[1])
+            env["PYTHONPATH"] = os.pathsep.join(filter(None, (repo_root, env.get("PYTHONPATH", ""))))
+            env["ASCEND_PROFILE_REQUEST_MARKER"] = str(self.profile_marker)
+            env["ASCEND_PROFILE_ENABLED"] = str(bool(self.profile_targets)).lower()
+        self.proc: subprocess.Popen = subprocess.Popen(aisbench_cmd, shell=True, env=env)
 
     def __init__(self, model: str, port: int, aisbench_config: dict, host_ip: str = "localhost", verify=True):
         self.model = model
@@ -116,9 +132,7 @@ class AisbenchRunner:
         assert self.dataset_path is not None and self.model_path is not None, (
             f"Failed to download dataset or model: dataset={self.dataset_path}, model={self.model_path}"
         )
-        self.port = port
-        self.host_ip = host_ip
-        self.task_type = aisbench_config["case_type"]
+        self._prepare_profiling()
         self.request_conf = aisbench_config["request_conf"]
         self.dataset_conf = aisbench_config.get("dataset_conf")
         self.num_prompts = aisbench_config.get("num_prompts")
@@ -151,8 +165,18 @@ class AisbenchRunner:
 
             self.metrics_server = _MetricsServer(self.host_ip, self.port)
             self.metrics_baseline = capture_baseline(self.metrics_server, len(self.spec_decode_baseline))
-        self._run_aisbench_task()
-        self._wait_for_task()
+        controller = self._start_profiling()
+        try:
+            self._run_aisbench_task()
+            self._wait_for_task()
+        except BaseException:
+            try:
+                self._finish_profiling(controller)
+            except Exception as exc:
+                logging.error("Profiling cleanup also failed: %s", exc)
+            raise
+        else:
+            self._finish_profiling(controller)
         if verify:
             self.baseline = aisbench_config.get("baseline", 1)
             self.input_throughput_baseline = aisbench_config.get("input_throughput_baseline", 1)
@@ -171,6 +195,49 @@ class AisbenchRunner:
                 self.threshold = aisbench_config.get("threshold", 0.05)
                 self._spec_decode_verify()
 
+    def _prepare_profiling(self) -> None:
+        """Prepare capture and its time origin only for selected benchmarks."""
+        self.profile_spec = ProfileSpec.from_env()
+        self.profile_targets = ()
+        self.profile_marker: Path | None = None
+        if not self.profile_spec.includes_benchmark(self.benchmark_name, self.task_type):
+            return
+        self.profile_targets = ServeManifest.read(profile_root() / "serve_manifest.json").instances
+        if not self.profile_targets:
+            raise ArtifactError("Profiling is enabled but the serve manifest has no targets")
+        prepare_capture(profile_root(), self.benchmark_name, self.benchmark_artifact_name, self.profile_targets)
+        marker = profile_root() / "benchmarks" / safe_name(self.benchmark_artifact_name) / "first_request"
+        self.profile_marker = marker
+        if self.profile_spec.start_after_requests is not None:
+            progress = marker.parent / "completed_requests"
+            progress.mkdir()
+
+    def _start_profiling(self) -> ProfileController | None:
+        """Start the controller for a selected profiling case."""
+        if not self.profile_targets:
+            return None
+        target_names = ", ".join(target.name for target in self.profile_targets)
+        trigger = (
+            f"{self.profile_spec.start_after_requests} successful requests"
+            if self.profile_spec.start_after_requests is not None
+            else f"{self.profile_spec.start_after}s"
+        )
+        print(
+            f"Profiling benchmark {self.benchmark_artifact_name}: targets={target_names}, "
+            f"start-after={trigger}, duration={self.profile_spec.duration}s",
+            flush=True,
+        )
+        controller = ProfileController(self.profile_spec, self.profile_targets, self.profile_marker)
+        controller.start()
+        return controller
+
+    def _finish_profiling(self, controller: ProfileController | None) -> None:
+        """Stop profiling, save artifacts, and propagate capture/collection failures."""
+        if controller is None:
+            return
+        result = controller.finish()
+        collect_raw_artifacts(profile_root(), self.benchmark_artifact_name, self.profile_targets, result)
+
     def _init_dataset_conf(self):
         if self.task_type in ("accuracy", "spec_decode"):
             dataset_name = os.path.basename(self.dataset_path)
@@ -185,6 +252,11 @@ class AisbenchRunner:
             with open(conf_path, encoding="utf-8") as f:
                 content = f.read()
             content = re.sub(r"path=.*", f'path="{self.dataset_path}",', content)
+            if self.profile_marker is not None:
+                content, replacements = re.subn(r"\btype\s*=\s*GenInferencer\b", "type=TimedGenInferencer", content)
+                if replacements == 0:
+                    raise ArtifactError("Unsupported AISBench inferencer type for profiling")
+                content = "from tools.profiling.aisbench_request_marker import TimedGenInferencer\n" + content
             conf_path_new = os.path.join(DATASET_CONF_DIR, f"{self.dataset_conf}_custom.py")
             with open(conf_path_new, "w", encoding="utf-8") as f:
                 f.write(content)
