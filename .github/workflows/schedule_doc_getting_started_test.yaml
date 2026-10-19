@@ -32,16 +32,6 @@ on:
         type: string
         default: ''
   # Path filtering starts planning; the helper then selects affected marked blocks.
-  pull_request:
-    branches:
-      - main
-      - 'releases/v*'
-    paths:
-      - '.github/workflows/schedule_doc_getting_started_test.yaml'
-      - 'mkdocs.yml'
-      - 'docs/source/getting_started/**'
-      - 'tests/e2e/doctests/**'
-
 permissions:
   contents: read
 

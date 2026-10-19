@@ -18,8 +18,6 @@
 name: Auto Doc Translate
 
 on:
-  schedule:
-    - cron: '0 0 */3 * *'
   workflow_dispatch:
     inputs:
       target_branch:

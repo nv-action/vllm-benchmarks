@@ -14,6 +14,7 @@ from tools.profiling import capture
 @pytest.fixture
 def benchmark(tmp_path, monkeypatch):
     root = tmp_path / "profile"
+    monkeypatch.setattr(aisbench, "STEADY_STATE_OUTPUT_DIR", tmp_path / "charts")
     spec = capture.ProfileSpec(enabled=True, output="raw")
     for name, value in spec.environment().items():
         monkeypatch.setenv(name, value)
@@ -105,6 +106,22 @@ def test_partial_capture_raises_and_retains_available_raw(benchmark):
     manifest = json.loads((benchmark.root / "profile_manifest.json").read_text())
     assert manifest["status"] == "partial"
     assert (benchmark.root / manifest["benchmarks"][0]["targets"][0]["archive"]).is_file()
+
+
+def test_combined_capture_and_steady_state_report(benchmark, tmp_path, monkeypatch):
+    charts = tmp_path / "charts"
+    monkeypatch.setattr(aisbench, "STEADY_STATE_OUTPUT_DIR", charts)
+    (tmp_path / "perf_details.jsonl").write_text(
+        '{"success":true,"time_points":[100,130]}\n{"success":true,"time_points":[105,125]}\n'
+    )
+    with aisbench.AisbenchRunner("model", 8000, benchmark.config):
+        pass
+    manifest = json.loads((benchmark.root / "profile_manifest.json").read_text())
+    assert manifest["benchmarks"][0]["status"] == "success"
+    summary = json.loads((charts / "model__perf/summary.json").read_text())
+    assert summary["benchmark_name"] == "perf"
+    assert summary["steady_state"]["start"]["time_s"] == 5
+    assert summary["steady_state"]["end"]["time_s"] == 25
 
 
 def test_benchmark_error_preserves_the_original_exception_and_stops_capture(benchmark, monkeypatch):

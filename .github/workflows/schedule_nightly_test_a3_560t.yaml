@@ -171,7 +171,7 @@ jobs:
       - name: Checkout profiling tools
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.vllm_ascend_ref || github.sha }}
           path: profile-source
           sparse-checkout: tools/profiling
 
@@ -232,7 +232,7 @@ jobs:
     with:
       runner: ${{ matrix.test_config.os }}
       soc_version: a3-560t
-      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a3'
+      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend@sha256:6d9d0340be9328915a33162a06b440652ecb730c8abff7bd0a123ae000600973'
       config_file_path: ${{ matrix.test_config.config_file_path }}
       config_base_path: ${{ matrix.test_config.config_base_path }}
       name: ${{ matrix.test_config.name }}
@@ -281,7 +281,7 @@ jobs:
     with:
       runner: ${{ matrix.test_config.os }}
       soc_version: a3-560t
-      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a3'
+      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend@sha256:6d9d0340be9328915a33162a06b440652ecb730c8abff7bd0a123ae000600973'
       tests: ${{ matrix.test_config.tests }}
       config_file_path: ${{ matrix.test_config.config_file_path }}
       config_base_path: ${{ matrix.test_config.config_base_path }}
@@ -331,9 +331,9 @@ jobs:
         test_config: ${{ fromJSON(needs.setup-vars.outputs.single_node) }}
     uses: ./.github/workflows/_e2e_profile_parse.yaml
     with:
-      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a3'
+      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend@sha256:6d9d0340be9328915a33162a06b440652ecb730c8abff7bd0a123ae000600973'
       prefix: nightly-profiling/${{ github.repository }}/${{ github.run_id }}/${{ github.run_attempt }}/single-node/${{ matrix.vllm_ascend_branch }}-${{ matrix.test_config.name }}
-      ref: ${{ github.sha }}
+      ref: ${{ inputs.vllm_ascend_ref || github.sha }}
       should_run: >-
         ${{ matrix.test_config.config_file_path != '' &&
             (needs.parse-trigger.outputs.filter == 'all' ||
@@ -357,9 +357,9 @@ jobs:
         test_config: ${{ fromJSON(needs.setup-vars.outputs.multi_card) }}
     uses: ./.github/workflows/_e2e_profile_parse.yaml
     with:
-      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a3'
+      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend@sha256:6d9d0340be9328915a33162a06b440652ecb730c8abff7bd0a123ae000600973'
       prefix: nightly-profiling/${{ github.repository }}/${{ github.run_id }}/${{ github.run_attempt }}/single-node/${{ matrix.vllm_ascend_branch }}-${{ matrix.test_config.name }}
-      ref: ${{ github.sha }}
+      ref: ${{ inputs.vllm_ascend_ref || github.sha }}
       should_run: >-
         ${{ matrix.test_config.config_file_path != '' &&
             (needs.parse-trigger.outputs.filter == 'all' ||

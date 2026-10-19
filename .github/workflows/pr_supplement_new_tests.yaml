@@ -2,9 +2,7 @@ name: Supplement New Tests
 # pull_request_target is required so OBS secrets are available for fork PRs.
 # Collect from the GitHub three-dot PR diff, not the merge/squash commit.
 on:
-  pull_request_target:
-    types: [closed]
-
+  workflow_dispatch:
 permissions:
   contents: read
 
