@@ -15,6 +15,11 @@
 # the sync tool then mirrors swr.cn-north-12 -> quay.io.
 name: Image Build and Push
 on:
+  pull_request:
+    branches:
+      - 'main'
+      - 'releases/*'
+    types: [ labeled ]
   workflow_dispatch:
     inputs:
       docker_ref:
