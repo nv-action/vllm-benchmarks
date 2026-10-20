@@ -16,6 +16,7 @@ fi
 
 echo "Building daily version with extra packages..."
 ARCH=$(uname -m)
+PY_TAG=$(python3 -c 'import sys; print(f"{sys.version_info.major}{sys.version_info.minor}")')
 
 if [ "$DAILY_DEPS_MODE" = "torch_npu_only" ]; then
     # ---- torch-npu only ----
@@ -23,7 +24,7 @@ if [ "$DAILY_DEPS_MODE" = "torch_npu_only" ]; then
     mkdir -p /tmp/torch_npu
     wget -q --retry-connrefused --tries=5 --timeout=30 --waitretry=10 \
         -O /tmp/torch_npu/torch_npu.tar.gz \
-        "https://pytorch-package.obs.cn-north-4.myhuaweicloud.com/pta/Daily/v2.10.0-${TORCH_NPU_VERSION}/${TORCH_NPU_DATE}/pytorch_v2.10.0-${TORCH_NPU_VERSION}_py312.tar.gz"
+        "https://pytorch-package.obs.cn-north-4.myhuaweicloud.com/pta/Daily/v2.10.0-${TORCH_NPU_VERSION}/${TORCH_NPU_DATE}/pytorch_v2.10.0-${TORCH_NPU_VERSION}_py${PY_TAG}.tar.gz"
     tar -xzf /tmp/torch_npu/torch_npu.tar.gz -C /tmp/torch_npu
     python3 -m pip install /tmp/torch_npu/torch_npu-2.10.0*_"${ARCH}".whl --extra-index-url https://download.pytorch.org/whl/cpu/
     echo "Clean up temporary files..."
@@ -36,18 +37,18 @@ fi
 # ---- memfabric_hybrid ----
 echo "Install memfabric_hybrid based on architecture..."
 if [ "$ARCH" = "x86_64" ]; then
-    MEMFABRIC_URL="https://obs-memfabric-hybrid.obs.cn-north-4.myhuaweicloud.com/mf/master/${MEMFABRIC_DATE}/memfabric_hybrid-${MEMFABRIC_VERSION}-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl"
+    MEMFABRIC_URL="https://obs-memfabric-hybrid.obs.cn-north-4.myhuaweicloud.com/mf/master/${MEMFABRIC_DATE}/memfabric_hybrid-${MEMFABRIC_VERSION}-cp${PY_TAG}-cp${PY_TAG}-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl"
 else
-    MEMFABRIC_URL="https://obs-memfabric-hybrid.obs.cn-north-4.myhuaweicloud.com/mf/master/${MEMFABRIC_DATE}/memfabric_hybrid-${MEMFABRIC_VERSION}-cp312-cp312-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl"
+    MEMFABRIC_URL="https://obs-memfabric-hybrid.obs.cn-north-4.myhuaweicloud.com/mf/master/${MEMFABRIC_DATE}/memfabric_hybrid-${MEMFABRIC_VERSION}-cp${PY_TAG}-cp${PY_TAG}-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl"
 fi
 python3 -m pip install "$MEMFABRIC_URL" --force-reinstall --no-deps
 
 # ---- memcache_hybrid ----
 echo "Install memcache_hybrid based on architecture..."
 if [ "$ARCH" = "x86_64" ]; then
-    MEMCACHE_URL="https://obs-memfabric-hybrid.obs.cn-north-4.myhuaweicloud.com/memcache/master/${MEMCACHE_DATE}/memcache_hybrid-${MEMCACHE_VERSION}-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl"
+    MEMCACHE_URL="https://obs-memfabric-hybrid.obs.cn-north-4.myhuaweicloud.com/memcache/master/${MEMCACHE_DATE}/memcache_hybrid-${MEMCACHE_VERSION}-cp${PY_TAG}-cp${PY_TAG}-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl"
 else
-    MEMCACHE_URL="https://obs-memfabric-hybrid.obs.cn-north-4.myhuaweicloud.com/memcache/master/${MEMCACHE_DATE}/memcache_hybrid-${MEMCACHE_VERSION}-cp312-cp312-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl"
+    MEMCACHE_URL="https://obs-memfabric-hybrid.obs.cn-north-4.myhuaweicloud.com/memcache/master/${MEMCACHE_DATE}/memcache_hybrid-${MEMCACHE_VERSION}-cp${PY_TAG}-cp${PY_TAG}-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl"
 fi
 python3 -m pip install "$MEMCACHE_URL" --force-reinstall --no-deps
 
@@ -75,7 +76,7 @@ esac
 # Controlled by INSTALL_TRITON_ASCEND env var (default: false).
 # Set INSTALL_TRITON_ASCEND=true to enable triton-ascend daily installation.
 echo "Install triton-ascend..."
-TRITON_ASCEND_URL="https://ascend-triton-open.obs.cn-north-4.myhuaweicloud.com/triton-ascend/${TRITON_ASCEND_VERSION}/triton_ascend-${TRITON_ASCEND_PACKAGE_VERSION}-cp312-cp312-manylinux_2_27_${ARCH}.manylinux_2_28_${ARCH}.whl"
+TRITON_ASCEND_URL="https://ascend-triton-open.obs.cn-north-4.myhuaweicloud.com/triton-ascend/${TRITON_ASCEND_VERSION}/triton_ascend-${TRITON_ASCEND_PACKAGE_VERSION}-cp${PY_TAG}-cp${PY_TAG}-manylinux_2_27_${ARCH}.manylinux_2_28_${ARCH}.whl"
 python3 -m pip install "$TRITON_ASCEND_URL"
 
 # ---- torch-npu ----
@@ -83,7 +84,7 @@ echo "Download, extract and install torch-npu..."
 mkdir -p /tmp/torch_npu
 wget -q --retry-connrefused --tries=5 --timeout=30 --waitretry=10 \
     -O /tmp/torch_npu/torch_npu.tar.gz \
-    "https://pytorch-package.obs.cn-north-4.myhuaweicloud.com/pta/Daily/v2.10.0-${TORCH_NPU_VERSION}/${TORCH_NPU_DATE}/pytorch_v2.10.0-${TORCH_NPU_VERSION}_py312.tar.gz"
+    "https://pytorch-package.obs.cn-north-4.myhuaweicloud.com/pta/Daily/v2.10.0-${TORCH_NPU_VERSION}/${TORCH_NPU_DATE}/pytorch_v2.10.0-${TORCH_NPU_VERSION}_py${PY_TAG}.tar.gz"
 tar -xzf /tmp/torch_npu/torch_npu.tar.gz -C /tmp/torch_npu
 python3 -m pip install /tmp/torch_npu/torch_npu-2.10.0*_"${ARCH}".whl --extra-index-url https://download.pytorch.org/whl/cpu/
 echo "Clean up temporary files..."

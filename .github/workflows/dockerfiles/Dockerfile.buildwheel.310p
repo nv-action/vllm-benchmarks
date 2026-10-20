@@ -15,7 +15,7 @@
 # This file is a part of the vllm-ascend project.
 #
 ARG PY_VERSION=3.12
-FROM quay.io/ascend/manylinux:9.1.0-310p-manylinux_2_34-py${PY_VERSION}
+FROM quay.io/ascend/manylinux:9.2.0-310p-manylinux_2_34-py${PY_VERSION}
 
 ARG SOC_VERSION="ascend310p1"
 
@@ -34,12 +34,22 @@ COPY . /workspace/vllm-ascend/
 RUN python3 -m pip install -r vllm-ascend/requirements.txt --extra-index https://download.pytorch.org/whl/cpu/ --extra-index-url https://repo.huaweicloud.com/ascend/repos/pypi && \
     python3 -m pip install twine attrs psutil
 
+# Match Dockerfile.310p: only torch-npu uses the rc2 snapshot.
+RUN BUILD_TYPE=daily DAILY_DEPS_MODE=torch_npu_only \
+    TORCH_NPU_VERSION=26.2.0 TORCH_NPU_DATE=20260926.5 \
+    bash vllm-ascend/.github/workflows/scripts/install_daily_deps.sh && \
+    sed -i 's/torch-npu==2\.10\.0\.post4/torch-npu==2.10.0.post7/g' \
+        vllm-ascend/requirements.txt vllm-ascend/pyproject.toml
+
+# Temporary rc2 validation after dependency installation, before compilation.
+RUN python3 vllm-ascend/.github/workflows/scripts/wheel/check_rc2_environment.py
+
 # Install vllm-ascend
 RUN source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
     source /usr/local/Ascend/nnal/atb/set_env.sh && \
     export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/Ascend/ascend-toolkit/latest/`uname -i`-linux/devlib && \
     cd vllm-ascend && \
-    python3 setup.py bdist_wheel && \
+    SETUPTOOLS_SCM_PRETEND_VERSION=0.30.0rc2 python3 setup.py bdist_wheel && \
     ls -l dist
 
 CMD ["/bin/bash"]

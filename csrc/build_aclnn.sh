@@ -300,7 +300,21 @@ log_selected_ops
 
   chmod +x -- "${installer_candidates[0]}" || true
   log "running installer: ${installer_candidates[0]}"
-  "${installer_candidates[0]}" --install-path="${custom_ops_install_dir}"
+  if [[ "${SOC_ARG}" == "ascend950" ]]; then
+    # CANN validates the host library before installation; include its packaged
+    # compatibility alias for this installer process only.
+    staged_package_dir="${ROOT_DIR}/csrc/build/_CPack_Packages/Linux/External/$(basename -- "${installer_candidates[0]}")"
+    optiling_dir="${staged_package_dir}/packages/vendors/custom_transformer/op_impl/ai_core/tbe/op_tiling"
+    if [[ ! -L "${optiling_dir}/liboptiling.so" || ! -f "${optiling_dir}/liboptiling.so" ]]; then
+      echo "ERROR: missing packaged A5 tiling library alias: ${optiling_dir}/liboptiling.so" >&2
+      exit 1
+    fi
+    log "A5 installer tiling library path=${optiling_dir}"
+    LD_LIBRARY_PATH="${optiling_dir}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
+      "${installer_candidates[0]}" --install-path="${custom_ops_install_dir}"
+  else
+    "${installer_candidates[0]}" --install-path="${custom_ops_install_dir}"
+  fi
   # CANN leaves generated vendor script dirs owner-read-only; keep repo-local
   # editable-build artifacts removable by the non-root user who built them.
   if [[ -d "${custom_ops_install_dir}/vendors/custom_transformer/scripts" ]]; then

@@ -18,27 +18,29 @@
 name: Release Code and Wheel
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
-      tag:
-        description: 'Docker tag for build results'
-        default: main
-        required: true
+      architecture:
+        description: 'Wheel architecture (Python 3.10, 3.11 and 3.12)'
         type: choice
-        options:
-          - main
-          - v0.26.0rc1
-          - v0.23.0
-          - v0.23.0rc1
-          - v0.22.1rc1
-          - v0.21.0rc1
-          - v0.20.2rc1
+        default: both
+        options: [amd64, arm64, both]
+      a2_only:
+        description: 'Build A2 only instead of all devices'
+        type: boolean
+        default: false
+      publish:
+        description: 'Publish variant wheels and index to OBS'
+        type: boolean
+        default: true
+      publish_pypi:
+        description: 'Also publish to PyPI (requires publish)'
+        type: boolean
+        default: false
 
 jobs:
   build_and_release_code:
+    if: ${{ !inputs.a2_only }}
     name: release code
     runs-on: linux-amd64-cpu-8-hk
     strategy:
@@ -51,12 +53,12 @@ jobs:
         with:
           submodules: recursive
 
-      - name: checkout vllm-ascend ${{ inputs.tag }}
+      - name: checkout vllm-ascend from the selected branch
         if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/checkout@v7
         with:
           submodules: recursive
-          ref: ${{ inputs.tag }}
+          ref: ${{ github.sha }}
 
       - name: Print
         run: |
@@ -74,7 +76,14 @@ jobs:
       - name: Generate tar.gz
         env:
           SOC_VERSION: ascend910b1
+          SETUPTOOLS_SCM_PRETEND_VERSION: 0.30.0rc2
         run: |
+          sed -i \
+              -e 's/torch-npu==2\.10\.0\.post4/torch-npu==2.10.0.post7/g' \
+              -e 's/triton-ascend==3\.2\.2/triton-ascend==3.6.0+dev20260923230212/g' \
+              -e 's/memfabric_hybrid==1\.2\.0/memfabric_hybrid==1.3.0/g' \
+              -e 's/memcache_hybrid==1\.2\.0/memcache_hybrid==1.3.0/g' \
+              requirements.txt pyproject.toml
           python3 setup.py sdist
           ls dist
 
@@ -85,7 +94,7 @@ jobs:
           path: dist/*
 
       - name: Release
-        if: ${{ github.event_name == 'push' }}
+        if: ${{ inputs.publish == true && inputs.publish_pypi == true }}
         run: |
           python3 -m twine upload dist/* -u __token__ -p ${{ secrets.PYPI_TOKEN }}
 
@@ -93,7 +102,7 @@ jobs:
     name: build and release wheel
     strategy:
       matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm]
+        os: ${{ fromJSON(inputs.architecture == 'both' && '["ubuntu-24.04","ubuntu-24.04-arm"]' || inputs.architecture == 'arm64' && '["ubuntu-24.04-arm"]' || '["ubuntu-24.04"]') }}
         python-version: ["3.10", "3.11", "3.12"]
 
     runs-on: ${{ matrix.os }}
@@ -104,12 +113,12 @@ jobs:
         with:
           submodules: recursive
 
-      - name: checkout vllm-ascend ${{ inputs.tag }}
+      - name: checkout vllm-ascend from the selected branch
         if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/checkout@v7
         with:
           submodules: recursive
-          ref: ${{ inputs.tag }}
+          ref: ${{ github.sha }}
 
       - name: Free up disk space
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
@@ -123,7 +132,7 @@ jobs:
           docker build -f ./.github/workflows/dockerfiles/Dockerfile.buildwheel.a2 \
           --build-arg PY_VERSION=${{ matrix.python-version }} \
           -t wheel:v1 .
-          docker run --rm \
+          docker run --rm --entrypoint "" \
           -u "$(id -u):$(id -g)" \
           -v "$(pwd):/outpwd" \
           wheel:v1 \
@@ -170,17 +179,18 @@ jobs:
           path: dist/
 
       - name: Release
-        if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+        if: ${{ inputs.publish == true && inputs.publish_pypi == true }}
         run: |
           python3 -m pip install twine
           python3 -m twine upload --verbose dist/*.whl -u __token__ -p ${{ secrets.PYPI_TOKEN }}
 
 
   build_and_release_wheel_a3:
+    if: ${{ !inputs.a2_only }}
     name: build and release wheel (A3)
     strategy:
       matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm]
+        os: ${{ fromJSON(inputs.architecture == 'both' && '["ubuntu-24.04","ubuntu-24.04-arm"]' || inputs.architecture == 'arm64' && '["ubuntu-24.04-arm"]' || '["ubuntu-24.04"]') }}
         python-version: ["3.10", "3.11", "3.12"]
 
     runs-on: ${{ matrix.os }}
@@ -191,12 +201,12 @@ jobs:
         with:
           submodules: recursive
 
-      - name: checkout vllm-ascend ${{ inputs.tag }}
+      - name: checkout vllm-ascend from the selected branch
         if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/checkout@v7
         with:
           submodules: recursive
-          ref: ${{ inputs.tag }}
+          ref: ${{ github.sha }}
 
       - name: Free up disk space
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
@@ -210,7 +220,7 @@ jobs:
           docker build -f ./.github/workflows/dockerfiles/Dockerfile.buildwheel.a3 \
           --build-arg PY_VERSION=${{ matrix.python-version }} \
           -t wheel-a3:v1 .
-          docker run --rm \
+          docker run --rm --entrypoint "" \
           -u "$(id -u):$(id -g)" \
           -v "$(pwd):/outpwd" \
           wheel-a3:v1 \
@@ -224,8 +234,14 @@ jobs:
 
       - name: Repair wheels with auditwheel
         run: |
-          python3 -m pip install auditwheel patchelf
-          python3 .github/workflows/scripts/wheel/auto_exclude.py dist
+          docker run --rm --entrypoint "" \
+            -v "$(pwd):/outpwd" \
+            wheel-a3:v1 bash -e -c '
+              cd /workspace/vllm-ascend
+              python3 -m pip install auditwheel==6.8.2 patchelf==0.19.1.0
+              python3 .github/workflows/scripts/wheel/repair_a3_wheel.py /outpwd/dist
+            '
+          python3 -m pip install auditwheel==6.8.2
           ls dist
 
       - name: Verify automatic platform tags
@@ -258,10 +274,11 @@ jobs:
 
 
   build_and_release_wheel_310p:
+    if: ${{ !inputs.a2_only }}
     name: build and release wheel (310P)
     strategy:
       matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm]
+        os: ${{ fromJSON(inputs.architecture == 'both' && '["ubuntu-24.04","ubuntu-24.04-arm"]' || inputs.architecture == 'arm64' && '["ubuntu-24.04-arm"]' || '["ubuntu-24.04"]') }}
         python-version: ["3.10", "3.11", "3.12"]
 
     runs-on: ${{ matrix.os }}
@@ -272,12 +289,12 @@ jobs:
         with:
           submodules: recursive
 
-      - name: checkout vllm-ascend ${{ inputs.tag }}
+      - name: checkout vllm-ascend from the selected branch
         if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/checkout@v7
         with:
           submodules: recursive
-          ref: ${{ inputs.tag }}
+          ref: ${{ github.sha }}
 
       - name: Free up disk space
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
@@ -291,7 +308,7 @@ jobs:
           docker build -f ./.github/workflows/dockerfiles/Dockerfile.buildwheel.310p \
           --build-arg PY_VERSION=${{ matrix.python-version }} \
           -t wheel-310p:v1 .
-          docker run --rm \
+          docker run --rm --entrypoint "" \
           -u "$(id -u):$(id -g)" \
           -v "$(pwd):/outpwd" \
           wheel-310p:v1 \
@@ -339,10 +356,11 @@ jobs:
 
 
   build_and_release_wheel_a5:
+    if: ${{ !inputs.a2_only }}
     name: build and release wheel (A5)
     strategy:
       matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm]
+        os: ${{ fromJSON(inputs.architecture == 'both' && '["ubuntu-24.04","ubuntu-24.04-arm"]' || inputs.architecture == 'arm64' && '["ubuntu-24.04-arm"]' || '["ubuntu-24.04"]') }}
         python-version: ["3.10", "3.11", "3.12"]
 
     runs-on: ${{ matrix.os }}
@@ -353,12 +371,12 @@ jobs:
         with:
           submodules: recursive
 
-      - name: checkout vllm-ascend ${{ inputs.tag }}
+      - name: checkout vllm-ascend from the selected branch
         if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/checkout@v7
         with:
           submodules: recursive
-          ref: ${{ inputs.tag }}
+          ref: ${{ github.sha }}
 
       - name: Free up disk space
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
@@ -373,7 +391,7 @@ jobs:
           --build-arg PY_VERSION=${{ matrix.python-version }} \
           --build-arg MAX_JOBS=2 \
           -t wheel-a5:v1 .
-          docker run --rm \
+          docker run --rm --entrypoint "" \
           -u "$(id -u):$(id -g)" \
           -v "$(pwd):/outpwd" \
           wheel-a5:v1 \
@@ -423,7 +441,7 @@ jobs:
   generate_and_upload_variant_index:
     name: generate and upload variant index
     needs: [build_and_release_wheel, build_and_release_wheel_a3, build_and_release_wheel_310p, build_and_release_wheel_a5]
-    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ !cancelled() && !contains(needs.*.result, 'failure') && needs.build_and_release_wheel.result == 'success' }}
     runs-on: ubuntu-24.04
     steps:
       - name: Download all variant wheels
@@ -452,7 +470,14 @@ jobs:
           echo "Generated index files:"
           ls combined-variants/
 
+      - name: Archive variant wheels and index
+        uses: actions/upload-artifact@v7
+        with:
+          name: vllm-ascend-variants
+          path: combined-variants/
+
       - name: Upload wheels and variant index to OBS
+        if: ${{ inputs.publish == true }}
         env:
           OBS_ACCESS_KEY: ${{ secrets.OBS_ACCESS_KEY_ID }}
           OBS_SECRET_KEY: ${{ secrets.OBS_SECRET_ACCESS_KEY }}
