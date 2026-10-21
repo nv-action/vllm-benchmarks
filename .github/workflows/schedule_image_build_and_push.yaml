@@ -1,102 +1,29 @@
-# This is a docker build check and publish job:
-# 1. PR Triggered docker image build check
-#   - 'image-build' label should be added
-#   - is for image build check
-#   - Enable on main/releases branches
-#   - push: ${{ github.event_name != 'pull_request' }} ==> false
-# 2. manual dispatch builds the selected branch
-#   - publishes nightly-<branch>[-suffix]
-# 3. tags push trigger image publish
-#   - is for final release image
-#   - Publish when tag with v* (pep440 version)  ===>  vllm-ascend:v1.2.3 / vllm-ascend:v1.2.3rc1
-# Validation fork note: single-arch images and the merged multi-arch manifests
-# are pushed directly to quay.io/wjunlu/vllm-ascend-workflow. The upstream
-# Windows/SWR mirror sync is intentionally not used here.
-#
-# All dependency versions (CANN, torch-npu, triton-ascend, memcache, memfabric,
-# vLLM) are pinned in the root Dockerfiles. This workflow only selects the source
-# branch and does not accept or pass any version overrides.
-name: Image Build and Push
+name: Quay Permission Probe
+
 on:
-  push:
-    tags:
-      - 'v*'
-  pull_request:
-    branches:
-      - 'main'
-      - 'releases/*'
-    types: [ labeled ]
   workflow_dispatch:
-    inputs:
-      docker_ref:
-        description: 'Branch to build (validation branch, main or releases/*).'
-        default: "ci-unify-image-deps-pinning"
-        required: false
-        type: choice
-        options:
-          - 'ci-unify-image-deps-pinning'
-          - 'ci-unify-v0300'
-          - 'main'
-          - 'releases/v0.30.0'
-          - 'releases/v0.29.0rc'
-          - 'releases/v0.28.0rc'
-          - 'releases/v0.27.1rc'
-          - 'releases/v0.26.0rc'
-          - 'releases/v0.25.1rc'
-          - 'releases/v0.24.0rc'
-          - 'releases/v0.23.0'
-          - 'releases/v0.22.1rc'
-          - 'releases/v0.21.0rc'
-          - 'releases/v0.20.2rc'
-          - 'releases/v0.18.0'
 
 permissions:
-  packages: write
   contents: read
 
 jobs:
-  setup-matrix:
+  probe:
+    name: Push scratch image to validation registry
     runs-on: linux-amd64-cpu-2-hk
-    if: ${{ github.event_name != 'pull_request' || github.event.label.name == 'image-build' }}
-    outputs:
-      build_meta: ${{ steps.matrix.outputs.build_meta }}
     steps:
-      - name: Build image matrix
-        id: matrix
-        run: |
-          MATRIX=$(jq -nc '[
-            {name: "A2 Ubuntu",      dockerfile: "Dockerfile",               suffix: "",              soc: "910b"},
-            {name: "A3 Ubuntu",      dockerfile: "Dockerfile.a3",            suffix: "a3",            soc: "a3"},
-            {name: "310P Ubuntu",    dockerfile: "Dockerfile.310p",          suffix: "310p",          soc: "310p"},
-            {name: "A5 Ubuntu",      dockerfile: "Dockerfile.a5",            suffix: "a5",            soc: "950"},
-            {name: "A2 openeuler",   dockerfile: "Dockerfile.openEuler",     suffix: "openeuler",     soc: "910b"},
-            {name: "A3 openEuler",   dockerfile: "Dockerfile.a3.openEuler",  suffix: "a3-openeuler",  soc: "a3"},
-            {name: "310P openEuler", dockerfile: "Dockerfile.310p.openEuler",suffix: "310p-openeuler",soc: "310p"},
-            {name: "A5 openEuler",   dockerfile: "Dockerfile.a5.openEuler",  suffix: "a5-openeuler",  soc: "950"}
-          ]')
-          echo "build_meta=$MATRIX" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v7
 
-  image_build:
-    name: ${{ matrix.build_meta.name }}
-    needs: setup-matrix
-    if: ${{ !(github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'image-build')) }}
-    strategy:
-      fail-fast: false
-      max-parallel: 8
-      matrix:
-        build_meta: ${{ fromJSON(needs.setup-matrix.outputs.build_meta) }}
-    uses: ./.github/workflows/_schedule_image_build.yaml
-    with:
-      dockerfile: ${{ matrix.build_meta.dockerfile }}
-      suffix: ${{ matrix.build_meta.suffix }}
-      soc: ${{ matrix.build_meta.soc }}
-      should_push: ${{ github.event_name != 'pull_request' }}
-      branch_ref: ${{ inputs.docker_ref }}
-      schedule_tag_pattern: 'main'
-      swr_registry: 'quay.io'
-      swr_repo: 'quay.io/wjunlu/vllm-ascend-workflow'
-      swr_temp_repo: 'quay.io/wjunlu/vllm-ascend-workflow'
-      registry_username: ${{ vars.QUAY_TEMP_USERNAME }}
-      cache_scope: ${{ inputs.docker_ref }}
-    secrets:
-      REGISTRY_PASSWORD: ${{ secrets.QUAY_TEMP_PASSWORD }}
+      - name: Login to validation registry
+        uses: docker/login-action@v4
+        with:
+          registry: quay.io
+          username: ${{ vars.QUAY_TEMP_USERNAME }}
+          password: ${{ secrets.QUAY_TEMP_PASSWORD }}
+
+      - name: Push permission probe
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: .github/workflows/dockerfiles/Dockerfile.probe
+          push: true
+          tags: quay.io/wjunlu/vllm-ascend-workflow:permission-probe

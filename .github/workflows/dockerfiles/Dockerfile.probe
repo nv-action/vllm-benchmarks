@@ -1,0 +1,2 @@
+FROM scratch
+LABEL org.opencontainers.image.description="Quay push permission probe"
