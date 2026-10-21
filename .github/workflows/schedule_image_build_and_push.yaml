@@ -9,7 +9,7 @@ permissions:
 jobs:
   probe:
     name: Push scratch image to validation registry
-    runs-on: linux-amd64-cpu-2-hk
+    runs-on: linux-amd64-cpu-4
     steps:
       - uses: actions/checkout@v7
 
