@@ -56,7 +56,7 @@ ENV SOC_VERSION=$SOC_VERSION \
     TASK_QUEUE_ENABLE=1 \
     OMP_NUM_THREADS=1
 COPY . /vllm-workspace/vllm-ascend/
-ARG ASCEND_INDEX_URL="https://mirrors.huaweicloud.com/ascend/repos/pypi"
+ARG ASCEND_INDEX_URL="https://repo.huaweicloud.com/ascend/repos/pypi"
 ARG TRITON_ASCEND_VERSION="3.6.0"
 ARG COMPILE_CUSTOM_KERNELS=1
 RUN export PIP_EXTRA_INDEX_URL="${ASCEND_INDEX_URL}" && \
