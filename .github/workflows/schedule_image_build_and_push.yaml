@@ -9,9 +9,9 @@
 # 3. tags push trigger image publish
 #   - is for final release image
 #   - Publish when tag with v* (pep440 version)  ===>  vllm-ascend:v1.2.3 / vllm-ascend:v1.2.3rc1
-# Note: single-arch images are built and pushed to swr.cn-north-12, merged into a
-# multi-arch manifest and pushed to swr.cn-north-12 (same repo path as quay.io);
-# the sync tool then mirrors swr.cn-north-12 -> quay.io.
+# Validation fork note: single-arch images and the merged multi-arch manifests
+# are pushed directly to quay.io/wjunlu/vllm-ascend-workflow. The upstream
+# Windows/SWR mirror sync is intentionally not used here.
 #
 # All dependency versions (CANN, torch-npu, triton-ascend, memcache, memfabric,
 # vLLM) are pinned in the root Dockerfiles. This workflow only selects the source
@@ -29,11 +29,13 @@ on:
   workflow_dispatch:
     inputs:
       docker_ref:
-        description: 'Branch to build (main or releases/*).'
-        default: "main"
+        description: 'Branch to build (validation branch, main or releases/*).'
+        default: "ci-unify-image-deps-pinning"
         required: false
         type: choice
         options:
+          - 'ci-unify-image-deps-pinning'
+          - 'ci-unify-v0300'
           - 'main'
           - 'releases/v0.30.0'
           - 'releases/v0.29.0rc'
@@ -88,10 +90,13 @@ jobs:
       dockerfile: ${{ matrix.build_meta.dockerfile }}
       suffix: ${{ matrix.build_meta.suffix }}
       soc: ${{ matrix.build_meta.soc }}
-      should_push: ${{ github.repository == 'vllm-project/vllm-ascend' && github.event_name != 'pull_request' }}
+      should_push: ${{ github.event_name != 'pull_request' }}
       branch_ref: ${{ inputs.docker_ref }}
       schedule_tag_pattern: 'main'
+      swr_registry: 'quay.io'
+      swr_repo: 'quay.io/wjunlu/vllm-ascend-workflow'
+      swr_temp_repo: 'quay.io/wjunlu/vllm-ascend-workflow'
+      registry_username: ${{ vars.QUAY_TEMP_USERNAME }}
+      cache_scope: ${{ inputs.docker_ref }}
     secrets:
-      SWR_USERNAME: ${{ secrets.SWR_USERNAME }}
-      SWR_PASSWORD: ${{ secrets.SWR_PASSWORD }}
-      SYNC_TOOLS_TOKEN: ${{ secrets.SYNC_TOOLS_TOKEN }}
+      REGISTRY_PASSWORD: ${{ secrets.QUAY_TEMP_PASSWORD }}
