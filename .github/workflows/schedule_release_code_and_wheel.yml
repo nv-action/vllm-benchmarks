@@ -11,11 +11,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
-      - name: Free disk space for the CANN image
-        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be
-        with:
-          tool-cache: true
-          docker-images: false
+      - name: Check available disk space
+        run: df -h /
       - name: Inspect the exact failed A5 image
         run: |
           docker run --rm -i --entrypoint "" \
@@ -31,7 +28,20 @@ jobs:
           print('CANN_ROOT:', root, flush=True)
           print('LD_LIBRARY_PATH:', os.environ['LD_LIBRARY_PATH'], flush=True)
           print('COMPILER_VERSION:', (root / 'compiler/version.info').read_text(), flush=True)
-          paths = sorted(root.rglob('liboptiling*.so*'))
+          for child in sorted(root.iterdir()):
+              print('CANN_ENTRY:', child, 'TARGET:', child.resolve(), 'SYMLINK:', child.is_symlink(), flush=True)
+          seen = set()
+          paths = []
+          for folder, subdirs, files in os.walk('/usr/local/Ascend', followlinks=True):
+              real = os.path.realpath(folder)
+              if real in seen:
+                  subdirs[:] = []
+                  continue
+              seen.add(real)
+              for name in files:
+                  if name.startswith('liboptiling') and '.so' in name:
+                      paths.append(pathlib.Path(folder) / name)
+          paths.sort()
           print('OPTILING_FILES:', len(paths), flush=True)
           for path in paths:
               print('FILE:', path, 'TARGET:', path.resolve(), 'EXISTS:', path.exists(), flush=True)
@@ -45,14 +55,8 @@ jobs:
           env = dict(os.environ, LD_LIBRARY_PATH=':'.join(dirs + [os.environ['LD_LIBRARY_PATH']]))
           result = subprocess.run([sys.executable, '-c', 'import ctypes; ctypes.CDLL("liboptiling.so"); print("EXTRA_PATH_LOAD_OK")'], env=env, check=False)
           print('EXTRA_PATH_RESULT:', result.returncode, flush=True)
-          for path in root.rglob('*.py'):
-              if 'install' not in path.name and 'check' not in path.name:
-                  continue
-              try:
-                  text = path.read_text(errors='replace')
-              except OSError:
-                  continue
-              if 'Failed to load' in text and 'CDLL' in text:
-                  print('VALIDATOR_SOURCE:', path, flush=True)
-                  print(text, flush=True)
+          for folder in dirs:
+              env = dict(os.environ, LD_LIBRARY_PATH=folder + ':' + os.environ['LD_LIBRARY_PATH'])
+              result = subprocess.run([sys.executable, '-c', 'import ctypes; ctypes.CDLL("liboptiling.so")'], env=env, check=False, capture_output=True, text=True)
+              print('SINGLE_DIR:', folder, 'RESULT:', result.returncode, 'ERROR:', result.stderr.strip(), flush=True)
           PY
