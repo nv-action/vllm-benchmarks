@@ -42,7 +42,7 @@ on:
         description: how many pods will be pulled up via lws.yaml, indicates number of nodes we need
       vllm_ascend_remote_url:
         required: false
-        default: https://github.com/vllm-project/vllm-ascend.git
+        default: https://github.com/nv-action/vllm-benchmarks.git
         type: string
         description: used for pr level tests
       vllm_ascend_ref:
@@ -176,7 +176,7 @@ jobs:
     runs-on: ${{ inputs.runner }}
     if: ${{ inputs.should_run }}
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-cpu
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend@sha256:c699e6cb3695f52659485075d3d8f12d05d61d453fb7f761c8955f74e950a631
       env:
         KUBECONFIG: /tmp/kubeconfig
         NAMESPACE: vllm-project
@@ -187,6 +187,16 @@ jobs:
 
       - name: Checkout code
         uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.vllm_ascend_ref || github.sha }}
+
+      - name: Verify ARM64 controller and cluster access
+        run: |
+          echo "[Controller] runner=${{ runner.name }} architecture=$(uname -m)"
+          test "$(uname -m)" = aarch64
+          kubectl version --client
+          test "$(kubectl auth can-i create leaderworkersets -n "$NAMESPACE")" = yes
+          kubectl get pvc vllm-project-hk001 -n "$NAMESPACE"
 
       - name: Configure profiling
         id: profiling
@@ -235,10 +245,10 @@ jobs:
 
       - name: Prepare scripts
         run: |
-          install -D tests/e2e/common/multi_node/run.sh /root/.cache/tests/run.sh
-          install -D tests/e2e/common/multi_node/download_archive.sh /root/.cache/tests/download_archive.sh
-          install -D tests/e2e/nightly/scripts/bisect_args.sh /root/.cache/tests/bisect_args.sh
-          install -D .github/workflows/scripts/collect_download.py /root/.cache/tests/collect_download.py
+          install -D tests/e2e/common/multi_node/run.sh "$LOG_PREFIX/validation-source/run.sh"
+          install -D tests/e2e/common/multi_node/download_archive.sh "$LOG_PREFIX/validation-source/download_archive.sh"
+          install -D tests/e2e/nightly/scripts/bisect_args.sh "$LOG_PREFIX/validation-source/bisect_args.sh"
+          install -D .github/workflows/scripts/collect_download.py "$LOG_PREFIX/validation-source/collect_download.py"
 
       - name: Clear resources
         run: |
@@ -571,6 +581,10 @@ jobs:
                 exit 1
               fi
             done
+            if ! grep -Fxq "VALIDATION_RUN_FINISHED:${LOG_PREFIX}:0" "$LEADER_TMP"; then
+              echo "::error::Leader did not finish successfully."
+              exit 1
+            fi
           fi
 
           eval "$(awk '
@@ -691,7 +705,7 @@ jobs:
               fi
               echo "Archiving requested path from $pod: $requested_path"
               if ! kubectl exec "$pod" -c "$container" -n "$NAMESPACE" -- \
-                  /bin/bash /root/.cache/tests/download_archive.sh --strict; then
+                  /bin/bash "$LOG_PREFIX/validation-source/download_archive.sh" --strict; then
                 echo "::warning::Could not archive $requested_path from $pod before deletion"
               fi
             done < <(python3 .github/workflows/scripts/collect_download.py \

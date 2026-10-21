@@ -113,7 +113,7 @@ env:
   # NOTE: GitHub Actions does not support env context in reusable workflow `with:` inputs,
   # so these values are exported as job outputs via the `setup-vars` job below.
   CANN_IMAGE: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-910b-ubuntu22.04-py3.12'
-  ASCEND_LOG_PREFIX: '/root/.cache/ascend-logs'
+  ASCEND_LOG_PREFIX: '/root/.cache/ascend-logs/${{ github.run_id }}/${{ github.run_attempt }}'
 
 jobs:
   parse-trigger:
@@ -175,7 +175,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7 
         with:
-          ref: ${{ inputs.vllm_ascend_branch }}
+          ref: ${{ inputs.vllm_ascend_ref || github.sha }}
 
       - name: Checkout PR code
         if: github.event_name == 'workflow_dispatch' && inputs.vllm_ascend_ref != ''
@@ -253,8 +253,9 @@ jobs:
     uses: ./.github/workflows/_e2e_nightly_multi_node.yaml
     with:
       soc_version: a2
-      runner: linux-amd64-cpu-8-hk
-      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a2'
+      runner: linux-aarch64-a2b3-0
+      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend@sha256:a99d00ed8626133bd6d711336f0b1e61d1ce3d89b6575f2386040fafdee72c3d'
+      vllm_ascend_remote_url: 'https://github.com/${{ github.repository }}.git'
       ascend_log_prefix: ${{ needs.setup-vars.outputs.ascend_log_prefix }}/${{ matrix.vllm_ascend_branch }}
       vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
       request_id: ${{ inputs.request_id || '' }}

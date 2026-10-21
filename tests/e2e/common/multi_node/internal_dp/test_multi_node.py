@@ -24,6 +24,7 @@ from tests.e2e.common.multi_node.internal_dp.multi_node_config import (
 from tests.e2e.conftest import RemoteOpenAIServer
 from tests.e2e.nightly.scripts.result_postprocess import postprocess_benchmark_results
 from tools.aisbench import run_aisbench_cases
+from tools.ci_inference_smoke import run_inference_smoke
 from tools.profiling.capture import ProfileSpec, ServeInstance, ServeManifest, configure_profiler_command, profile_root
 
 logger = logging.getLogger(__name__)
@@ -230,6 +231,10 @@ async def test_multi_node() -> None:
         host, port = config.benchmark_endpoint
 
         if config.is_master:
+            if not config.benchmark_cases:
+                with server.get_client(timeout=180) as client:
+                    run_inference_smoke(client, config.model)
+                return
             results = run_aisbench_cases(
                 model=config.model,
                 port=port,

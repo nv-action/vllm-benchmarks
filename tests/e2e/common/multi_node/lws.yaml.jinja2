@@ -46,7 +46,7 @@ spec:
               - name: VLLM_ASCEND_REF
                 value: {{ vllm_ascend_ref | default("main") }}
               - name: VLLM_ASCEND_REMOTE_URL
-                value: {{ vllm_ascend_remote_url | default("https://github.com/vllm-project/vllm-ascend.git") }}
+                value: {{ vllm_ascend_remote_url | default("https://github.com/nv-action/vllm-benchmarks.git") }}
               - name: VLLM_REF
                 value: "{{ vllm_ref | default("") }}"
               - name: BENCHMARK_JOB_NAME
@@ -87,7 +87,7 @@ spec:
               - sh
               - -c
               - |
-                bash /root/.cache/tests/run.sh \
+                bash "$LOG_PREFIX/validation-source/run.sh" \
                   "{{ soc_version | default("") }}" \
                   "{{ max_good_age_days | default("3") }}"
 {% set soc = soc_version | default("a3") | lower %}
@@ -176,7 +176,7 @@ spec:
               - name: VLLM_ASCEND_REF
                 value: {{ vllm_ascend_ref | default("main") }}
               - name: VLLM_ASCEND_REMOTE_URL
-                value: {{ vllm_ascend_remote_url | default("https://github.com/vllm-project/vllm-ascend.git") }}
+                value: {{ vllm_ascend_remote_url | default("https://github.com/nv-action/vllm-benchmarks.git") }}
               - name: VLLM_REF
                 value: "{{ vllm_ref | default("") }}"
               - name: BENCHMARK_JOB_NAME
@@ -209,7 +209,7 @@ spec:
               - sh
               - -c
               - |
-                bash /root/.cache/tests/run.sh \
+                bash "$LOG_PREFIX/validation-source/run.sh" \
                   "{{ soc_version | default("") }}" \
                   "{{ max_good_age_days | default("3") }}"
 {% set soc = soc_version | default("a3") | lower %}

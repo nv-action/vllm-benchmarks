@@ -137,7 +137,6 @@ check_npu_info() {
 
 check_and_config() {
     echo "====> Configure mirrors and git proxy"
-    git config --global url."https://ghfast.top/https://github.com/".insteadOf "https://github.com/"
     pip config set global.index-url https://mirrors.huaweicloud.com/repository/pypi/simple/
     pip config set global.trusted-host mirrors.huaweicloud.com
     export PIP_EXTRA_INDEX_URL="https://mirrors.huaweicloud.com/ascend/repos/pypi"
@@ -205,22 +204,20 @@ checkout_src() {
     echo "====> Checkout source code"
     mkdir -p "$WORKSPACE"
     cd "$WORKSPACE"
+    echo "[Source] image baseline=$(git -C "$WORKSPACE/vllm-ascend" rev-parse HEAD)"
     pip uninstall -y vllm-ascend || true
     cp -r "$WORKSPACE/vllm-ascend/benchmark" /tmp/aisbench-backup || true
     rm -rf "$WORKSPACE/vllm-ascend"
 
     if [ ! -d "$WORKSPACE/vllm-ascend" ]; then
         echo "Cloning vllm-ascend from $VLLM_ASCEND_REMOTE_URL"
-        git clone --depth 1 --recurse-submodules "$VLLM_ASCEND_REMOTE_URL" "$WORKSPACE/vllm-ascend"
+        git init "$WORKSPACE/vllm-ascend"
         cd "$WORKSPACE/vllm-ascend"
-        PR_REF=$(git ls-remote origin 'refs/pull/*/head' | grep "^${VLLM_ASCEND_REF}" | awk '{print $2}' | head -1)
-        if [ -n "$PR_REF" ]; then
-            git fetch --depth 1 origin "$PR_REF"
-            git checkout FETCH_HEAD
-        else
-            git fetch origin '+refs/pull/*/head:refs/remotes/pull/*' 2>/dev/null || true
-            git checkout "$VLLM_ASCEND_REF"
-        fi
+        git remote add origin "$VLLM_ASCEND_REMOTE_URL"
+        git fetch --depth 1 origin "$VLLM_ASCEND_REF"
+        git checkout --detach FETCH_HEAD
+        echo "[Source] expected=$VLLM_ASCEND_REF actual=$(git rev-parse HEAD)"
+        test "$(git rev-parse HEAD)" = "$VLLM_ASCEND_REF"
         git submodule update --init --recursive
     fi
 }
@@ -611,6 +608,7 @@ finish_without_aop() {
     local rc=$?
     backup_ascend_logs || true
     backup_requested_directory || true
+    echo "VALIDATION_RUN_FINISHED:${LOG_PREFIX}:${rc}"
     return "$rc"
 }
 
@@ -629,7 +627,9 @@ main() {
     if [[ "$IS_PR_TEST" == "true" ]]; then
         checkout_src
         install_vllm_ascend
-        install_aisbench
+        # Private smoke validation does not run AISBench.
+        cd "$WORKSPACE/vllm-ascend"
+        python3 -c 'import pathlib, vllm_ascend; path = pathlib.Path(vllm_ascend.__file__).resolve(); print(f"[Source] vllm_ascend={path}"); assert path.is_relative_to(pathlib.Path.cwd())'
     fi
     show_vllm_info
     show_triton_ascend_info
