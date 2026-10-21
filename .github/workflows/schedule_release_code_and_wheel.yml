@@ -9,54 +9,163 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
-      - name: Check available disk space
-        run: df -h /
-      - name: Inspect the exact failed A5 image
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - name: Select the release Catlass revision
         run: |
-          docker run --rm -i --entrypoint "" \
+          catlass_commit=$(git config -f .gitmodules --get submodule.csrc/third_party/catlass.commit)
+          git -C csrc/third_party/catlass fetch origin "$catlass_commit"
+          git -C csrc/third_party/catlass checkout --detach "$catlass_commit"
+      - name: Inspect A5 host library dependencies without publishing
+        shell: bash
+        run: |
+          set -eo pipefail
+          mkdir -p diagnostic
+          docker run --rm -i --entrypoint "" -v "$GITHUB_WORKSPACE:/workspace" -w /workspace \
             quay.io/ascend/manylinux:9.2.0-950-manylinux_2_34-py3.11@sha256:5d5aec47c2de83c0aa68062f85f6edf9d07eea2d864137394a72e63c93a3f0e5 \
-            bash -c 'source /usr/local/Ascend/ascend-toolkit/set_env.sh && source /usr/local/Ascend/nnal/atb/set_env.sh && export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/usr/local/Ascend/ascend-toolkit/latest/$(uname -i)-linux/devlib" && python3 -' <<'PY'
-          import ctypes
+            bash -s <<'SH' 2>&1 | tee diagnostic/probe.log
+          set -eo pipefail
+          source /usr/local/Ascend/ascend-toolkit/set_env.sh
+          source /usr/local/Ascend/nnal/atb/set_env.sh
+          export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/usr/local/Ascend/ascend-toolkit/latest/$(uname -i)-linux/devlib"
+          export CPATH="/workspace/csrc/third_party/catlass/include${CPATH:+:$CPATH}"
+          export SOC_VERSION=ascend950dt_9582 MAX_JOBS=2 CMAKE_BUILD_PARALLEL_LEVEL=2
+          python3 - <<'PY'
           import os
           import pathlib
+          import shutil
+
+          scripts = pathlib.Path(os.environ['ASCEND_HOME_PATH']) / 'x86_64-linux/tikcpp/ascendc_kernel_cmake/fwk_modules/scripts'
+          print('DEVKIT_SCRIPTS:', scripts, scripts.exists(), flush=True)
+          shutil.copytree(scripts, 'diagnostic/devkit-scripts', dirs_exist_ok=True)
+          for path in sorted(scripts.rglob('*')):
+              if path.suffix not in ('.sh', '.py'):
+                  continue
+              lines = path.read_text(errors='replace').splitlines()
+              matches = [i for i, line in enumerate(lines) if any(key in line for key in ('validate shared', 'Failed to load', 'CDLL', 'Shared library validation', 'def validate'))]
+              selected = set()
+              for i in matches:
+                  selected.update(range(max(0, i - 15), min(len(lines), i + 25)))
+              for i in sorted(selected):
+                  print(f'DEVKIT_SOURCE: {path.name}:{i + 1}: {lines[i]}', flush=True)
+          PY
+          python3 -m pip install cmake==4.4.4 patchelf regex numpy==1.26.4 sympy packaging decorator attrs psutil jinja2 pyyaml
+          selected_ops=$(python3 - <<'PY'
+          import pathlib
+          import re
+
+          source = pathlib.Path('csrc/build_aclnn.sh').read_text()
+          branch = source.split('elif [[ "$SOC_VERSION" =~ ^ascend950 ]]; then', 1)[1]
+          array = branch.split('CUSTOM_OPS_ARRAY=(', 1)[1].split(')', 1)[0]
+          print(';'.join(re.findall(r'"([a-z0-9_]+)"', array)))
+          PY
+          )
+          printf 'SELECTED_OPS: %s\n' "$selected_ops"
+          cmake -S csrc -B csrc/build \
+            -DBUILD_OPEN_PROJECT=ON -DASCEND_OP_NAME="$selected_ops" \
+            -DCANN_3RD_LIB_PATH=/workspace/csrc/third_party \
+            -DCUSTOM_ASCEND_CANN_PACKAGE_PATH="$ASCEND_HOME_PATH" \
+            -DCHECK_COMPATIBLE=true '-DASCEND_COMPUTE_UNIT=ascend950;' \
+            -DENABLE_BUILT_IN=OFF -DENABLE_OPS_HOST=ON \
+            -DENABLE_OPS_KERNEL=ON -DENABLE_BUILD_PKG=ON
+          LD_LIBRARY_PATH="/workspace/csrc/build:$LD_LIBRARY_PATH" \
+            cmake --build csrc/build --target cust_opmaster optiling_compat modify_vendor -j2
+          cp csrc/build/libcust_opmaster_rt2.0.so csrc/build/liboptiling.so diagnostic/
+          cp csrc/build/CMakeFiles/cust_opmaster.dir/link.txt diagnostic/
+          cp -r csrc/build/scripts diagnostic/package-scripts
+          readelf -d csrc/build/libcust_opmaster_rt2.0.so > diagnostic/dynamic.txt
+          nm -D csrc/build/libcust_opmaster_rt2.0.so > diagnostic/symbols.txt
+          cat diagnostic/dynamic.txt
+          cat diagnostic/link.txt
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import shutil
           import subprocess
           import sys
 
-          root = pathlib.Path(os.environ['ASCEND_HOME_PATH']).resolve()
-          print('CANN_ROOT:', root, flush=True)
-          print('LD_LIBRARY_PATH:', os.environ['LD_LIBRARY_PATH'], flush=True)
-          print('COMPILER_VERSION:', (root / 'compiler/version.info').read_text(), flush=True)
-          for child in sorted(root.iterdir()):
-              print('CANN_ENTRY:', child, 'TARGET:', child.resolve(), 'SYMLINK:', child.is_symlink(), flush=True)
-          seen = set()
-          paths = []
-          for folder, subdirs, files in os.walk('/usr/local/Ascend', followlinks=True):
-              real = os.path.realpath(folder)
-              if real in seen:
-                  subdirs[:] = []
-                  continue
-              seen.add(real)
-              for name in files:
-                  if name.startswith('liboptiling') and '.so' in name:
-                      paths.append(pathlib.Path(folder) / name)
-          paths.sort()
-          print('OPTILING_FILES:', len(paths), flush=True)
-          for path in paths:
-              print('FILE:', path, 'TARGET:', path.resolve(), 'EXISTS:', path.exists(), flush=True)
-          for library in ['liboptiling.so'] + [str(path) for path in paths if path.exists()]:
-              try:
-                  ctypes.CDLL(library)
-                  print('LOAD_OK:', library, flush=True)
-              except OSError as error:
-                  print('LOAD_ERROR:', library, str(error), flush=True)
-          dirs = sorted({str(path.parent) for path in paths if path.exists()})
-          env = dict(os.environ, LD_LIBRARY_PATH=':'.join(dirs + [os.environ['LD_LIBRARY_PATH']]))
-          result = subprocess.run([sys.executable, '-c', 'import ctypes; ctypes.CDLL("liboptiling.so"); print("EXTRA_PATH_LOAD_OK")'], env=env, check=False)
-          print('EXTRA_PATH_RESULT:', result.returncode, flush=True)
-          for folder in dirs:
-              env = dict(os.environ, LD_LIBRARY_PATH=folder + ':' + os.environ['LD_LIBRARY_PATH'])
-              result = subprocess.run([sys.executable, '-c', 'import ctypes; ctypes.CDLL("liboptiling.so")'], env=env, check=False, capture_output=True, text=True)
-              print('SINGLE_DIR:', folder, 'RESULT:', result.returncode, 'ERROR:', result.stderr.strip(), flush=True)
+          build = pathlib.Path('/workspace/csrc/build')
+          library = build / 'libcust_opmaster_rt2.0.so'
+          stub = build / 'liboptiling.so'
+          compat = pathlib.Path('/workspace/diagnostic/package/op_tiling')
+          nested = compat / 'lib/linux/x86_64'
+          nested.mkdir(parents=True, exist_ok=True)
+          shutil.copy2(library, nested / library.name)
+          (compat / 'liboptiling.so').symlink_to('lib/linux/x86_64/' + library.name)
+          removed = pathlib.Path('/workspace/diagnostic/without-optiling.so')
+          shutil.copy2(library, removed)
+          subprocess.run(['patchelf', '--remove-needed', 'liboptiling.so', str(removed)], check=True)
+
+          def symbols(path, option):
+              text = subprocess.check_output(['nm', '-D', option, str(path)], text=True)
+              return {line.split()[-1].split('@')[0] for line in text.splitlines() if line.split()}
+
+          used = symbols(library, '--undefined-only') & symbols(stub, '--defined-only')
+          print('REFERENCED_STUB_SYMBOLS:', sorted(used), flush=True)
+          for name, target, extra in (
+              ('original', library, ''),
+              ('build-stub-path', library, str(build)),
+              ('packaged-compat-path', nested / library.name, str(compat)),
+              ('packaged-alias-direct', compat / 'liboptiling.so', ''),
+              ('removed-needed', removed, ''),
+          ):
+              env = dict(os.environ)
+              if extra:
+                  env['LD_LIBRARY_PATH'] = extra + ':' + env['LD_LIBRARY_PATH']
+              code = 'import ctypes, sys; ctypes.CDLL(sys.argv[1]); print("LOAD_OK")'
+              result = subprocess.run([sys.executable, '-c', code, str(target)], env=env, capture_output=True, text=True)
+              print('LOAD_CASE:', name, 'RESULT:', result.returncode, 'STDOUT:', result.stdout.strip(), 'STDERR:', result.stderr.strip(), flush=True)
+              result = subprocess.run(['ldd', '-r', str(target)], env=env, capture_output=True, text=True)
+              pathlib.Path('diagnostic/ldd-' + name + '.txt').write_text(result.stdout + result.stderr)
+              for line in (result.stdout + result.stderr).splitlines():
+                  if 'not found' in line or 'undefined symbol' in line:
+                      print('LDD_CASE:', name, line, flush=True)
+
+          cmake_file = pathlib.Path('csrc/cmake/custom_build.cmake')
+          source = cmake_file.read_text()
+          marker = 'if(BUILD_WITH_3_8_PACKAGE)\ntarget_link_libraries(\n    cust_opmaster'
+          start = source.index(marker)
+          end = source.index('else ()', start)
+          dependency = '    PRIVATE $<$<BOOL:${BUILD_WITH_INSTALLED_DEPENDENCY_CANN_PKG}>:$<BUILD_INTERFACE:optiling>>\n'
+          assert source[start:end].count(dependency) == 1
+          cmake_file.write_text(source[:start] + source[start:end].replace(dependency, '') + source[end:])
+          patch = subprocess.check_output(['git', '-c', 'safe.directory=/workspace', 'diff', '--', str(cmake_file)], text=True)
+          pathlib.Path('diagnostic/candidate.patch').write_text(patch)
+          print('CANDIDATE_PATCH:', patch, flush=True)
+          build_env = dict(os.environ, LD_LIBRARY_PATH=str(build) + ':' + os.environ['LD_LIBRARY_PATH'])
+          subprocess.run(['cmake', '--build', str(build), '--target', 'cust_opmaster', '-j2'], env=build_env, check=True)
+          fixed = pathlib.Path('/workspace/diagnostic/fixed-cust-opmaster.so')
+          shutil.copy2(library, fixed)
+          dynamic = subprocess.check_output(['readelf', '-d', str(fixed)], text=True)
+          pathlib.Path('diagnostic/fixed-dynamic.txt').write_text(dynamic)
+          assert 'Shared library: [liboptiling.so]' not in dynamic
+          result = subprocess.run([sys.executable, '-c', code, str(fixed)], capture_output=True, text=True)
+          print('FIXED_SOURCE_LOAD:', result.returncode, result.stdout.strip(), result.stderr.strip(), flush=True)
+          result.check_returncode()
+          result = subprocess.run(['ldd', '-r', str(fixed)], capture_output=True, text=True)
+          pathlib.Path('diagnostic/fixed-ldd.txt').write_text(result.stdout + result.stderr)
+          assert 'not found' not in result.stdout + result.stderr
+          assert 'undefined symbol' not in result.stdout + result.stderr
+          print('FIXED_SOURCE_LDD_OK', flush=True)
+          installer = pathlib.Path('diagnostic/package-scripts/install.sh').read_text()
+          functions = installer[installer.index('log() {'):installer.index('set_install_for_all_mod() {')]
+          validation = functions + '\nsourcedir=/workspace/diagnostic/package\nvendordir=vendors/custom_transformer\nvalidate_so_dlopen "$1" libcust_opmaster_rt2.0.so\n'
+          isolated = pathlib.Path('/workspace/diagnostic/fixed-package/libcust_opmaster_rt2.0.so')
+          isolated.parent.mkdir(parents=True, exist_ok=True)
+          shutil.copy2(fixed, isolated)
+          for name, target, expected_success in (('original', nested / library.name, False), ('fixed', isolated, True)):
+              result = subprocess.run(['bash', '-c', validation, '--', str(target)], capture_output=True, text=True)
+              print('CANN_VALIDATOR:', name, 'RESULT:', result.returncode, result.stdout.strip(), result.stderr.strip(), flush=True)
+              assert (result.returncode == 0) == expected_success
           PY
+          SH
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: a5-optiling-host-diagnostic
+          path: diagnostic/
+          retention-days: 7
