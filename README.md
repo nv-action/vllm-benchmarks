@@ -1,126 +1,66 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/vllm-project/vllm-ascend/main/docs/source/logos/vllm-ascend-logo-text-dark.png">
-    <img alt="vllm-ascend" src="https://raw.githubusercontent.com/vllm-project/vllm-ascend/main/docs/source/logos/vllm-ascend-logo-text-light.png" width=55%>
-  </picture>
-</p>
+# BoostKit Performance Evaluation
 
-<h3 align="center">
-vLLM Ascend Plugin
-</h3>
+本项目通过 GitHub Actions 在专用 Runner 上运行开源软件的 x86_64 与 aarch64 性能测试，生成单架构结果和跨架构报告。软件注册在 `config/categories.yaml`，各软件的版本、测试入口和指标由其 `case.yaml` 声明。
 
-<div align="center">
+## 运行测试
 
-[![DeepWiki](https://img.shields.io/badge/DeepWiki-Ask_AI-_.svg?style=flat&color=0052D9&labelColor=000000&logo=data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACwAAAAyCAYAAAAnWDnqAAAAAXNSR0IArs4c6QAAA05JREFUaEPtmUtyEzEQhtWTQyQLHNak2AB7ZnyXZMEjXMGeK/AIi+QuHrMnbChYY7MIh8g01fJoopFb0uhhEqqcbWTp06/uv1saEDv4O3n3dV60RfP947Mm9/SQc0ICFQgzfc4CYZoTPAswgSJCCUJUnAAoRHOAUOcATwbmVLWdGoH//PB8mnKqScAhsD0kYP3j/Yt5LPQe2KvcXmGvRHcDnpxfL2zOYJ1mFwrryWTz0advv1Ut4CJgf5uhDuDj5eUcAUoahrdY/56ebRWeraTjMt/00Sh3UDtjgHtQNHwcRGOC98BJEAEymycmYcWwOprTgcB6VZ5JK5TAJ+fXGLBm3FDAmn6oPPjR4rKCAoJCal2eAiQp2x0vxTPB3ALO2CRkwmDy5WohzBDwSEFKRwPbknEggCPB/imwrycgxX2NzoMCHhPkDwqYMr9tRcP5qNrMZHkVnOjRMWwLCcr8ohBVb1OMjxLwGCvjTikrsBOiA6fNyCrm8V1rP93iVPpwaE+gO0SsWmPiXB+jikdf6SizrT5qKasx5j8ABbHpFTx+vFXp9EnYQmLx02h1QTTrl6eDqxLnGjporxl3NL3agEvXdT0WmEost648sQOYAeJS9Q7bfUVoMGnjo4AZdUMQku50McDcMWcBPvr0SzbTAFDfvJqwLzgxwATnCgnp4wDl6Aa+Ax283gghmj+vj7feE2KBBRMW3FzOpLOADl0Isb5587h/U4gGvkt5v60Z1VLG8BhYjbzRwyQZemwAd6cCR5/XFWLYZRIMpX39AR0tjaGGiGzLVyhse5C9RKC6ai42ppWPKiBagOvaYk8lO7DajerabOZP46Lby5wKjw1HCRx7p9sVMOWGzb/vA1hwiWc6jm3MvQDTogQkiqIhJV0nBQBTU+3okKCFDy9WwferkHjtxib7t3xIUQtHxnIwtx4mpg26/HfwVNVDb4oI9RHmx5WGelRVlrtiw43zboCLaxv46AZeB3IlTkwouebTr1y2NjSpHz68WNFjHvupy3q8TFn3Hos2IAk4Ju5dCo8B3wP7VPr/FGaKiG+T+v+TQqIrOqMTL1VdWV1DdmcbO8KXBz6esmYWYKPwDL5b5FA1a0hwapHiom0r/cKaoqr+27/XcrS5UwSMbQAAAABJRU5ErkJggg==)](https://deepwiki.com/vllm-project/vllm-ascend)
+在仓库的 Actions 页面手动运行对应工作流：
 
-</div>
+| 工作流 | 用途 | 当前默认输入 | 结果去向 |
+|---|---|---|---|
+| [Manual performance evaluation](.github/workflows/performance-test.yml) | 正式测试 | `sonic-go`、`1.15.2`、`all` 架构 | 完整结果上传华为 OBS；精简历史写入 `performance-results` 分支 |
+| [Development performance evaluation](.github/workflows/development-performance-test.yml) | 开发验证 | `kubernetes`、`1.37.0`、`all` 架构 | 结果与汇总报告保存为 Actions Artifact，保留 30 天；不写正式历史或基线 |
 
-<p align="center">
-| <a href="https://www.hiascend.com/en/"><b>About Ascend</b></a> | <a href="https://docs.vllm.ai/projects/ascend/en/latest/"><b>Documentation</b></a> | <a href="https://docs.vllm.ai/projects/ascend/en/latest/user_guide/support_matrix/"><b>Support Matrix</b></a> | <a href="https://slack.vllm.ai"><b>#SIG-Ascend</b></a> | <a href="https://discuss.vllm.ai/c/hardware-support/vllm-ascend-support"><b>Users Forum</b></a> | <a href="https://tinyurl.com/vllm-ascend-meeting"><b>Weekly Meeting</b></a> |
-</p>
+`software` 和 `version` 可填写单项、逗号分隔的多项或 `all`；`architecture` 可选 `x86_64`、`aarch64` 或 `all`。若要运行全部已注册软件和版本，需显式将 `software`、`version` 都设为 `all`。正式工作流的 `update_baseline` 默认关闭；启用时必须运行双架构，且两个架构及清理均成功后才会更新基线。
 
-<p align="center">
-<a ><b>English</b></a> | <a href="README.zh.md"><b>中文</b></a>
-</p>
+两个工作流使用相同的测试阶段：
 
----
-*Latest News* 🔥
+```text
+校验清单并生成矩阵 → prepare → build → start → test → stop → finalize → cleanup → 汇总报告
+```
 
-- [2026/09] We released the new release candidate [v0.26.0rc1](https://github.com/vllm-project/vllm-ascend/releases/tag/v0.26.0rc1)! Please follow the [official guide](https://docs.vllm.ai/projects/ascend/en/v0.26.0rc1/) to start using vLLM Ascend Plugin on Ascend.
-- [2026/08] We released the new official version [v0.23.0](https://github.com/vllm-project/vllm-ascend/releases/tag/v0.23.0)! Please follow the [official guide](https://docs.vllm.ai/projects/ascend/en/v0.23.0/) to start using vLLM Ascend Plugin on Ascend.
-- [2026/05] We released the new official version [v0.18.0](https://github.com/vllm-project/vllm-ascend/releases/tag/v0.18.0)! Please follow the [official guide](https://docs.vllm.ai/projects/ascend/en/v0.18.0/) to start using vLLM Ascend Plugin on Ascend.
-- [2026/02] We released the new official version [v0.13.0](https://github.com/vllm-project/vllm-ascend/releases/tag/v0.13.0)! Please follow the [official guide](https://docs.vllm.ai/projects/ascend/en/v0.13.0/) to start using vLLM Ascend Plugin on Ascend.
+每个软件、版本、架构是独立任务。`stop` 和 `cleanup` 在失败路径仍会执行。正式与开发工作流分别使用独立的 Runner 标签和并发组。
 
-<details>
-<summary>More</summary>
+## Runner 要求
 
-- [2025/12] We released the new official version [v0.11.0](https://github.com/vllm-project/vllm-ascend/releases/tag/v0.11.0)! Please follow the [official guide](https://docs.vllm.ai/projects/ascend/en/v0.11.0/) to start using vLLM Ascend Plugin on Ascend.
-- [2025/09] We released the new official version [v0.9.1](https://github.com/vllm-project/vllm-ascend/releases/tag/v0.9.1)! Please follow the [official guide](https://docs.vllm.ai/projects/ascend/en/v0.9.1/tutorials/large_scale_ep.html) to start deploying large-scale Expert Parallelism (EP) on Ascend.
-- [2025/08] We hosted the [vLLM Beijing Meetup](https://mp.weixin.qq.com/s/7n8OYNrCC_I9SJaybHA_-Q) with vLLM and Tencent! Please find the [meetup slides](https://drive.google.com/drive/folders/1Pid6NSFLU43DZRi0EaTcPgXsAzDvbBqF).
-- [2025/06] [User stories](https://docs.vllm.ai/projects/ascend/en/latest/community/user_stories/index.html) page is now live! It kicks off with LLaMA-Factory/verl/TRL/GPUStack to demonstrate how vLLM Ascend assists Ascend users in enhancing their experience across fine-tuning, evaluation, reinforcement learning (RL), and deployment scenarios.
-- [2025/06] [Contributors](https://docs.vllm.ai/projects/ascend/en/latest/community/contributors.html) page is now live! All contributions deserve to be recorded, thanks for all contributors.
-- [2025/05] We've released the first official version [v0.7.3](https://github.com/vllm-project/vllm-ascend/releases/tag/v0.7.3)! We collaborated with the vLLM community to publish a blog post sharing our practice: [Introducing vLLM Hardware Plugin, Best Practice from Ascend NPU](https://blog.vllm.ai/2025/05/12/hardware-plugin.html).
-- [2025/03] We hosted the [vLLM Beijing Meetup](https://mp.weixin.qq.com/s/VtxO9WXa5fC-mKqlxNUJUQ) with vLLM team! Please find the [meetup slides](https://drive.google.com/drive/folders/1Pid6NSFLU43DZRi0EaTcPgXsAzDvbBqF).
-- [2025/02] vLLM community officially created [vllm-project/vllm-ascend](https://github.com/vllm-project/vllm-ascend) repo for running vLLM seamlessly on the Ascend NPU.
-- [2024/12] We are working with the vLLM community to support [[RFC]: Hardware pluggable](https://github.com/vllm-project/vllm/issues/11162).
+Runner 标签统一在 [config/defaults.yaml](config/defaults.yaml) 中维护：
 
-</details>
+| 用途 | x86_64 | aarch64 |
+|---|---|---|
+| 正式测试 | `PERF_RUNNER_X86_64` | `PERF_RUNNER_ARM64` |
+| 开发验证 | `PERF_DEV_X86_64` | `PERF_DEV_ARM64` |
 
----
+Runner 应是与标签架构一致的专用裸机，安装 Git、Python 3.11+、pip 和 `dnf`，并允许测试账户管理 `/home/runner/boostkit-perf` 及其测试进程。软件脚本通过 `dnf` 安装缺失的系统依赖；若需要代理，工作流从 `secrets.PERF_PROXY` 提供代理地址，脚本将其传给 `dnf`，不依赖 `sudo` 继承代理环境变量。
 
-## Overview
+测试账户还需要免密执行 `dnf`，以及读取完整 CPU 型号所用的 `lscpu`。以下示例中的 `runner` 应替换为实际 Actions 服务账户；如软件另需特权操作，应单独配置：
 
-vLLM Ascend (`vllm-ascend`) is a community maintained hardware plugin for running vLLM seamlessly on the Ascend NPU.
+```text
+runner ALL=(root) NOPASSWD: /usr/bin/dnf, /usr/bin/env LC_ALL=C /usr/bin/lscpu
+```
 
-It is the recommended approach for supporting the Ascend backend within the vLLM community. It adheres to the principles outlined in the [[RFC]: Hardware pluggable](https://github.com/vllm-project/vllm/issues/11162), providing a hardware-pluggable interface that decouples the integration of the Ascend NPU with vLLM.
+正式工作流上传和汇总结果还需要配置 `OBS_ENDPOINT`、`OBS_BUCKET`、`OBS_PREFIX`、`OBS_AK`、`OBS_SK`；使用临时凭据时配置 `OBS_SECURITY_TOKEN`。这些值通过 GitHub Actions Secrets 提供。
 
-By using vLLM Ascend plugin, popular open-source models, including Transformer-like, Mixture-of-Experts (MoE), Embedding, Multi-modal LLMs can run seamlessly on the Ascend NPU.
+任务的源码、构建、安装、缓存和测试数据统一放在 `/home/runner/boostkit-perf/<软件名>/` 下。工作流仅在专用 Runner 上执行全局清理；清理会删除该工作根目录中的任务数据，请勿将其他资料放入其中。
 
-For detailed information on supported models and features, please refer to the [support matrix](https://docs.vllm.ai/projects/ascend/en/latest/user_guide/support_matrix/).
+## 结果与报告
 
-## DeepWiki
+单个任务在仓库工作区的结果目录为：
 
-[**DeepWiki**](https://deepwiki.com/vllm-project/vllm-ascend) is a dynamic knowledge base collaboratively maintained by the community and AI, designed to provide you with deeper technical insights beyond conventional documentation. If official documentation serves as a "quick start" guide to help you get going, the DeepWiki is your technical companion for "deep understanding". Here, you can explore: core architecture and design principles, key source code interpretations, technical context, and decision-making logic.
+```text
+.perf-output/<分类>/<软件>/<版本>/<架构>/<run_id>/
+```
 
-Whether you are a performance tuner looking to deploy vLLM-Ascend in production or a contributor aiming to build upon it for secondary development, DeepWiki offers invaluable references for you. Welcome to explore now and join us in delving deep into the technical core of vLLM-Ascend.
+其中包含原始测试输出、阶段日志、`normalized_result.json` 和单架构 `report.md`。汇总阶段按同软件、同版本配对两个架构的结果，校验可比性并生成跨架构报告；缺失或不匹配的指标不会被强行对齐。正式测试的完整任务目录和汇总报告上传 OBS，供汇总阶段读取；`performance-results` 分支保存精简的不可变历史及可选基线。开发测试只使用 Actions Artifact，不写入 OBS 或正式历史。
 
-## Prerequisites
+## 本地校验与软件接入
 
-- Hardware: Atlas 800I A2 Inference series, Atlas A2 Training series, Atlas 800I A3 Inference series, Atlas A3 Training series, Atlas 300I Duo (Experimental)
-- OS: Linux
-- Software:
-    - Python >= 3.10, < 3.13
-    - CANN == 9.1.0 (For Ascend HDK version, please refer to the [Release Notes](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/910/softwareinst/releasenote/9.1.0/release-notes.md))
-    - PyTorch == 2.10.0, TorchNPU == 2.10.0.post4
-    - vLLM (the same version as vllm-ascend)
+在仓库根目录安装校验依赖并运行：
 
-## Accessing Ascend NPU
+```bash
+python3 -m pip install 'PyYAML==6.0.2' 'pytest>=8.0,<10.0'
+python3 framework/catalog.py validate
+python3 framework/catalog.py matrix --software all --version all --architecture all --pretty
+python3 -m pytest framework/tests
+```
 
-If you need to access Ascend NPU computing resources for development or testing, please visit the [HiDevLab - Online Development](https://hidevlab.huawei.com/online-develop-intro) page on the HiDevLab platform to apply for and use them.
-
-## Getting Started
-
-Please use the following recommended versions to get started quickly:
-
-| Version    | Release type | Doc                                  |
-|------------|--------------|--------------------------------------|
-| v0.30.0rc1 | Release candidate | See [QuickStart](https://docs.vllm.ai/projects/ascend/en/v0.30.0rc1/quick_start.html) and [Installation](https://docs.vllm.ai/projects/ascend/en/v0.30.0rc1/installation.html) for more details |
-| v0.26.0rc1 | Release candidate | See [QuickStart](https://docs.vllm.ai/projects/ascend/en/v0.26.0rc1/quick_start.html) and [Installation](https://docs.vllm.ai/projects/ascend/en/v0.26.0rc1/installation.html) for more details |
-| v0.23.0 | Latest stable version | See [QuickStart](https://docs.vllm.ai/projects/ascend/en/v0.23.0/quick_start.html) and [Installation](https://docs.vllm.ai/projects/ascend/en/v0.23.0/installation.html) for more details |
-
-## Branch
-
-vllm-ascend has a main branch and a dev branch.
-
-- **main**: main branch, corresponds to the vLLM main branch, and is continuously monitored for quality through Ascend CI.
-- **releases/vX.Y.Z**: development branch, created alongside new releases of vLLM. For example, `releases/v0.13.0` is the dev branch for vLLM `v0.13.0` version.
-
-Below are the maintained branches:
-
-| Branch           | Status       | Note                                 |
-|------------------|--------------|--------------------------------------|
-| main             | Maintained   | CI commitment for vLLM main branch and vLLM v0.30.0 tag |
-| releases/v0.13.0 | Maintained   | Only bug fixes are allowed, and no new release tags anymore. |
-| releases/v0.18.0 | Maintained   | CI commitment for vLLM 0.18.0 version |
-| releases/v0.23.0 | Maintained   | CI commitment for vLLM 0.23.0 version |
-| rfc/<feature-name> | Maintained   | [Feature branches](https://docs.vllm.ai/projects/ascend/en/latest/community/versioning_policy.html#feature-branches) for collaboration |
-
-Please refer to [Versioning policy](https://docs.vllm.ai/projects/ascend/en/latest/community/versioning_policy.html) for more details.
-
-## Contributing
-
-See [CONTRIBUTING](https://docs.vllm.ai/projects/ascend/en/latest/developer_guide/contribution/index.html) for more details, which is a step-by-step guide to help you set up the development environment, build and test.
-
-We welcome and value any contributions and collaborations:
-
-- Please let us know if you encounter a bug by [filing an issue](https://github.com/vllm-project/vllm-ascend/issues)
-- Please use [User forum](https://discuss.vllm.ai/c/hardware-support/vllm-ascend-support) for usage questions and help.
-
-## Weekly Meeting
-
-- vLLM Ascend Weekly Meeting: <https://tinyurl.com/vllm-ascend-meeting>
-- Wednesday, 15:00 - 16:00 (UTC+8, [Convert to your timezone](https://dateful.com/convert/gmt8?t=15))
-
-## License
-
-Apache License 2.0, as found in the [LICENSE](./LICENSE) file.
+新增或调整软件时，先阅读 [软件测试接入指南](doc/SOFTWARE_INTEGRATION.md)，再修改注册表、软件的 `case.yaml` 和测试脚本。该指南包含阶段接口、指标约定、离线包与网络下载策略，以及本地验收方法。

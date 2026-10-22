@@ -1,9 +1,0 @@
-mkdocs
-mkdocs-material
-mkdocs-material-extensions
-mkdocs-exclude
-mkdocs-macros-plugin
-polib
-regex
-openai
-zhconv

@@ -1,5 +1,0 @@
-pandas
-datasets
-modelscope<1.38
-pyarrow<26
-tabulate
