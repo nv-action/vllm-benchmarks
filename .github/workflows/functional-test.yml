@@ -145,6 +145,7 @@ jobs:
             curl -sS -m 8 -o /dev/null -w "${u} -> %{http_code}\n" "${u}" || echo "${u} -> FAILED"
           done
       - uses: actions/setup-python@v5
+        timeout-minutes: 3
         with:
           python-version: "3.11"
       - name: Install framework runtime dependency
