@@ -129,6 +129,21 @@ jobs:
       PERF_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
+      - name: Diagnose runner environment
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          set -x
+          cat /etc/os-release || true
+          uname -a
+          id -u
+          command -v python3 python pip3 pip sudo apt-get dnf yum microdnf curl || true
+          python3 -VV || true
+          python3 -m pip --version || true
+          python3 -m ensurepip --version || true
+          for u in https://pypi.tuna.tsinghua.edu.cn/simple/pyyaml/ https://github.com https://swr.cn-north-4.myhuaweicloud.com/v2/ https://docker.1ms.run/v2/; do
+            curl -sS -m 8 -o /dev/null -w "${u} -> %{http_code}\n" "${u}" || echo "${u} -> FAILED"
+          done
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
