@@ -1,0 +1,6 @@
+{
+  "kitex": {"tag": "v0.16.4", "sha256": "db369c6387af3d29e1037adf31edf556356502b1e406bc056b448c24acce18fa"},
+  "hertz": {"tag": "v0.10.6", "sha256": "6180254f8b962899a8469128e5eec76985ad4be195b81114c411e075808b7534"},
+  "volo": {"tag": "volo-thrift-0.12.2", "sha256": "8e03d2e5cccf708542b0abbb5f5a932237a0619f66e7c0371f6eb7af444f2c1a"},
+  "eino": {"tag": "v0.9.22", "sha256": "6255e518c8fb9746ae4ed70362ac712853d1286692d7f88f5b20b16701a70acb"}
+}

@@ -1,0 +1,46 @@
+name: hnswlib
+category: AI
+enabled: true
+versions:
+  - "0.8.0"
+test_tools:
+  sra_test:
+    version: "9a941bc3fb72c1e0d8dc48e6deb7df33e3e23abf"
+  hnswlib:
+    version: "与被测软件版本一致"
+execution:
+  type: shell-functions
+  stages:
+    build:
+      script: hnswlib_test.sh
+      function: build_hnswlib
+    start:
+      script: hnswlib_test.sh
+      function: start_hnswlib_runtime
+    test:
+      script: hnswlib_test.sh
+      function: run_hnswlib_benchmarks
+    stop:
+      script: hnswlib_test.sh
+      function: stop_hnswlib_runtime
+  timeout_minutes: 360
+outputs:
+  benchmark_result:
+    path: benchmark_sra.json
+    stage: test
+    format: json
+    required: true
+  official_logs:
+    path: sra-test-logs
+    stage: test
+    format: directory
+    required: true
+metrics:
+  source: benchmark_result
+  collection:
+    path: results
+    name_path: source_name
+    value_path: value
+    unit_path: unit
+    direction_path: direction
+    group_path: group

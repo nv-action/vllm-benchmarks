@@ -1,0 +1,44 @@
+name: redis
+category: Database
+enabled: true
+versions:
+  - "7.0.15"
+test_tools:
+  redis-benchmark:
+    version: "与被测软件版本一致"
+execution:
+  type: shell-functions
+  stages:
+    build:
+      script: redis_test.sh
+      function: build_redis
+    start:
+      script: redis_test.sh
+      function: start_redis_service
+    test:
+      script: redis_test.sh
+      function: run_redis_benchmarks
+    stop:
+      script: redis_test.sh
+      function: stop_redis_service
+  timeout_minutes: 600
+outputs:
+  redis_benchmark_raw_output:
+    path: redis_benchmark_raw.log
+    stage: test
+    format: text
+    required: true
+  benchmark_result:
+    path: benchmark_redis.json
+    stage: test
+    format: json
+    required: true
+metrics:
+  source: benchmark_result
+  collection:
+    path: results
+    name_path: source_name
+    value_path: value
+    unit_path: unit
+    direction_path: direction
+    group_path: group

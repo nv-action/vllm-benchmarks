@@ -1,0 +1,54 @@
+# Apache Flink 功能测试清单。
+# 独立于性能测试框架 software/Bigdata/flink;版本与 software/Bigdata/flink/case.yaml 保持一致,人工指定。
+name: flink
+category: Bigdata
+enabled: true
+
+# 人工指定的待测版本(白名单):与 software/Bigdata/flink/case.yaml 一致。
+versions:
+  - "2.3.0"
+  - "1.16.3"
+  - "1.17.1"
+
+# build 模式(FUNC_MODE=build)软件获取为分层优先:优先上游官方二进制 tarball,
+# 其次与请求版本一致的三方打包产物,最后源码编译;每层均用 bin/flink --version 校验版本。
+
+execution:
+  type: shell-functions
+  stages:
+    prepare:
+      script: build.sh
+      function: func_prepare
+    install:
+      script: build.sh
+      function: func_install
+    check:
+      script: test.sh
+      function: func_check
+    cleanup:
+      script: test.sh
+      function: func_cleanup
+  timeout_minutes: 90
+
+# 功能判定项,名称与 functional_result.json 中 checks[].name 一一对应。
+# 判定来源:优先复用上游发行版自带产物(examples),再叠加本地 mini-cluster 冒烟。
+checks:
+  - name: version
+    description: bin/flink --version 必须等于请求版本
+  - name: upstream-example
+    description: 运行官方发行版自带的 WordCount 示例并断言作业成功结束
+    upstream_command: bin/flink run examples/.../WordCount.jar --input <in> --output <out>
+  - name: cluster-smoke
+    description: 启动本地 standalone mini-cluster(JobManager+TaskManager)并校验 TaskManager 已注册
+
+outputs:
+  functional_result:
+    path: functional_result.json
+    stage: check
+    format: json
+    required: true
+  cluster_log:
+    path: flink_cluster.log
+    stage: check
+    format: text
+    required: true

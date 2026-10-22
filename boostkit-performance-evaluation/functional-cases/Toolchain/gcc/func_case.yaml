@@ -1,0 +1,58 @@
+# gcc 功能测试清单。
+# 独立于性能测试框架 framework/;版本由人工指定,不做 latest 解析。
+name: gcc
+category: Toolchain
+enabled: true
+
+# 人工指定的待测版本(白名单),与 software/Toolchain/gcc/case.yaml 一致。
+versions:
+  - "16.2.0"
+
+execution:
+  type: shell-functions
+  stages:
+    prepare:
+      script: build.sh
+      function: func_prepare
+    install:
+      script: build.sh
+      function: func_install
+    check:
+      script: test.sh
+      function: func_check
+    cleanup:
+      script: test.sh
+      function: func_cleanup
+  timeout_minutes: 240
+  # 源码编译 c,c++(--disable-bootstrap):源码树 + 构建树 + 安装树合计约 5~10 GiB。
+  min_free_disk_gb: 12
+
+# 功能判定项,名称与 functional_result.json 中 checks[].name 一一对应。
+# gcc 自带测试套件(make check)依赖 dejagnu 且耗时过长,不可行;
+# 因此用"编译并运行 C/C++ 程序"的功能测试代替上游测试与 smoke。
+# build 模式(FUNC_MODE=build,ubuntu 官方基础镜像内)按分层优先获取 GCC,每层版本需严格等于
+# SOFTWARE_VERSION,不匹配则降级:层1 上游官方二进制(GNU 仅源码,不可用)→
+# 层2 三方仓库包(conda-forge/gcc_impl_linux-64、library/gcc 镜像不可用,改用等效 apt gcc)→
+# 层2b 发行版归档二进制包(发行版仓库已发布的对应版本 gcc/g++ .deb,解包到私有前缀)→
+# 层3 官方源码 tarball 编译(官方仅源码,通常为唯一可行层)。
+checks:
+  - name: version
+    description: 获取到的 gcc 版本必须等于请求版本(层1/2/2b/3 任一来源均须匹配)
+  # 代替上游测试:GCC 官方 torture/compile 套件需 dejagnu 且耗时过长,改用 C 程序编译运行。
+  - name: upstream-test
+    description: 编译并运行一个 C 程序(gcc 功能验证)
+    upstream_command: gcc -O2 -o hello hello.c && ./hello
+  - name: smoke
+    description: 编译并运行一个 C++ 程序(g++ 功能验证)
+
+outputs:
+  functional_result:
+    path: functional_result.json
+    stage: check
+    format: json
+    required: true
+  check_log:
+    path: check.log
+    stage: check
+    format: text
+    required: true

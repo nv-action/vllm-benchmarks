@@ -1,0 +1,52 @@
+# Kubernetes 功能测试清单。
+# 独立于性能测试框架 software/Middleware/kubernetes 的 kubernetes_test.sh;版本由人工指定,不做 latest 解析。
+name: kubernetes
+category: Middleware
+enabled: true
+
+# 人工指定的待测版本:由人工维护,不要求与性能用例 software/Middleware/kubernetes/case.yaml 的版本列表一致。
+versions:
+  - "1.37.1"
+  - "1.28.4"
+
+execution:
+  type: shell-functions
+  stages:
+    prepare:
+      script: build.sh
+      function: func_prepare
+    install:
+      script: build.sh
+      function: func_install
+    check:
+      script: test.sh
+      function: func_check
+    cleanup:
+      script: test.sh
+      function: func_cleanup
+  # 分层获取:优先 dl.k8s.io 官方 kubectl 二进制,再回退 pkgs.k8s.io 版本化包,并做客户端侧校验。
+  timeout_minutes: 60
+
+# 功能判定项,名称与 functional_result.json 中 checks[].name 一一对应。
+# 判定来源:优先复用上游 kubectl 客户端能力,叠加内置资源生成 smoke。
+checks:
+  - name: version
+    description: kubectl version --client 的客户端版本必须等于请求版本
+  # 上游客户端功能:用 kubectl 内建生成器离线渲染 Deployment(不访问 API server)。
+  - name: upstream-test
+    description: 用 kubectl create deployment --dry-run=client 离线渲染 Deployment 并校验字段
+    upstream_command: kubectl create deployment func-smoke --image=nginx:alpine --dry-run=client -o yaml
+  - name: kubectl-smoke
+    description: kubectl create 离线渲染 ConfigMap 与 Job 的 YAML 并校验类型和名称
+
+outputs:
+  functional_result:
+    path: functional_result.json
+    stage: check
+    format: json
+    required: true
+  check_log:
+    path: check.log
+    stage: check
+    format: text
+    required: true

@@ -1,0 +1,55 @@
+# brpc 功能测试清单。
+# 独立于性能测试框架 software/Middleware/brpc 的 brpc_test.sh;版本由人工指定,不做 latest 解析。
+name: brpc
+category: Middleware
+enabled: true
+
+# 人工指定的待测版本:由人工维护,不要求与性能用例 software/Middleware/brpc/case.yaml 的版本列表一致。
+versions:
+  - "1.18.0"
+
+execution:
+  type: shell-functions
+  stages:
+    prepare:
+      script: build.sh
+      function: func_prepare
+    install:
+      script: build.sh
+      function: func_install
+    check:
+      script: test.sh
+      function: func_check
+    cleanup:
+      script: test.sh
+      function: func_cleanup
+  # 分层获取:上游二进制/仓库包不可行,最终以源码 cmake 构建 brpc 库 + 编译 example,较重,给足时间。
+  timeout_minutes: 180
+  # CMake 源码构建 libbrpc,依赖 gflags/leveldb/protobuf 等。
+  min_free_disk_gb: 8
+
+# 功能判定项,名称与 functional_result.json 中 checks[].name 一一对应。
+# 判定来源:优先复用上游 example,不足时用内部 smoke 补齐。
+checks:
+  - name: version
+    description: 源码 RELEASE_VERSION/镜像内版本必须等于请求版本
+  # 上游 example/echo_c++ 需要 brpc 源码树(目录内必须含 example/echo_c++/)。
+  # install 阶段负责准备:build 模式用本次克隆的源码目录;prebuilt 模式浅克隆上游源码。
+  # 找不到 example 即判该项失败。
+  - name: upstream-test
+    description: 编译并运行上游 example/echo_c++ 的 server/client 完成一次 RPC 回环
+    upstream_command: ./echo_client --server=127.0.0.1:<port>
+  - name: cpp-smoke
+    description: 编译链接 libbrpc 的最小程序,验证头文件与静态库可用
+
+outputs:
+  functional_result:
+    path: functional_result.json
+    stage: check
+    format: json
+    required: true
+  check_log:
+    path: check.log
+    stage: check
+    format: text
+    required: true

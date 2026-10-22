@@ -1,0 +1,38 @@
+name: folly
+category: HPC
+enabled: true
+versions:
+  - "2026.08.17.00"
+test_tools:
+  folly-benchmarks:
+    version: "2026.08.17.00"
+execution:
+  type: shell-functions
+  stages:
+    build:
+      script: folly_test.sh
+      function: build_folly
+    start:
+      script: folly_test.sh
+      function: start_folly_runtime
+    test:
+      script: folly_test.sh
+      function: run_folly_benchmarks
+    stop:
+      script: folly_test.sh
+      function: stop_folly_runtime
+  timeout_minutes: 720
+outputs:
+  benchmark_result:
+    path: benchmark_folly.json
+    stage: test
+    format: json
+    required: true
+metrics:
+  source: benchmark_result
+  collection:
+    path: results
+    name_path: source_name
+    value_path: value
+    unit_path: unit
+    direction_path: direction

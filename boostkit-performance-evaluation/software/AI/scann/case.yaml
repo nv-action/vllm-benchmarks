@@ -1,0 +1,65 @@
+name: scann
+category: AI
+enabled: true
+versions:
+  - "1.4.0"
+test_tools:
+  scann:
+    version: "1.4.0"
+execution:
+  type: shell-functions
+  stages:
+    build:
+      script: scann_test.sh
+      function: build_scann
+    start:
+      script: scann_test.sh
+      function: start_scann_runtime
+    test:
+      script: scann_test.sh
+      function: run_scann_benchmarks
+    stop:
+      script: scann_test.sh
+      function: stop_scann_runtime
+  timeout_minutes: 180
+outputs:
+  benchmark:
+    path: benchmark.json
+    stage: test
+    format: json
+    required: true
+metrics:
+  source: benchmark
+  definitions:
+    "dot_product/build_time_s":
+      path: results.dot_product.build_time_s
+      unit: s
+      direction: lower_is_better
+    "dot_product/qps":
+      path: results.dot_product.qps
+      unit: queries/s
+      direction: higher_is_better
+    "dot_product/latency_per_query_us":
+      path: results.dot_product.latency_per_query_us
+      unit: us
+      direction: lower_is_better
+    "dot_product/recall_at_k":
+      path: results.dot_product.recall_at_k
+      unit: ratio
+      direction: higher_is_better
+    "squared_l2/build_time_s":
+      path: results.squared_l2.build_time_s
+      unit: s
+      direction: lower_is_better
+    "squared_l2/qps":
+      path: results.squared_l2.qps
+      unit: queries/s
+      direction: higher_is_better
+    "squared_l2/latency_per_query_us":
+      path: results.squared_l2.latency_per_query_us
+      unit: us
+      direction: lower_is_better
+    "squared_l2/recall_at_k":
+      path: results.squared_l2.recall_at_k
+      unit: ratio
+      direction: higher_is_better

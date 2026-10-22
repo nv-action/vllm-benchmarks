@@ -1,0 +1,44 @@
+name: sonic-go
+category: HPC
+enabled: true
+versions:
+  - "1.15.2"
+test_tools:
+  go test:
+    version: "1.24.6"
+execution:
+  type: shell-functions
+  stages:
+    build:
+      script: sonic_go_test.sh
+      function: build_sonic_go
+    start:
+      script: sonic_go_test.sh
+      function: start_sonic_go_runtime
+    test:
+      script: sonic_go_test.sh
+      function: run_sonic_go_benchmarks
+    stop:
+      script: sonic_go_test.sh
+      function: stop_sonic_go_runtime
+  timeout_minutes: 180
+outputs:
+  official_benchmark:
+    path: benchmark_sonic_go.txt
+    stage: test
+    format: text
+    required: true
+  benchmark_result:
+    path: benchmark_sonic_go.json
+    stage: test
+    format: json
+    required: true
+metrics:
+  source: benchmark_result
+  collection:
+    path: results
+    name_path: source_name
+    value_path: value
+    unit_path: unit
+    direction_path: direction
+    group_path: group

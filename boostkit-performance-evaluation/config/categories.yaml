@@ -1,0 +1,40 @@
+categories:
+  AI:
+    - faiss
+    - hnswlib
+    - pytorch
+    - openviking
+    - scann
+  Bigdata:
+    - flink
+    - spark
+    - bolt
+  Storage:
+    - ceph
+  Database:
+    - redis
+    - mysql
+    - rocksdb
+    - oceanbase
+  Media:
+    - x264
+    - x265
+  HPC:
+    - folly
+    - lz4
+    - protobuf
+    - snappy
+    - sonic-cpp
+    - sonic-go
+    - zstd
+  Middleware:
+    - brpc
+    - envoy
+    - kubernetes
+  Toolchain:
+    - bishengjdk
+    - gcc
+    - golang
+    - glibc
+    - python
+  Others:

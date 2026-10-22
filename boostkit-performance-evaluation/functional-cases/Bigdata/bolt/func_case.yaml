@@ -1,0 +1,63 @@
+# 上游 bytedance/bolt 不发布任何 GitHub release / tag(仓库 default_branch=main,
+# README 说明默认 BUILD_VERSION=main),没有传统语义的"版本"。
+# 统一以待测 commit 短 sha 作为版本基线:结果可复现、可回溯(main 是移动目标,
+# 同一 version 名下代码会漂移,不入白名单)。
+# 换测新 commit 时:更新下方 versions,并由镜像方提供对应的 openEuler 预构建镜像
+# (镜像 tag 即该 commit 短 sha,镜像内含 BUILD_VERSION 文件)。
+#
+# Bolt(字节跳动 C++ 原生执行引擎,经 Apache Gluten 作为 Spark 后端集成)功能测试清单。
+name: bolt
+category: Bigdata
+enabled: true
+
+# 人工指定的待测版本(白名单):commit 短 sha。
+versions:
+  - "2d01261"
+
+# build 模式(FUNC_MODE=build)软件获取为分层优先:1) 上游官方二进制 2) 三方仓库包 3) 源码编译。
+# Bolt 官方仅有源码(无二进制/镜像),层1/层2 无可用渠道,实际走层3(Conan+CMake 重构建);
+# 版本校验以 git ref 为基准。
+
+execution:
+  type: shell-functions
+  stages:
+    prepare:
+      script: build.sh
+      function: func_prepare
+    install:
+      script: build.sh
+      function: func_install
+    check:
+      script: test.sh
+      function: func_check
+    cleanup:
+      script: test.sh
+      function: func_cleanup
+  # Bolt 首次构建会用 Conan 从源码编译全部依赖(LLVM/Arrow 等)并编译测试二进制
+  # (上游 release_with_test 目标),非常重。
+  timeout_minutes: 360
+  # Conan + CMake 完整构建 C++ 引擎,依赖、中间产物与测试二进制都很大。
+  min_free_disk_gb: 24
+
+# 功能判定项,名称与 functional_result.json 中 checks[].name 一一对应。
+# 判定来源:优先复用上游自带 gtest 单测子集;不可行时退化为构建产物链接冒烟。
+checks:
+  - name: version
+    description: 校验源码 commit / 镜像内 BUILD_VERSION 等于请求版本(短 sha 与完整 sha 互为前缀即可匹配)
+  - name: upstream-unit-test
+    description: 运行上游自带 gtest 单测子集(ctest -R 过滤);build 模式经上游 release_with_test 目标编译测试后真实执行(0 测试视为构建异常),prebuilt 镜像无测试树时记 skipped
+    upstream_command: ctest -R bolt_ --output-on-failure
+  - name: link-smoke
+    description: 最小可用性冒烟,校验构建产物 libbolt*.so 可被动态链接器加载
+
+outputs:
+  functional_result:
+    path: functional_result.json
+    stage: check
+    format: json
+    required: true
+  test_log:
+    path: bolt_test.log
+    stage: check
+    format: text
+    required: true

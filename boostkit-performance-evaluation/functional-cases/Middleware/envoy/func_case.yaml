@@ -1,0 +1,52 @@
+# Envoy 功能测试清单。
+# 独立于性能测试框架 software/Middleware/envoy 的 envoy_test.sh;版本由人工指定,不做 latest 解析。
+name: envoy
+category: Middleware
+enabled: true
+
+# 人工指定的待测版本:由人工维护,不要求与性能用例 software/Middleware/envoy/case.yaml 的版本列表一致。
+versions:
+  - "1.40.0"
+  - "1.37.1"
+
+execution:
+  type: shell-functions
+  stages:
+    prepare:
+      script: build.sh
+      function: func_prepare
+    install:
+      script: build.sh
+      function: func_install
+    check:
+      script: test.sh
+      function: func_check
+    cleanup:
+      script: test.sh
+      function: func_cleanup
+  # 分层获取:优先下载/校验官方 release 二进制,再回退仓库包/源码;并启动实例,给足时间。
+  timeout_minutes: 60
+
+# 功能判定项,名称与 functional_result.json 中 checks[].name 一一对应。
+# 判定来源:优先复用上游配置校验能力,叠加启动实例探活 smoke。
+checks:
+  - name: version
+    description: envoy --version 的版本号必须等于请求版本
+  # 上游配置校验:envoy --mode validate -c <config> 需返回 OK。
+  - name: upstream-test
+    description: 用 envoy --mode validate 校验一份最小静态配置
+    upstream_command: envoy --mode validate -c smoke.yaml
+  - name: proxy-smoke
+    description: 启动 envoy 实例,探活 admin /ready 与 listener 直答 200 ok
+
+outputs:
+  functional_result:
+    path: functional_result.json
+    stage: check
+    format: json
+    required: true
+  check_log:
+    path: check.log
+    stage: check
+    format: text
+    required: true

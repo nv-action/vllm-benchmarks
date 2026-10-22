@@ -1,0 +1,52 @@
+# MySQL 功能测试清单。
+# 独立于性能测试框架 framework/;版本由人工指定,不做 latest 解析。
+name: mysql
+category: Database
+enabled: true
+
+# 人工指定的待测版本(白名单),与 software/Database/mysql/case.yaml 保持一致。
+versions:
+  - "26.7.0"
+
+execution:
+  type: shell-functions
+  stages:
+    prepare:
+      script: build.sh
+      function: func_prepare
+    install:
+      script: build.sh
+      function: func_install
+    check:
+      script: test.sh
+      function: func_check
+    cleanup:
+      script: test.sh
+      function: func_cleanup
+  # 分层获取(官方二进制 → 发行版仓库包 → 源码编译)+ 初始化一次性实例并跑烟测,60 分钟足够。
+  timeout_minutes: 60
+  # 源码编译 MySQL 需要 CMake 构建出完整服务端,体量很大。
+  min_free_disk_gb: 12
+
+# 功能判定项,名称与 functional_result.json 中 checks[].name 一一对应。
+checks:
+  - name: version
+    description: 被测 mysqld 版本必须等于请求版本
+  # MySQL 官方 Linux Generic 包随发行版提供 mysqlslap 负载客户端,作为上游工具烟测;
+  # 镜像若内置 mysql-test-run.pl 则回退到最小 main 套件用例。
+  - name: upstream-test
+    description: 使用上游 mysqlslap 客户端施加并发 SQL 负载
+    upstream_command: mysqlslap --concurrency=4 --iterations=2 --auto-generate-sql
+  - name: sql-roundtrip
+    description: mysqld 初始化 + 建库建表,INSERT/SELECT 回环校验
+outputs:
+  functional_result:
+    path: functional_result.json
+    stage: check
+    format: json
+    required: true
+  upstream_test_log:
+    path: upstream_test.log
+    stage: check
+    format: text
+    required: true

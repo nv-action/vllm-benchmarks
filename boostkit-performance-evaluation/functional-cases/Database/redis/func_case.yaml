@@ -1,0 +1,54 @@
+# Redis 功能测试试点清单。
+# 独立于性能测试框架 framework/;版本由人工指定,不做 latest 解析。
+name: redis
+category: Database
+enabled: true
+
+# 人工指定的待测版本(白名单):最新稳定版 + 6.0.20。
+versions:
+  - "8.10.2"
+  - "6.0.20"
+
+execution:
+  type: shell-functions
+  stages:
+    prepare:
+      script: build.sh
+      function: func_prepare
+    install:
+      script: build.sh
+      function: func_install
+    check:
+      script: test.sh
+      function: func_check
+    cleanup:
+      script: test.sh
+      function: func_cleanup
+  timeout_minutes: 60
+
+# 功能判定项,名称与 functional_result.json 中 checks[].name 一一对应。
+# 判定来源:优先复用上游测试套件(upstream_command),不足时用内部 smoke 补齐。
+checks:
+  - name: version
+    description: 构建产物版本必须等于请求版本
+  # 上游套件需要 redis 源码树(目录内必须含 ./runtest)。
+  # install 阶段负责准备测试树:prebuilt 模式浅克隆上游测试脚本并把镜像内二进制软链到树的 src/,
+  # build 模式用本次克隆并编译出的源码目录。可用 REDIS_SOURCE_DIR 显式覆盖(镜像已内置源码树时)。
+  # 找不到测试树即判该项失败。
+  - name: upstream-test
+    description: 运行上游 Redis Tcl 测试套件 unit/type/string
+    upstream_command: ./runtest --single unit/type/string --clients 5
+  - name: cli-roundtrip
+    description: redis-server/redis-cli SET/GET 回环功能验证
+
+outputs:
+  functional_result:
+    path: functional_result.json
+    stage: check
+    format: json
+    required: true
+  upstream_test_log:
+    path: upstream_test.log
+    stage: check
+    format: text
+    required: true

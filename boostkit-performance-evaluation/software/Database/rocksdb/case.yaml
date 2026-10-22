@@ -1,0 +1,45 @@
+name: rocksdb
+category: Database
+enabled: true
+versions:
+  - "6.26.1"
+test_tools:
+  YCSB:
+    version: "0.18.0-SNAPSHOT"
+    revision: 19e885f7cb780fdded0547853f7810a150554caf
+execution:
+  type: shell-functions
+  stages:
+    build:
+      script: rocksdb_test.sh
+      function: build_rocksdb
+    start:
+      script: rocksdb_test.sh
+      function: prepare_rocksdb_benchmark_data
+    test:
+      script: rocksdb_test.sh
+      function: run_rocksdb_benchmarks
+    stop:
+      script: rocksdb_test.sh
+      function: cleanup_rocksdb_benchmark_data
+  timeout_minutes: 1440
+outputs:
+  ycsb_raw_output:
+    path: ycsb_raw.log
+    stage: test
+    format: text
+    required: true
+  aggregate_result:
+    path: results.json
+    stage: test
+    format: json
+    required: true
+metrics:
+  source: aggregate_result
+  collection:
+    path: results
+    name_path: source_name
+    value_path: value
+    unit_path: unit
+    direction_path: direction
+    group_path: group

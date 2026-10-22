@@ -1,0 +1,48 @@
+name: gcc
+category: Toolchain
+enabled: true
+versions:
+  - "14.4.0"
+test_tools:
+  SPEC-CPU2017:
+    version: "1.0.5"
+execution:
+  type: shell-functions
+  stages:
+    build:
+      script: gcc_test.sh
+      function: build_gcc
+    start:
+      script: gcc_test.sh
+      function: start_gcc_runtime
+    test:
+      script: gcc_test.sh
+      function: run_gcc_benchmarks
+    stop:
+      script: gcc_test.sh
+      function: stop_gcc_runtime
+  timeout_minutes: 1440
+outputs:
+  official_benchmark:
+    path: raw-output.log
+    stage: test
+    format: text
+    required: true
+  benchmark_result:
+    path: benchmark_gcc.json
+    stage: test
+    format: json
+    required: true
+  compiler_output:
+    path: spec-results
+    stage: test
+    format: directory
+    required: true
+metrics:
+  source: benchmark_result
+  collection:
+    path: results
+    name_path: source_name
+    value_path: value
+    unit: ratio
+    direction: higher_is_better

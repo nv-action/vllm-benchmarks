@@ -1,0 +1,54 @@
+name: openviking
+category: AI
+enabled: true
+versions:
+  - "0.4.17.1"
+test_tools:
+  openviking:
+    version: "0.4.17.1"
+execution:
+  type: shell-functions
+  stages:
+    build:
+      script: openviking_test.sh
+      function: build_openviking
+    start:
+      script: openviking_test.sh
+      function: start_openviking_runtime
+    test:
+      script: openviking_test.sh
+      function: run_openviking_benchmarks
+    stop:
+      script: openviking_test.sh
+      function: stop_openviking_runtime
+  timeout_minutes: 600
+outputs:
+  openviking_benchmark_raw_output:
+    path: benchmark_openviking_raw.log
+    stage: test
+    format: text
+    required: true
+  context_benchmark_result:
+    path: benchmark_context.json
+    stage: test
+    format: json
+    required: true
+  micro_benchmark_result:
+    path: micro_benchmark.json
+    stage: test
+    format: json
+    required: true
+  aggregate_result:
+    path: results.json
+    stage: test
+    format: json
+    required: true
+metrics:
+  source: aggregate_result
+  collection:
+    path: results
+    name_path: source_name
+    value_path: value
+    unit_path: unit
+    direction_path: direction
+    group_path: group

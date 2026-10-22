@@ -1,0 +1,54 @@
+# pytorch 功能测试清单。
+# 独立于性能测试框架 software/AI/pytorch/;版本由人工指定,不做 latest 解析。
+name: pytorch
+category: AI
+enabled: true
+
+# 人工指定的待测版本(白名单),由人工维护;
+# 不要求与 software/AI/pytorch/case.yaml 一致,可含更高或额外版本。
+versions:
+  - "2.14.1"
+
+execution:
+  type: shell-functions
+  stages:
+    prepare:
+      script: build.sh
+      function: func_prepare
+    install:
+      script: build.sh
+      function: func_install
+    check:
+      script: test.sh
+      function: func_check
+    cleanup:
+      script: test.sh
+      function: func_cleanup
+  timeout_minutes: 120
+  # 实际走的官方 CPU wheel 路径:wheel + 依赖包 + venv 合计约 2-3 GiB,8 GiB 余量充足。
+  min_free_disk_gb: 8
+
+# 功能判定项,名称与 functional_result.json 中 checks[].name 一一对应。
+# 判定来源:版本校验 + 两个基于官方 torch 算子的功能 smoke。
+# build 模式分层优先获取(官方 CPU wheel→三方 PyPI),每层校验版本(裁 +cpu 后)严格相等;
+# 源码编译层因耗时数小时、峰值 20 GiB 以上,远超功能测试范围,已声明为结构性不可用;
+# 官方 CPU wheel 不随附上游测试树,这里用确定性的算子回环替代上游套件。
+checks:
+  - name: version
+    description: 已安装 torch 版本(裁掉 +cpu 后缀)必须等于请求版本
+  - name: matmul-autograd
+    description: 张量矩阵乘 + autograd 反向回环,校验梯度与解析解一致
+  - name: nn-training-loop
+    description: 小型全连接网络 SGD 训练回环,校验损失下降
+
+outputs:
+  functional_result:
+    path: functional_result.json
+    stage: check
+    format: json
+    required: true
+  functional_log:
+    path: functional_test.log
+    stage: check
+    format: text
+    required: true

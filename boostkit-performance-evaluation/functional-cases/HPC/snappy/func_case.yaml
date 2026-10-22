@@ -1,0 +1,52 @@
+# Snappy 功能测试清单。
+# 独立于性能测试框架;版本由人工指定,不做 latest 解析。
+name: snappy
+category: HPC
+enabled: true
+
+# 人工指定的待测版本(白名单),与预构建镜像参考
+# openeuler-docker-images/Others/snappy/1.1.7/24.03-lts-sp4/Dockerfile 严格对齐;
+# 新增版本需同批核对 source-lock.json 与 build.sh 中的版本校验。
+versions:
+  - "1.1.7"
+
+execution:
+  type: shell-functions
+  stages:
+    prepare:
+      script: build.sh
+      function: func_prepare
+    install:
+      script: build.sh
+      function: func_install
+    check:
+      script: test.sh
+      function: func_check
+    cleanup:
+      script: test.sh
+      function: func_cleanup
+  timeout_minutes: 30
+
+# 功能判定项,名称与 functional_result.json 中 checks[].name 一一对应。
+# 参考 Dockerfile 的构建流程不构建上游测试:snappy 1.1.7 源码树没有
+# googletest 子模块(其单测依赖系统 GTest),镜像只交付库、头文件与
+# CMake 版本文件,因此不设 upstream-test 项;库的实际行为由 roundtrip 直接验证。
+checks:
+  - name: source-integrity
+    description: 固定 tag 的源码归档 SHA-256 必须匹配 source-lock.json 基线
+  - name: version
+    description: 被测 SnappyConfigVersion.cmake 报告的版本必须等于请求版本,且带版本号的库文件存在
+  - name: roundtrip
+    description: 链接被测 libsnappy 的 C++ 程序做 Compress/Uncompress 回环校验
+
+outputs:
+  functional_result:
+    path: functional_result.json
+    stage: check
+    format: json
+    required: true
+  snappy_test_log:
+    path: snappy_test.log
+    stage: check
+    format: text
+    required: true
