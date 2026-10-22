@@ -26,9 +26,9 @@ operating_systems:
 # 硬件维度。每台物理机对应一个自托管 Runner 标签。
 hardware:
   - name: kunpeng920
-    runner_label: PERF_FUNC_KUNPENG920
+    runner_label: linux-aarch64-cpu-4
   - name: kunpeng950
-    runner_label: PERF_FUNC_KUNPENG950
+    runner_label: linux-aarch64-a5-0
 
 output_root: .func-output
 work_root: /home/runner/boostkit-func
