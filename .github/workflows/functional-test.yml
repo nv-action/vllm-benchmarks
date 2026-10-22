@@ -134,20 +134,12 @@ jobs:
         timeout-minutes: 5
         run: |
           set -x
-          cat /etc/os-release || true
-          uname -a
           id -u
-          command -v python3 python pip3 pip sudo apt-get dnf yum microdnf curl || true
-          python3 -VV || true
-          python3 -m pip --version || true
-          python3 -m ensurepip --version || true
-          for u in https://pypi.tuna.tsinghua.edu.cn/simple/pyyaml/ https://github.com https://swr.cn-north-4.myhuaweicloud.com/v2/ https://docker.1ms.run/v2/; do
+          command -v python3 python pip3 pip sudo apt-get docker curl tar || true
+          grep -rhE '^(deb|URIs)' /etc/apt/sources.list /etc/apt/sources.list.d 2>/dev/null | head -5 || true
+          for u in https://pypi.org/simple/pyyaml/ https://mirrors.aliyun.com/pypi/simple/pyyaml/ https://repo.huaweicloud.com/repository/pypi/simple/pyyaml/ https://mirrors.cloud.tencent.com/pypi/simple/pyyaml/ https://mirrors.aliyun.com/ubuntu-ports/dists/noble/Release; do
             curl -sS -m 8 -o /dev/null -w "${u} -> %{http_code}\n" "${u}" || echo "${u} -> FAILED"
           done
-      - uses: actions/setup-python@v5
-        timeout-minutes: 3
-        with:
-          python-version: "3.11"
       - name: Install framework runtime dependency
         shell: bash
         timeout-minutes: 10
