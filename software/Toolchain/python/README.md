@@ -76,8 +76,8 @@ Python 性能测试不启动后台服务。`start` 阶段仅检查本次任务�
 
 ```bash
 "${PYTHON_BIN}" -m pip install --no-cache-dir \
-  --index-url https://pypi.tuna.tsinghua.edu.cn/simple \
-  --trusted-host pypi.tuna.tsinghua.edu.cn \
+  --index-url https://mirrors.aliyun.com/pypi/simple \
+  --trusted-host mirrors.aliyun.com \
   pyperformance==1.13.0
 
 "${PYTHON_BIN}" -m pyperformance run \

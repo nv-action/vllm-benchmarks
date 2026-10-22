@@ -94,7 +94,7 @@ jobs:
           deps="${RUNNER_TEMP}/boostkit-func-deps"
           python3 -m pip install \
             --disable-pip-version-check --no-input --no-cache-dir \
-            -i https://pypi.tuna.tsinghua.edu.cn/simple \
+            -i https://mirrors.aliyun.com/pypi/simple \
             --target "${deps}" "PyYAML==6.0.2"
           echo "PYTHONPATH=${deps}" >> "${GITHUB_ENV}"
       - name: Validate functional catalog and generate matrix
@@ -129,26 +129,19 @@ jobs:
       PERF_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
-      - name: Diagnose runner environment
-        shell: bash
-        timeout-minutes: 5
-        run: |
-          set -x
-          id -u
-          command -v python3 python pip3 pip sudo apt-get docker curl tar || true
-          grep -rhE '^(deb|URIs)' /etc/apt/sources.list /etc/apt/sources.list.d 2>/dev/null | head -5 || true
-          for u in https://pypi.org/simple/pyyaml/ https://mirrors.aliyun.com/pypi/simple/pyyaml/ https://repo.huaweicloud.com/repository/pypi/simple/pyyaml/ https://mirrors.cloud.tencent.com/pypi/simple/pyyaml/ https://mirrors.aliyun.com/ubuntu-ports/dists/noble/Release; do
-            curl -sS -m 8 -o /dev/null -w "${u} -> %{http_code}\n" "${u}" || echo "${u} -> FAILED"
-          done
       - name: Install framework runtime dependency
         shell: bash
         timeout-minutes: 10
         run: |
+          pip_home=$(bash framework/ensure_pip.sh)
+          if [ -n "${pip_home}" ]; then
+            export PYTHONPATH="${pip_home}"
+          fi
           deps="${RUNNER_TEMP}/boostkit-func-deps"
           python3 -m pip install \
             --disable-pip-version-check --no-input --no-cache-dir \
             --timeout 20 --retries 2 \
-            -i https://pypi.tuna.tsinghua.edu.cn/simple \
+            -i https://mirrors.aliyun.com/pypi/simple \
             --target "${deps}" "PyYAML==6.0.2"
           echo "PYTHONPATH=${deps}" >> "${GITHUB_ENV}"
       - name: Prepare cell and capture environment

@@ -48,7 +48,7 @@ jobs:
             --disable-pip-version-check \
             --no-input \
             --no-cache-dir \
-            -i https://pypi.tuna.tsinghua.edu.cn/simple \
+            -i https://mirrors.aliyun.com/pypi/simple \
             --target "${framework_deps}" \
             "PyYAML==6.0.2"
           echo "PYTHONPATH=${framework_deps}" >> "${GITHUB_ENV}"
@@ -87,15 +87,16 @@ jobs:
       PERF_SKIP_SYSTEM_PACKAGES: "true"
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
       - name: Global cleanup before performance test
         run: bash framework/cleanup_environment.sh --before
-      - name: Install framework runtime dependencies from PyPI
+      - name: Install framework runtime dependencies from mirror
         shell: bash
         timeout-minutes: 10
         run: |
+          pip_home=$(bash framework/ensure_pip.sh)
+          if [ -n "${pip_home}" ]; then
+            export PYTHONPATH="${pip_home}"
+          fi
           framework_deps="${RUNNER_TEMP}/boostkit-framework-deps"
           python3 -m pip install \
             --disable-pip-version-check \
@@ -103,7 +104,7 @@ jobs:
             --no-cache-dir \
             --timeout 20 \
             --retries 2 \
-            -i https://pypi.tuna.tsinghua.edu.cn/simple \
+            -i https://mirrors.aliyun.com/pypi/simple \
             --target "${framework_deps}" \
             "PyYAML==6.0.2"
           echo "PYTHONPATH=${framework_deps}" >> "${GITHUB_ENV}"

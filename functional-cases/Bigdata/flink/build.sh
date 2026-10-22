@@ -167,7 +167,7 @@ install_flink_from_package() {
     mkdir -p "${target}" || return 30
     log "layer 2: fetching packaged Flink ${SOFTWARE_VERSION} (${FLINK_PYPI_PACKAGE})"
     if ! python3 -m pip install --disable-pip-version-check --no-deps \
-        -i https://pypi.tuna.tsinghua.edu.cn/simple --target "${target}" \
+        -i https://mirrors.aliyun.com/pypi/simple --target "${target}" \
         "${FLINK_PYPI_PACKAGE}==${SOFTWARE_VERSION}"; then
         log "layer 2: ${FLINK_PYPI_PACKAGE}==${SOFTWARE_VERSION} is not available from the package index"
         return 30

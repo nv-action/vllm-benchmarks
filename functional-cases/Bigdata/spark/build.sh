@@ -148,7 +148,7 @@ install_spark_from_package() {
     mkdir -p "${target}" || return 30
     log "layer 2: fetching packaged Spark ${SOFTWARE_VERSION} (${SPARK_PYPI_PACKAGE})"
     if ! python3 -m pip install --disable-pip-version-check --no-deps \
-        -i https://pypi.tuna.tsinghua.edu.cn/simple --target "${target}" \
+        -i https://mirrors.aliyun.com/pypi/simple --target "${target}" \
         "${SPARK_PYPI_PACKAGE}==${SOFTWARE_VERSION}"; then
         log "layer 2: ${SPARK_PYPI_PACKAGE}==${SOFTWARE_VERSION} is not available from the package index"
         return 30

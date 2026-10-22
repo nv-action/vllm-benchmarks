@@ -413,9 +413,9 @@ def test_workflow_uses_default_pypi_on_ubuntu_and_tsinghua_on_runners() -> None:
     prepare_job, performance_and_report = workflow.split("  performance:", 1)
     performance_job, report_job = performance_and_report.split("  report:", 1)
     assert "--index-url" not in prepare_job
-    assert workflow.count("https://pypi.tuna.tsinghua.edu.cn/simple") == 3
+    assert workflow.count("https://mirrors.aliyun.com/pypi/simple") == 3
     for job in (prepare_job, performance_job, report_job):
-        assert "https://pypi.tuna.tsinghua.edu.cn/simple" in job
+        assert "https://mirrors.aliyun.com/pypi/simple" in job
     for job in (prepare_job, performance_job, report_job):
         assert job.count("--target") == 1
         assert job.count("--no-cache-dir") == 1

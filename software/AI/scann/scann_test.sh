@@ -133,7 +133,7 @@ python_pip_index_options() {
     os_id="$(operating_system_id)"
     if [[ "${os_id}" != "ubuntu" ]]; then
         printf '%s\n' \
-            '--index-url' 'https://pypi.tuna.tsinghua.edu.cn/simple'
+            '--index-url' 'https://mirrors.aliyun.com/pypi/simple'
     fi
 }
 

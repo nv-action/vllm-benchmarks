@@ -15,7 +15,7 @@ jobs:
       - name: Install OBS transfer dependency
         run: |
           python3 -m pip install --disable-pip-version-check --no-input --no-cache-dir \
-            -i https://pypi.tuna.tsinghua.edu.cn/simple \
+            -i https://mirrors.aliyun.com/pypi/simple \
             --target "${RUNNER_TEMP}/boostkit-obs-deps" esdk-obs-python
           echo "PYTHONPATH=${RUNNER_TEMP}/boostkit-obs-deps" >> "${GITHUB_ENV}"
       - name: Download successful GCC results from attempt 2

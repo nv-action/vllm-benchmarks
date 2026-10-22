@@ -31,7 +31,7 @@ STANDALONE_CLEANUP_DONE=0
 # runners cannot reliably reach files.pythonhosted.org.
 PYTORCH_REPOSITORY="${PYTORCH_REPOSITORY:-https://github.com/pytorch/pytorch}"
 PYTORCH_WHEEL_INDEX="${PYTORCH_WHEEL_INDEX:-https://download.pytorch.org/whl/cpu}"
-PYTORCH_DEPENDENCY_INDEX="${PYTORCH_DEPENDENCY_INDEX:-https://pypi.tuna.tsinghua.edu.cn/simple}"
+PYTORCH_DEPENDENCY_INDEX="${PYTORCH_DEPENDENCY_INDEX:-https://mirrors.aliyun.com/pypi/simple}"
 
 # Thread levels for the benchmark suite (space-separated, overridable).
 TORCH_THREAD_LEVELS="${TORCH_THREAD_LEVELS:-1 4 16}"
@@ -197,7 +197,7 @@ build_pytorch() {
 
     log "installing the official PyTorch ${SOFTWARE_VERSION} CPU wheel from ${PYTORCH_WHEEL_INDEX}"
     if ! "${PYTORCH_VENV}/bin/pip" install --no-cache-dir \
-            --trusted-host pypi.tuna.tsinghua.edu.cn \
+            --trusted-host mirrors.aliyun.com \
             --index-url "${PYTORCH_WHEEL_INDEX}" \
             --extra-index-url "${PYTORCH_DEPENDENCY_INDEX}" \
             "torch==${SOFTWARE_VERSION}+cpu"; then

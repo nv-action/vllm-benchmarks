@@ -29,7 +29,7 @@ FAISS_PYTHON_VERSION="${FAISS_PYTHON_VERSION:-3.12}"
 UV_VERSION="${UV_VERSION:-0.13.1}"
 UV_RELEASE_BASE="${UV_RELEASE_BASE:-https://github.com/astral-sh/uv/releases/download}"
 # 国产 Runner 无法稳定访问 files.pythonhosted.org,非 ubuntu 时改用清华 PyPI 镜像。
-PIP_MIRROR_INDEX="https://pypi.tuna.tsinghua.edu.cn/simple"
+PIP_MIRROR_INDEX="https://mirrors.aliyun.com/pypi/simple"
 
 # 运行期路径(configure_runtime_paths 里按模式赋值)。
 VENV_DIR=""
@@ -281,7 +281,7 @@ require_faiss_source_tools() {
 # pip 索引参数:ubuntu 用默认 PyPI,其它发行版走清华 PyPI 镜像。
 pip_index_args() {
     if [[ "$(os_id)" != "ubuntu" ]]; then
-        printf '%s\n' '--trusted-host' 'pypi.tuna.tsinghua.edu.cn' \
+        printf '%s\n' '--trusted-host' 'mirrors.aliyun.com' \
             '--index-url' "${PIP_MIRROR_INDEX}"
     fi
 }

@@ -25,8 +25,8 @@
 python3 -m venv "${PERF_WORK_DIR}/torch-venv"
 "${PERF_WORK_DIR}/torch-venv/bin/pip" install --no-cache-dir \
   --index-url https://download.pytorch.org/whl/cpu \
-  --extra-index-url https://pypi.tuna.tsinghua.edu.cn/simple \
-  --trusted-host pypi.tuna.tsinghua.edu.cn \
+  --extra-index-url https://mirrors.aliyun.com/pypi/simple \
+  --trusted-host mirrors.aliyun.com \
   "torch==2.13.0+cpu"
 ```
 

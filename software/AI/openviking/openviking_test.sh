@@ -36,7 +36,7 @@ STANDALONE_CLEANUP_DONE=0
 # Packages resolve through the Tsinghua PyPI mirror because domestic runners
 # cannot reliably reach files.pythonhosted.org.
 OPENVIKING_REPOSITORY="${OPENVIKING_REPOSITORY:-https://github.com/volcengine/OpenViking}"
-OPENVIKING_PACKAGE_INDEX="${OPENVIKING_PACKAGE_INDEX:-https://pypi.tuna.tsinghua.edu.cn/simple}"
+OPENVIKING_PACKAGE_INDEX="${OPENVIKING_PACKAGE_INDEX:-https://mirrors.aliyun.com/pypi/simple}"
 
 # Benchmark iterations per operation (overridable).
 OPENVIKING_ITERATIONS="${OPENVIKING_ITERATIONS:-3}"
@@ -203,7 +203,7 @@ build_openviking() {
 
     log "installing the official OpenViking ${SOFTWARE_VERSION} wheel from ${OPENVIKING_PACKAGE_INDEX}"
     if ! "${OPENVIKING_VENV}/bin/pip" install --no-cache-dir \
-            --trusted-host pypi.tuna.tsinghua.edu.cn \
+            --trusted-host mirrors.aliyun.com \
             --index-url "${OPENVIKING_PACKAGE_INDEX}" \
             "openviking==${SOFTWARE_VERSION}"; then
         log "ERROR: failed to install openviking==${SOFTWARE_VERSION} from the official package index"
