@@ -122,6 +122,9 @@ jobs:
     needs: prepare
     strategy:
       fail-fast: false
+      # 每个单元格都会在运行机上另起一个容器 pod;全量一百多个 job 同时起 pod 会把节点资源打满,
+      # 导致 k8s 容器钩子报 "jobPod must be set" 并取消 job,因此限制同时运行的单元格数量。
+      max-parallel: 8
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     runs-on: ${{ fromJSON(matrix.runner_labels) }}
     # 容器由 job 提供,四个阶段直接在容器内执行;运行机没有 docker daemon,不再嵌套 docker。
