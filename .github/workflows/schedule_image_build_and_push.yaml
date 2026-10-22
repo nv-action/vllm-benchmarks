@@ -64,15 +64,9 @@ jobs:
       - name: Build image matrix
         id: matrix
         run: |
+          # Test-only: build a single variant to validate the v0.30.0 backport.
           MATRIX=$(jq -nc '[
-            {name: "A2 Ubuntu",      dockerfile: "Dockerfile",               suffix: "",              soc: "910b"},
-            {name: "A3 Ubuntu",      dockerfile: "Dockerfile.a3",            suffix: "a3",            soc: "a3"},
-            {name: "310P Ubuntu",    dockerfile: "Dockerfile.310p",          suffix: "310p",          soc: "310p"},
-            {name: "A5 Ubuntu",      dockerfile: "Dockerfile.a5",            suffix: "a5",            soc: "950"},
-            {name: "A2 openeuler",   dockerfile: "Dockerfile.openEuler",     suffix: "openeuler",     soc: "910b"},
-            {name: "A3 openEuler",   dockerfile: "Dockerfile.a3.openEuler",  suffix: "a3-openeuler",  soc: "a3"},
-            {name: "310P openEuler", dockerfile: "Dockerfile.310p.openEuler",suffix: "310p-openeuler",soc: "310p"},
-            {name: "A5 openEuler",   dockerfile: "Dockerfile.a5.openEuler",  suffix: "a5-openeuler",  soc: "950"}
+            {name: "A2 Ubuntu",      dockerfile: "Dockerfile",               suffix: "",              soc: "910b"}
           ]')
           echo "build_meta=$MATRIX" >> "$GITHUB_OUTPUT"
 
