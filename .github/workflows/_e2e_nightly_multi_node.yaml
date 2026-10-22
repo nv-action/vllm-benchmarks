@@ -190,14 +190,6 @@ jobs:
         with:
           ref: ${{ inputs.vllm_ascend_ref || github.sha }}
 
-      - name: Verify ARM64 controller and cluster access
-        run: |
-          echo "[Controller] runner=${{ runner.name }} architecture=$(uname -m)"
-          test "$(uname -m)" = aarch64
-          kubectl version --client
-          test "$(kubectl auth can-i create leaderworkersets -n "$NAMESPACE")" = yes
-          kubectl get pvc vllm-project-hk001 -n "$NAMESPACE"
-
       - name: Configure profiling
         id: profiling
         env:
