@@ -129,28 +129,18 @@ jobs:
       PERF_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
       - name: Install framework runtime dependency
         shell: bash
+        timeout-minutes: 10
         run: |
-          # Ephemeral self-hosted runners may ship without pip; bootstrap it first.
-          if ! python3 -m pip --version >/dev/null 2>&1; then
-            echo "pip not available for python3, bootstrapping"
-            python3 -m ensurepip --upgrade >/dev/null 2>&1 || true
-          fi
-          if ! python3 -m pip --version >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then
-            if [ "$(id -u)" -eq 0 ]; then
-              apt-get update && apt-get install -y python3-pip
-            elif command -v sudo >/dev/null 2>&1; then
-              sudo apt-get update && sudo apt-get install -y python3-pip
-            fi
-          fi
-          python3 -m pip --version
-          pip_args=(--disable-pip-version-check --no-input --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple)
-          if python3 -m pip install --help 2>/dev/null | grep -q -- --break-system-packages; then
-            pip_args+=(--break-system-packages)
-          fi
           deps="${RUNNER_TEMP}/boostkit-func-deps"
-          python3 -m pip install "${pip_args[@]}" \
+          python3 -m pip install \
+            --disable-pip-version-check --no-input --no-cache-dir \
+            --timeout 20 --retries 2 \
+            -i https://pypi.tuna.tsinghua.edu.cn/simple \
             --target "${deps}" "PyYAML==6.0.2"
           echo "PYTHONPATH=${deps}" >> "${GITHUB_ENV}"
       - name: Prepare cell and capture environment
