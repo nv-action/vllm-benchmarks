@@ -38,6 +38,10 @@ on:
         description: 'Build A3 only, archive wheels without publishing'
         type: boolean
         default: false
+      publish_run_id:
+        description: 'Publish existing A2/A5/310P artifacts from this run ID (skip builds)'
+        type: string
+        default: ''
       publish:
         description: 'Publish variant wheels and index to OBS'
         type: boolean
@@ -49,7 +53,7 @@ on:
 
 jobs:
   build_and_release_code:
-    if: ${{ !inputs.a2_only && !inputs.a3_only }}
+    if: ${{ !inputs.publish_run_id && !inputs.a2_only && !inputs.a3_only }}
     name: release code
     runs-on: linux-amd64-cpu-8-hk
     strategy:
@@ -108,7 +112,7 @@ jobs:
           python3 -m twine upload dist/* -u __token__ -p ${{ secrets.PYPI_TOKEN }}
 
   build_and_release_wheel:
-    if: ${{ !inputs.a3_only }}
+    if: ${{ !inputs.publish_run_id && !inputs.a3_only }}
     name: build and release wheel
     strategy:
       matrix:
@@ -196,7 +200,7 @@ jobs:
 
 
   build_and_release_wheel_a3:
-    if: ${{ !inputs.a2_only }}
+    if: ${{ !inputs.publish_run_id && !inputs.a2_only }}
     name: build and release wheel (A3)
     strategy:
       fail-fast: false
@@ -294,7 +298,7 @@ jobs:
 
 
   build_and_release_wheel_310p:
-    if: ${{ !inputs.a2_only && !inputs.a3_only }}
+    if: ${{ !inputs.publish_run_id && !inputs.a2_only && !inputs.a3_only }}
     name: build and release wheel (310P)
     strategy:
       matrix:
@@ -376,7 +380,7 @@ jobs:
 
 
   build_and_release_wheel_a5:
-    if: ${{ !inputs.a2_only && !inputs.a3_only }}
+    if: ${{ !inputs.publish_run_id && !inputs.a2_only && !inputs.a3_only }}
     name: build and release wheel (A5)
     strategy:
       matrix:
@@ -461,15 +465,27 @@ jobs:
   generate_and_upload_variant_index:
     name: generate and upload variant index
     needs: [build_and_release_wheel, build_and_release_wheel_a3, build_and_release_wheel_310p, build_and_release_wheel_a5]
-    if: ${{ !inputs.a3_only && !cancelled() && !contains(needs.*.result, 'failure') && needs.build_and_release_wheel.result == 'success' }}
+    if: ${{ !cancelled() && (inputs.publish_run_id || (!inputs.a3_only && !contains(needs.*.result, 'failure') && needs.build_and_release_wheel.result == 'success')) }}
     runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+    concurrency:
+      group: publish-vllm-ascend-variants
+      cancel-in-progress: false
     steps:
+      - name: Checkout release tooling
+        if: ${{ inputs.publish_run_id }}
+        uses: actions/checkout@v7
+
       - name: Download all variant wheels
         uses: actions/download-artifact@v8
         with:
           pattern: '*-wheel'
           path: all-wheels/
-          merge-multiple: true
+          merge-multiple: false
+          run-id: ${{ inputs.publish_run_id || github.run_id }}
+          github-token: ${{ github.token }}
 
       - name: Collect variant wheels
         run: |
@@ -490,6 +506,12 @@ jobs:
           echo "Generated index files:"
           ls combined-variants/
 
+      - name: Validate existing A2, A5 and 310P wheels
+        if: ${{ inputs.publish_run_id }}
+        run: |
+          pip install pyelftools==0.32 esdk-obs-python --quiet
+          python3 .github/workflows/scripts/wheel/publish_existing_variants.py validate combined-variants
+
       - name: Archive variant wheels and index
         uses: actions/upload-artifact@v7
         with:
@@ -497,7 +519,7 @@ jobs:
           path: combined-variants/
 
       - name: Upload wheels and variant index to OBS
-        if: ${{ inputs.publish == true }}
+        if: ${{ inputs.publish == true && !inputs.publish_run_id }}
         env:
           OBS_ACCESS_KEY: ${{ secrets.OBS_ACCESS_KEY_ID }}
           OBS_SECRET_KEY: ${{ secrets.OBS_SECRET_ACCESS_KEY }}
@@ -522,3 +544,22 @@ jobs:
               else:
                   raise Exception(f'Failed to upload {filename}: {resp.errorMessage}')
           EOF
+
+      - name: Publish existing wheels and merge OBS index
+        if: ${{ inputs.publish == true && inputs.publish_run_id }}
+        env:
+          OBS_ACCESS_KEY: ${{ secrets.OBS_ACCESS_KEY_ID }}
+          OBS_SECRET_KEY: ${{ secrets.OBS_SECRET_ACCESS_KEY }}
+        run: |
+          pip install esdk-obs-python --quiet
+          python3 .github/workflows/scripts/wheel/publish_existing_variants.py publish combined-variants
+
+      - name: Archive OBS indexes for publication audit
+        if: ${{ always() && inputs.publish == true && inputs.publish_run_id }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: obs-publication-indexes
+          path: |
+            combined-variants/*.json
+            combined-variants/previous-index/*.json
+          if-no-files-found: error

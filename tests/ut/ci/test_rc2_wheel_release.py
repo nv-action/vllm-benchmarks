@@ -108,7 +108,7 @@ class TestWorkflowSafety(unittest.TestCase):
         jobs = workflow["jobs"]
         a3 = jobs["build_and_release_wheel_a3"]
         self.assertFalse(a3["strategy"]["fail-fast"])
-        self.assertEqual(a3["if"], "${{ !inputs.a2_only }}")
+        self.assertEqual(a3["if"], "${{ !inputs.publish_run_id && !inputs.a2_only }}")
         names = [step["name"] for step in a3["steps"]]
         raw_index = names.index("Archive raw wheel before repair")
         self.assertLess(names.index("Build wheel"), raw_index)
@@ -124,6 +124,15 @@ class TestWorkflowSafety(unittest.TestCase):
             "generate_and_upload_variant_index",
         ):
             self.assertIn("!inputs.a3_only", jobs[name]["if"])
+        for name, job in jobs.items():
+            if name.startswith("build_and_release_"):
+                self.assertIn("!inputs.publish_run_id", job["if"])
+        publish = jobs["generate_and_upload_variant_index"]
+        self.assertIn("inputs.publish_run_id ||", publish["if"])
+        self.assertFalse(publish["concurrency"]["cancel-in-progress"])
+        download = next(step for step in publish["steps"] if step["name"] == "Download all variant wheels")
+        self.assertEqual(download["with"]["run-id"], "${{ inputs.publish_run_id || github.run_id }}")
+        self.assertFalse(download["with"]["merge-multiple"])
         dockerfile = (ROOT / ".github/workflows/dockerfiles/Dockerfile.buildwheel.a3").read_text()
         self.assertNotIn("check-runtime-only", dockerfile)
         self.assertNotIn("pyelftools", dockerfile)
