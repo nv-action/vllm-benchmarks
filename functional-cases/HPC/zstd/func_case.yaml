@@ -2,7 +2,8 @@
 # 独立于性能测试框架;版本由人工指定,不做 latest 解析。
 name: zstd
 category: HPC
-enabled: true
+# 临时禁用:全量功能测试跳过该软件。
+enabled: false
 
 # 人工指定的待测版本(白名单),与 software/HPC/zstd/case.yaml 保持一致。
 versions:

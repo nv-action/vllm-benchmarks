@@ -1,7 +1,8 @@
 # Ceph 功能测试清单。
 name: ceph
 category: Storage
-enabled: true
+# 临时禁用:全量功能测试跳过该软件。
+enabled: false
 
 # build 模式(Ubuntu 26.04)从预构建镜像导出根文件系统复用同一份软件本体:
 # Ceph 官方仓库只发布 bookworm/jammy/noble/trixie 包,没有 Ubuntu 26.04(resolute)

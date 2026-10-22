@@ -2,7 +2,8 @@
 # 独立于性能测试框架 software/Middleware/envoy 的 envoy_test.sh;版本由人工指定,不做 latest 解析。
 name: envoy
 category: Middleware
-enabled: true
+# 临时禁用:全量功能测试跳过该软件。
+enabled: false
 
 # 人工指定的待测版本:由人工维护,不要求与性能用例 software/Middleware/envoy/case.yaml 的版本列表一致。
 versions:

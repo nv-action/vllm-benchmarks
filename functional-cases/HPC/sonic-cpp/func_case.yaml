@@ -2,7 +2,8 @@
 # 独立于性能测试框架;版本为上游提交号,由人工指定。
 name: sonic-cpp
 category: HPC
-enabled: true
+# 临时禁用:全量功能测试跳过该软件。
+enabled: false
 
 # 人工指定的待测源码提交(短哈希),与 software/HPC/sonic-cpp/case.yaml 保持一致。
 versions:

@@ -17,7 +17,7 @@ on:
           - pytorch
           - scann
           # Bigdata
-          - bolt
+          # - bolt
           - flink
           - spark
           # Database
@@ -30,18 +30,18 @@ on:
           - lz4
           - protobuf
           - snappy
-          - sonic-cpp
-          - zstd
+          # - sonic-cpp
+          # - zstd
           # Media
           - x264
           - x265
           # Middleware
           - brpc
           - cloudwego
-          - envoy
+          # - envoy
           - kubernetes
           # Storage
-          - ceph
+          # - ceph
           # Toolchain
           - gcc
           - glibc

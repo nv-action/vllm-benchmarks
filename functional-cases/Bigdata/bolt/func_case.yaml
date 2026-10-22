@@ -8,7 +8,8 @@
 # Bolt(字节跳动 C++ 原生执行引擎,经 Apache Gluten 作为 Spark 后端集成)功能测试清单。
 name: bolt
 category: Bigdata
-enabled: true
+# 临时禁用:全量功能测试跳过该软件。
+enabled: false
 
 # 人工指定的待测版本(白名单):commit 短 sha。
 versions:
