@@ -21,7 +21,7 @@ PERF_ACTUAL_VERSION_FILE="${PERF_ACTUAL_VERSION_FILE:-}"
 #   源码编译 = 官方 git 仓库精确 tag。
 # 注意:官方主推分发渠道是 GHCR 镜像(ghcr.io/volcengine/openviking),build 模式运行在普通容器内、
 #   没有嵌套 docker/podman,镜像类渠道无法直接使用,故改用等效的官方 wheel。
-OPENVIKING_PACKAGE_INDEX="${OPENVIKING_PACKAGE_INDEX:-https://mirrors.huaweicloud.com/repository/pypi/simple}"
+OPENVIKING_PACKAGE_INDEX="${OPENVIKING_PACKAGE_INDEX:-https://pypi.tuna.tsinghua.edu.cn/simple}"
 OPENVIKING_SOURCE_URL="${OPENVIKING_SOURCE_URL:-https://github.com/volcengine/OpenViking.git}"
 OPENVIKING_PACKAGE_SPEC="openviking==${SOFTWARE_VERSION}"
 
@@ -238,9 +238,9 @@ require_python_runtime() {
     install_os_packages "${logical[@]}" || return 30
 }
 
-# 官方 openviking wheel 走华为云 PyPI 镜像。
+# 官方 openviking wheel 走清华 PyPI 镜像。
 pip_index_args() {
-    printf '%s\n' '--trusted-host' 'mirrors.huaweicloud.com' \
+    printf '%s\n' '--trusted-host' 'pypi.tuna.tsinghua.edu.cn' \
         '--index-url' "${OPENVIKING_PACKAGE_INDEX}"
 }
 

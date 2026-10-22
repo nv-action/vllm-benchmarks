@@ -27,11 +27,11 @@ STANDALONE_STOP_DONE=0
 STANDALONE_CLEANUP_DONE=0
 
 # Fixed sources for the official prebuilt wheel and its Python dependencies.
-# Dependencies resolve through the Huawei PyPI mirror because domestic
+# Dependencies resolve through the Tsinghua PyPI mirror because domestic
 # runners cannot reliably reach files.pythonhosted.org.
 PYTORCH_REPOSITORY="${PYTORCH_REPOSITORY:-https://github.com/pytorch/pytorch}"
 PYTORCH_WHEEL_INDEX="${PYTORCH_WHEEL_INDEX:-https://download.pytorch.org/whl/cpu}"
-PYTORCH_DEPENDENCY_INDEX="${PYTORCH_DEPENDENCY_INDEX:-https://mirrors.huaweicloud.com/repository/pypi/simple}"
+PYTORCH_DEPENDENCY_INDEX="${PYTORCH_DEPENDENCY_INDEX:-https://pypi.tuna.tsinghua.edu.cn/simple}"
 
 # Thread levels for the benchmark suite (space-separated, overridable).
 TORCH_THREAD_LEVELS="${TORCH_THREAD_LEVELS:-1 4 16}"
@@ -197,7 +197,7 @@ build_pytorch() {
 
     log "installing the official PyTorch ${SOFTWARE_VERSION} CPU wheel from ${PYTORCH_WHEEL_INDEX}"
     if ! "${PYTORCH_VENV}/bin/pip" install --no-cache-dir \
-            --trusted-host mirrors.huaweicloud.com \
+            --trusted-host pypi.tuna.tsinghua.edu.cn \
             --index-url "${PYTORCH_WHEEL_INDEX}" \
             --extra-index-url "${PYTORCH_DEPENDENCY_INDEX}" \
             "torch==${SOFTWARE_VERSION}+cpu"; then

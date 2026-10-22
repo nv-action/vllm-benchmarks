@@ -47,8 +47,8 @@ ensure_conan() {
         return 0
     fi
     log "installing Conan 2 via pip"
-    python3 -m pip install --upgrade --user conan ||
-        python3 -m pip install --upgrade --break-system-packages conan || {
+    python3 -m pip install --upgrade --user -i https://pypi.tuna.tsinghua.edu.cn/simple conan ||
+        python3 -m pip install --upgrade --break-system-packages -i https://pypi.tuna.tsinghua.edu.cn/simple conan || {
         log "ERROR: failed to install Conan"
         return 30
     }

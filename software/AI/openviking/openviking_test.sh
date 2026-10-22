@@ -33,10 +33,10 @@ STANDALONE_STOP_DONE=0
 STANDALONE_CLEANUP_DONE=0
 
 # Fixed sources for the official wheel and its Python dependencies.
-# Packages resolve through the Huawei PyPI mirror because domestic runners
+# Packages resolve through the Tsinghua PyPI mirror because domestic runners
 # cannot reliably reach files.pythonhosted.org.
 OPENVIKING_REPOSITORY="${OPENVIKING_REPOSITORY:-https://github.com/volcengine/OpenViking}"
-OPENVIKING_PACKAGE_INDEX="${OPENVIKING_PACKAGE_INDEX:-https://mirrors.huaweicloud.com/repository/pypi/simple}"
+OPENVIKING_PACKAGE_INDEX="${OPENVIKING_PACKAGE_INDEX:-https://pypi.tuna.tsinghua.edu.cn/simple}"
 
 # Benchmark iterations per operation (overridable).
 OPENVIKING_ITERATIONS="${OPENVIKING_ITERATIONS:-3}"
@@ -203,7 +203,7 @@ build_openviking() {
 
     log "installing the official OpenViking ${SOFTWARE_VERSION} wheel from ${OPENVIKING_PACKAGE_INDEX}"
     if ! "${OPENVIKING_VENV}/bin/pip" install --no-cache-dir \
-            --trusted-host mirrors.huaweicloud.com \
+            --trusted-host pypi.tuna.tsinghua.edu.cn \
             --index-url "${OPENVIKING_PACKAGE_INDEX}" \
             "openviking==${SOFTWARE_VERSION}"; then
         log "ERROR: failed to install openviking==${SOFTWARE_VERSION} from the official package index"

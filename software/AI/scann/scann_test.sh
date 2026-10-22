@@ -133,8 +133,7 @@ python_pip_index_options() {
     os_id="$(operating_system_id)"
     if [[ "${os_id}" != "ubuntu" ]]; then
         printf '%s\n' \
-            '--trusted-host' 'mirrors.huaweicloud.com' \
-            '--index-url' 'https://mirrors.huaweicloud.com/repository/pypi/simple'
+            '--index-url' 'https://pypi.tuna.tsinghua.edu.cn/simple'
     fi
 }
 

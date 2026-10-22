@@ -12,16 +12,18 @@ architectures:
 #   prebuilt - 拉预构建软件镜像(image_template 渲染),已装好软件,install 只校验
 #   build    - 当场起基础镜像(image),在容器内跑安装脚本(装依赖 + 构建)与测试脚本
 # image_template 支持 {software}、{version}、{arch} 占位,
-# 例:openeulertest/redis:6.0.20-oe2403sp4-aarch64
+# 例:docker.1ms.run/openeulertest/redis:6.0.20-oe2403sp4-aarch64
+# 运行机无法直连 Docker Hub,预构建软件镜像走 1ms.run 公共加速地址。
 operating_systems:
   - name: openeuler-24.03-sp4
     runtime: container
     mode: prebuilt
-    image_template: "openeulertest/{software}:{version}-oe2403sp4-{arch}"
+    image_template: "docker.1ms.run/openeulertest/{software}:{version}-oe2403sp4-{arch}"
   - name: ubuntu-26.04.1
     runtime: container
     mode: build
-    image: ubuntu:26.04
+    # 运行机无法直连 Docker Hub,基础镜像走华为云 SWR 公共加速地址。
+    image: "swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/ubuntu:26.04"
 
 # 硬件维度。每台物理机对应一组自托管 Runner 标签,任务需同时匹配全部标签。
 hardware:

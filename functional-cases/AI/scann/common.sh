@@ -32,8 +32,8 @@ SCANN_PYTHON_VERSION="${SCANN_PYTHON_VERSION:-3.9}"
 # 上游官方 uv(astral-sh)发布地址,用于获取固定版本的 CPython。
 UV_VERSION="${UV_VERSION:-0.13.1}"
 UV_RELEASE_BASE="${UV_RELEASE_BASE:-https://github.com/astral-sh/uv/releases/download}"
-# 国产 Runner 无法稳定访问 files.pythonhosted.org,非 ubuntu 时改用华为云 PyPI 镜像。
-PIP_MIRROR_INDEX="https://mirrors.huaweicloud.com/repository/pypi/simple"
+# 国产 Runner 无法稳定访问 files.pythonhosted.org,非 ubuntu 时改用清华 PyPI 镜像。
+PIP_MIRROR_INDEX="https://pypi.tuna.tsinghua.edu.cn/simple"
 
 # 运行期路径(configure_runtime_paths 里按模式赋值)。
 VENV_DIR=""
@@ -253,10 +253,10 @@ require_python_runtime() {
     install_os_packages "${logical[@]}" || return 30
 }
 
-# pip 索引参数:ubuntu 用默认 PyPI,其它发行版走华为云镜像。
+# pip 索引参数:ubuntu 用默认 PyPI,其它发行版走清华 PyPI 镜像。
 pip_index_args() {
     if [[ "$(os_id)" != "ubuntu" ]]; then
-        printf '%s\n' '--trusted-host' 'mirrors.huaweicloud.com' \
+        printf '%s\n' '--trusted-host' 'pypi.tuna.tsinghua.edu.cn' \
             '--index-url' "${PIP_MIRROR_INDEX}"
     fi
 }

@@ -48,6 +48,7 @@ jobs:
             --disable-pip-version-check \
             --no-input \
             --no-cache-dir \
+            -i https://pypi.tuna.tsinghua.edu.cn/simple \
             --target "${framework_deps}" \
             "PyYAML==6.0.2"
           echo "PYTHONPATH=${framework_deps}" >> "${GITHUB_ENV}"
@@ -104,7 +105,7 @@ jobs:
             fi
           fi
           python3 -m pip --version
-          pip_args=(--disable-pip-version-check --no-input --no-cache-dir)
+          pip_args=(--disable-pip-version-check --no-input --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple)
           if python3 -m pip install --help 2>/dev/null | grep -q -- --break-system-packages; then
             pip_args+=(--break-system-packages)
           fi

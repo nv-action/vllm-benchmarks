@@ -406,15 +406,16 @@ def test_development_workflow_uses_development_runner_profile() -> None:
     assert "update_baseline" not in workflow
 
 
-def test_workflow_uses_default_pypi_on_ubuntu_and_huawei_on_runners() -> None:
+def test_workflow_uses_default_pypi_on_ubuntu_and_tsinghua_on_runners() -> None:
     workflow = (ROOT / ".github" / "workflows" / "performance-test.yml").read_text(
         encoding="utf-8"
     )
     prepare_job, performance_and_report = workflow.split("  performance:", 1)
     performance_job, report_job = performance_and_report.split("  report:", 1)
     assert "--index-url" not in prepare_job
-    assert workflow.count("https://mirrors.huaweicloud.com/repository/pypi/simple") == 1
-    assert "https://mirrors.huaweicloud.com/repository/pypi/simple" in performance_job
+    assert workflow.count("https://pypi.tuna.tsinghua.edu.cn/simple") == 3
+    for job in (prepare_job, performance_job, report_job):
+        assert "https://pypi.tuna.tsinghua.edu.cn/simple" in job
     for job in (prepare_job, performance_job, report_job):
         assert job.count("--target") == 1
         assert job.count("--no-cache-dir") == 1

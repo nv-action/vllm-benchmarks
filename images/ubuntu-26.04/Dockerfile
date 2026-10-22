@@ -5,7 +5,7 @@
 # 软件镜像以本镜像为底座,按 <仓库>:<软件>-<版本> 命名,例如:
 #   FROM kunpeng/ubuntu-26.04.1:base  =>  kunpeng/ubuntu-26.04.1:redis-8.10.2
 # 建议记录镜像 digest,锁定 ubuntu:26.04 的实际内容。
-FROM ubuntu:26.04
+FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/ubuntu:26.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 

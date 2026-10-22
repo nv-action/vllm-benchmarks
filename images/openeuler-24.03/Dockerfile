@@ -5,7 +5,7 @@
 # 软件镜像以本镜像为底座,按 <仓库>:<软件>-<版本> 命名,例如:
 #   FROM kunpeng/openeuler-24.03-sp4:base  =>  kunpeng/openeuler-24.03-sp4:redis-8.10.2
 # 建议记录镜像 digest,锁定 openeuler/openeuler:24.03-lts-sp4 的实际内容。
-FROM openeuler/openeuler:24.03-lts-sp4
+FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/openeuler/openeuler:24.03-lts-sp4
 
 RUN dnf install -y --setopt=install_weak_deps=False \
         bash \

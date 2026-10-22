@@ -19,10 +19,10 @@ PERF_ACTUAL_VERSION_FILE="${PERF_ACTUAL_VERSION_FILE:-}"
 #   层 1 上游官方二进制 = download.pytorch.org/whl CPU aarch64/x86_64 wheel(config/distribution.yaml primary);
 #   层 2 三方仓库 = PyPI(torch,含 +cpu 本地版本后缀的历史 wheel);
 #   层 3 源码编译 = 结构性不可用(编译 PyTorch 需数小时与 20 GiB 以上空间,超出功能测试范围)。
-# 依赖包走华为云 PyPI 镜像(国产 Runner 无法稳定访问 files.pythonhosted.org)。
+# 依赖包走清华 PyPI 镜像(国产 Runner 无法稳定访问 files.pythonhosted.org)。
 PYTORCH_WHEEL_INDEX="${PYTORCH_WHEEL_INDEX:-https://download.pytorch.org/whl/cpu}"
-PYTORCH_DEPENDENCY_INDEX="${PYTORCH_DEPENDENCY_INDEX:-https://mirrors.huaweicloud.com/repository/pypi/simple}"
-PYTORCH_PYPI_INDEX="${PYTORCH_PYPI_INDEX:-https://mirrors.huaweicloud.com/repository/pypi/simple}"
+PYTORCH_DEPENDENCY_INDEX="${PYTORCH_DEPENDENCY_INDEX:-https://pypi.tuna.tsinghua.edu.cn/simple}"
+PYTORCH_PYPI_INDEX="${PYTORCH_PYPI_INDEX:-https://pypi.tuna.tsinghua.edu.cn/simple}"
 TORCH_PACKAGE_SPEC="torch==${SOFTWARE_VERSION}+cpu"
 TORCH_PACKAGE_PLAIN_SPEC="torch==${SOFTWARE_VERSION}"
 
@@ -247,14 +247,14 @@ require_python_runtime() {
 
 # 官方 CPU wheel 索引 + 依赖镜像。
 pip_index_args() {
-    printf '%s\n' '--trusted-host' 'mirrors.huaweicloud.com' \
+    printf '%s\n' '--trusted-host' 'pypi.tuna.tsinghua.edu.cn' \
         '--index-url' "${PYTORCH_WHEEL_INDEX}" \
         '--extra-index-url' "${PYTORCH_DEPENDENCY_INDEX}"
 }
 
 # 三方 PyPI 镜像索引(层 2/层 3 及构建依赖用)。
 pip_pypi_index_args() {
-    printf '%s\n' '--trusted-host' 'mirrors.huaweicloud.com' \
+    printf '%s\n' '--trusted-host' 'pypi.tuna.tsinghua.edu.cn' \
         '--index-url' "${PYTORCH_PYPI_INDEX}"
 }
 

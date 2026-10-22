@@ -9,7 +9,7 @@ enabled: false
 # 对应的 21.3.0/16.2.8 二进制,现场安装只能退到源码编译(远超时限)。
 # 声明 bootstrap_image 后,框架在运行机上 docker export 该镜像并解包到工作目录,
 # 通过 PERF_IMAGE_ROOTFS 传给用例,用例用 chroot 直接运行镜像内已装好的 ceph。
-bootstrap_image: "openeulertest/{software}:{version}-oe2403sp4-{arch}"
+bootstrap_image: "docker.1ms.run/openeulertest/{software}:{version}-oe2403sp4-{arch}"
 
 # 人工指定的待测版本(白名单),与预构建镜像 tag 一一对应。
 versions:
