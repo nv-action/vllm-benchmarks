@@ -23,8 +23,9 @@ operating_systems:
   - name: ubuntu-26.04.1
     runtime: job-container
     mode: build
-    # 运行机无法直连 Docker Hub,基础镜像走华为云 SWR 公共加速地址。
-    image: "swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/ubuntu:26.04"
+    # 运行机无法直连 Docker Hub,基础镜像走 1ms.run 公共加速地址。
+    # 注意:SWR 的 ddn-k8s 镜像只有 amd64,aarch64 节点起不来,必须用带 arm64 的平台清单。
+    image: "docker.1ms.run/library/ubuntu:26.04"
 
 # 硬件维度。每台物理机对应一组自托管 Runner 标签,任务需同时匹配全部标签。
 hardware:
