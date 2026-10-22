@@ -166,9 +166,11 @@ jobs:
             apt-get update
             apt-get install -y --no-install-recommends "${missing[@]}" ca-certificates
           elif command -v dnf >/dev/null 2>&1; then
-            dnf install -y "${missing[@]}" ca-certificates
+            # openEuler 24.03 的 update 仓库元数据在镜像上返回 404,dnf 会整体失败,
+            # 装基础工具时先屏蔽该仓库。
+            dnf install -y --disablerepo=update "${missing[@]}" ca-certificates
           elif command -v yum >/dev/null 2>&1; then
-            yum install -y "${missing[@]}" ca-certificates
+            yum install -y --disablerepo=update "${missing[@]}" ca-certificates
           else
             echo "ERROR: the job container has no supported package manager" >&2
             exit 1
