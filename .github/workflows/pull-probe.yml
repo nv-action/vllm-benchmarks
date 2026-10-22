@@ -1,0 +1,24 @@
+name: Pull probe
+
+# 临时探针:验证自托管节点能否直接从 Docker Hub 拉取镜像(不加任何镜像源前缀)。
+on:
+  push:
+    paths:
+      - .github/workflows/pull-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  docker-hub:
+    name: Pull ubuntu:26.04 from Docker Hub
+    runs-on: [linux-aarch64-a5-0, sh-001]
+    container:
+      image: ubuntu:26.04
+    timeout-minutes: 15
+    steps:
+      - name: Report container OS
+        shell: sh
+        run: |
+          cat /etc/os-release
+          echo "probe ok: pulled ubuntu:26.04 without a mirror"
