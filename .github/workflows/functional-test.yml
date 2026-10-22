@@ -122,9 +122,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
-    runs-on:
-      - self-hosted
-      - ${{ matrix.runner_label }}
+    runs-on: ${{ matrix.runner_label }}
     timeout-minutes: ${{ matrix.job_timeout_minutes }}
     env:
       PERF_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
