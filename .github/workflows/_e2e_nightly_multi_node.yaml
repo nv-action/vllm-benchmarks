@@ -176,7 +176,7 @@ jobs:
     runs-on: ${{ inputs.runner }}
     if: ${{ inputs.should_run }}
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend@sha256:c699e6cb3695f52659485075d3d8f12d05d61d453fb7f761c8955f74e950a631
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-cpu
       env:
         KUBECONFIG: /tmp/kubeconfig
         NAMESPACE: vllm-project
