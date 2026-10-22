@@ -3,9 +3,11 @@
 
 import ctypes
 import fnmatch
+import hashlib
 import io
 import os
 import platform
+import re
 import subprocess
 import sys
 import tempfile
@@ -13,6 +15,56 @@ import zipfile
 from pathlib import Path
 
 from elftools.elf.elffile import ELFFile
+
+
+def resolve_openmp_runtime(link_input):
+    """Resolve GCC Toolset's libgomp linker script to its shared runtime."""
+    library = Path(link_input).resolve(strict=True)
+    data = library.read_bytes()
+    if not data.startswith(b"\x7fELF"):
+        # RHEL's GCC Toolset uses INPUT(/usr/lib64/libgomp.so.1), not a
+        # symlink. Fail closed for other script forms rather than guessing.
+        script = re.sub(r"/\*.*?\*/", "", data.decode("utf-8"), flags=re.DOTALL)
+        inputs = re.findall(r"\bINPUT\s*\(\s*(/[^\s()]+/libgomp\.so\.1)\s*\)", script)
+        if len(inputs) != 1:
+            raise RuntimeError(f"Unsupported OpenMP linker input: {library}: {script}")
+        library = Path(inputs[0]).resolve(strict=True)
+        data = library.read_bytes()
+    if not data.startswith(b"\x7fELF"):
+        raise RuntimeError(f"OpenMP runtime is not ELF: {library}")
+    elf = ELFFile(io.BytesIO(data))
+    dynamic = elf.get_section_by_name(".dynamic")
+    sonames = [tag.soname for tag in dynamic.iter_tags() if tag.entry.d_tag == "DT_SONAME"] if dynamic else []
+    if sonames != ["libgomp.so.1"]:
+        raise RuntimeError(f"Unexpected OpenMP runtime SONAME: {library}: {sonames}")
+    print(f"Resolved OpenMP runtime: {link_input} -> {library}", flush=True)
+    return library
+
+
+def check_repaired_tags(wheel, arch):
+    tags = wheel.stem.rsplit("-", 1)[1].split(".")
+    target = f"manylinux_2_34_{arch}"
+    if target not in tags:
+        raise RuntimeError(f"Missing {target} platform tag: {wheel.name}")
+    for tag in tags:
+        if tag in {f"manylinux{alias}_{arch}" for alias in ("1", "2010", "2014")}:
+            continue
+        match = re.fullmatch(rf"manylinux_(\d+)_(\d+)_{arch}", tag)
+        if not match or tuple(map(int, match.groups())) > (2, 34):
+            raise RuntimeError(f"Unexpected platform tag: {tag}")
+
+
+def bundled_openmp(original_files, files, expected_hash):
+    added = files - original_files
+    runtimes = {name for name in added if fnmatch.fnmatchcase(name, "vllm_ascend.libs/libgomp-*.so.*")}
+    # auditwheel 6.8 also adds dependency provenance metadata for RPM libraries.
+    metadata = {name for name in added if fnmatch.fnmatchcase(name, "*.dist-info/sboms/auditwheel.cdx.json")}
+    if original_files - files or len(runtimes) != 1 or added != runtimes | metadata:
+        raise RuntimeError(f"Unexpected payload changes: added={added}, removed={original_files - files}")
+    bundled = runtimes.pop()
+    if not Path(bundled).name.startswith(f"libgomp-{expected_hash}.so."):
+        raise RuntimeError(f"auditwheel bundled a different OpenMP runtime: {bundled}")
+    return bundled
 
 
 def check_glibc(name, data):
@@ -65,9 +117,9 @@ def main():
                 libraries.add(line.split("=", 1)[1])
     if len(libraries) != 1:
         raise RuntimeError(f"Expected one CMake OpenMP library, found {libraries}")
-    library = Path(libraries.pop()).resolve(strict=True)
-    print(f"Build-time OpenMP library: {library}", flush=True)
+    library = resolve_openmp_runtime(libraries.pop())
     check_glibc(str(library), library.read_bytes())
+    runtime_hash = hashlib.sha256(library.read_bytes()).hexdigest()[:8]
 
     wheels = list(wheel_dir.glob("*.whl"))
     if len(wheels) != 1:
@@ -83,16 +135,12 @@ def main():
     )
 
     wheels = list(wheel_dir.glob("*.whl"))
-    if len(wheels) != 1 or f"-{env['AUDITWHEEL_PLAT']}.whl" not in wheels[0].name:
+    if len(wheels) != 1:
         raise RuntimeError(f"Unexpected repaired wheel tags: {wheels}")
+    check_repaired_tags(wheels[0], platform.machine())
     with zipfile.ZipFile(wheels[0]) as repaired, tempfile.TemporaryDirectory() as tmp:
         files = {name for name in repaired.namelist() if not name.endswith("/")}
-        added = files - original_files
-        if original_files - files or len(added) != 1:
-            raise RuntimeError(f"Unexpected payload changes: added={added}, removed={original_files - files}")
-        bundled = added.pop()
-        if not fnmatch.fnmatchcase(bundled, "vllm_ascend.libs/libgomp-*.so.*"):
-            raise RuntimeError(f"Unexpected bundled dependency: {bundled}")
+        bundled = bundled_openmp(original_files, files, runtime_hash)
         for name in files:
             if ".so" in Path(name).name:
                 data = repaired.read(name)

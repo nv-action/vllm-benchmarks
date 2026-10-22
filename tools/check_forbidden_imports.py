@@ -53,6 +53,8 @@ CHECK_IMPORTS = {
             # The doctest selector runs in a minimal CPU workflow before
             # project dependencies are installed.
             "tests/e2e/doctests/scripts/doctest_helper.py",
+            # Release tooling runs outside the installed application environment.
+            ".github/workflows/scripts/wheel/repair_a3_wheel.py",
         },
     ),
     "triton": ForbiddenImport(

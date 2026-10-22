@@ -17,6 +17,11 @@
 
 name: Release Code and Wheel
 
+# Keep new A3 builds independent from any previous release run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
+
 on:
   workflow_dispatch:
     inputs:
@@ -29,10 +34,14 @@ on:
         description: 'Build A2 only instead of all devices'
         type: boolean
         default: false
+      a3_only:
+        description: 'Build A3 only, archive wheels without publishing'
+        type: boolean
+        default: false
       publish:
         description: 'Publish variant wheels and index to OBS'
         type: boolean
-        default: true
+        default: false
       publish_pypi:
         description: 'Also publish to PyPI (requires publish)'
         type: boolean
@@ -40,7 +49,7 @@ on:
 
 jobs:
   build_and_release_code:
-    if: ${{ !inputs.a2_only }}
+    if: ${{ !inputs.a2_only && !inputs.a3_only }}
     name: release code
     runs-on: linux-amd64-cpu-8-hk
     strategy:
@@ -99,6 +108,7 @@ jobs:
           python3 -m twine upload dist/* -u __token__ -p ${{ secrets.PYPI_TOKEN }}
 
   build_and_release_wheel:
+    if: ${{ !inputs.a3_only }}
     name: build and release wheel
     strategy:
       matrix:
@@ -189,6 +199,7 @@ jobs:
     if: ${{ !inputs.a2_only }}
     name: build and release wheel (A3)
     strategy:
+      fail-fast: false
       matrix:
         os: ${{ fromJSON(inputs.architecture == 'both' && '["ubuntu-24.04","ubuntu-24.04-arm"]' || inputs.architecture == 'arm64' && '["ubuntu-24.04-arm"]' || '["ubuntu-24.04"]') }}
         python-version: ["3.10", "3.11", "3.12"]
@@ -226,6 +237,15 @@ jobs:
           wheel-a3:v1 \
           bash -c "cp -r /workspace/vllm-ascend/dist /outpwd"
           ls dist
+
+      # Save the original wheel before any repair can modify or remove it.
+      - name: Archive raw wheel before repair
+        uses: actions/upload-artifact@v7
+        with:
+          name: vllm-ascend-a3-${{ matrix.os }}-py${{ matrix.python-version }}-raw
+          path: dist/*.whl
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -274,7 +294,7 @@ jobs:
 
 
   build_and_release_wheel_310p:
-    if: ${{ !inputs.a2_only }}
+    if: ${{ !inputs.a2_only && !inputs.a3_only }}
     name: build and release wheel (310P)
     strategy:
       matrix:
@@ -356,7 +376,7 @@ jobs:
 
 
   build_and_release_wheel_a5:
-    if: ${{ !inputs.a2_only }}
+    if: ${{ !inputs.a2_only && !inputs.a3_only }}
     name: build and release wheel (A5)
     strategy:
       matrix:
@@ -441,7 +461,7 @@ jobs:
   generate_and_upload_variant_index:
     name: generate and upload variant index
     needs: [build_and_release_wheel, build_and_release_wheel_a3, build_and_release_wheel_310p, build_and_release_wheel_a5]
-    if: ${{ !cancelled() && !contains(needs.*.result, 'failure') && needs.build_and_release_wheel.result == 'success' }}
+    if: ${{ !inputs.a3_only && !cancelled() && !contains(needs.*.result, 'failure') && needs.build_and_release_wheel.result == 'success' }}
     runs-on: ubuntu-24.04
     steps:
       - name: Download all variant wheels
