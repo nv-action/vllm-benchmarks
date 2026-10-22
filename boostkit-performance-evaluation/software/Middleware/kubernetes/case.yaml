@@ -1,0 +1,49 @@
+name: kubernetes
+category: Middleware
+enabled: true
+versions:
+  - "1.37.0"
+test_tools:
+  go test:
+    version: "1.26.7"
+execution:
+  type: shell-functions
+  stages:
+    build:
+      script: kubernetes_test.sh
+      function: build_kubernetes
+    start:
+      script: kubernetes_test.sh
+      function: start_kubernetes_smoke
+    test:
+      script: kubernetes_test.sh
+      function: run_kubernetes_benchmarks
+    stop:
+      script: kubernetes_test.sh
+      function: stop_kubernetes_runtime
+  timeout_minutes: 120
+outputs:
+  kubernetes_benchmark_raw_output:
+    path: benchmark_kubernetes_raw.log
+    stage: test
+    format: text
+    required: true
+  kubernetes_benchmark_result:
+    path: benchmark_kubernetes.json
+    stage: test
+    format: json
+    required: true
+  aggregate_result:
+    path: results.json
+    stage: test
+    format: json
+    required: true
+metrics:
+  source: aggregate_result
+  collection:
+    path: results
+    name_path: source_name
+    value_path: value
+    unit_path: unit
+    direction_path: direction
+    group_path: group

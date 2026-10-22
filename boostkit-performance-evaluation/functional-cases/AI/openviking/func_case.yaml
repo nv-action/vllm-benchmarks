@@ -1,0 +1,50 @@
+# openviking 功能测试清单。
+# 独立于性能测试框架 software/AI/openviking/;版本由人工指定,不做 latest 解析。
+name: openviking
+category: AI
+enabled: true
+
+# 人工指定的待测版本(白名单),与 software/AI/openviking/case.yaml 保持一致。
+versions:
+  - "0.5.0"
+
+execution:
+  type: shell-functions
+  stages:
+    prepare:
+      script: build.sh
+      function: func_prepare
+    install:
+      script: build.sh
+      function: func_install
+    check:
+      script: test.sh
+      function: func_check
+    cleanup:
+      script: test.sh
+      function: func_cleanup
+  timeout_minutes: 120
+
+# 功能判定项,名称与 functional_result.json 中 checks[].name 一一对应。
+# 判定来源:版本校验 + 两个复用官方 AGFS(RAGFS)绑定客户端的功能 smoke。
+# build 模式分层优先获取(官方 wheel→三方仓库→源码编译),每层校验版本严格相等;
+# 官方主推 GHCR 镜像,普通容器内无嵌套 docker,改用等效的官方 wheel。
+checks:
+  - name: version
+    description: 已安装 openviking 版本必须等于请求版本
+  - name: agfs-readwrite
+    description: AGFS 挂载 memfs 后写入并回读固定负载,校验逐字节一致
+  - name: agfs-operations
+    description: AGFS stat/ls/mkdir/grep/rm 操作序列功能验证
+
+outputs:
+  functional_result:
+    path: functional_result.json
+    stage: check
+    format: json
+    required: true
+  functional_log:
+    path: functional_test.log
+    stage: check
+    format: text
+    required: true

@@ -1,0 +1,44 @@
+name: envoy
+category: Middleware
+enabled: true
+versions:
+  - "1.39.1"
+test_tools:
+  k6:
+    version: "2.2.0"
+execution:
+  type: shell-functions
+  stages:
+    build:
+      script: envoy_test.sh
+      function: build_envoy
+    start:
+      script: envoy_test.sh
+      function: start_envoy_runtime
+    test:
+      script: envoy_test.sh
+      function: run_envoy_benchmarks
+    stop:
+      script: envoy_test.sh
+      function: stop_envoy_runtime
+  timeout_minutes: 720
+outputs:
+  raw_benchmark_output:
+    path: benchmark_envoy_raw.log
+    stage: test
+    format: text
+    required: true
+  benchmark_result:
+    path: benchmark_envoy.json
+    stage: test
+    format: json
+    required: true
+metrics:
+  source: benchmark_result
+  collection:
+    path: results
+    name_path: source_name
+    value_path: value
+    unit_path: unit
+    direction_path: direction
+    group_path: group

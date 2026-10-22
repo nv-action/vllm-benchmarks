@@ -1,0 +1,59 @@
+# cloudwego (CloudWeGo 套件) 功能测试清单。
+# 独立于性能测试框架 framework/;版本由人工指定,不做 latest 解析。
+name: cloudwego
+category: Middleware
+enabled: true
+
+# 人工指定的待测版本(白名单)。CloudWeGo 是微服务中间件集合,旗下 Kitex/Hertz/Netpoll
+# 等子项目各自独立发版,没有统一的套件版本号;这里以套件旗舰 Kitex 的版本作为套件版本标识
+# (纯数字,无 v 前缀),其余组件版本在 common.sh 中人工维护,改套件版本时需同批核对。
+versions:
+  - "0.16.4"
+
+execution:
+  type: shell-functions
+  stages:
+    prepare:
+      script: build.sh
+      function: func_prepare
+    install:
+      script: build.sh
+      function: func_install
+    check:
+      script: test.sh
+      function: func_check
+    cleanup:
+      script: test.sh
+      function: func_cleanup
+  timeout_minutes: 90
+
+# 与参考镜像对齐：Kitex 0.16.4 / Hertz 0.10.6 / Volo tag 0.12.2 / Eino 0.9.22。
+checks:
+  - name: source-integrity
+    description: 四个固定 tag 的源码归档 SHA-256 必须匹配仓库内基线
+  - name: version
+    description: 检查实际 Kitex、hz、volo CLI 版本及 Eino 源码标记
+  - name: upstream-test
+    description: 实际运行 Kitex client 和 Hertz pkg 的上游测试，禁用测试缓存
+  - name: smoke
+    description: Hertz 最小 HTTP 服务回环，校验状态码及 JSON 响应
+  - name: codegen
+    description: 使用实际 Kitex、hz、volo 工具处理本地 Thrift IDL 并检查生成文件
+  - name: generated-build
+    description: Kitex、hz 生成代码执行 go build，Volo 生成项目执行 cargo build --locked
+  - name: kitex-rpc
+    description: 使用生成的服务代码启动 Kitex TCP 服务并校验三种请求的精确响应
+  - name: eino-test
+    description: 运行 Eino schema 和 prompt 的离线单元测试
+
+outputs:
+  functional_result:
+    path: functional_result.json
+    stage: check
+    format: json
+    required: true
+  cloudwego_test_log:
+    path: cloudwego_test.log
+    stage: check
+    format: text
+    required: true

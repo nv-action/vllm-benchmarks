@@ -1,0 +1,14 @@
+architectures:
+  - x86_64
+  - aarch64
+
+runner_labels:
+  production:
+    x86_64: PERF_RUNNER_X86_64
+    aarch64: PERF_RUNNER_ARM64
+  development:
+    x86_64: PERF_DEV_X86_64
+    aarch64: PERF_DEV_ARM64
+
+output_root: .perf-output
+work_root: /home/runner/boostkit-perf

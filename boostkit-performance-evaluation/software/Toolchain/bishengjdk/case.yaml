@@ -1,0 +1,48 @@
+name: bishengjdk
+category: Toolchain
+enabled: true
+versions:
+  - "21.0.9"
+test_tools:
+  JMH:
+    version: "1.37"
+execution:
+  type: shell-functions
+  stages:
+    build:
+      script: bishengjdk_test.sh
+      function: build_bishengjdk
+    start:
+      script: bishengjdk_test.sh
+      function: start_bishengjdk_runtime
+    test:
+      script: bishengjdk_test.sh
+      function: run_bishengjdk_benchmarks
+    stop:
+      script: bishengjdk_test.sh
+      function: stop_bishengjdk_runtime
+  timeout_minutes: 240
+outputs:
+  jmh_output:
+    path: jmh-output.log
+    stage: test
+    format: text
+    required: true
+  jmh_raw_result:
+    path: jmh-result.json
+    stage: test
+    format: json
+    required: true
+  jmh_result:
+    path: benchmark_bishengjdk.json
+    stage: test
+    format: json
+    required: true
+metrics:
+  source: jmh_result
+  collection:
+    path: results
+    name_path: source_name
+    value_path: value
+    unit: ns/op
+    direction: lower_is_better

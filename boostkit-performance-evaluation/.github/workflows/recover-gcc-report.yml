@@ -1,0 +1,72 @@
+name: Recover GCC report input
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  recover:
+    name: Recover run 38199750494 report input only
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install OBS transfer dependency
+        run: |
+          python3 -m pip install --disable-pip-version-check --no-input --no-cache-dir \
+            --target "${RUNNER_TEMP}/boostkit-obs-deps" esdk-obs-python
+          echo "PYTHONPATH=${RUNNER_TEMP}/boostkit-obs-deps" >> "${GITHUB_ENV}"
+      - name: Download successful GCC results from attempt 2
+        env:
+          OBS_ENDPOINT: ${{ secrets.OBS_ENDPOINT }}
+          OBS_BUCKET: ${{ secrets.OBS_BUCKET }}
+          OBS_PREFIX: ${{ secrets.OBS_PREFIX }}
+          OBS_AK: ${{ secrets.OBS_AK }}
+          OBS_SK: ${{ secrets.OBS_SK }}
+          OBS_SECURITY_TOKEN: ${{ secrets.OBS_SECURITY_TOKEN }}
+        run: |
+          mkdir -p .perf-output
+          printf '%s\n' '{"include":[{"category":"Toolchain","software":"gcc","version":"14.4.0","arch":"x86_64"},{"category":"Toolchain","software":"gcc","version":"14.4.0","arch":"aarch64"}]}' > .perf-output/gcc-matrix.json
+          python3 .github/scripts/obs_transfer.py download-results \
+            --destination .perf-output/downloaded \
+            --run-id 38199750494-2 \
+            --result-directory 2026-10-12-11-26-31_38199750494-1 \
+            --matrix .perf-output/gcc-matrix.json
+      - name: Repair and validate report metadata without rerunning tests
+        run: |
+          python3 .github/scripts/recover_gcc_report_input.py \
+            --input-root .perf-output/downloaded \
+            --source-run-id 38199750494-2 \
+            --target-run-id 38199750494-3
+          python3 framework/generate_comparison.py \
+            --input-root .perf-output/downloaded \
+            --output-dir .perf-output/preflight-report
+      - name: Upload recovered x86_64 input for failed-job retry
+        env:
+          OBS_ENDPOINT: ${{ secrets.OBS_ENDPOINT }}
+          OBS_BUCKET: ${{ secrets.OBS_BUCKET }}
+          OBS_PREFIX: ${{ secrets.OBS_PREFIX }}
+          OBS_AK: ${{ secrets.OBS_AK }}
+          OBS_SK: ${{ secrets.OBS_SK }}
+          OBS_SECURITY_TOKEN: ${{ secrets.OBS_SECURITY_TOKEN }}
+        run: |
+          python3 .github/scripts/obs_transfer.py upload-result \
+            --source .perf-output/downloaded/Toolchain/gcc/14.4.0/x86_64 \
+            --run-id 38199750494-3 --category Toolchain --software gcc \
+            --version 14.4.0 --architecture x86_64 \
+            --result-directory 2026-10-12-11-26-31_38199750494-1
+      - name: Upload recovered aarch64 input for failed-job retry
+        env:
+          OBS_ENDPOINT: ${{ secrets.OBS_ENDPOINT }}
+          OBS_BUCKET: ${{ secrets.OBS_BUCKET }}
+          OBS_PREFIX: ${{ secrets.OBS_PREFIX }}
+          OBS_AK: ${{ secrets.OBS_AK }}
+          OBS_SK: ${{ secrets.OBS_SK }}
+          OBS_SECURITY_TOKEN: ${{ secrets.OBS_SECURITY_TOKEN }}
+        run: |
+          python3 .github/scripts/obs_transfer.py upload-result \
+            --source .perf-output/downloaded/Toolchain/gcc/14.4.0/aarch64 \
+            --run-id 38199750494-3 --category Toolchain --software gcc \
+            --version 14.4.0 --architecture aarch64 \
+            --result-directory 2026-10-12-11-26-31_38199750494-1

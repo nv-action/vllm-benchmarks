@@ -1,0 +1,57 @@
+# golang 功能测试清单。
+# 独立于性能测试框架 framework/;版本由人工指定,不做 latest 解析。
+name: golang
+category: Toolchain
+# 预构建镜像的仓库名是 go(而非用例名 golang):
+# openeulertest/go:{version}-oe2403sp4-{arch}。
+image_name: go
+enabled: true
+
+# 人工指定的待测版本(白名单),与 software/Toolchain/golang/case.yaml 一致。
+versions:
+  - "1.27.1"
+
+execution:
+  type: shell-functions
+  stages:
+    prepare:
+      script: build.sh
+      function: func_prepare
+    install:
+      script: build.sh
+      function: func_install
+    check:
+      script: test.sh
+      function: func_check
+    cleanup:
+      script: test.sh
+      function: func_cleanup
+  timeout_minutes: 60
+
+# 功能判定项,名称与 functional_result.json 中 checks[].name 一一对应。
+# 判定来源:优先复用上游测试套件(upstream_command),不足时用内部 smoke 补齐。
+# build 模式(FUNC_MODE=build,ubuntu 官方基础镜像内)按分层优先获取 Go,每层版本需严格等于
+# SOFTWARE_VERSION,不匹配则降级:层1 上游官方二进制(go.dev/dl aarch64 tarball)→
+# 层2 三方仓库包(conda-forge/go、library/golang 镜像不可用,改用等效 apt golang-go)→
+# 层3 官方源码 tarball 编译。
+checks:
+  - name: version
+    description: 安装的 Go 版本必须等于请求版本(ls `go version`,层1/2/3 任一来源均须匹配)
+  # 上游测试套件:直接运行 GOROOT 自带的 strings 标准库测试(官方 test 文件)。
+  - name: upstream-test
+    description: 运行 GOROOT 自带 strings 标准库测试
+    upstream_command: go test (在 $(go env GOROOT)/src/strings)
+  - name: smoke
+    description: go build 一个小模块并运行,校验 hello 输出
+
+outputs:
+  functional_result:
+    path: functional_result.json
+    stage: check
+    format: json
+    required: true
+  check_log:
+    path: check.log
+    stage: check
+    format: text
+    required: true

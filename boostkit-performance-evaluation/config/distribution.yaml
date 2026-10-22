@@ -1,0 +1,238 @@
+# 软件取版渠道注册表。
+# 用途:供功能/性能测试框架按软件查询"如何获取指定版本 / 最新版",避免每次人工查。
+# 与 config/categories.yaml 的软件集合保持一致。
+#
+# 字段说明:
+#   category     分类,与 categories.yaml 一致
+#   primary      推荐的取版渠道 {type, ref}
+#   channels     各生态渠道(无则 null)
+#   arm64_binary 官方是否直接提供 arm64 产物:
+#                  yes=有(二进制/包/多架构镜像) no=有产物但无 arm64
+#                  na =官方无预编译产物(纯源码,需自行编译) unknown=待核实
+#   auto_latest  是否具备自动跟进最新版能力: full / partial / none
+#   note         备注
+#
+# primary.type 取值:
+#   upstream-tarball  官方预编译 tarball(固定或按版本 URL)
+#   upstream-release  官方 release 页 / 源码 tarball(通常需自行编译)
+#   git               git 仓库(需自行编译)
+#   go-module         Go module(经 GOPROXY)
+#   official-mirror   厂商镜像(如华为)
+#   pypi / conda / apt / docker / spack  对应生态渠道
+
+software:
+  # ---------------- AI ----------------
+  faiss:
+    category: AI
+    primary: {type: conda, ref: "pytorch"}
+    channels: {pypi: faiss-cpu, conda: "pytorch/faiss-cpu", apt: libfaiss-dev, docker: null, spack: faiss}
+    arm64_binary: unknown
+    auto_latest: none
+    note: "官方不在 PyPI 分发,faiss-cpu 为第三方;官方唯一推荐 conda"
+  hnswlib:
+    category: AI
+    primary: {type: upstream-release, ref: "https://github.com/nmslib/hnswlib"}
+    channels: {pypi: hnswlib, conda: "conda-forge/hnswlib", apt: libhnswlib-dev, docker: null, spack: null}
+    arm64_binary: na
+    auto_latest: none
+  pytorch:
+    category: AI
+    primary: {type: upstream-tarball, ref: "https://download.pytorch.org/whl/"}
+    channels: {pypi: torch, conda: "pytorch/pytorch", apt: python3-torch, docker: "pytorch/pytorch", spack: py-torch}
+    arm64_binary: yes
+    auto_latest: partial
+    note: "含 CPU aarch64 wheel 与 nightly"
+  openviking:
+    category: AI
+    primary: {type: git, ref: "https://github.com/volcengine/OpenViking"}
+    channels: {pypi: openviking, conda: null, apt: null, docker: "ghcr.io/volcengine/openviking", spack: null}
+    arm64_binary: unknown
+    auto_latest: partial
+    note: "官方主推 GHCR 镜像;Docker Hub 名称待核实"
+  scann:
+    category: AI
+    primary: {type: pypi, ref: "scann"}
+    channels: {pypi: scann, conda: null, apt: null, docker: null, spack: null}
+    arm64_binary: no
+    auto_latest: none
+    note: "仅 x86_64 manylinux wheel"
+
+  # ---------------- Bigdata ----------------
+  flink:
+    category: Bigdata
+    primary: {type: upstream-tarball, ref: "https://flink.apache.org/downloads/"}
+    channels: {pypi: apache-flink, conda: "conda-forge/apache-flink", apt: null, docker: flink, spack: flink}
+    arm64_binary: yes
+    auto_latest: partial
+    note: "JVM 应用,tarball 与架构无关"
+  spark:
+    category: Bigdata
+    primary: {type: upstream-tarball, ref: "https://spark.apache.org/downloads.html"}
+    channels: {pypi: pyspark, conda: "conda-forge/pyspark", apt: spark, docker: "apache/spark", spack: spark}
+    arm64_binary: yes
+    auto_latest: partial
+    note: "需 JDK 8/11/17;tarball 按 Hadoop 版本分"
+  bolt:
+    category: Bigdata
+    primary: {type: git, ref: "https://github.com/bytedance/bolt"}
+    channels: {pypi: null, conda: null, apt: null, docker: null, spack: null}
+    arm64_binary: na
+    auto_latest: none
+    note: "字节 C++ 原生引擎;无预编译二进制,Conan+CMake 构建;经 Apache Gluten 作为后端集成"
+
+  # ---------------- Storage ----------------
+  ceph:
+    category: Storage
+    primary: {type: upstream-tarball, ref: "https://download.ceph.com/"}
+    channels: {pypi: null, conda: null, apt: ceph, docker: "ceph/ceph", spack: ceph}
+    arm64_binary: unknown
+    auto_latest: partial
+    note: "官方提供自有 apt/yum 仓库与容器镜像(quay.io/ceph/ceph);cephadm 编排升级;不建议用 :latest"
+
+  # ---------------- Database ----------------
+  redis:
+    category: Database
+    primary: {type: upstream-tarball, ref: "https://download.redis.io/redis-stable.tar.gz"}
+    channels: {pypi: redis, conda: "conda-forge/redis-server", apt: redis-server, docker: redis, spack: redis}
+    arm64_binary: yes
+    auto_latest: full
+    note: "固定 URL 恒为当前稳定版;官方 redis:latest 多架构"
+  mysql:
+    category: Database
+    primary: {type: upstream-tarball, ref: "https://dev.mysql.com/downloads/mysql/"}
+    channels: {pypi: mysql-connector-python, conda: "conda-forge/mysql-connector-python", apt: mysql-server, docker: mysql, spack: mysql}
+    arm64_binary: yes
+    auto_latest: partial
+    note: "官方提供 aarch64 TAR/RPM/DEB"
+  rocksdb:
+    category: Database
+    primary: {type: upstream-release, ref: "https://github.com/facebook/rocksdb/releases"}
+    channels: {pypi: python-rocksdb, conda: "conda-forge/rocksdb", apt: librocksdb-dev, docker: null, spack: rocksdb}
+    arm64_binary: na
+    auto_latest: none
+  oceanbase:
+    category: Database
+    primary: {type: official-mirror, ref: "https://www.oceanbase.com/softwarecenter"}
+    channels: {pypi: null, conda: null, apt: null, docker: "oceanbase/oceanbase-ce", spack: null}
+    arm64_binary: unknown
+    auto_latest: partial
+    note: "社区版(CE)开源;企业版商业授权;ob-operator 支持集群升级"
+
+  # ---------------- Media ----------------
+  x264:
+    category: Media
+    primary: {type: git, ref: "https://code.videolan.org/videolan/x264"}
+    channels: {pypi: null, conda: "conda-forge/x264", apt: libx264-dev, docker: null, spack: x264}
+    arm64_binary: na
+    auto_latest: none
+  x265:
+    category: Media
+    primary: {type: git, ref: "https://bitbucket.org/multicoreware/x265_git"}
+    channels: {pypi: null, conda: "conda-forge/x265", apt: libx265-dev, docker: null, spack: x265}
+    arm64_binary: na
+    auto_latest: none
+
+  # ---------------- HPC ----------------
+  folly:
+    category: HPC
+    primary: {type: upstream-release, ref: "https://github.com/facebook/folly/releases"}
+    channels: {pypi: null, conda: "conda-forge/folly", apt: null, docker: null, spack: folly}
+    arm64_binary: na
+    auto_latest: none
+    note: "每周自动打 tag,但仅源码"
+  lz4:
+    category: HPC
+    primary: {type: upstream-release, ref: "https://github.com/lz4/lz4/releases"}
+    channels: {pypi: lz4, conda: "conda-forge/lz4", apt: liblz4-dev, docker: null, spack: lz4}
+    arm64_binary: na
+    auto_latest: none
+  protobuf:
+    category: HPC
+    primary: {type: upstream-release, ref: "https://github.com/protocolbuffers/protobuf/releases"}
+    channels: {pypi: protobuf, conda: "conda-forge/protobuf", apt: protobuf-compiler, docker: null, spack: protobuf}
+    arm64_binary: yes
+    auto_latest: none
+    note: "release 含 protoc linux-aarch_64 预编译二进制"
+  snappy:
+    category: HPC
+    primary: {type: upstream-release, ref: "https://github.com/google/snappy/releases"}
+    channels: {pypi: python-snappy, conda: "conda-forge/snappy", apt: libsnappy-dev, docker: null, spack: snappy}
+    arm64_binary: na
+    auto_latest: none
+  sonic-cpp:
+    category: HPC
+    primary: {type: git, ref: "https://github.com/bytedance/sonic-cpp"}
+    channels: {pypi: null, conda: null, apt: null, docker: null, spack: null}
+    arm64_binary: na
+    auto_latest: none
+  sonic-go:
+    category: HPC
+    primary: {type: go-module, ref: "github.com/bytedance/sonic"}
+    channels: {pypi: null, conda: null, apt: null, docker: null, spack: null}
+    arm64_binary: na
+    auto_latest: partial
+    note: "Go module 源码分发,go build 支持 arm64"
+  zstd:
+    category: HPC
+    primary: {type: upstream-release, ref: "https://github.com/facebook/zstd/releases"}
+    channels: {pypi: zstandard, conda: "conda-forge/zstd", apt: libzstd-dev, docker: null, spack: zstd}
+    arm64_binary: na
+    auto_latest: none
+
+  # ---------------- Middleware ----------------
+  brpc:
+    category: Middleware
+    primary: {type: upstream-release, ref: "https://github.com/apache/brpc/releases"}
+    channels: {pypi: null, conda: "conda-forge/brpc", apt: null, docker: null, spack: brpc}
+    arm64_binary: na
+    auto_latest: none
+  envoy:
+    category: Middleware
+    primary: {type: upstream-release, ref: "https://github.com/envoyproxy/envoy/releases"}
+    channels: {pypi: null, conda: null, apt: null, docker: "envoyproxy/envoy", spack: null}
+    arm64_binary: yes
+    auto_latest: partial
+    note: "官方镜像有 v1.X-latest 按版本线标签"
+  kubernetes:
+    category: Middleware
+    primary: {type: upstream-tarball, ref: "https://dl.k8s.io/release/"}
+    channels: {pypi: kubernetes, conda: "conda-forge/kubernetes", apt: "pkgs.k8s.io", docker: null, spack: kubernetes}
+    arm64_binary: yes
+    auto_latest: full
+    note: "dl.k8s.io 各组件二进制;镜像在 registry.k8s.io;stable.txt 给最新号"
+
+  # ---------------- Toolchain ----------------
+  bishengjdk:
+    category: Toolchain
+    primary: {type: official-mirror, ref: "https://mirrors.huaweicloud.com/kunpeng/archive/compiler/bisheng_jdk/"}
+    channels: {pypi: null, conda: null, apt: null, docker: null, spack: null}
+    arm64_binary: yes
+    auto_latest: none
+    note: "提供 aarch64/x86_64 tarball;版本号内嵌文件名,无 latest 指针,需监控目录"
+  gcc:
+    category: Toolchain
+    primary: {type: upstream-release, ref: "https://ftp.gnu.org/gnu/gcc/"}
+    channels: {pypi: null, conda: "conda-forge/gcc_impl_linux-64", apt: gcc, docker: "library/gcc", spack: gcc}
+    arm64_binary: yes
+    auto_latest: none
+    note: "官方仅源码;library/gcc 镜像含 arm64v8;发行版归档的 gcc .deb 亦可直接解包使用"
+  golang:
+    category: Toolchain
+    primary: {type: upstream-tarball, ref: "https://go.dev/dl/"}
+    channels: {pypi: null, conda: "conda-forge/go", apt: golang-go, docker: "library/golang", spack: go}
+    arm64_binary: yes
+    auto_latest: full
+    note: "go.dev/dl 各平台 tarball;GOTOOLCHAIN 按 go.mod 自动取"
+  glibc:
+    category: Toolchain
+    primary: {type: upstream-release, ref: "https://ftp.gnu.org/gnu/glibc/"}
+    channels: {pypi: null, conda: null, apt: libc6-dev, docker: null, spack: glibc}
+    arm64_binary: na
+    auto_latest: none
+  python:
+    category: Toolchain
+    primary: {type: upstream-release, ref: "https://www.python.org/downloads/"}
+    channels: {pypi: null, standalone: "astral-sh/python-build-standalone", conda: "conda-forge/python", apt: python3, docker: "library/python", spack: python}
+    arm64_binary: yes
+    auto_latest: partial
+    note: "解释器无 pip 渠道;功能测试优先用 python-build-standalone 的 aarch64 预编译包(版本精确到补丁位、免源码编译),library/python 镜像含 arm64v8"

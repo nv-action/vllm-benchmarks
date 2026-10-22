@@ -1,0 +1,2 @@
+# Keep independently added software entries when concurrent branches edit the registry.
+config/categories.yaml merge=union

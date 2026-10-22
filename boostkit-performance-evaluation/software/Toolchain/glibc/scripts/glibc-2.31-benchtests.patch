@@ -1,0 +1,66 @@
+--- a/benchtests/bench-timing.h
++++ b/benchtests/bench-timing.h
+@@ -17,20 +17,25 @@
+    <https://www.gnu.org/licenses/>.  */
+ 
+ #undef attribute_hidden
+ #define attribute_hidden
+-#define __clock_gettime clock_gettime
+-#include <hp-timing.h>
+ #include <stdint.h>
++#include <time.h>
+ 
+ #define GL(x) _##x
+ #define GLRO(x) _##x
+-typedef hp_timing_t timing_t;
++typedef uint64_t timing_t;
+ 
+-#define TIMING_TYPE "hp_timing"
++#define TIMING_TYPE "clock_gettime_ns"
+ 
+-#define TIMING_NOW(var) HP_TIMING_NOW (var)
+-#define TIMING_DIFF(diff, start, end) HP_TIMING_DIFF ((diff), (start), (end))
+-#define TIMING_ACCUM(sum, diff) HP_TIMING_ACCUM_NT ((sum), (diff))
++#define TIMING_NOW(var) do {                                        \
++  struct timespec now;                                             \
++  if (clock_gettime (CLOCK_MONOTONIC, &now) != 0)                  \
++    __builtin_trap ();                                             \
++  (var) = (uint64_t) now.tv_sec * UINT64_C (1000000000)            \
++          + (uint64_t) now.tv_nsec;                                 \
++} while (0)
++#define TIMING_DIFF(diff, start, end) ((diff) = (end) - (start))
++#define TIMING_ACCUM(sum, diff) ((sum) += (diff))
+ 
+ #define TIMING_PRINT_MEAN(d_total_s, d_iters) \
+   printf ("\t%g", (d_total_s) / (d_iters))
+--- a/benchtests/bench-string.h
++++ b/benchtests/bench-string.h
+@@ -193,15 +193,11 @@
+ 	 {							      \
+ 	   int f;							      \
+-	   impl_t *skip = NULL, *a;					      \
++	   impl_t *a;							      \
+ 	   for (impl = __start_impls; impl < __stop_impls; ++impl)	      \
+-	     if (strcmp (impl->name, TEST_NAME) == 0)			      \
+-	       skip = impl;						      \
+-	     else							      \
+-	       impl_count++;						      \
++	     impl_count++;						      \
+ 	   a = impl_array = malloc ((impl_count + func_count) *	      \
+ 				   sizeof (impl_t));			      \
+ 	   for (impl = __start_impls; impl < __stop_impls; ++impl)	      \
+-	     if (impl != skip)					      \
+-	       *a++ = *impl;						      \
++	     *a++ = *impl;						      \
+ 	   for (f = 0; f < func_count; f++)				      \
+ 	     if (func_list[f].usable)					      \
+--- a/benchtests/bench-memcmp.c
++++ b/benchtests/bench-memcmp.c
+@@ -99,6 +99,7 @@ do_test (json_ctx_t *json_ctx, size_t align1, size_t align2, size_t len,
+   json_attr_uint (json_ctx, "length", (double) len);
+   json_attr_uint (json_ctx, "align1", (double) align1);
+   json_attr_uint (json_ctx, "align2", (double) align2);
++  json_attr_int (json_ctx, "expected_result", exp_result);
+   json_array_begin (json_ctx, "timings");
+ 
+   FOR_EACH_IMPL (impl, 0)

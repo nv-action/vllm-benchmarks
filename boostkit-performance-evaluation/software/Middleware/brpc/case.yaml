@@ -1,0 +1,44 @@
+name: brpc
+category: Middleware
+enabled: true
+versions:
+  - "1.17.0"
+test_tools:
+  example/rdma_performance:
+    version: "1.17.0"
+execution:
+  type: shell-functions
+  stages:
+    build:
+      script: brpc_test.sh
+      function: build_brpc
+    start:
+      script: brpc_test.sh
+      function: start_brpc_service
+    test:
+      script: brpc_test.sh
+      function: run_brpc_rdma_performance
+    stop:
+      script: brpc_test.sh
+      function: stop_brpc_service
+  timeout_minutes: 240
+outputs:
+  client_log:
+    path: benchmark_client.log
+    stage: test
+    format: text
+    required: true
+  benchmark_result:
+    path: benchmark_brpc.json
+    stage: test
+    format: json
+    required: true
+metrics:
+  source: benchmark_result
+  collection:
+    path: results
+    name_path: source_name
+    value_path: value
+    unit_path: unit
+    direction_path: direction
+    group_path: group

@@ -1,0 +1,50 @@
+name: lz4
+category: HPC
+enabled: true
+versions:
+  - "1.9.4"
+test_tools:
+  lzbench:
+    version: "2.2"
+execution:
+  type: shell-functions
+  stages:
+    build:
+      script: lz4_test.sh
+      function: build_lz4
+    start:
+      script: lz4_test.sh
+      function: start_lz4_runtime
+    test:
+      script: lz4_test.sh
+      function: run_lz4_benchmarks
+    stop:
+      script: lz4_test.sh
+      function: stop_lz4_runtime
+  timeout_minutes: 30
+outputs:
+  lzbench_output:
+    path: benchmark_lzbench.txt
+    stage: test
+    format: text
+    required: true
+  benchmark_result:
+    path: benchmark_lz4.json
+    stage: test
+    format: json
+    required: true
+metrics:
+  source: benchmark_result
+  definitions:
+    compression_throughput:
+      path: results.compression_throughput.value
+      unit: MB/s
+      direction: higher_is_better
+    decompression_throughput:
+      path: results.decompression_throughput.value
+      unit: MB/s
+      direction: higher_is_better
+    compressed_size_ratio:
+      path: results.compressed_size_ratio.value
+      unit: "%"
+      direction: lower_is_better

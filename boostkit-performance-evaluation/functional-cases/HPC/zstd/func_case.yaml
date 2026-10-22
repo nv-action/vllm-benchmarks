@@ -1,0 +1,51 @@
+# Zstd 功能测试清单。
+# 独立于性能测试框架;版本由人工指定,不做 latest 解析。
+name: zstd
+category: HPC
+enabled: true
+
+# 人工指定的待测版本(白名单),与 software/HPC/zstd/case.yaml 保持一致。
+versions:
+  - "1.5.7"
+
+execution:
+  type: shell-functions
+  stages:
+    prepare:
+      script: build.sh
+      function: func_prepare
+    install:
+      script: build.sh
+      function: func_install
+    check:
+      script: test.sh
+      function: func_check
+    cleanup:
+      script: test.sh
+      function: func_cleanup
+  timeout_minutes: 30
+
+# 功能判定项,名称与 functional_result.json 中 checks[].name 一一对应。
+checks:
+  - name: version
+    description: 被测 zstd 版本必须等于请求版本
+  # 上游 tests/playTests.sh 是 zstd 的 CLI 冒烟套件(不带 --test-large-data 即短测)。
+  # prebuilt 模式浅克隆源码树、构建 tests/datagen 并让脚本指向镜像内 zstd;
+  # build 模式直接用本次编译出的 zstd 与源码树。
+  - name: upstream-test
+    description: 运行上游 zstd tests/playTests.sh 短测套件
+    upstream_command: sh tests/playTests.sh
+  - name: cli-roundtrip
+    description: zstd CLI 压缩/解压回环并按 sha256 校验内容一致
+
+outputs:
+  functional_result:
+    path: functional_result.json
+    stage: check
+    format: json
+    required: true
+  zstd_test_log:
+    path: zstd_test.log
+    stage: check
+    format: text
+    required: true

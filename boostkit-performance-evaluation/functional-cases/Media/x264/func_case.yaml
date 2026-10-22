@@ -1,0 +1,57 @@
+# x264 功能测试清单。
+# 独立于性能测试框架 software/Media/x264 的 x264_test.sh;版本由人工指定,不做 latest 解析。
+name: x264
+category: Media
+enabled: true
+
+# 固定提交，与预构建镜像标签及源码归档一致。
+versions:
+  - "0480cb05"
+
+execution:
+  type: shell-functions
+  stages:
+    prepare:
+      script: build.sh
+      function: func_prepare
+    install:
+      script: build.sh
+      function: func_install
+    check:
+      script: test.sh
+      function: func_check
+    cleanup:
+      script: test.sh
+      function: func_cleanup
+  # 包括固定源码构建、checkasm 及解码依赖安装。
+  timeout_minutes: 120
+
+# 功能判定项,名称与 functional_result.json 中 checks[].name 一一对应。
+# 判定来源:优先复用上游 checkasm,叠加编码 smoke。
+checks:
+  - name: version
+    description: 校验固定源码归档及对应 CLI 版本，分别记录提交号和实际版本
+  # install 阶段记录含 Makefile 与 config.mak 的构建目录，check 阶段读取。
+  # build 模式用固定归档构建目录；prebuilt 模式校验并复用 /x264/x264_build，缺失时用固定归档构建。
+  - name: upstream-checkasm
+    description: 运行上游 checkasm 汇编一致性测试
+    upstream_command: make checkasm && ./checkasm8 && ./checkasm10
+  - name: encode-smoke
+    description: 生成裸 YUV 并用 x264 CLI 编码成码流,校验码流含 NAL 起始码
+
+  - name: decoder-dependencies
+    description: 按需安装 FFmpeg，依赖不可用则失败
+  - name: decode-check
+    description: H.264 64x64，完整解码 3 帧，I420 输出 18432 字节
+
+outputs:
+  functional_result:
+    path: functional_result.json
+    stage: check
+    format: json
+    required: true
+  check_log:
+    path: check.log
+    stage: check
+    format: text
+    required: true

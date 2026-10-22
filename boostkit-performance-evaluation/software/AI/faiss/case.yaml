@@ -1,0 +1,46 @@
+name: faiss
+category: AI
+enabled: true
+versions:
+  - "1.14.3"
+test_tools:
+  sra_test:
+    version: "9a941bc3fb72c1e0d8dc48e6deb7df33e3e23abf"
+  faiss:
+    version: "与被测软件版本一致"
+execution:
+  type: shell-functions
+  stages:
+    build:
+      script: faiss_test.sh
+      function: build_faiss
+    start:
+      script: faiss_test.sh
+      function: start_faiss_runtime
+    test:
+      script: faiss_test.sh
+      function: run_faiss_benchmarks
+    stop:
+      script: faiss_test.sh
+      function: stop_faiss_runtime
+  timeout_minutes: 1350
+outputs:
+  benchmark_result:
+    path: benchmark_sra.json
+    stage: test
+    format: json
+    required: true
+  official_logs:
+    path: sra-test-logs
+    stage: test
+    format: directory
+    required: true
+metrics:
+  source: benchmark_result
+  collection:
+    path: results
+    name_path: source_name
+    value_path: value
+    unit_path: unit
+    direction_path: direction
+    group_path: group

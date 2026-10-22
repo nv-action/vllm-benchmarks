@@ -1,0 +1,50 @@
+# sonic-cpp 功能测试清单。
+# 独立于性能测试框架;版本为上游提交号,由人工指定。
+name: sonic-cpp
+category: HPC
+enabled: true
+
+# 人工指定的待测源码提交(短哈希),与 software/HPC/sonic-cpp/case.yaml 保持一致。
+versions:
+  - "1.0.2"
+
+execution:
+  type: shell-functions
+  stages:
+    prepare:
+      script: build.sh
+      function: func_prepare
+    install:
+      script: build.sh
+      function: func_install
+    check:
+      script: test.sh
+      function: func_check
+    cleanup:
+      script: test.sh
+      function: func_cleanup
+  timeout_minutes: 180
+
+# 功能判定项,名称与 functional_result.json 中 checks[].name 一一对应。
+checks:
+  - name: version
+    description: 检出源码的提交号必须等于请求的提交
+  # 上游自带的 CMake benchmark(benchmark/main.cpp)是随仓库发布的官方程序,
+  # 以极短测量时间运行它,确认上游程序可正常加载并产出结果。
+  - name: upstream-test
+    description: 运行上游官方 CMake benchmark 目标(bench,短时)
+    upstream_command: build/benchmark/bench --benchmark_filter=Sonic --benchmark_min_time=0.01s
+  - name: json-roundtrip
+    description: 链接 libsonic 的 C++ 程序做 JSON 解析/序列化回环校验
+
+outputs:
+  functional_result:
+    path: functional_result.json
+    stage: check
+    format: json
+    required: true
+  sonic_cpp_test_log:
+    path: sonic_cpp_test.log
+    stage: check
+    format: text
+    required: true

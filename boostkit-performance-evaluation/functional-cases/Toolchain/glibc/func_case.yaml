@@ -1,0 +1,60 @@
+# glibc 功能测试清单。
+# 独立于性能测试框架 framework/;版本由人工指定,不做 latest 解析。
+name: glibc
+category: Toolchain
+enabled: true
+
+# 人工指定的待测版本(白名单)。必须是 GNU 官方正式发布的版本:
+# GNU 只发布 x.y 形式的 release tarball,2.42.9000 这类开发快照号在
+# ftp.gnu.org 与各镜像站均不存在(实测 404),无法作为被测版本。
+versions:
+  - "2.43"
+  - "2.34"
+
+execution:
+  type: shell-functions
+  stages:
+    prepare:
+      script: build.sh
+      function: func_prepare
+    install:
+      script: build.sh
+      function: func_install
+    check:
+      script: test.sh
+      function: func_check
+    cleanup:
+      script: test.sh
+      function: func_cleanup
+  timeout_minutes: 240
+
+# 功能判定项,名称与 functional_result.json 中 checks[].name 一一对应。
+# glibc 自带测试套件(make check)耗时过长且会改动系统环境,不可行;
+# 因此用"编译并运行使用 libc 的程序"的功能测试代替上游测试与 smoke。
+# build 模式(FUNC_MODE=build,ubuntu 官方基础镜像内)按分层优先获取 glibc,每层版本需严格等于
+# SOFTWARE_VERSION,不匹配则降级:层1 上游官方二进制(GNU 仅源码,不可用)→
+# 层2 三方仓库包的发行版 libc6(与请求版本一致时采用系统 glibc)→
+# 层2b 发行版归档仓库的历史 libc6/libc-bin 二进制包(old-releases 的 .deb,
+#      解包到私有前缀,供当前发行版仓库已不提供的旧版本使用)→
+# 层3 官方源码 tarball 编译。
+checks:
+  - name: version
+    description: 获取到的 glibc 版本必须等于请求版本(ldd/加载器输出,层1/2/2b/3 任一来源均须匹配)
+  # 代替上游测试:glibc 官方 make check 耗时过长,改用 libc 程序编译运行验证。
+  - name: upstream-test
+    description: 编译并运行一个使用 libc 的程序(memcpy/qsort/malloc)
+    upstream_command: gcc -O2 -o libc_prog libc_prog.c && (ld.so --library-path ... ./libc_prog)
+  - name: smoke
+    description: getconf GNU_LIBC_VERSION 报告 glibc 版本
+
+outputs:
+  functional_result:
+    path: functional_result.json
+    stage: check
+    format: json
+    required: true
+  check_log:
+    path: check.log
+    stage: check
+    format: text
+    required: true

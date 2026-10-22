@@ -1,0 +1,53 @@
+# RocksDB 功能测试清单。
+# 独立于性能测试框架 framework/;版本由人工指定,不做 latest 解析。
+name: rocksdb
+category: Database
+enabled: true
+
+# 人工指定的待测版本(白名单),与 software/Database/rocksdb/case.yaml 保持一致。
+versions:
+  - "11.8.1"
+  - "7.9.2"
+  - "8.3.3"
+
+execution:
+  type: shell-functions
+  stages:
+    prepare:
+      script: build.sh
+      function: func_prepare
+    install:
+      script: build.sh
+      function: func_install
+    check:
+      script: test.sh
+      function: func_check
+    cleanup:
+      script: test.sh
+      function: func_cleanup
+  # 分层获取(上游无官方二进制 → 三方仓库包 → 源码编译 db_bench)+ 烟测,120 分钟足够。
+  timeout_minutes: 120
+  # 源码编译 db_bench(含压缩库依赖)。
+  min_free_disk_gb: 8
+
+# 功能判定项,名称与 functional_result.json 中 checks[].name 一一对应。
+# RocksDB 为嵌入式 C++ 库,无服务端:以版本 + 上游 db_bench 工具 + 自编译 API 烟测判定。
+checks:
+  - name: version
+    description: rocksdb/version.h 中的版本必须等于请求版本
+  - name: upstream-test
+    description: 运行上游 db_bench 官方工具做写入 + 只读烟测
+    upstream_command: db_bench --benchmarks=fillrandom,readrandom --num=200000
+  - name: api-smoke
+    description: 编译并运行最小 C++ 程序验证 Open/Put/Get/reopen
+outputs:
+  functional_result:
+    path: functional_result.json
+    stage: check
+    format: json
+    required: true
+  upstream_test_log:
+    path: upstream_test.log
+    stage: check
+    format: text
+    required: true

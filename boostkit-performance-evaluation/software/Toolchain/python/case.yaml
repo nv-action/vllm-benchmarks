@@ -1,0 +1,43 @@
+name: python
+category: Toolchain
+enabled: true
+versions:
+  - "3.14.7"
+test_tools:
+  pyperformance:
+    version: "1.13.0"
+execution:
+  type: shell-functions
+  stages:
+    build:
+      script: python_test.sh
+      function: build_python
+    start:
+      script: python_test.sh
+      function: start_python_runtime
+    test:
+      script: python_test.sh
+      function: run_python_benchmarks
+    stop:
+      script: python_test.sh
+      function: stop_python_runtime
+  timeout_minutes: 360
+outputs:
+  official_benchmark:
+    path: benchmark.json
+    stage: test
+    format: json
+    required: true
+  benchmark_result:
+    path: benchmark_python.json
+    stage: test
+    format: json
+    required: true
+metrics:
+  source: benchmark_result
+  collection:
+    path: results
+    name_path: source_name
+    value_path: value
+    unit: s
+    direction: lower_is_better

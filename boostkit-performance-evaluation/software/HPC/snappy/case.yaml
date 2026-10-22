@@ -1,0 +1,50 @@
+name: snappy
+category: HPC
+enabled: true
+versions:
+  - "1.2.2"
+test_tools:
+  lzbench:
+    version: "2.2"
+execution:
+  type: shell-functions
+  stages:
+    build:
+      script: snappy_test.sh
+      function: build_snappy
+    start:
+      script: snappy_test.sh
+      function: start_snappy_runtime
+    test:
+      script: snappy_test.sh
+      function: run_snappy_benchmarks
+    stop:
+      script: snappy_test.sh
+      function: stop_snappy_runtime
+  timeout_minutes: 30
+outputs:
+  lzbench_output:
+    path: benchmark_lzbench.txt
+    stage: test
+    format: text
+    required: true
+  benchmark_result:
+    path: benchmark_snappy.json
+    stage: test
+    format: json
+    required: true
+metrics:
+  source: benchmark_result
+  definitions:
+    compression_throughput:
+      path: results.compression_throughput.value
+      unit: MB/s
+      direction: higher_is_better
+    decompression_throughput:
+      path: results.decompression_throughput.value
+      unit: MB/s
+      direction: higher_is_better
+    compressed_size_ratio:
+      path: results.compressed_size_ratio.value
+      unit: "%"
+      direction: lower_is_better

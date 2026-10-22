@@ -1,0 +1,49 @@
+name: x265
+category: Media
+enabled: true
+versions:
+  - "4.2"
+test_tools:
+  x265:
+    version: "与被测软件版本一致"
+execution:
+  type: shell-functions
+  stages:
+    build:
+      script: x265_test.sh
+      function: build_x265
+    start:
+      script: x265_test.sh
+      function: start_x265_runtime
+    test:
+      script: x265_test.sh
+      function: run_x265_benchmarks
+    stop:
+      script: x265_test.sh
+      function: stop_x265_runtime
+  timeout_minutes: 1350
+outputs:
+  official_benchmark:
+    path: benchmark_encode.txt
+    stage: test
+    format: text
+    required: true
+  benchmark_result:
+    path: benchmark_x265.json
+    stage: test
+    format: json
+    required: true
+  reference_summary:
+    path: video_fps_summary_x265.csv
+    stage: test
+    format: text
+    required: true
+metrics:
+  source: benchmark_result
+  collection:
+    path: results
+    name_path: source_name
+    value_path: value
+    group_path: group
+    unit: fps
+    direction: higher_is_better

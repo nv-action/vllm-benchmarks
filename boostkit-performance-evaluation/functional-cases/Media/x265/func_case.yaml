@@ -1,0 +1,56 @@
+# x265 功能测试清单。
+# 独立于性能测试框架 software/Media/x265 的 x265_test.sh;版本由人工指定,不做 latest 解析。
+name: x265
+category: Media
+enabled: true
+
+# 人工指定的待测版本:与性能用例 software/Media/x265/case.yaml 保持一致。
+versions:
+  - "4.2"
+
+execution:
+  type: shell-functions
+  stages:
+    prepare:
+      script: build.sh
+      function: func_prepare
+    install:
+      script: build.sh
+      function: func_install
+    check:
+      script: test.sh
+      function: func_check
+    cleanup:
+      script: test.sh
+      function: func_cleanup
+  # 分层获取:上游无二进制、仓库包滞后,最终以源码下载 + cmake 构建,较重,给足时间。
+  timeout_minutes: 120
+
+# 功能判定项,名称与 functional_result.json 中 checks[].name 一一对应。
+# 判定来源:优先复用上游编码能力,叠加编码 smoke。
+checks:
+  - name: version
+    description: x265 --version 的版本号必须等于请求版本
+  # 上游编码质量指标:x265 自带 PSNR/SSIM 分析(--psnr --ssim),需报告 SSIM/PSNR Mean。
+  - name: quality-metrics
+    description: 编码 3 帧，校验 PSNR 为有限正数、SSIM 为 [0,1] 内有限数
+    upstream_command: x265 --psnr --ssim --frames 3 --input-res 64x64 -o metrics.265 input.yuv
+  - name: encode-smoke
+    description: 生成裸 YUV 并用 x265 CLI 编码成码流,校验码流含 NAL 起始码
+
+  - name: decoder-dependencies
+    description: 按需安装 FFmpeg，ffmpeg 和 ffprobe 必须可用，安装失败不跳过
+  - name: decode-check
+    description: 完整解码无错误，HEVC 64x64，3 帧，I420 输出 18432 字节
+
+outputs:
+  functional_result:
+    path: functional_result.json
+    stage: check
+    format: json
+    required: true
+  check_log:
+    path: check.log
+    stage: check
+    format: text
+    required: true

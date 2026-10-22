@@ -1,0 +1,56 @@
+# scann 功能测试清单。
+# 独立于性能测试框架 software/AI/scann/;版本由人工指定,不做 latest 解析。
+name: scann
+category: AI
+enabled: true
+
+# 人工指定的待测版本(白名单),由人工维护。
+# 只保留 1.4.2:aarch64 官方 wheel 只有 cp39 是真实构建,配合固定 3.9 解释器即可命中;
+# 1.2.10 在 PyPI 只有 x86_64 wheel,既无 aarch64 也无 sdist,在 kunpeng 上无可用产物,故移除。
+versions:
+  - "1.4.2"
+
+execution:
+  type: shell-functions
+  stages:
+    prepare:
+      script: build.sh
+      function: func_prepare
+    install:
+      script: build.sh
+      function: func_install
+    check:
+      script: test.sh
+      function: func_check
+    cleanup:
+      script: test.sh
+      function: func_cleanup
+  timeout_minutes: 60
+  # 需要下载 uv + 固定 3.9 解释器 + 官方 aarch64 wheel。
+  min_free_disk_gb: 6
+
+# 功能判定项,名称与 functional_result.json 中 checks[].name 一一对应。
+# 判定来源:版本校验 + 两个基于官方 scann_ops_pybind 索引构建 API 的功能 smoke。
+# build 模式分层优先获取(上游官方 wheel→三方仓库),每层校验版本严格相等;
+# aarch64 上官方 wheel 存在且只有 cp39 是真实构建(cp310-cp313 为同一产物副本,见上游 issue #2968),
+# 故用 uv 拉固定 3.9 解释器来安装
+# (ubuntu 26.04 自带的 3.14 会被 pip 判定为无可用 wheel);源码编译层已结构性不可用。
+checks:
+  - name: version
+    description: 已安装 scann 版本必须等于请求版本
+  - name: scann-dot-product
+    description: dot_product 距离建索引并检索,校验返回形状与邻居合法性
+  - name: scann-squared-l2
+    description: squared_l2 距离建索引并检索,校验返回形状一致、邻居合法与距离升序
+
+outputs:
+  functional_result:
+    path: functional_result.json
+    stage: check
+    format: json
+    required: true
+  functional_log:
+    path: functional_test.log
+    stage: check
+    format: text
+    required: true

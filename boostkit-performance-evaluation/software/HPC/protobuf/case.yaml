@@ -1,0 +1,61 @@
+name: protobuf
+category: HPC
+enabled: true
+versions:
+  - "33.0"
+test_tools:
+  AccLibBenchmark/protobuf-benchmark:
+    version: "01d083c6633babb2fb1307d93f596f10dda36778"
+  google-benchmark:
+    version: "1.8.3"
+execution:
+  type: shell-functions
+  stages:
+    build:
+      script: protobuf_test.sh
+      function: build_protobuf
+    start:
+      script: protobuf_test.sh
+      function: start_protobuf_runtime
+    test:
+      script: protobuf_test.sh
+      function: run_protobuf_benchmarks
+    stop:
+      script: protobuf_test.sh
+      function: stop_protobuf_runtime
+  timeout_minutes: 120
+outputs:
+  benchmark_source_diff:
+    path: benchmark_source.diff
+    stage: build
+    format: text
+    required: true
+  fixture_hashes:
+    path: fixture_sha256.txt
+    stage: test
+    format: text
+    required: true
+  raw_benchmark:
+    path: benchmark_google.json
+    stage: test
+    format: json
+    required: true
+  benchmark_cases:
+    path: benchmark_cases.txt
+    stage: test
+    format: text
+    required: true
+  benchmark_result:
+    path: benchmark_protobuf.json
+    stage: test
+    format: json
+    required: true
+metrics:
+  source: benchmark_result
+  collection:
+    path: results
+    name_path: source_name
+    group_path: group
+    value_path: value
+    unit_path: unit
+    direction_path: direction

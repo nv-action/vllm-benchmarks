@@ -1,0 +1,44 @@
+name: flink
+category: Bigdata
+enabled: true
+versions:
+  - "2.3.0"
+test_tools:
+  flink:
+    version: "2.3.0"
+execution:
+  type: shell-functions
+  stages:
+    build:
+      script: flink_test.sh
+      function: build_flink
+    start:
+      script: flink_test.sh
+      function: start_flink_runtime
+    test:
+      script: flink_test.sh
+      function: run_flink_benchmark
+    stop:
+      script: flink_test.sh
+      function: stop_flink_runtime
+  timeout_minutes: 15
+outputs:
+  benchmark_result:
+    path: benchmark_flink.json
+    stage: test
+    format: json
+    required: true
+  cluster_logs:
+    path: flink-logs
+    stage: test
+    format: directory
+    required: true
+metrics:
+  source: benchmark_result
+  collection:
+    path: results
+    name_path: source_name
+    value_path: value
+    unit_path: unit
+    direction_path: direction
+    group_path: group

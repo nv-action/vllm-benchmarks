@@ -1,0 +1,51 @@
+# faiss 功能测试清单。
+# 独立于性能测试框架 software/AI/faiss/;版本由人工指定,不做 latest 解析。
+name: faiss
+category: AI
+enabled: true
+
+# 人工指定的待测版本(白名单),与 software/AI/faiss/case.yaml 保持一致。
+versions:
+  - "1.15.1"
+  - "1.8.0"
+
+execution:
+  type: shell-functions
+  stages:
+    prepare:
+      script: build.sh
+      function: func_prepare
+    install:
+      script: build.sh
+      function: func_install
+    check:
+      script: test.sh
+      function: func_check
+    cleanup:
+      script: test.sh
+      function: func_cleanup
+  timeout_minutes: 60
+
+# 功能判定项,名称与 functional_result.json 中 checks[].name 一一对应。
+# 判定来源:版本校验 + 两个基于官方 faiss Python API 的功能 smoke。
+# build 模式分层优先获取(上游官方二进制→三方仓库→源码编译),每层校验版本严格相等;
+# faiss 无随附上游测试树,这里用官方索引 API 的确定性回环替代上游套件。
+checks:
+  - name: version
+    description: 已安装 faiss 版本必须等于请求版本
+  - name: index-flat-l2
+    description: 构建 IndexFlatL2,add 向量,search 返回最近邻并校验与暴力计算一致
+  - name: index-ivf-pq
+    description: 训练 IndexIVFPQ 量化索引,add 向量并检索,校验训练/入库状态与邻居合法性
+
+outputs:
+  functional_result:
+    path: functional_result.json
+    stage: check
+    format: json
+    required: true
+  functional_log:
+    path: functional_test.log
+    stage: check
+    format: text
+    required: true

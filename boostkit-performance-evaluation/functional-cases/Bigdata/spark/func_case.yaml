@@ -1,0 +1,59 @@
+# ⚠ 版本为推断,需人工确认。
+# 本清单的 Spark 版本由编写者依据 2026 年 Apache 官方下载页(https://spark.apache.org/downloads.html)
+# 选取的近线稳定版(3.5.x LTS 分支最新维护版),并非来自 config/distribution.yaml(该文件未固定版本)。
+# 合入前请人工确认该版本确实存在于官方发布目录,并按需调整。
+#
+# Apache Spark 功能测试清单。
+name: spark
+category: Bigdata
+enabled: true
+
+# 人工指定的待测版本(白名单)。3.5.9 为 branch-3.5 的最新维护版。
+versions:
+  - "4.2.0"
+  - "3.3.1"
+  - "3.4.3"
+  - "3.5.2"
+
+# build 模式(FUNC_MODE=build)软件获取为分层优先:优先上游官方 pre-built tarball,
+# 其次与请求版本一致的三方打包产物,最后源码编译;每层均用 bin/spark-submit --version 校验版本。
+
+execution:
+  type: shell-functions
+  stages:
+    prepare:
+      script: build.sh
+      function: func_prepare
+    install:
+      script: build.sh
+      function: func_install
+    check:
+      script: test.sh
+      function: func_check
+    cleanup:
+      script: test.sh
+      function: func_cleanup
+  timeout_minutes: 90
+
+# 功能判定项,名称与 functional_result.json 中 checks[].name 一一对应。
+# 判定来源:优先复用官方发行版自带示例,再叠加 pyspark DataFrame 冒烟。
+checks:
+  - name: version
+    description: bin/spark-submit --version 必须等于请求版本
+  - name: upstream-example
+    description: 运行官方发行版自带的 SparkPi 示例并断言作业成功输出 Pi 估计值
+    upstream_command: bin/spark-submit --class org.apache.spark.examples.SparkPi examples/jars/spark-examples_*.jar 10
+  - name: pyspark-smoke
+    description: 用 pyspark 断言 spark.range(10).count() == 10;Spark<3.5 且容器 Python≥3.13 时跳过(3.3/3.4 的 pyspark 依赖 typing.io,Python 3.13 起移除,上游 v3.5.2 起不再使用),状态记为 skipped 不影响整体通过
+
+outputs:
+  functional_result:
+    path: functional_result.json
+    stage: check
+    format: json
+    required: true
+  example_log:
+    path: spark_example.log
+    stage: check
+    format: text
+    required: true

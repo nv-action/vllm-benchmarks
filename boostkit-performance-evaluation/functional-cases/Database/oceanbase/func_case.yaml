@@ -1,0 +1,55 @@
+# OceanBase 功能测试清单。
+# 独立于性能测试框架 framework/;版本由人工指定,不做 latest 解析。
+name: oceanbase
+category: Database
+enabled: true
+
+# 人工指定的待测版本(白名单),与 software/Database/oceanbase/case.yaml 保持一致。
+versions:
+  - "5.0.1"
+
+execution:
+  type: shell-functions
+  stages:
+    prepare:
+      script: build.sh
+      function: func_prepare
+    install:
+      script: build.sh
+      function: func_install
+    check:
+      script: test.sh
+      function: func_check
+    cleanup:
+      script: test.sh
+      function: func_cleanup
+  timeout_minutes: 90
+  # build 模式下载官方 oceanbase-ce rpm(约 170MB)并解包(约 1.2GB),observer 首次
+  # bootstrap 还要按 datafile_size=2G + log_disk_size=13G 预留空间,峰值约 17GiB,
+  # 这里留 1GiB 余量。
+  min_free_disk_gb: 18
+
+# 功能判定项,名称与 functional_result.json 中 checks[].name 一一对应。
+# OceanBase 为部署服务型软件:直接使用官方 oceanbase-ce rpm 自带的
+# oceanbase-service.sh 拉起单机 observer(与 openEuler 预构建镜像同构),
+# 再以 mysql 协议做最小可用性 + 功能验证。
+checks:
+  - name: version
+    description: observer 的 SELECT version() 必须等于请求版本
+  # 上游 sysbench 是 OceanBase 官方基准所用的负载工具,作为只读点查烟测。
+  - name: upstream-test
+    description: 使用上游 sysbench 对 observer 执行 oltp_point_select 点查烟测
+    upstream_command: sysbench oltp_point_select --tables=1 --table-size=1000 run
+  - name: sql-roundtrip
+    description: 建库建表,INSERT/SELECT 回环校验
+outputs:
+  functional_result:
+    path: functional_result.json
+    stage: check
+    format: json
+    required: true
+  upstream_test_log:
+    path: upstream_test.log
+    stage: check
+    format: text
+    required: true

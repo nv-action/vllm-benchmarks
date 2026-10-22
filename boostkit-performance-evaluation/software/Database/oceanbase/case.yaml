@@ -1,0 +1,49 @@
+name: oceanbase
+category: Database
+enabled: true
+versions:
+  - "5.0.1.0"
+test_tools:
+  sysbench:
+    version: "未固定（dnf）"
+execution:
+  type: shell-functions
+  stages:
+    build:
+      script: oceanbase_test.sh
+      function: build_oceanbase
+    start:
+      script: oceanbase_test.sh
+      function: start_oceanbase_service
+    test:
+      script: oceanbase_test.sh
+      function: run_oceanbase_benchmarks
+    stop:
+      script: oceanbase_test.sh
+      function: stop_oceanbase_service
+  timeout_minutes: 600
+outputs:
+  oltp_benchmark_result:
+    path: benchmark_ob.json
+    stage: test
+    format: json
+    required: true
+  micro_benchmark_result:
+    path: micro_benchmark.json
+    stage: test
+    format: json
+    required: true
+  aggregate_result:
+    path: results.json
+    stage: test
+    format: json
+    required: true
+metrics:
+  source: aggregate_result
+  collection:
+    path: results
+    name_path: source_name
+    value_path: value
+    unit_path: unit
+    direction_path: direction
+    group_path: group

@@ -1,0 +1,34 @@
+# 功能测试框架全局配置。
+# 矩阵维度 = software × version × operating_systems × hardware。
+# 版本白名单由各软件自己的 func_case.yaml 维护(人工指定,不做 latest 解析)。
+
+architectures:
+  - aarch64
+
+# OS 维度。runtime 决定该 cell 的落地方式:
+#   native    - 直接在宿主 Runner 上执行
+#   container - 在容器内执行
+# mode 决定容器内如何取得被测软件:
+#   prebuilt - 拉预构建软件镜像(image_template 渲染),已装好软件,install 只校验
+#   build    - 当场起基础镜像(image),在容器内跑安装脚本(装依赖 + 构建)与测试脚本
+# image_template 支持 {software}、{version}、{arch} 占位,
+# 例:openeulertest/redis:6.0.20-oe2403sp4-aarch64
+operating_systems:
+  - name: openeuler-24.03-sp4
+    runtime: container
+    mode: prebuilt
+    image_template: "openeulertest/{software}:{version}-oe2403sp4-{arch}"
+  - name: ubuntu-26.04.1
+    runtime: container
+    mode: build
+    image: ubuntu:26.04
+
+# 硬件维度。每台物理机对应一个自托管 Runner 标签。
+hardware:
+  - name: kunpeng920
+    runner_label: PERF_FUNC_KUNPENG920
+  - name: kunpeng950
+    runner_label: PERF_FUNC_KUNPENG950
+
+output_root: .func-output
+work_root: /home/runner/boostkit-func

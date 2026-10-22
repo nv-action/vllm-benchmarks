@@ -1,0 +1,43 @@
+name: sonic-cpp
+category: HPC
+enabled: true
+versions:
+  - "69deb02"
+test_tools:
+  bench:
+    version: "69deb02"
+execution:
+  type: shell-functions
+  stages:
+    build:
+      script: sonic_cpp_test.sh
+      function: build_sonic_cpp
+    start:
+      script: sonic_cpp_test.sh
+      function: start_sonic_cpp_runtime
+    test:
+      script: sonic_cpp_test.sh
+      function: run_sonic_cpp_benchmarks
+    stop:
+      script: sonic_cpp_test.sh
+      function: stop_sonic_cpp_runtime
+  timeout_minutes: 180
+outputs:
+  official_benchmark:
+    path: benchmark.json
+    stage: test
+    format: json
+    required: true
+  benchmark_result:
+    path: benchmark_sonic_cpp.json
+    stage: test
+    format: json
+    required: true
+metrics:
+  source: benchmark_result
+  collection:
+    path: results
+    name_path: source_name
+    value_path: value
+    unit: ns
+    direction: lower_is_better

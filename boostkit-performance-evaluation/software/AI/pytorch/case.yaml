@@ -1,0 +1,44 @@
+name: pytorch
+category: AI
+enabled: true
+versions:
+  - "2.13.0"
+test_tools:
+  torch.utils.benchmark:
+    version: "2.13.0+cpu"
+execution:
+  type: shell-functions
+  stages:
+    build:
+      script: pytorch_test.sh
+      function: build_pytorch
+    start:
+      script: pytorch_test.sh
+      function: start_pytorch_runtime
+    test:
+      script: pytorch_test.sh
+      function: run_pytorch_benchmarks
+    stop:
+      script: pytorch_test.sh
+      function: stop_pytorch_runtime
+  timeout_minutes: 600
+outputs:
+  benchmark_torch_raw_output:
+    path: benchmark_torch_raw.log
+    stage: test
+    format: text
+    required: true
+  aggregate_result:
+    path: results.json
+    stage: test
+    format: json
+    required: true
+metrics:
+  source: aggregate_result
+  collection:
+    path: results
+    name_path: source_name
+    value_path: value
+    unit_path: unit
+    direction_path: direction
+    group_path: group
