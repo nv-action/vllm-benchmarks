@@ -6,7 +6,7 @@
 - 统计口径：每个“软件 × 版本 × 测试OS”单元格取最近一次产出终态结果的运行；`未完成` 表示最近一次运行被取消或中断，没有产出最终结论。
 - 统计时间：2026-10-22。
 - 鲲鹏920：共 167 个单元格，通过 80，失败 0，未完成 87。
-- 鲲鹏950：已完成 5 个单元格，通过 3，未完成 2；其余为未开始（全量运行仍在进行中）。
+- 鲲鹏950：已完成 7 个单元格，通过 5，未完成 2；其余为未开始（全量运行仍在进行中）。
 
 ## 2. 测试结果
 
@@ -172,8 +172,8 @@
 | golang | 1.26.9 | ubuntu-26.04.1 | version、upstream-test、smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298797 | — |
 | golang | 1.27.0 | openeuler-24.03-sp4 | version、upstream-test、smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298789 | — |
 | golang | 1.27.0 | ubuntu-26.04.1 | version、upstream-test、smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298786 | — |
-| golang | 1.27.1 | openeuler-24.03-sp4 | version、upstream-test、smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39418748228/job/118614214762 | — |
-| golang | 1.27.1 | ubuntu-26.04.1 | version、upstream-test、smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39418748228/job/118614214988 | — |
+| golang | 1.27.1 | openeuler-24.03-sp4 | version、upstream-test、smoke | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39418748228/job/118614214762 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39804851922/job/119915477907 |
+| golang | 1.27.1 | ubuntu-26.04.1 | version、upstream-test、smoke | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39418748228/job/118614214988 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39803138038/job/119909478849 |
 | openjdk | 28_19 | openeuler-24.03-sp4 | version、upstream-test、smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39427173373/job/118642610668 | — |
 | openjdk | 28_19 | ubuntu-26.04.1 | version、upstream-test、smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39427173373/job/118642610280 | — |
 | python | 3.14.7 | openeuler-24.03-sp4 | version、upstream-test、smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38719887627/job/116371619607 | — |
