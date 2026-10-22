@@ -149,10 +149,11 @@ jobs:
           if command -v apt-get >/dev/null 2>&1; then
             # 运行机访问不到 Ubuntu 官方源(ports.ubuntu.com),容器内统一切到阿里云镜像,
             # 后续 install 阶段按需 apt 装依赖也走同一份源。
+            # 必须用 http:基础镜像没有 ca-certificates,https 源会因证书校验失败而装不上任何包。
             arch="$(dpkg --print-architecture 2>/dev/null || echo arm64)"
             case "${arch}" in
-              amd64) mirror="https://mirrors.aliyun.com/ubuntu" ;;
-              *) mirror="https://mirrors.aliyun.com/ubuntu-ports" ;;
+              amd64) mirror="http://mirrors.aliyun.com/ubuntu" ;;
+              *) mirror="http://mirrors.aliyun.com/ubuntu-ports" ;;
             esac
             codename="$(. /etc/os-release && echo "${VERSION_CODENAME:?cannot detect Ubuntu codename}")"
             rm -f /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources
