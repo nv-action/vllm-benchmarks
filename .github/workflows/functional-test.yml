@@ -124,10 +124,60 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     runs-on: ${{ fromJSON(matrix.runner_labels) }}
+    # 容器由 job 提供,四个阶段直接在容器内执行;运行机没有 docker daemon,不再嵌套 docker。
+    container:
+      image: ${{ matrix.image }}
     timeout-minutes: ${{ matrix.job_timeout_minutes }}
     env:
       PERF_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      DEBIAN_FRONTEND: noninteractive
     steps:
+      # 必须在 checkout 之前:checkout 依赖容器内的 git,框架脚本又依赖 python3/curl。
+      - name: Bootstrap container toolchain
+        shell: bash
+        timeout-minutes: 20
+        run: |
+          missing=()
+          command -v git >/dev/null 2>&1 || missing+=(git)
+          command -v python3 >/dev/null 2>&1 || missing+=(python3)
+          command -v curl >/dev/null 2>&1 || missing+=(curl)
+          if [ "${#missing[@]}" -eq 0 ]; then
+            echo "container already provides git, python3 and curl"
+            exit 0
+          fi
+          echo "installing container toolchain: ${missing[*]}"
+          if command -v apt-get >/dev/null 2>&1; then
+            # 运行机访问不到 Ubuntu 官方源(ports.ubuntu.com),容器内统一切到阿里云镜像,
+            # 后续 install 阶段按需 apt 装依赖也走同一份源。
+            arch="$(dpkg --print-architecture 2>/dev/null || echo arm64)"
+            case "${arch}" in
+              amd64) mirror="https://mirrors.aliyun.com/ubuntu" ;;
+              *) mirror="https://mirrors.aliyun.com/ubuntu-ports" ;;
+            esac
+            codename="$(. /etc/os-release && echo "${VERSION_CODENAME:?cannot detect Ubuntu codename}")"
+            rm -f /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources
+            printf 'deb %s/ %s main restricted universe multiverse\n' \
+              "${mirror}" "${codename}" > /etc/apt/sources.list
+            printf 'deb %s/ %s-updates main restricted universe multiverse\n' \
+              "${mirror}" "${codename}" >> /etc/apt/sources.list
+            printf 'deb %s/ %s-security main restricted universe multiverse\n' \
+              "${mirror}" "${codename}" >> /etc/apt/sources.list
+            apt-get update
+            apt-get install -y --no-install-recommends "${missing[@]}" ca-certificates
+          elif command -v dnf >/dev/null 2>&1; then
+            dnf install -y "${missing[@]}" ca-certificates
+          elif command -v yum >/dev/null 2>&1; then
+            yum install -y "${missing[@]}" ca-certificates
+          else
+            echo "ERROR: the job container has no supported package manager" >&2
+            exit 1
+          fi
+          for required in git python3; do
+            command -v "${required}" >/dev/null 2>&1 || {
+              echo "ERROR: ${required} is still missing after bootstrap" >&2
+              exit 1
+            }
+          done
       - uses: actions/checkout@v4
       - name: Install framework runtime dependency
         shell: bash
@@ -138,11 +188,12 @@ jobs:
             export PYTHONPATH="${pip_home}"
           fi
           deps="${RUNNER_TEMP}/boostkit-func-deps"
+          # 6.0.3 提供 cp314 aarch64 wheel(ubuntu-26.04 的 python3.14 可直接装)。
           python3 -m pip install \
             --disable-pip-version-check --no-input --no-cache-dir \
             --timeout 20 --retries 2 \
             -i https://mirrors.aliyun.com/pypi/simple \
-            --target "${deps}" "PyYAML==6.0.2"
+            --target "${deps}" "PyYAML==6.0.3"
           echo "PYTHONPATH=${deps}" >> "${GITHUB_ENV}"
       - name: Prepare cell and capture environment
         run: >-

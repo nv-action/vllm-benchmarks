@@ -17,7 +17,10 @@ CASES_DIRNAME = "functional-cases"
 CONFIG_RELATIVE = Path("config") / "functional.yaml"
 FUNC_STAGES = ("prepare", "install", "check", "cleanup")
 VALID_OUTPUT_FORMATS = {"json", "text"}
-VALID_RUNTIMES = {"native", "container"}
+VALID_RUNTIMES = {"native", "container", "job-container"}
+# 需要镜像的 runtime:container 由框架自己拉起容器,job-container 由 workflow 的
+# container: 字段提供容器;两者都要在矩阵里渲染出镜像名。
+CONTAINER_RUNTIMES = {"container", "job-container"}
 VALID_MODES = {"prebuilt", "build"}
 SHELL_FUNCTION_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 OUTPUT_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -67,7 +70,7 @@ def load_config(root: Path = ROOT) -> dict[str, Any]:
             raise ValueError(
                 f"operating_systems.{name}.runtime must be one of {sorted(VALID_RUNTIMES)}"
             )
-        if runtime == "container":
+        if runtime in CONTAINER_RUNTIMES:
             mode = entry.get("mode")
             if mode not in VALID_MODES:
                 raise ValueError(
@@ -440,7 +443,7 @@ def build_matrix(
                 if selected_os is not None and os_name not in selected_os:
                     continue
                 os_spec = config["operating_systems"][os_name]
-                if os_spec["runtime"] != "container":
+                if os_spec["runtime"] not in CONTAINER_RUNTIMES:
                     image = ""
                 elif os_spec["mode"] == "build":
                     image = os_spec["image"]

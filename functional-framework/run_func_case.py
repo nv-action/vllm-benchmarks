@@ -132,9 +132,10 @@ def build_context(args: argparse.Namespace, case: dict[str, Any], config: dict[s
             args.architecture,
         )
     # build 模式的 OS(Ubuntu)拿不到该版本的发行版二进制时,可从预构建镜像导出根文件系统复用。
+    # 导出依赖 docker,job-container 模式下容器已由 workflow 提供,不存在可导出的镜像。
     bootstrap_template = case.get("bootstrap_image") or ""
     bootstrap_image = ""
-    if bootstrap_template and os_spec.get("mode") == "build":
+    if bootstrap_template and os_spec.get("mode") == "build" and os_spec["runtime"] == "container":
         bootstrap_image = compose_image(
             bootstrap_template,
             case.get("image_name") or software,
