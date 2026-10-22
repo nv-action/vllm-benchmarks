@@ -28,7 +28,15 @@ FAISS_PYTHON_VERSION="${FAISS_PYTHON_VERSION:-3.12}"
 # 上游官方 uv(astral-sh)发布地址,用于获取固定版本的 CPython。
 UV_VERSION="${UV_VERSION:-0.13.1}"
 UV_RELEASE_BASE="${UV_RELEASE_BASE:-https://github.com/astral-sh/uv/releases/download}"
-# 国产 Runner 无法稳定访问 files.pythonhosted.org,非 ubuntu 时改用清华 PyPI 镜像。
+# uv 拉取 CPython 的下载源。官方资产在 github.com/astral-sh/python-build-standalone 的
+# release 下载域(objects.githubusercontent.com),国产 Runner 不可达;改用南京大学 GitHub
+# release 镜像,目录结构与官方一致(镜像替换 .../releases/download 前缀),内容 sha256 与
+# uv 内置元数据一致,uv 会自行校验。
+UV_PYTHON_INSTALL_MIRROR="${UV_PYTHON_INSTALL_MIRROR:-https://mirror.nju.edu.cn/github-release/astral-sh/python-build-standalone}"
+# uv 自身的发行包在镜像站没有同步,GitHub release 下载失败时改从该 PyPI 索引取 uv wheel
+# (wheel 内的 data/scripts/uv 就是同一个静态二进制,无需 pip 参与)。
+UV_PYPI_INDEX="${UV_PYPI_INDEX:-https://mirrors.aliyun.com/pypi/simple}"
+# 国产 Runner 无法稳定访问 files.pythonhosted.org,统一改用阿里云 PyPI 镜像。
 PIP_MIRROR_INDEX="https://mirrors.aliyun.com/pypi/simple"
 
 # 运行期路径(configure_runtime_paths 里按模式赋值)。
@@ -123,6 +131,7 @@ configure_runtime_paths() {
     export PERF_RUN_ID PERF_WORK_DIR RESULTS_DIR PERF_ACTUAL_VERSION_FILE TMPDIR
     export VENV_DIR PYBIN BUILD_DIR
     export FAISS_PYTHON_VERSION UV_VERSION UV_RELEASE_BASE UV_DIR UV_BIN UV_PYTHON_DIR
+    export UV_PYTHON_INSTALL_MIRROR UV_PYPI_INDEX
 }
 
 initialize_runtime() {
@@ -278,12 +287,10 @@ require_faiss_source_tools() {
     install_os_packages "${logical[@]}" || return 30
 }
 
-# pip 索引参数:ubuntu 用默认 PyPI,其它发行版走清华 PyPI 镜像。
+# pip 索引参数:统一走阿里云 PyPI 镜像(国产 Runner 访问不到 files.pythonhosted.org)。
 pip_index_args() {
-    if [[ "$(os_id)" != "ubuntu" ]]; then
-        printf '%s\n' '--trusted-host' 'mirrors.aliyun.com' \
-            '--index-url' "${PIP_MIRROR_INDEX}"
-    fi
+    printf '%s\n' '--trusted-host' 'mirrors.aliyun.com' \
+        '--index-url' "${PIP_MIRROR_INDEX}"
 }
 
 json_escape() {

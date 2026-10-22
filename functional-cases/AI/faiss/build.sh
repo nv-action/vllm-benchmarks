@@ -40,8 +40,10 @@ EOF
 # ---------- 阶段:install ----------
 
 # 安装上游官方 uv(astral-sh)静态二进制到本任务私有目录,用于拉取固定版本的 CPython。
+# release 资产走 objects.githubusercontent.com,国产 Runner 不可达;下载失败时从 PyPI 索引取
+# uv wheel(wheel 里的 data/scripts/uv 就是同一个静态二进制),不需要 pip 参与。
 install_uv() {
-    local target archive
+    local target
     [[ -x "${UV_BIN}" ]] && return 0
     case "$(normalize_arch "${EXPECTED_ARCH}")" in
         aarch64) target="aarch64-unknown-linux-gnu" ;;
@@ -51,24 +53,90 @@ install_uv() {
             return 30
             ;;
     esac
-    archive="${PERF_WORK_DIR}/uv.tar.gz"
-    log "downloading official uv ${UV_VERSION} (${target})"
-    curl -fsSL --retry 3 --connect-timeout 30 -o "${archive}" \
-        "${UV_RELEASE_BASE}/${UV_VERSION}/uv-${target}.tar.gz" || {
-        log "ERROR: failed to download uv ${UV_VERSION}"
-        return 30
-    }
-    rm -rf -- "${UV_DIR}"
+    rm -rf -- "${UV_DIR}" || return 30
     mkdir -p "${UV_DIR}" || return 30
-    tar -xzf "${archive}" -C "${UV_DIR}" --strip-components=1 || {
-        log "ERROR: failed to extract uv"
-        return 30
-    }
-    rm -f "${archive}"
+    if ! download_uv_release "${target}"; then
+        log "release download failed; falling back to the uv wheel from ${UV_PYPI_INDEX}"
+        install_uv_from_index "${target}" || return 30
+    fi
     [[ -x "${UV_BIN}" ]] || {
         log "ERROR: uv binary is unavailable after install: ${UV_BIN}"
         return 30
     }
+    return 0
+}
+
+# 第一选择:官方 release 包(直连或 UV_RELEASE_BASE 指定的镜像)。
+download_uv_release() {
+    local target="$1" archive="${PERF_WORK_DIR}/uv.tar.gz"
+    log "downloading official uv ${UV_VERSION} (${target}) from ${UV_RELEASE_BASE}"
+    curl -fsSL --retry 3 --connect-timeout 30 -o "${archive}" \
+        "${UV_RELEASE_BASE}/${UV_VERSION}/uv-${target}.tar.gz" || {
+        rm -f "${archive}"
+        return 1
+    }
+    tar -xzf "${archive}" -C "${UV_DIR}" --strip-components=1 || {
+        log "ERROR: failed to extract uv"
+        rm -f "${archive}"
+        return 1
+    }
+    rm -f "${archive}"
+    return 0
+}
+
+# 兜底:从 PyPI 简单索引定位对应架构的 uv wheel,直接解出静态二进制。
+install_uv_from_index() {
+    local target="$1" page="${PERF_WORK_DIR}/uv-index.html" wheel="${PERF_WORK_DIR}/uv.whl" url
+    curl -fsSL --retry 2 --connect-timeout 30 -o "${page}" "${UV_PYPI_INDEX%/}/uv/" || {
+        log "ERROR: failed to fetch the uv index from ${UV_PYPI_INDEX}"
+        return 30
+    }
+    url="$(python3 - "${page}" "${UV_VERSION}" "${target}" "${UV_PYPI_INDEX}" <<'PY'
+import re, sys, urllib.parse
+
+page, version, target, index = sys.argv[1:5]
+arch = 'aarch64' if target.startswith('aarch64') else 'x86_64'
+html = open(page, encoding='utf-8', errors='replace').read()
+wheels = [(name, href) for href, name in
+          re.findall(r'href="([^"]+\.whl)(?:#[^"]*)?"[^>]*>([^<]+\.whl)<', html)
+          if name.startswith(f'uv-{version}-py3-none-') and arch in name]
+if not wheels:
+    sys.exit(1)
+# manylinux_2_17 兼容性最广,优先;其次 manylinux_2_28、musllinux。
+for prefer in ('manylinux_2_17', 'manylinux_2_28', 'musllinux'):
+    chosen = next((href for name, href in wheels if prefer in name), None)
+    if chosen:
+        break
+else:
+    chosen = wheels[0][1]
+print(urllib.parse.urljoin(f"{index.rstrip('/')}/uv/", chosen))
+PY
+)" || {
+        log "ERROR: no uv ${UV_VERSION} wheel for ${target} in ${UV_PYPI_INDEX}"
+        return 30
+    }
+    log "downloading uv ${UV_VERSION} wheel: ${url}"
+    curl -fsSL --retry 3 --connect-timeout 30 -o "${wheel}" "${url}" || {
+        log "ERROR: failed to download the uv wheel"
+        return 30
+    }
+    if ! python3 - "${wheel}" "${UV_BIN}" <<'PY'
+import os, sys, zipfile
+
+wheel, dest = sys.argv[1:3]
+with zipfile.ZipFile(wheel) as archive:
+    member = next((n for n in archive.namelist() if n.endswith('.data/scripts/uv')), None)
+    if member is None:
+        sys.exit(f'no uv binary in {wheel}')
+    with archive.open(member) as source, open(dest, 'wb') as target:
+        target.write(source.read())
+os.chmod(dest, 0o755)
+PY
+    then
+        log "ERROR: failed to extract the uv binary from the wheel"
+        return 30
+    fi
+    rm -f "${page}" "${wheel}"
     return 0
 }
 
@@ -83,11 +151,16 @@ create_faiss_venv() {
         log "ERROR: virtual environment is not clean: ${VENV_DIR}"
         return 20
     fi
-    log "installing CPython ${FAISS_PYTHON_VERSION} via uv into ${UV_PYTHON_DIR}"
-    "${UV_BIN}" python install "${FAISS_PYTHON_VERSION}" || {
-        log "ERROR: uv failed to install CPython ${FAISS_PYTHON_VERSION}"
-        return 40
-    }
+    log "installing CPython ${FAISS_PYTHON_VERSION} via uv into ${UV_PYTHON_DIR} (mirror: ${UV_PYTHON_INSTALL_MIRROR})"
+    if ! "${UV_BIN}" python install "${FAISS_PYTHON_VERSION}"; then
+        # 镜像缺对应构建号或临时不可达时,退回官方 python-build-standalone 源再试一次。
+        log "mirror ${UV_PYTHON_INSTALL_MIRROR} did not provide CPython ${FAISS_PYTHON_VERSION}; retrying the official source"
+        unset UV_PYTHON_INSTALL_MIRROR
+        "${UV_BIN}" python install "${FAISS_PYTHON_VERSION}" || {
+            log "ERROR: uv failed to install CPython ${FAISS_PYTHON_VERSION}"
+            return 40
+        }
+    fi
     log "creating task-private venv from CPython ${FAISS_PYTHON_VERSION}"
     # --seed 让 venv 自带 pip/setuptools,后续各层沿用 pip 安装产物。
     "${UV_BIN}" venv --python "${FAISS_PYTHON_VERSION}" --seed "${VENV_DIR}" || {
