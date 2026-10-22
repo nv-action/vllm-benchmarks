@@ -48,8 +48,11 @@ class TestExistingPublication(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.directory = Path(self.tmp.name)
         self.index = self.directory / f"{self.publish.NAMEVER}-variants.json"
-        self.index.write_text(json.dumps(index_data(self.publish.LABELS)))
-        for label, python, arch in product(self.publish.LABELS, self.publish.PYTHONS, self.publish.ARCHITECTURES):
+        self.make_wheels(self.publish.LABELS)
+
+    def make_wheels(self, labels):
+        self.index.write_text(json.dumps(index_data(labels)))
+        for label, python, arch in product(labels, self.publish.PYTHONS, self.publish.ARCHITECTURES):
             platform = f"manylinux_2_34_{arch}"
             wheel = self.directory / f"{self.publish.NAMEVER}-{python}-{python}-{platform}-{label}.whl"
             info = f"{self.publish.NAMEVER}.dist-info"
@@ -58,9 +61,20 @@ class TestExistingPublication(unittest.TestCase):
                 archive.writestr(f"{info}/WHEEL", f"Tag: {python}-{python}-{platform}\n")
                 archive.writestr(f"{info}/variant.json", json.dumps(index_data([label])))
 
-    def validate(self):
+    def validate(self, labels=None):
         with redirect_stdout(io.StringIO()):
-            return self.publish.validate(self.directory)
+            return self.publish.validate(self.directory, self.publish.LABELS if labels is None else labels)
+
+    def test_a3_matrix_requires_all_six_repaired_variants(self):
+        for wheel in self.directory.glob("*.whl"):
+            wheel.unlink()
+        self.make_wheels(("a3",))
+        self.assertEqual(len(self.validate(("a3",))), 6)
+        with self.assertRaisesRegex(ValueError, "Unexpected or duplicate"):
+            self.validate()
+        next(self.directory.glob("*.whl")).unlink()
+        with self.assertRaisesRegex(ValueError, "Missing release"):
+            self.validate(("a3",))
 
     def test_complete_matrix_and_missing_combination(self):
         self.assertEqual(len(self.validate()), 18)
@@ -96,6 +110,14 @@ class TestExistingPublication(unittest.TestCase):
         previous["variants"]["950"] = previous["variants"]["a3"]
         with self.assertRaises(ValueError):
             self.publish.merge_index(self.index.read_text(), json.dumps(previous))
+
+    def test_a3_index_merge_preserves_published_device_entries(self):
+        previous = self.index.read_text()
+        current = json.dumps(index_data(["a3"]))
+        merged = json.loads(self.publish.merge_index(current, previous))
+        self.assertEqual(set(merged["variants"]), {"910b", "950", "310p", "a3"})
+        for label in self.publish.LABELS:
+            self.assertEqual(merged["variants"][label], json.loads(previous)["variants"][label])
 
     def test_upload_wheels_before_index_and_verify_readback(self):
         wheels = self.validate()

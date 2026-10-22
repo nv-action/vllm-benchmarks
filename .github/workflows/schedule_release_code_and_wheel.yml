@@ -39,9 +39,14 @@ on:
         type: boolean
         default: false
       publish_run_id:
-        description: 'Publish existing A2/A5/310P artifacts from this run ID (skip builds)'
+        description: 'Publish existing artifacts from this run ID (skip builds)'
         type: string
         default: ''
+      publish_devices:
+        description: 'Expected device set in the existing artifact run'
+        type: choice
+        default: a2-a5-310p
+        options: [a2-a5-310p, a3]
       publish:
         description: 'Publish variant wheels and index to OBS'
         type: boolean
@@ -506,11 +511,13 @@ jobs:
           echo "Generated index files:"
           ls combined-variants/
 
-      - name: Validate existing A2, A5 and 310P wheels
+      - name: Validate existing device wheels
         if: ${{ inputs.publish_run_id }}
+        env:
+          PUBLISH_DEVICES: ${{ inputs.publish_devices }}
         run: |
           pip install pyelftools==0.32 esdk-obs-python --quiet
-          python3 .github/workflows/scripts/wheel/publish_existing_variants.py validate combined-variants
+          python3 .github/workflows/scripts/wheel/publish_existing_variants.py validate combined-variants --devices "$PUBLISH_DEVICES"
 
       - name: Archive variant wheels and index
         uses: actions/upload-artifact@v7
@@ -548,11 +555,12 @@ jobs:
       - name: Publish existing wheels and merge OBS index
         if: ${{ inputs.publish == true && inputs.publish_run_id }}
         env:
+          PUBLISH_DEVICES: ${{ inputs.publish_devices }}
           OBS_ACCESS_KEY: ${{ secrets.OBS_ACCESS_KEY_ID }}
           OBS_SECRET_KEY: ${{ secrets.OBS_SECRET_ACCESS_KEY }}
         run: |
           pip install esdk-obs-python --quiet
-          python3 .github/workflows/scripts/wheel/publish_existing_variants.py publish combined-variants
+          python3 .github/workflows/scripts/wheel/publish_existing_variants.py publish combined-variants --devices "$PUBLISH_DEVICES"
 
       - name: Archive OBS indexes for publication audit
         if: ${{ always() && inputs.publish == true && inputs.publish_run_id }}

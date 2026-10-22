@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Validate and publish the existing rc2 A2/A5/310P wheels without rebuilding."""
+"""Validate and publish existing rc2 device wheels without rebuilding."""
 
 import argparse
 import hashlib
@@ -24,8 +24,8 @@ BUCKET = "ascend-artifcat-packages"
 PREFIX = "pypi/packages/ascend/repos/pypi/variant/vllm-ascend"
 
 
-def validate(directory):
-    expected = set(product(LABELS, PYTHONS, ARCHITECTURES))
+def validate(directory, labels=LABELS):
+    expected = set(product(labels, PYTHONS, ARCHITECTURES))
     seen = set()
     wheels = sorted(directory.glob("*.whl"))
     for wheel in wheels:
@@ -59,7 +59,7 @@ def validate(directory):
     if seen != expected:
         raise ValueError(f"Missing release combinations: {sorted(expected - seen)}")
     index = VariantsJson(json.loads((directory / f"{NAMEVER}-variants.json").read_text()))
-    if set(index.variants) != set(LABELS):
+    if set(index.variants) != set(labels):
         raise ValueError(f"Unexpected generated index labels: {sorted(index.variants)}")
     return wheels
 
@@ -106,8 +106,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("validate", "publish"))
     parser.add_argument("directory", type=Path)
+    parser.add_argument("--devices", choices=("a2-a5-310p", "a3"), default="a2-a5-310p")
     args = parser.parse_args()
-    wheels = validate(args.directory)
+    labels = ("a3",) if args.devices == "a3" else LABELS
+    wheels = validate(args.directory, labels)
     if args.action == "publish":
         client = ObsClient(
             access_key_id=os.environ["OBS_ACCESS_KEY"],
