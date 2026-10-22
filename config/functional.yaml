@@ -23,12 +23,15 @@ operating_systems:
     mode: build
     image: ubuntu:26.04
 
-# 硬件维度。每台物理机对应一个自托管 Runner 标签。
+# 硬件维度。每台物理机对应一组自托管 Runner 标签,任务需同时匹配全部标签。
 hardware:
   - name: kunpeng920
-    runner_label: linux-aarch64-cpu-4
+    runner_labels:
+      - linux-aarch64-cpu-4
   - name: kunpeng950
-    runner_label: linux-aarch64-a5-0
+    runner_labels:
+      - linux-aarch64-a5-0
+      - sh-001
 
 output_root: .func-output
 work_root: /home/runner/boostkit-func

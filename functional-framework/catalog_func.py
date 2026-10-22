@@ -94,9 +94,16 @@ def load_config(root: Path = ROOT) -> dict[str, Any]:
 
     hardware = index_by_name(data.get("hardware"), "hardware")
     for name, entry in hardware.items():
-        label = entry.get("runner_label")
-        if not isinstance(label, str) or not label:
-            raise ValueError(f"hardware.{name}.runner_label must be a non-empty string")
+        labels = entry.get("runner_labels")
+        if (
+            not isinstance(labels, list)
+            or not labels
+            or not all(isinstance(label, str) and label for label in labels)
+            or len(set(labels)) != len(labels)
+        ):
+            raise ValueError(
+                f"hardware.{name}.runner_labels must be a non-empty unique string list"
+            )
 
     output_root = data.get("output_root")
     work_root = data.get("work_root")
@@ -118,7 +125,7 @@ def load_config(root: Path = ROOT) -> dict[str, Any]:
             for name, entry in operating_systems.items()
         },
         "hardware": {
-            name: {"name": name, "runner_label": entry["runner_label"]}
+            name: {"name": name, "runner_labels": list(entry["runner_labels"])}
             for name, entry in hardware.items()
         },
         "output_root": output_root,
@@ -459,7 +466,7 @@ def build_matrix(
                         "os_image_template": os_spec["image_template"],
                         "image": image,
                         "hardware": hardware_name,
-                        "runner_label": hw_spec["runner_label"],
+                        "runner_labels": json.dumps(hw_spec["runner_labels"]),
                         "timeout_minutes": timeout,
                         "job_timeout_minutes": timeout + 30,
                         "case_path": path.relative_to(root).as_posix(),
