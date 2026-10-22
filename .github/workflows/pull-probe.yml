@@ -1,0 +1,25 @@
+name: Pull probe
+
+# 临时探针:验证自托管节点能否直接从 Docker Hub 拉取 openeulertest 预构建镜像。
+on:
+  push:
+    paths:
+      - .github/workflows/pull-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  docker-hub:
+    name: Pull openeulertest/redis from Docker Hub
+    runs-on: [linux-aarch64-a5-0, sh-001]
+    container:
+      image: openeulertest/redis:6.0.20-oe2403sp4-aarch64
+    timeout-minutes: 15
+    steps:
+      - name: Report container OS and redis
+        shell: sh
+        run: |
+          cat /etc/os-release
+          redis-server --version
+          echo "probe ok: pulled openeulertest/redis without a mirror"
