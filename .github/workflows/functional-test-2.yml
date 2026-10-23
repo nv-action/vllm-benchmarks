@@ -1,0 +1,299 @@
+name: Functional test -2
+run-name: "Functional test -2 - ${{ inputs.software }} ${{ inputs.version }} (${{ inputs.os }} / ${{ inputs.hardware }})"
+
+on:
+  workflow_dispatch:
+    inputs:
+      software:
+        description: "Software under test"
+        required: true
+        default: redis
+        type: choice
+        options:
+          # AI
+          - faiss
+          - hnswlib
+          - openviking
+          - pytorch
+          - scann
+          # Bigdata
+          # - bolt
+          - flink
+          - spark
+          # Database
+          - mysql
+          - oceanbase
+          - redis
+          - rocksdb
+          # HPC
+          - folly
+          - lz4
+          - protobuf
+          - snappy
+          # - sonic-cpp
+          # - zstd
+          # Media
+          - x264
+          - x265
+          # Middleware
+          - brpc
+          - cloudwego
+          # - envoy
+          - kubernetes
+          # Storage
+          # - ceph
+          # Toolchain
+          - gcc
+          - glibc
+          - golang
+          - openjdk
+          - python
+          - all
+      version:
+        description: "Software version, comma-separated versions, or all (see the software's func_case.yaml)"
+        required: true
+        default: all
+        type: string
+      exclude_software:
+        description: "Comma-separated software to skip (for example already passed), empty to skip none"
+        required: false
+        default: "faiss,hnswlib,openviking,pytorch,scann,flink,spark"
+        type: string
+      order:
+        description: "Matrix job order; desc runs the tail of the catalog first"
+        required: true
+        default: desc
+        type: choice
+        options:
+          - desc
+          - asc
+      os:
+        description: "Operating system"
+        required: true
+        default: all
+        type: choice
+        options:
+          - openeuler-24.03-sp4
+          - ubuntu-26.04.1
+          - all
+      hardware:
+        description: "Hardware"
+        required: true
+        default: all
+        type: choice
+        options:
+          - kunpeng920
+          - kunpeng950
+          - all
+
+permissions:
+  contents: read
+
+concurrency:
+  group: functional-test-runners
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Validate input and build matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install framework runtime dependency
+        shell: bash
+        run: |
+          deps="${RUNNER_TEMP}/boostkit-func-deps"
+          python3 -m pip install \
+            --disable-pip-version-check --no-input --no-cache-dir \
+            -i https://mirrors.aliyun.com/pypi/simple \
+            --target "${deps}" "PyYAML==6.0.2"
+          echo "PYTHONPATH=${deps}" >> "${GITHUB_ENV}"
+      - name: Validate functional catalog and generate matrix
+        id: matrix
+        env:
+          INPUT_SOFTWARE: ${{ inputs.software }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_OS: ${{ inputs.os }}
+          INPUT_HARDWARE: ${{ inputs.hardware }}
+          INPUT_EXCLUDE_SOFTWARE: ${{ inputs.exclude_software }}
+          INPUT_ORDER: ${{ inputs.order }}
+        shell: bash
+        run: |
+          matrix="$(python3 functional-framework/catalog_func.py matrix \
+            --software "${INPUT_SOFTWARE}" \
+            --version "${INPUT_VERSION}" \
+            --os "${INPUT_OS}" \
+            --hardware "${INPUT_HARDWARE}" \
+            --exclude-software "${INPUT_EXCLUDE_SOFTWARE}" \
+            --order "${INPUT_ORDER}")"
+          echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
+          echo '### Functional matrix' >> "${GITHUB_STEP_SUMMARY}"
+          echo '```json' >> "${GITHUB_STEP_SUMMARY}"
+          echo "${matrix}" | python3 -m json.tool >> "${GITHUB_STEP_SUMMARY}"
+          echo '```' >> "${GITHUB_STEP_SUMMARY}"
+
+  cell:
+    name: ${{ matrix.software }} ${{ matrix.version }} (${{ matrix.os }} / ${{ matrix.hardware }})
+    needs: prepare
+    strategy:
+      fail-fast: false
+      # 每个单元格都会在运行机上另起一个容器 pod;一次起太多 pod 会把节点资源打满,
+      # 导致 k8s 容器钩子报 "jobPod must be set" 并取消 job,因此限制同时运行的单元格数量。
+      max-parallel: 1
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    runs-on: ${{ fromJSON(matrix.runner_labels) }}
+    # 容器由 job 提供,四个阶段直接在容器内执行;运行机没有 docker daemon,不再嵌套 docker。
+    container:
+      image: ${{ matrix.image }}
+    timeout-minutes: ${{ matrix.job_timeout_minutes }}
+    env:
+      PERF_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      # 必须在 checkout 之前:checkout 依赖容器内的 git,框架脚本又依赖 python3/curl。
+      - name: Bootstrap container toolchain
+        shell: bash
+        timeout-minutes: 20
+        run: |
+          missing=()
+          command -v git >/dev/null 2>&1 || missing+=(git)
+          command -v python3 >/dev/null 2>&1 || missing+=(python3)
+          command -v curl >/dev/null 2>&1 || missing+=(curl)
+          if [ "${#missing[@]}" -eq 0 ]; then
+            echo "container already provides git, python3 and curl"
+            exit 0
+          fi
+          echo "installing container toolchain: ${missing[*]}"
+          if command -v apt-get >/dev/null 2>&1; then
+            # 运行机访问不到 Ubuntu 官方源(ports.ubuntu.com),容器内统一切到阿里云镜像,
+            # 后续 install 阶段按需 apt 装依赖也走同一份源。
+            # 必须用 http:基础镜像没有 ca-certificates,https 源会因证书校验失败而装不上任何包。
+            arch="$(dpkg --print-architecture 2>/dev/null || echo arm64)"
+            case "${arch}" in
+              amd64) mirror="http://mirrors.aliyun.com/ubuntu" ;;
+              *) mirror="http://mirrors.aliyun.com/ubuntu-ports" ;;
+            esac
+            codename="$(. /etc/os-release && echo "${VERSION_CODENAME:?cannot detect Ubuntu codename}")"
+            rm -f /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources
+            printf 'deb %s/ %s main restricted universe multiverse\n' \
+              "${mirror}" "${codename}" > /etc/apt/sources.list
+            printf 'deb %s/ %s-updates main restricted universe multiverse\n' \
+              "${mirror}" "${codename}" >> /etc/apt/sources.list
+            printf 'deb %s/ %s-security main restricted universe multiverse\n' \
+              "${mirror}" "${codename}" >> /etc/apt/sources.list
+            apt-get update
+            apt-get install -y --no-install-recommends "${missing[@]}" ca-certificates
+          elif command -v dnf >/dev/null 2>&1; then
+            # openEuler 24.03 镜像上的 update/update-source 仓库元数据不可用(404、校验和不匹配),
+            # dnf 会因此整体失败;装基础工具时屏蔽这些仓库以及开发用的 source/debuginfo。
+            dnf install -y --disablerepo='update*' --disablerepo=source --disablerepo=debuginfo \
+              "${missing[@]}" ca-certificates
+          elif command -v yum >/dev/null 2>&1; then
+            yum install -y --disablerepo='update*' --disablerepo=source --disablerepo=debuginfo \
+              "${missing[@]}" ca-certificates
+          else
+            echo "ERROR: the job container has no supported package manager" >&2
+            exit 1
+          fi
+          for required in git python3; do
+            command -v "${required}" >/dev/null 2>&1 || {
+              echo "ERROR: ${required} is still missing after bootstrap" >&2
+              exit 1
+            }
+          done
+      - uses: actions/checkout@v4
+      - name: Install framework runtime dependency
+        shell: bash
+        timeout-minutes: 10
+        run: |
+          pip_home=$(bash framework/ensure_pip.sh)
+          if [ -n "${pip_home}" ]; then
+            export PYTHONPATH="${pip_home}"
+          fi
+          deps="${RUNNER_TEMP}/boostkit-func-deps"
+          # 6.0.3 提供 cp314 aarch64 wheel(ubuntu-26.04 的 python3.14 可直接装)。
+          python3 -m pip install \
+            --disable-pip-version-check --no-input --no-cache-dir \
+            --timeout 20 --retries 2 \
+            -i https://mirrors.aliyun.com/pypi/simple \
+            --target "${deps}" "PyYAML==6.0.3"
+          echo "PYTHONPATH=${deps}" >> "${GITHUB_ENV}"
+      - name: Prepare cell and capture environment
+        run: >-
+          python3 functional-framework/run_func_case.py
+          --case '${{ matrix.case_path }}'
+          --version '${{ matrix.version }}'
+          --os '${{ matrix.os }}'
+          --hardware '${{ matrix.hardware }}'
+          --architecture '${{ matrix.architecture }}'
+          --run-id '${{ env.PERF_RUN_ID }}'
+          --stage prepare
+      - name: Install software
+        run: >-
+          python3 functional-framework/run_func_case.py
+          --case '${{ matrix.case_path }}'
+          --version '${{ matrix.version }}'
+          --os '${{ matrix.os }}'
+          --hardware '${{ matrix.hardware }}'
+          --architecture '${{ matrix.architecture }}'
+          --run-id '${{ env.PERF_RUN_ID }}'
+          --stage install
+      - name: Run functional checks
+        id: execute
+        run: >-
+          python3 functional-framework/run_func_case.py
+          --case '${{ matrix.case_path }}'
+          --version '${{ matrix.version }}'
+          --os '${{ matrix.os }}'
+          --hardware '${{ matrix.hardware }}'
+          --architecture '${{ matrix.architecture }}'
+          --run-id '${{ env.PERF_RUN_ID }}'
+          --stage check
+      - name: Run software cleanup
+        if: always()
+        run: >-
+          python3 functional-framework/run_func_case.py
+          --case '${{ matrix.case_path }}'
+          --version '${{ matrix.version }}'
+          --os '${{ matrix.os }}'
+          --hardware '${{ matrix.hardware }}'
+          --architecture '${{ matrix.architecture }}'
+          --run-id '${{ env.PERF_RUN_ID }}'
+          --stage cleanup
+      - name: Upload cell result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: func-cell-${{ matrix.software }}-${{ matrix.version }}-${{ matrix.os }}-${{ matrix.hardware }}
+          path: >-
+            .func-output/${{ matrix.category }}/${{ matrix.software }}/${{ matrix.version }}/${{ matrix.os }}/${{ matrix.hardware }}/${{ env.PERF_RUN_ID }}
+          if-no-files-found: warn
+
+  report:
+    name: Generate functional matrix report
+    if: always()
+    needs: [prepare, cell]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download cell artifacts
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          path: .func-output/downloaded
+      - name: Generate functional matrix report
+        run: >-
+          python3 functional-framework/report_func.py
+          --input-root .func-output/downloaded
+          --output-dir .func-output/report
+      - name: Publish report in workflow summary
+        shell: bash
+        run: cat .func-output/report/combined-report.md >> "${GITHUB_STEP_SUMMARY}"
+      - name: Upload functional report
+        uses: actions/upload-artifact@v4
+        with:
+          name: func-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .func-output/report
+          if-no-files-found: error
