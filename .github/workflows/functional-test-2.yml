@@ -57,7 +57,7 @@ on:
       exclude_software:
         description: "Comma-separated software to skip (for example already passed), empty to skip none"
         required: false
-        default: "faiss,hnswlib,openviking,pytorch,scann,flink,spark,glibc,lz4,redis,oceanbase,mysql,python,openjdk,golang"
+        default: "faiss,hnswlib,openviking,pytorch,scann,flink,spark,mysql,oceanbase,redis,lz4,protobuf,snappy,x264,x265,brpc,cloudwego,kubernetes,gcc,glibc,golang,openjdk,python"
         type: string
       order:
         description: "Matrix job order; desc runs the tail of the catalog first"
