@@ -206,5 +206,3 @@
 | python | version | 获取到的 CPython 解释器版本必须等于请求版本(层1/2/3/4 任一来源均须匹配) |
 | python | upstream-test | 运行 CPython 官方回归测试子集(test_math / test_json) |
 | python | smoke | compileall 临时目录 + 运行内建模块断言 |
-| bishengjdk | — | 当前分支未包含该软件的用例定义 |
-| sonic-go | — | 当前分支未包含该软件的用例定义 |
