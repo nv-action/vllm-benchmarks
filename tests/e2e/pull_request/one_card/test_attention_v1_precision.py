@@ -366,7 +366,7 @@ def _test_npu_attention_correctness(
 )
 @pytest.mark.parametrize("model", ["Qwen/Qwen3-8B"])
 @pytest.mark.parametrize("tensor_parallel_size", [1, 2, 4])
-def test_causal_backend_correctness(default_vllm_config, batch_spec_name: str, model: str, tensor_parallel_size: int):
+def test_causal_backend_correctness_ppp(default_vllm_config, batch_spec_name: str, model: str, tensor_parallel_size: int):
     """Test backend's correctness with causal attention."""
     batch_spec = BATCH_SPECS[batch_spec_name]
 
