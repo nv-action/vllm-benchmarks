@@ -7,7 +7,7 @@
 - 统计时间：2026-10-23。
 - 鲲鹏920 · openeuler-24.03-sp4：共 45 个单元格，通过 39，失败 2，未完成 3，未开始 1。
 - 鲲鹏920 · ubuntu-26.04.1：共 45 个单元格，通过 39，失败 3，未完成 2，未开始 1。
-- 鲲鹏950 · openeuler-24.03-sp4：共 45 个单元格，通过 23，失败 0，未完成 0，未开始 22。
+- 鲲鹏950 · openeuler-24.03-sp4：共 45 个单元格，通过 24，失败 0，未完成 0，未开始 21。
 - 鲲鹏950 · ubuntu-26.04.1：共 45 个单元格，通过 7，失败 2，未完成 2，未开始 34。
 
 ## 2. 测试结果
@@ -37,7 +37,7 @@
 | redis | 8.10.2 | version、upstream-test、cli-roundtrip | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781592 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39931548689/job/120340836855 |
 | rocksdb | 7.9.2 | version、upstream-test、api-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191779067 | — |
 | rocksdb | 8.3.3 | version、upstream-test、api-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191779017 | — |
-| rocksdb | 11.8.1 | version、upstream-test、api-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191778514 | — |
+| rocksdb | 11.8.1 | version、upstream-test、api-smoke | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191778514 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39925701611/job/120322519163 |
 | folly | 2026.10.12.00 | version、upstream-test、link-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191778909 | — |
 | lz4 | 1.9.3 | version、upstream-test、cli-roundtrip | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781583 | — |
 | lz4 | 1.10.0 | version、upstream-test、cli-roundtrip | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781644 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39930663799/job/120339038378 |
