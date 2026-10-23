@@ -1,5 +1,5 @@
-name: Functional test
-run-name: "Functional test - ${{ inputs.software }} ${{ inputs.version }} (${{ inputs.os }} / ${{ inputs.hardware }})"
+name: Functional test -2
+run-name: "Functional test -2 - ${{ inputs.software }} ${{ inputs.version }} (${{ inputs.os }} / ${{ inputs.hardware }})"
 
 on:
   workflow_dispatch:
