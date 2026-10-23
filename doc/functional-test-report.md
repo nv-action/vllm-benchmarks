@@ -206,4 +206,17 @@
 | python | version | 获取到的 CPython 解释器版本必须等于请求版本(层1/2/3/4 任一来源均须匹配) |
 | python | upstream-test | 运行 CPython 官方回归测试子集(test_math / test_json) |
 | python | smoke | compileall 临时目录 + 运行内建模块断言 |
+| bishengjdk | — | 当前分支未包含该软件的用例定义 |
+| sonic-go | — | 当前分支未包含该软件的用例定义 |
 
+## 4. 备注
+
+- 表格已按当前 catalog 收敛：只保留当前 `func_case.yaml` 中仍存在的版本（76 个单元格 × 2 硬件）以及已关闭的 5 个软件；已从 catalog 移除的旧版本行（faiss 1.14.3、pytorch 2.13.0、golang 1.26.x、python 3.14.7 等 26 个组合）已删除，不再参与统计。
+- 已关闭的 5 个软件只保留各自 `func_case.yaml` 声明的版本：ceph 21.3.0 / 16.2.8、bolt 2d01261、sonic-cpp 1.0.2、zstd 1.5.7、envoy 1.37.1 / 1.40.0；报告中残留的 ceph 14.2.8 / 17.2.x / 19.2.6、bolt main、sonic-cpp 69deb02、envoy 1.39.1 等历史版本行已删除。ceph 16.2.8 从未运行，按“未开始”记录。
+- 鲲鹏920 数据已按最新一轮运行刷新：`FdeCad/boostkit-performance-evaluation` run `39784091800`（`all / all / kunpeng920`）第 3 次尝试已完成，76 个单元格全部通过；上一轮失败的 lz4 1.9.3 / 1.10.0、redis 6.0.20 / 8.10.2、oceanbase 5.0.1、x264 0480cb05 以及原本排队中的 glibc、gcc 16.2.0、golang 1.27.1、openjdk、python 3.15.0、kubernetes、spark 4.2.0 重跑后均已通过。
+- 仍标记为失败的单元格都是已关闭软件的历史结果：bolt 2d01261（ubuntu，`Install software`）、envoy 1.37.1 / 1.40.0（两个 OS，`Install software`）；未完成的是 ceph 21.3.0（两个 OS）、sonic-cpp 1.0.2（两个 OS）、zstd 1.5.7（openEuler）。
+- 鲲鹏950 的 faiss 结果来自 run `39812116980`（`faiss / all / kunpeng950`，提交 `a0e7ca8`）：1.8.0 两个 OS、1.15.1 openEuler 通过；1.15.1 ubuntu 失败于 `Install software` 的 `uv venv --seed` 阶段——uv 与 CPython 3.12 已改走镜像正常获取，但 seed 时仍去官方 PyPI 拉 `pip==26.2.2` 超时（已把 uv 默认索引改到阿里云并重跑）。
+- 鲲鹏950 的 hnswlib 结果来自 run `39882723383`（`hnswlib / all / kunpeng950`，提交 `a0e7ca8`）：0.9.0 两个 OS、0.8.0 openEuler 通过；0.8.0 ubuntu 在 `Install software` 阶段（源码编译 hnswlib，openeuler 相同步骤耗时约 25 分钟）被取消，未产出结论。
+- 鲲鹏950 全量功能测试已停止（run 39778866713 已取消），当前只有按软件单独触发的运行结果，其余单元格为“未开始”。
+- ceph、bolt、sonic-cpp、zstd、envoy 已在全量测试中关闭（`enabled: false`），鲲鹏920 的数据来自关闭前的历史运行。
+- “未完成”的单元格建议重跑。
