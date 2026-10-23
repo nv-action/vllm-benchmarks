@@ -34,7 +34,6 @@ hardware:
   - name: kunpeng950
     runner_labels:
       - linux-aarch64-a5-0
-      - sh-001
 
 output_root: .func-output
 work_root: /home/runner/boostkit-func

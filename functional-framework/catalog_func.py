@@ -400,6 +400,8 @@ def build_matrix(
     version: str,
     operating_system: str,
     hardware: str,
+    exclude_software: str = "",
+    order: str = "asc",
     root: Path = ROOT,
 ) -> dict[str, Any]:
     config = load_config(root)
@@ -411,6 +413,9 @@ def build_matrix(
     selected_versions = _parse_selection(version)
     selected_os = _parse_selection(operating_system)
     selected_hardware = _parse_selection(hardware)
+    excluded_software = _parse_selection(exclude_software)
+    if order not in {"asc", "desc"}:
+        raise ValueError(f"order must be one of asc, desc: {order}")
 
     unknown_os = (selected_os or set()) - set(config["operating_systems"])
     if unknown_os:
@@ -431,6 +436,8 @@ def build_matrix(
         if not case.get("enabled", False):
             continue
         case_name = case["name"]
+        if excluded_software is not None and case_name in excluded_software:
+            continue
         if selected_software is not None and case_name not in selected_software:
             continue
         matched_software.add(case_name)
@@ -485,6 +492,8 @@ def build_matrix(
             raise ValueError(f"selected versions not found: {', '.join(sorted(missing))}")
     if not include:
         raise ValueError("selection produced an empty matrix")
+    if order == "desc":
+        include.reverse()
     return {"include": include}
 
 
@@ -497,6 +506,8 @@ def main() -> int:
     matrix_parser.add_argument("--version", default="all")
     matrix_parser.add_argument("--os", default="all")
     matrix_parser.add_argument("--hardware", default="all")
+    matrix_parser.add_argument("--exclude-software", default="")
+    matrix_parser.add_argument("--order", choices=["asc", "desc"], default="asc")
     matrix_parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args()
 
@@ -523,7 +534,14 @@ def main() -> int:
         return 0
 
     try:
-        matrix = build_matrix(args.software, args.version, args.os, args.hardware)
+        matrix = build_matrix(
+            args.software,
+            args.version,
+            args.os,
+            args.hardware,
+            exclude_software=args.exclude_software,
+            order=args.order,
+        )
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1

@@ -54,6 +54,19 @@ on:
         required: true
         default: all
         type: string
+      exclude_software:
+        description: "Comma-separated software to skip (for example already passed), empty to skip none"
+        required: false
+        default: "faiss,hnswlib,openviking,pytorch,scann,flink,spark"
+        type: string
+      order:
+        description: "Matrix job order; desc runs the tail of the catalog first"
+        required: true
+        default: desc
+        type: choice
+        options:
+          - desc
+          - asc
       os:
         description: "Operating system"
         required: true
@@ -104,13 +117,17 @@ jobs:
           INPUT_VERSION: ${{ inputs.version }}
           INPUT_OS: ${{ inputs.os }}
           INPUT_HARDWARE: ${{ inputs.hardware }}
+          INPUT_EXCLUDE_SOFTWARE: ${{ inputs.exclude_software }}
+          INPUT_ORDER: ${{ inputs.order }}
         shell: bash
         run: |
           matrix="$(python3 functional-framework/catalog_func.py matrix \
             --software "${INPUT_SOFTWARE}" \
             --version "${INPUT_VERSION}" \
             --os "${INPUT_OS}" \
-            --hardware "${INPUT_HARDWARE}")"
+            --hardware "${INPUT_HARDWARE}" \
+            --exclude-software "${INPUT_EXCLUDE_SOFTWARE}" \
+            --order "${INPUT_ORDER}")"
           echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
           echo '### Functional matrix' >> "${GITHUB_STEP_SUMMARY}"
           echo '```json' >> "${GITHUB_STEP_SUMMARY}"
