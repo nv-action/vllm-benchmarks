@@ -19,7 +19,7 @@ operating_systems:
   - name: openeuler-24.03-sp4
     runtime: job-container
     mode: prebuilt
-    image_template: "quay.nju.edu.cn/openeuler/{software}:{version}-oe2403sp4-{arch}"
+    image_template: "docker.1ms.run/openeulertest/{software}:{version}-oe2403sp4-{arch}"
   - name: ubuntu-26.04.1
     runtime: job-container
     mode: build
