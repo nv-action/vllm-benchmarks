@@ -2,7 +2,8 @@
 # 独立于性能测试框架 software/AI/scann/;版本由人工指定,不做 latest 解析。
 name: scann
 category: AI
-enabled: true
+# 临时禁用:该软件本轮功能测试已通过,矩阵中跳过。
+enabled: false
 
 # 人工指定的待测版本(白名单),由人工维护。
 # 只保留 1.4.2:aarch64 官方 wheel 只有 cp39 是真实构建,配合固定 3.9 解释器即可命中;

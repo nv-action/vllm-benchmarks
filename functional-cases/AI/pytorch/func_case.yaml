@@ -2,7 +2,8 @@
 # 独立于性能测试框架 software/AI/pytorch/;版本由人工指定,不做 latest 解析。
 name: pytorch
 category: AI
-enabled: true
+# 临时禁用:该软件本轮功能测试已通过,矩阵中跳过。
+enabled: false
 
 # 人工指定的待测版本(白名单),由人工维护;
 # 不要求与 software/AI/pytorch/case.yaml 一致,可含更高或额外版本。

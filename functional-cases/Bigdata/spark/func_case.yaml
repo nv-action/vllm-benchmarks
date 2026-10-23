@@ -6,7 +6,8 @@
 # Apache Spark 功能测试清单。
 name: spark
 category: Bigdata
-enabled: true
+# 临时禁用:该软件本轮功能测试已通过,矩阵中跳过。
+enabled: false
 
 # 人工指定的待测版本(白名单)。3.5.9 为 branch-3.5 的最新维护版。
 versions:
