@@ -90,7 +90,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: functional-test-runners
+  group: functional-test-2-runners
   cancel-in-progress: false
 
 jobs:
