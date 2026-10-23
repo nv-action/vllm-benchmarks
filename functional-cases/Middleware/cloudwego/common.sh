@@ -27,7 +27,8 @@ CLOUDWEGO_VOLO_VERSION="0.12.2"
 CLOUDWEGO_VOLO_CLI_VERSION="0.12.1"
 CLOUDWEGO_EINO_VERSION="0.9.22"
 CLOUDWEGO_MODULE_BASE="${CLOUDWEGO_MODULE_BASE:-github.com/cloudwego}"
-CLOUDWEGO_SOURCE_BASE="${CLOUDWEGO_SOURCE_BASE:-https://github.com/cloudwego}"
+# 运行机无法直连 github.com,源码归档默认走 ghfast.top 加速(透传原始字节,SHA-256 校验不变)。
+CLOUDWEGO_SOURCE_BASE="${CLOUDWEGO_SOURCE_BASE:-https://ghfast.top/https://github.com/cloudwego}"
 # 模块依赖通过 Go 代理拉取;与仓库内其它 Go 用例使用同一组镜像。
 CLOUDWEGO_PROXY="${CLOUDWEGO_PROXY:-https://goproxy.cn|https://repo.huaweicloud.com/repository/goproxy/}"
 # 编译套件的 Go 工具链版本;优先使用 PATH 上的 go,缺失时取官方二进制。
