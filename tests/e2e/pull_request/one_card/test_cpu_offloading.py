@@ -142,7 +142,7 @@ def _accuracy_test(llm: LLM, subscriber: MockSubscriber) -> None:
 
 
 @pytest.mark.parametrize("enable_tiering", [False, True])
-def test_cpu_offloading(tmp_path, enable_tiering: bool, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cpu_offloading_kk(tmp_path, enable_tiering: bool, monkeypatch: pytest.MonkeyPatch) -> None:
     """
     Tests the native CPU-only and multi-tier offloading specs.
     """
