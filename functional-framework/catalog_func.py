@@ -413,7 +413,14 @@ def build_matrix(
     selected_versions = _parse_selection(version)
     selected_os = _parse_selection(operating_system)
     selected_hardware = _parse_selection(hardware)
-    excluded_software = _parse_selection(exclude_software)
+    # 排除列表按字面逗号解析("all" 不具特殊含义),且显式 --software 优先:
+    # 否则 "选择 cloudwego + 默认排除里含 cloudwego" 会被当成未匹配,报出
+    # 误导性的 unknown or disabled software。
+    excluded_software = {
+        item.strip() for item in exclude_software.split(",") if item.strip()
+    }
+    if selected_software is not None:
+        excluded_software -= selected_software
     if order not in {"asc", "desc"}:
         raise ValueError(f"order must be one of asc, desc: {order}")
 
@@ -436,7 +443,7 @@ def build_matrix(
         if not case.get("enabled", False):
             continue
         case_name = case["name"]
-        if excluded_software is not None and case_name in excluded_software:
+        if case_name in excluded_software:
             continue
         if selected_software is not None and case_name not in selected_software:
             continue
