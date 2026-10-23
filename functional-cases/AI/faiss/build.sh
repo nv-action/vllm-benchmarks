@@ -147,6 +147,10 @@ create_faiss_venv() {
     local actual_python
     export UV_PYTHON_INSTALL_DIR="${UV_PYTHON_DIR}"
     export UV_PYTHON_PREFERENCE=only-managed
+    # uv 自己的下载(venv --seed 拉 pip/setuptools)默认走 pypi.org,国产 Runner 不可达,
+    # 统一指向阿里云镜像;默认 30s 超时在跨境链路上偏短,一并放宽。
+    export UV_DEFAULT_INDEX="${UV_DEFAULT_INDEX:-${UV_PYPI_INDEX}}"
+    export UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-120}"
     if [[ -e "${VENV_DIR}" ]]; then
         log "ERROR: virtual environment is not clean: ${VENV_DIR}"
         return 20
