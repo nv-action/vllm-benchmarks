@@ -5,8 +5,8 @@
 - 数据来源：鲲鹏920 取自 `FdeCad/boostkit-performance-evaluation` 的 `functional-test` 历史运行；鲲鹏950 取自 `nv-action/vllm-benchmarks` 的 `boostkit-performance-evaluation` 分支运行。
 - 统计口径：每个“软件 × 版本 × 测试OS”单元格取最近一次产出终态结果的运行；`未完成` 表示最近一次运行被取消或中断，没有产出最终结论。
 - 统计时间：2026-10-23。
-- 鲲鹏920：共 118 个单元格，通过 78，失败 7，未完成 33。
-- 鲲鹏950：目前有结果的 15 个单元格中，通过 11，失败 1，未完成 3；其余 103 个单元格为未开始（全量运行仍在进行中）。
+- 鲲鹏920：共 90 个单元格，通过 78，失败 5，未完成 5，未开始 2。
+- 鲲鹏950：目前有结果的 15 个单元格中，通过 11，失败 1，未完成 3；其余 75 个单元格为未开始（全量运行仍在进行中）。
 
 ## 2. 测试结果
 
@@ -28,8 +28,6 @@
 | scann | 1.4.2 | ubuntu-26.04.1 | version、scann-dot-product、scann-squared-l2 | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191777082 | — |
 | bolt | 2d01261 | openeuler-24.03-sp4 | version、upstream-unit-test、link-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39723027653/job/119640638442 | — |
 | bolt | 2d01261 | ubuntu-26.04.1 | version、upstream-unit-test、link-smoke | ❌ 失败 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39738849015/job/119690973898 | — |
-| bolt | main | openeuler-24.03-sp4 | version、upstream-unit-test、link-smoke | ❌ 失败 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39567115248/job/119112325299 | — |
-| bolt | main | ubuntu-26.04.1 | version、upstream-unit-test、link-smoke | ❌ 失败 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39567115248/job/119112325209 | — |
 | flink | 1.16.3 | openeuler-24.03-sp4 | version、upstream-example、cluster-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191776684 | — |
 | flink | 1.16.3 | ubuntu-26.04.1 | version、upstream-example、cluster-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191777028 | — |
 | flink | 1.17.1 | openeuler-24.03-sp4 | version、upstream-example、cluster-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191776824 | — |
@@ -70,8 +68,6 @@
 | snappy | 1.1.7 | ubuntu-26.04.1 | source-integrity、version、roundtrip | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780340 | — |
 | sonic-cpp | 1.0.2 | openeuler-24.03-sp4 | version、upstream-test、json-roundtrip | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927295745 | — |
 | sonic-cpp | 1.0.2 | ubuntu-26.04.1 | version、upstream-test、json-roundtrip | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927295878 | — |
-| sonic-cpp | 69deb02 | openeuler-24.03-sp4 | version、upstream-test、json-roundtrip | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38719887627/job/116371614670 | — |
-| sonic-cpp | 69deb02 | ubuntu-26.04.1 | version、upstream-test、json-roundtrip | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38719887627/job/116371614675 | — |
 | zstd | 1.5.7 | openeuler-24.03-sp4 | version、upstream-test、cli-roundtrip | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927295998 | — |
 | zstd | 1.5.7 | ubuntu-26.04.1 | version、upstream-test、cli-roundtrip | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927296126 | — |
 | x264 | 0480cb05 | openeuler-24.03-sp4 | version、upstream-checkasm、encode-smoke、decoder-dependencies、decode-check | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780247 | — |
@@ -84,40 +80,16 @@
 | cloudwego | 0.16.4 | ubuntu-26.04.1 | source-integrity、version、upstream-test、smoke、codegen、generated-build、kitex-rpc、eino-test | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780767 | — |
 | envoy | 1.37.1 | openeuler-24.03-sp4 | version、upstream-test、proxy-smoke | ❌ 失败 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39622847513/job/119300574073 | — |
 | envoy | 1.37.1 | ubuntu-26.04.1 | version、upstream-test、proxy-smoke | ❌ 失败 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39622847513/job/119300574024 | — |
-| envoy | 1.39.1 | openeuler-24.03-sp4 | version、upstream-test、proxy-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38719887627/job/116371614780 | — |
-| envoy | 1.39.1 | ubuntu-26.04.1 | version、upstream-test、proxy-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38719887627/job/116371614906 | — |
 | envoy | 1.40.0 | openeuler-24.03-sp4 | version、upstream-test、proxy-smoke | ❌ 失败 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39622847513/job/119300574110 | — |
 | envoy | 1.40.0 | ubuntu-26.04.1 | version、upstream-test、proxy-smoke | ❌ 失败 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39622847513/job/119300574077 | — |
 | kubernetes | 1.28.4 | openeuler-24.03-sp4 | version、upstream-test、kubectl-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781347 | — |
 | kubernetes | 1.28.4 | ubuntu-26.04.1 | version、upstream-test、kubectl-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191782210 | — |
 | kubernetes | 1.37.1 | openeuler-24.03-sp4 | version、upstream-test、kubectl-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780936 | — |
 | kubernetes | 1.37.1 | ubuntu-26.04.1 | version、upstream-test、kubectl-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781425 | — |
-| ceph | 14.2.8 | openeuler-24.03-sp4 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298753 | — |
-| ceph | 14.2.8 | ubuntu-26.04.1 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298676 | — |
-| ceph | 17.2.0 | openeuler-24.03-sp4 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298858 | — |
-| ceph | 17.2.0 | ubuntu-26.04.1 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298848 | — |
-| ceph | 17.2.1 | openeuler-24.03-sp4 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298702 | — |
-| ceph | 17.2.1 | ubuntu-26.04.1 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298728 | — |
-| ceph | 17.2.2 | openeuler-24.03-sp4 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298898 | — |
-| ceph | 17.2.2 | ubuntu-26.04.1 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298694 | — |
-| ceph | 17.2.3 | openeuler-24.03-sp4 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298651 | — |
-| ceph | 17.2.3 | ubuntu-26.04.1 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298658 | — |
-| ceph | 17.2.4 | openeuler-24.03-sp4 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298751 | — |
-| ceph | 17.2.4 | ubuntu-26.04.1 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298742 | — |
-| ceph | 17.2.5 | openeuler-24.03-sp4 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298767 | — |
-| ceph | 17.2.5 | ubuntu-26.04.1 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298673 | — |
-| ceph | 17.2.6 | openeuler-24.03-sp4 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298640 | — |
-| ceph | 17.2.6 | ubuntu-26.04.1 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298701 | — |
-| ceph | 17.2.7 | openeuler-24.03-sp4 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298855 | — |
-| ceph | 17.2.7 | ubuntu-26.04.1 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298683 | — |
-| ceph | 17.2.8 | openeuler-24.03-sp4 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298618 | — |
-| ceph | 17.2.8 | ubuntu-26.04.1 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298672 | — |
-| ceph | 17.2.9 | openeuler-24.03-sp4 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298572 | — |
-| ceph | 17.2.9 | ubuntu-26.04.1 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298662 | — |
-| ceph | 19.2.6 | openeuler-24.03-sp4 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38719887627/job/116371614763 | — |
-| ceph | 19.2.6 | ubuntu-26.04.1 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38719887627/job/116371614864 | — |
 | ceph | 21.3.0 | openeuler-24.03-sp4 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298554 | — |
 | ceph | 21.3.0 | ubuntu-26.04.1 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298771 | — |
+| ceph | 16.2.8 | openeuler-24.03-sp4 | version、upstream-test、cluster-smoke | 未开始 | 未开始 | — | — |
+| ceph | 16.2.8 | ubuntu-26.04.1 | version、upstream-test、cluster-smoke | 未开始 | 未开始 | — | — |
 | gcc | 16.2.0 | openeuler-24.03-sp4 | version、upstream-test、smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781798 | — |
 | gcc | 16.2.0 | ubuntu-26.04.1 | version、upstream-test、smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781863 | — |
 | glibc | 2.34 | openeuler-24.03-sp4 | version、upstream-test、smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191784109 | — |
@@ -234,16 +206,4 @@
 | python | version | 获取到的 CPython 解释器版本必须等于请求版本(层1/2/3/4 任一来源均须匹配) |
 | python | upstream-test | 运行 CPython 官方回归测试子集(test_math / test_json) |
 | python | smoke | compileall 临时目录 + 运行内建模块断言 |
-| bishengjdk | — | 当前分支未包含该软件的用例定义 |
-| sonic-go | — | 当前分支未包含该软件的用例定义 |
 
-## 4. 备注
-
-- 表格已按当前 catalog 收敛：只保留当前 `func_case.yaml` 中仍存在的版本（76 个单元格 × 2 硬件）以及已关闭的 5 个软件；已从 catalog 移除的旧版本行（faiss 1.14.3、pytorch 2.13.0、golang 1.26.x、python 3.14.7 等 26 个组合）已删除，不再参与统计。
-- 鲲鹏920 数据已按最新一轮运行刷新：`FdeCad/boostkit-performance-evaluation` run `39784091800`（`all / all / kunpeng920`）第 3 次尝试已完成，76 个单元格全部通过；上一轮失败的 lz4 1.9.3 / 1.10.0、redis 6.0.20 / 8.10.2、oceanbase 5.0.1、x264 0480cb05 以及原本排队中的 glibc、gcc 16.2.0、golang 1.27.1、openjdk、python 3.15.0、kubernetes、spark 4.2.0 重跑后均已通过。
-- 仍标记为失败的单元格都是已关闭软件的历史结果：bolt 2d01261（ubuntu，`Install software`）、bolt main（两个 OS，`Prepare cell and capture environment`）、envoy 1.37.1 / 1.40.0（两个 OS，`Install software`）。
-- 鲲鹏950 的 faiss 结果来自 run `39812116980`（`faiss / all / kunpeng950`，提交 `a0e7ca8`）：1.8.0 两个 OS、1.15.1 openEuler 通过；1.15.1 ubuntu 失败于 `Install software` 的 `uv venv --seed` 阶段——uv 与 CPython 3.12 已改走镜像正常获取，但 seed 时仍去官方 PyPI 拉 `pip==26.2.2` 超时（已把 uv 默认索引改到阿里云并重跑）。
-- 鲲鹏950 的 hnswlib 结果来自 run `39882723383`（`hnswlib / all / kunpeng950`，提交 `a0e7ca8`）：0.9.0 两个 OS、0.8.0 openEuler 通过；0.8.0 ubuntu 在 `Install software` 阶段（源码编译 hnswlib，openeuler 相同步骤耗时约 25 分钟）被取消，未产出结论。
-- 鲲鹏950 全量功能测试已停止（run 39778866713 已取消），当前只有按软件单独触发的运行结果，其余单元格为“未开始”。
-- ceph、bolt、sonic-cpp、zstd、envoy 已在全量测试中关闭（`enabled: false`），鲲鹏920 的数据来自关闭前的历史运行。
-- “未完成”的单元格建议重跑。
