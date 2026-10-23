@@ -7,7 +7,7 @@
 - 统计时间：2026-10-23。
 - 鲲鹏920 · openeuler-24.03-sp4：共 45 个单元格，通过 39，失败 2，未完成 3，未开始 1。
 - 鲲鹏920 · ubuntu-26.04.1：共 45 个单元格，通过 39，失败 3，未完成 2，未开始 1。
-- 鲲鹏950 · openeuler-24.03-sp4：共 45 个单元格，通过 22，失败 0，未完成 0，未开始 23。
+- 鲲鹏950 · openeuler-24.03-sp4：共 45 个单元格，通过 23，失败 0，未完成 0，未开始 22。
 - 鲲鹏950 · ubuntu-26.04.1：共 45 个单元格，通过 7，失败 2，未完成 2，未开始 34。
 
 ## 2. 测试结果
@@ -55,7 +55,7 @@
 | kubernetes | 1.37.1 | version、upstream-test、kubectl-smoke | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780936 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39924948769/job/120347431065 |
 | ceph | 21.3.0 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298554 | — |
 | ceph | 16.2.8 | version、upstream-test、cluster-smoke | 未开始 | 未开始 | — | — |
-| gcc | 16.2.0 | version、upstream-test、smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781798 | — |
+| gcc | 16.2.0 | version、upstream-test、smoke | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781798 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39924948769/job/120347441812 |
 | glibc | 2.34 | version、upstream-test、smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191784109 | — |
 | glibc | 2.43 | version、upstream-test、smoke | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781858 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39927884162/job/120331555747 |
 | golang | 1.27.1 | version、upstream-test、smoke | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191782286 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39927003596/job/120326354465 |
