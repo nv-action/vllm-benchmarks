@@ -4,20 +4,20 @@
 
 - 数据来源：鲲鹏920 取自 `FdeCad/boostkit-performance-evaluation` 的 `functional-test` 历史运行；鲲鹏950 取自 `nv-action/vllm-benchmarks` 的 `boostkit-performance-evaluation` 分支运行。
 - 统计口径：每个“软件 × 版本 × 测试OS”单元格取最近一次产出终态结果的运行；`未完成` 表示最近一次运行被取消或中断，没有产出最终结论。
-- 统计时间：2026-10-22。
+- 统计时间：2026-10-23。
 - 鲲鹏920：共 169 个单元格，通过 74，失败 15，未完成 80。
-- 鲲鹏950：已完成 7 个单元格，通过 5，未完成 2；其余为未开始（全量运行仍在进行中）。
+- 鲲鹏950：已完成 11 个单元格，通过 8，失败 1，未完成 2；其余为未开始（全量运行仍在进行中）。
 
 ## 2. 测试结果
 
 | 软件 | 软件版本 | 测试OS | 测试用例 | 鲲鹏920 | 鲲鹏950 | 920 日志 | 950 日志 |
 |---|---|---|---|---|---|---|---|
-| faiss | 1.8.0 | openeuler-24.03-sp4 | version、index-flat-l2、index-ivf-pq | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/119842640449 | — |
-| faiss | 1.8.0 | ubuntu-26.04.1 | version、index-flat-l2、index-ivf-pq | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/119842640576 | — |
+| faiss | 1.8.0 | openeuler-24.03-sp4 | version、index-flat-l2、index-ivf-pq | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/119842640449 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39812116980/job/119941988761 |
+| faiss | 1.8.0 | ubuntu-26.04.1 | version、index-flat-l2、index-ivf-pq | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/119842640576 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39812116980/job/119941988713 |
 | faiss | 1.14.3 | openeuler-24.03-sp4 | version、index-flat-l2、index-ivf-pq | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38884439352/job/116918708906 | — |
 | faiss | 1.14.3 | ubuntu-26.04.1 | version、index-flat-l2、index-ivf-pq | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38884439352/job/116918709158 | — |
-| faiss | 1.15.1 | openeuler-24.03-sp4 | version、index-flat-l2、index-ivf-pq | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/119842640492 | — |
-| faiss | 1.15.1 | ubuntu-26.04.1 | version、index-flat-l2、index-ivf-pq | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/119842640538 | — |
+| faiss | 1.15.1 | openeuler-24.03-sp4 | version、index-flat-l2、index-ivf-pq | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/119842640492 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39812116980/job/119941988806 |
+| faiss | 1.15.1 | ubuntu-26.04.1 | version、index-flat-l2、index-ivf-pq | ✅ 通过 | ❌ 失败 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/119842640538 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39812116980/job/119941989340 |
 | hnswlib | 0.8.0 | openeuler-24.03-sp4 | version、hnsw-knn-roundtrip、hnsw-save-reload | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39225644344/job/117971440501 | — |
 | hnswlib | 0.8.0 | ubuntu-26.04.1 | version、hnsw-knn-roundtrip、hnsw-save-reload | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/119842640591 | — |
 | hnswlib | 0.9.0 | openeuler-24.03-sp4 | version、hnsw-knn-roundtrip、hnsw-save-reload | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/119842640378 | — |
@@ -293,6 +293,7 @@
 - 鲲鹏920 数据已按最新一轮运行刷新：`FdeCad/boostkit-performance-evaluation` run `39784091800`（`all / all / kunpeng920`）。该运行仍在进行中，尚有 14 个单元格在排队（glibc 2.34/2.43、gcc 16.2.0、golang 1.27.1、openjdk 28_19、python 3.15.0 / 两个 OS，以及 kubernetes 1.28.4、lz4 1.9.3、spark 4.2.0 的 ubuntu），这些单元格保留上一轮终态结果。
 - 鲲鹏920 失败单元格按 job 终态记录，失败阶段分别为：lz4 1.9.3 / 1.10.0、redis 6.0.20 / 8.10.2、oceanbase 5.0.1、x264 0480cb05 为 openEuler 上的 `Install software`（x264 为 `Run functional checks`）；bolt 2d01261 为 ubuntu 上的 `Install software`，bolt main 为 `Prepare cell and capture environment`；envoy 1.37.1 / 1.40.0 两个 OS 均为 `Install software`；glibc 2.34 两个 OS 均卡在 `Install framework runtime dependency`（框架依赖 PyYAML 安装失败，属于 CI 环境问题，非被测软件结论）。
 - lz4、redis、oceanbase、x264 的 ubuntu 单元格在最近终态中均为通过。
-- 鲲鹏950 全量功能测试正在运行（run 39778866713），表中仅填入已产出结果的单元格，其余标为“未开始”。
+- 鲲鹏950 的 faiss 结果来自 run `39812116980`（`faiss / all / kunpeng950`，提交 `a0e7ca8`）：1.8.0 两个 OS、1.15.1 openEuler 通过；1.15.1 ubuntu 失败于 `Install software` 的 `uv venv --seed` 阶段——uv 与 CPython 3.12 已改走镜像正常获取，但 seed 时仍去官方 PyPI 拉 `pip==26.2.2` 超时（需要把 uv 的默认索引也指向可达镜像后重跑）。
+- 鲲鹏950 全量功能测试已停止（run 39778866713 已取消），当前只有按软件单独触发的运行结果，其余单元格为“未开始”。
 - ceph、bolt、sonic-cpp、zstd、envoy 已在全量测试中关闭（`enabled: false`），鲲鹏920 的数据来自关闭前的历史运行。
 - “未完成”的单元格建议重跑。
