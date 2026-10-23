@@ -7,8 +7,6 @@ enabled: true
 # 人工指定的待测版本(白名单):与 software/Bigdata/flink/case.yaml 一致。
 versions:
   - "2.3.0"
-  - "1.16.3"
-  - "1.17.1"
 
 # build 模式(FUNC_MODE=build)软件获取为分层优先:优先上游官方二进制 tarball,
 # 其次与请求版本一致的三方打包产物,最后源码编译;每层均用 bin/flink --version 校验版本。

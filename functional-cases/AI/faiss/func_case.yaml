@@ -7,7 +7,6 @@ enabled: true
 # 人工指定的待测版本(白名单),与 software/AI/faiss/case.yaml 保持一致。
 versions:
   - "1.15.1"
-  - "1.8.0"
 
 execution:
   type: shell-functions

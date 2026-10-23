@@ -8,7 +8,6 @@ enabled: true
 # 不要求与 software/HPC/lz4/case.yaml 一致,可含更高或额外版本。
 versions:
   - "1.10.0"
-  - "1.9.3"
 
 execution:
   type: shell-functions

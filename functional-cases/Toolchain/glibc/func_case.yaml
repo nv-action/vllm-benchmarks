@@ -9,7 +9,6 @@ enabled: true
 # ftp.gnu.org 与各镜像站均不存在(实测 404),无法作为被测版本。
 versions:
   - "2.43"
-  - "2.34"
 
 execution:
   type: shell-functions

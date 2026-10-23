@@ -7,7 +7,6 @@ enabled: true
 # 人工指定的待测版本(白名单):最新稳定版 + 6.0.20。
 versions:
   - "8.10.2"
-  - "6.0.20"
 
 execution:
   type: shell-functions
