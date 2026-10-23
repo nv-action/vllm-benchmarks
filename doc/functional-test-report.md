@@ -5,103 +5,113 @@
 - 数据来源：鲲鹏920 取自 `FdeCad/boostkit-performance-evaluation` 的 `functional-test` 历史运行；鲲鹏950 取自 `nv-action/vllm-benchmarks` 的 `boostkit-performance-evaluation` 分支运行，以及 `FdeCad/boostkit-performance-evaluation` 的 `functional-test-temporary` 工作流运行。
 - 统计口径：每个“软件 × 版本 × 测试OS”单元格取最近一次产出终态结果的运行；`未完成` 表示最近一次运行被取消或中断，没有产出最终结论。
 - 统计时间：2026-10-23。
-- 鲲鹏920：共 90 个单元格，通过 78，失败 5，未完成 5，未开始 2。
-- 鲲鹏950：目前有结果的 32 个单元格中，通过 28，失败 2，未完成 2；其余 58 个单元格为未开始（全量运行仍在进行中）。
+- 鲲鹏920 · openeuler-24.03-sp4：共 45 个单元格，通过 39，失败 2，未完成 3，未开始 1。
+- 鲲鹏920 · ubuntu-26.04.1：共 45 个单元格，通过 39，失败 3，未完成 2，未开始 1。
+- 鲲鹏950 · openeuler-24.03-sp4：共 45 个单元格，通过 21，失败 0，未完成 0，未开始 24。
+- 鲲鹏950 · ubuntu-26.04.1：共 45 个单元格，通过 7，失败 2，未完成 2，未开始 34。
 
 ## 2. 测试结果
 
-| 软件 | 软件版本 | 测试OS | 测试用例 | 鲲鹏920 | 鲲鹏950 | 920 日志 | 950 日志 |
-|---|---|---|---|---|---|---|---|
-| faiss | 1.8.0 | openeuler-24.03-sp4 | version、index-flat-l2、index-ivf-pq | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191815238 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39812116980/job/119941988761 |
-| faiss | 1.8.0 | ubuntu-26.04.1 | version、index-flat-l2、index-ivf-pq | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191775553 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39812116980/job/119941988713 |
-| faiss | 1.15.1 | openeuler-24.03-sp4 | version、index-flat-l2、index-ivf-pq | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191775847 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39906178119/job/120289646040 |
-| faiss | 1.15.1 | ubuntu-26.04.1 | version、index-flat-l2、index-ivf-pq | ✅ 通过 | ❌ 失败 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191812148 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39885835774/job/120203362322 |
-| hnswlib | 0.8.0 | openeuler-24.03-sp4 | version、hnsw-knn-roundtrip、hnsw-save-reload | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191775755 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39882723383/job/120183874629 |
-| hnswlib | 0.8.0 | ubuntu-26.04.1 | version、hnsw-knn-roundtrip、hnsw-save-reload | ✅ 通过 | ⚠️ 未完成 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191775848 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39882723383/job/120183874733 |
-| hnswlib | 0.9.0 | openeuler-24.03-sp4 | version、hnsw-knn-roundtrip、hnsw-save-reload | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191775789 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39906178119/job/120289700486 |
-| hnswlib | 0.9.0 | ubuntu-26.04.1 | version、hnsw-knn-roundtrip、hnsw-save-reload | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191775685 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39882723383/job/120183874514 |
-| openviking | 0.5.0 | openeuler-24.03-sp4 | version、agfs-readwrite、agfs-operations | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191776468 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39906178119/job/120289758057 |
-| openviking | 0.5.0 | ubuntu-26.04.1 | version、agfs-readwrite、agfs-operations | ✅ 通过 | ❌ 失败 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191776462 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39889376699/job/120209924384 |
-| pytorch | 2.14.1 | openeuler-24.03-sp4 | version、matmul-autograd、nn-training-loop | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191776450 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39906178119/job/120289657750 |
-| pytorch | 2.14.1 | ubuntu-26.04.1 | version、matmul-autograd、nn-training-loop | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191776517 | — |
-| scann | 1.4.2 | openeuler-24.03-sp4 | version、scann-dot-product、scann-squared-l2 | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191776395 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39906178119/job/120289671627 |
-| scann | 1.4.2 | ubuntu-26.04.1 | version、scann-dot-product、scann-squared-l2 | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191777082 | — |
-| bolt | 2d01261 | openeuler-24.03-sp4 | version、upstream-unit-test、link-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39723027653/job/119640638442 | — |
-| bolt | 2d01261 | ubuntu-26.04.1 | version、upstream-unit-test、link-smoke | ❌ 失败 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39738849015/job/119690973898 | — |
-| flink | 1.16.3 | openeuler-24.03-sp4 | version、upstream-example、cluster-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191776684 | — |
-| flink | 1.16.3 | ubuntu-26.04.1 | version、upstream-example、cluster-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191777028 | — |
-| flink | 1.17.1 | openeuler-24.03-sp4 | version、upstream-example、cluster-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191776824 | — |
-| flink | 1.17.1 | ubuntu-26.04.1 | version、upstream-example、cluster-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191777207 | — |
-| flink | 2.3.0 | openeuler-24.03-sp4 | version、upstream-example、cluster-smoke | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191776608 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39906178119/job/120289670836 |
-| flink | 2.3.0 | ubuntu-26.04.1 | version、upstream-example、cluster-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191776620 | — |
-| spark | 3.3.1 | openeuler-24.03-sp4 | version、upstream-example、pyspark-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191777624 | — |
-| spark | 3.3.1 | ubuntu-26.04.1 | version、upstream-example、pyspark-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191777560 | — |
-| spark | 3.4.3 | openeuler-24.03-sp4 | version、upstream-example、pyspark-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191778153 | — |
-| spark | 3.4.3 | ubuntu-26.04.1 | version、upstream-example、pyspark-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191778144 | — |
-| spark | 3.5.2 | openeuler-24.03-sp4 | version、upstream-example、pyspark-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191778100 | — |
-| spark | 3.5.2 | ubuntu-26.04.1 | version、upstream-example、pyspark-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191778489 | — |
-| spark | 4.2.0 | openeuler-24.03-sp4 | version、upstream-example、pyspark-smoke | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191776751 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39906178119/job/120289581413 |
-| spark | 4.2.0 | ubuntu-26.04.1 | version、upstream-example、pyspark-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191777531 | — |
-| mysql | 26.7.0 | openeuler-24.03-sp4 | version、upstream-test、sql-roundtrip | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191778019 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39906178119/job/120289431333 |
-| mysql | 26.7.0 | ubuntu-26.04.1 | version、upstream-test、sql-roundtrip | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191779358 | — |
-| oceanbase | 5.0.1 | openeuler-24.03-sp4 | version、upstream-test、sql-roundtrip | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781671 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39906178119/job/120289431226 |
-| oceanbase | 5.0.1 | ubuntu-26.04.1 | version、upstream-test、sql-roundtrip | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191778805 | — |
-| redis | 6.0.20 | openeuler-24.03-sp4 | version、upstream-test、cli-roundtrip | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781629 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39772730483/job/119804284863 |
-| redis | 6.0.20 | ubuntu-26.04.1 | version、upstream-test、cli-roundtrip | ✅ 通过 | ⚠️ 未完成 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191778498 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39768421730/job/119789854128 |
-| redis | 8.10.2 | openeuler-24.03-sp4 | version、upstream-test、cli-roundtrip | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781592 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39931548689/job/120340836855 |
-| redis | 8.10.2 | ubuntu-26.04.1 | version、upstream-test、cli-roundtrip | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191778185 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39775048983/job/119812216383 |
-| rocksdb | 7.9.2 | openeuler-24.03-sp4 | version、upstream-test、api-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191779067 | — |
-| rocksdb | 7.9.2 | ubuntu-26.04.1 | version、upstream-test、api-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191779070 | — |
-| rocksdb | 8.3.3 | openeuler-24.03-sp4 | version、upstream-test、api-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191779017 | — |
-| rocksdb | 8.3.3 | ubuntu-26.04.1 | version、upstream-test、api-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191779302 | — |
-| rocksdb | 11.8.1 | openeuler-24.03-sp4 | version、upstream-test、api-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191778514 | — |
-| rocksdb | 11.8.1 | ubuntu-26.04.1 | version、upstream-test、api-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191779186 | — |
-| folly | 2026.10.12.00 | openeuler-24.03-sp4 | version、upstream-test、link-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191778909 | — |
-| folly | 2026.10.12.00 | ubuntu-26.04.1 | version、upstream-test、link-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191778946 | — |
-| lz4 | 1.9.3 | openeuler-24.03-sp4 | version、upstream-test、cli-roundtrip | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781583 | — |
-| lz4 | 1.9.3 | ubuntu-26.04.1 | version、upstream-test、cli-roundtrip | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780409 | — |
-| lz4 | 1.10.0 | openeuler-24.03-sp4 | version、upstream-test、cli-roundtrip | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781644 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39930663799/job/120339038378 |
-| lz4 | 1.10.0 | ubuntu-26.04.1 | version、upstream-test、cli-roundtrip | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191779311 | — |
-| protobuf | 36.2 | openeuler-24.03-sp4 | version、upstream-test、cpp-roundtrip | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191779885 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39930465466/job/120337252029 |
-| protobuf | 36.2 | ubuntu-26.04.1 | version、upstream-test、cpp-roundtrip | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780594 | — |
-| snappy | 1.1.7 | openeuler-24.03-sp4 | source-integrity、version、roundtrip | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191779981 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39923102905/job/120315645731 |
-| snappy | 1.1.7 | ubuntu-26.04.1 | source-integrity、version、roundtrip | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780340 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39923102905/job/120315645883 |
-| sonic-cpp | 1.0.2 | openeuler-24.03-sp4 | version、upstream-test、json-roundtrip | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927295745 | — |
-| sonic-cpp | 1.0.2 | ubuntu-26.04.1 | version、upstream-test、json-roundtrip | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927295878 | — |
-| zstd | 1.5.7 | openeuler-24.03-sp4 | version、upstream-test、cli-roundtrip | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927295998 | — |
-| zstd | 1.5.7 | ubuntu-26.04.1 | version、upstream-test、cli-roundtrip | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927296126 | — |
-| x264 | 0480cb05 | openeuler-24.03-sp4 | version、upstream-checkasm、encode-smoke、decoder-dependencies、decode-check | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780247 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39921590280/job/120307924666 |
-| x264 | 0480cb05 | ubuntu-26.04.1 | version、upstream-checkasm、encode-smoke、decoder-dependencies、decode-check | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780805 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39921590280/job/120307924589 |
-| x265 | 4.2 | openeuler-24.03-sp4 | version、quality-metrics、encode-smoke、decoder-dependencies、decode-check | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780667 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39922024879/job/120317544664 |
-| x265 | 4.2 | ubuntu-26.04.1 | version、quality-metrics、encode-smoke、decoder-dependencies、decode-check | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781255 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39922024879/job/120317546386 |
-| brpc | 1.18.0 | openeuler-24.03-sp4 | version、upstream-test、cpp-smoke | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780809 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39929802722/job/120335046305 |
-| brpc | 1.18.0 | ubuntu-26.04.1 | version、upstream-test、cpp-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781195 | — |
-| cloudwego | 0.16.4 | openeuler-24.03-sp4 | source-integrity、version、upstream-test、smoke、codegen、generated-build、kitex-rpc、eino-test | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780733 | — |
-| cloudwego | 0.16.4 | ubuntu-26.04.1 | source-integrity、version、upstream-test、smoke、codegen、generated-build、kitex-rpc、eino-test | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780767 | — |
-| envoy | 1.37.1 | openeuler-24.03-sp4 | version、upstream-test、proxy-smoke | ❌ 失败 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39622847513/job/119300574073 | — |
-| envoy | 1.37.1 | ubuntu-26.04.1 | version、upstream-test、proxy-smoke | ❌ 失败 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39622847513/job/119300574024 | — |
-| envoy | 1.40.0 | openeuler-24.03-sp4 | version、upstream-test、proxy-smoke | ❌ 失败 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39622847513/job/119300574110 | — |
-| envoy | 1.40.0 | ubuntu-26.04.1 | version、upstream-test、proxy-smoke | ❌ 失败 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39622847513/job/119300574077 | — |
-| kubernetes | 1.28.4 | openeuler-24.03-sp4 | version、upstream-test、kubectl-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781347 | — |
-| kubernetes | 1.28.4 | ubuntu-26.04.1 | version、upstream-test、kubectl-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191782210 | — |
-| kubernetes | 1.37.1 | openeuler-24.03-sp4 | version、upstream-test、kubectl-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780936 | — |
-| kubernetes | 1.37.1 | ubuntu-26.04.1 | version、upstream-test、kubectl-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781425 | — |
-| ceph | 21.3.0 | openeuler-24.03-sp4 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298554 | — |
-| ceph | 21.3.0 | ubuntu-26.04.1 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298771 | — |
-| ceph | 16.2.8 | openeuler-24.03-sp4 | version、upstream-test、cluster-smoke | 未开始 | 未开始 | — | — |
-| ceph | 16.2.8 | ubuntu-26.04.1 | version、upstream-test、cluster-smoke | 未开始 | 未开始 | — | — |
-| gcc | 16.2.0 | openeuler-24.03-sp4 | version、upstream-test、smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781798 | — |
-| gcc | 16.2.0 | ubuntu-26.04.1 | version、upstream-test、smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781863 | — |
-| glibc | 2.34 | openeuler-24.03-sp4 | version、upstream-test、smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191784109 | — |
-| glibc | 2.34 | ubuntu-26.04.1 | version、upstream-test、smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781801 | — |
-| glibc | 2.43 | openeuler-24.03-sp4 | version、upstream-test、smoke | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781858 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39927884162/job/120331555747 |
-| glibc | 2.43 | ubuntu-26.04.1 | version、upstream-test、smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781508 | — |
-| golang | 1.27.1 | openeuler-24.03-sp4 | version、upstream-test、smoke | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191782286 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39927003596/job/120326354465 |
-| golang | 1.27.1 | ubuntu-26.04.1 | version、upstream-test、smoke | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191782495 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39803138038/job/119909478849 |
-| openjdk | 28_19 | openeuler-24.03-sp4 | version、upstream-test、smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191783014 | — |
-| openjdk | 28_19 | ubuntu-26.04.1 | version、upstream-test、smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191782279 | — |
-| python | 3.15.0 | openeuler-24.03-sp4 | version、upstream-test、smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191782485 | — |
-| python | 3.15.0 | ubuntu-26.04.1 | version、upstream-test、smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191783044 | — |
+### 2.1 openeuler-24.03-sp4
+
+| 软件 | 软件版本 | 测试用例 | 鲲鹏920 | 鲲鹏950 | 920 日志 | 950 日志 |
+|---|---|---|---|---|---|---|
+| faiss | 1.8.0 | version、index-flat-l2、index-ivf-pq | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191815238 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39812116980/job/119941988761 |
+| faiss | 1.15.1 | version、index-flat-l2、index-ivf-pq | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191775847 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39906178119/job/120289646040 |
+| hnswlib | 0.8.0 | version、hnsw-knn-roundtrip、hnsw-save-reload | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191775755 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39882723383/job/120183874629 |
+| hnswlib | 0.9.0 | version、hnsw-knn-roundtrip、hnsw-save-reload | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191775789 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39906178119/job/120289700486 |
+| openviking | 0.5.0 | version、agfs-readwrite、agfs-operations | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191776468 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39906178119/job/120289758057 |
+| pytorch | 2.14.1 | version、matmul-autograd、nn-training-loop | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191776450 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39906178119/job/120289657750 |
+| scann | 1.4.2 | version、scann-dot-product、scann-squared-l2 | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191776395 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39906178119/job/120289671627 |
+| bolt | 2d01261 | version、upstream-unit-test、link-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39723027653/job/119640638442 | — |
+| flink | 1.16.3 | version、upstream-example、cluster-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191776684 | — |
+| flink | 1.17.1 | version、upstream-example、cluster-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191776824 | — |
+| flink | 2.3.0 | version、upstream-example、cluster-smoke | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191776608 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39906178119/job/120289670836 |
+| spark | 3.3.1 | version、upstream-example、pyspark-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191777624 | — |
+| spark | 3.4.3 | version、upstream-example、pyspark-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191778153 | — |
+| spark | 3.5.2 | version、upstream-example、pyspark-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191778100 | — |
+| spark | 4.2.0 | version、upstream-example、pyspark-smoke | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191776751 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39906178119/job/120289581413 |
+| mysql | 26.7.0 | version、upstream-test、sql-roundtrip | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191778019 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39906178119/job/120289431333 |
+| oceanbase | 5.0.1 | version、upstream-test、sql-roundtrip | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781671 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39906178119/job/120289431226 |
+| redis | 6.0.20 | version、upstream-test、cli-roundtrip | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781629 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39772730483/job/119804284863 |
+| redis | 8.10.2 | version、upstream-test、cli-roundtrip | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781592 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39931548689/job/120340836855 |
+| rocksdb | 7.9.2 | version、upstream-test、api-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191779067 | — |
+| rocksdb | 8.3.3 | version、upstream-test、api-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191779017 | — |
+| rocksdb | 11.8.1 | version、upstream-test、api-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191778514 | — |
+| folly | 2026.10.12.00 | version、upstream-test、link-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191778909 | — |
+| lz4 | 1.9.3 | version、upstream-test、cli-roundtrip | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781583 | — |
+| lz4 | 1.10.0 | version、upstream-test、cli-roundtrip | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781644 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39930663799/job/120339038378 |
+| protobuf | 36.2 | version、upstream-test、cpp-roundtrip | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191779885 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39930465466/job/120337252029 |
+| snappy | 1.1.7 | source-integrity、version、roundtrip | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191779981 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39923102905/job/120315645731 |
+| sonic-cpp | 1.0.2 | version、upstream-test、json-roundtrip | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927295745 | — |
+| zstd | 1.5.7 | version、upstream-test、cli-roundtrip | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927295998 | — |
+| x264 | 0480cb05 | version、upstream-checkasm、encode-smoke、decoder-dependencies、decode-check | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780247 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39921590280/job/120307924666 |
+| x265 | 4.2 | version、quality-metrics、encode-smoke、decoder-dependencies、decode-check | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780667 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39922024879/job/120317544664 |
+| brpc | 1.18.0 | version、upstream-test、cpp-smoke | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780809 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39929802722/job/120335046305 |
+| cloudwego | 0.16.4 | source-integrity、version、upstream-test、smoke、codegen、generated-build、kitex-rpc、eino-test | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780733 | — |
+| envoy | 1.37.1 | version、upstream-test、proxy-smoke | ❌ 失败 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39622847513/job/119300574073 | — |
+| envoy | 1.40.0 | version、upstream-test、proxy-smoke | ❌ 失败 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39622847513/job/119300574110 | — |
+| kubernetes | 1.28.4 | version、upstream-test、kubectl-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781347 | — |
+| kubernetes | 1.37.1 | version、upstream-test、kubectl-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780936 | — |
+| ceph | 21.3.0 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298554 | — |
+| ceph | 16.2.8 | version、upstream-test、cluster-smoke | 未开始 | 未开始 | — | — |
+| gcc | 16.2.0 | version、upstream-test、smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781798 | — |
+| glibc | 2.34 | version、upstream-test、smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191784109 | — |
+| glibc | 2.43 | version、upstream-test、smoke | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781858 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39927884162/job/120331555747 |
+| golang | 1.27.1 | version、upstream-test、smoke | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191782286 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39927003596/job/120326354465 |
+| openjdk | 28_19 | version、upstream-test、smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191783014 | — |
+| python | 3.15.0 | version、upstream-test、smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191782485 | — |
+
+### 2.2 ubuntu-26.04.1
+
+| 软件 | 软件版本 | 测试用例 | 鲲鹏920 | 鲲鹏950 | 920 日志 | 950 日志 |
+|---|---|---|---|---|---|---|
+| faiss | 1.8.0 | version、index-flat-l2、index-ivf-pq | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191775553 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39812116980/job/119941988713 |
+| faiss | 1.15.1 | version、index-flat-l2、index-ivf-pq | ✅ 通过 | ❌ 失败 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191812148 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39885835774/job/120203362322 |
+| hnswlib | 0.8.0 | version、hnsw-knn-roundtrip、hnsw-save-reload | ✅ 通过 | ⚠️ 未完成 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191775848 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39882723383/job/120183874733 |
+| hnswlib | 0.9.0 | version、hnsw-knn-roundtrip、hnsw-save-reload | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191775685 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39882723383/job/120183874514 |
+| openviking | 0.5.0 | version、agfs-readwrite、agfs-operations | ✅ 通过 | ❌ 失败 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191776462 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39889376699/job/120209924384 |
+| pytorch | 2.14.1 | version、matmul-autograd、nn-training-loop | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191776517 | — |
+| scann | 1.4.2 | version、scann-dot-product、scann-squared-l2 | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191777082 | — |
+| bolt | 2d01261 | version、upstream-unit-test、link-smoke | ❌ 失败 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39738849015/job/119690973898 | — |
+| flink | 1.16.3 | version、upstream-example、cluster-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191777028 | — |
+| flink | 1.17.1 | version、upstream-example、cluster-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191777207 | — |
+| flink | 2.3.0 | version、upstream-example、cluster-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191776620 | — |
+| spark | 3.3.1 | version、upstream-example、pyspark-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191777560 | — |
+| spark | 3.4.3 | version、upstream-example、pyspark-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191778144 | — |
+| spark | 3.5.2 | version、upstream-example、pyspark-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191778489 | — |
+| spark | 4.2.0 | version、upstream-example、pyspark-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191777531 | — |
+| mysql | 26.7.0 | version、upstream-test、sql-roundtrip | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191779358 | — |
+| oceanbase | 5.0.1 | version、upstream-test、sql-roundtrip | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191778805 | — |
+| redis | 6.0.20 | version、upstream-test、cli-roundtrip | ✅ 通过 | ⚠️ 未完成 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191778498 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39768421730/job/119789854128 |
+| redis | 8.10.2 | version、upstream-test、cli-roundtrip | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191778185 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39775048983/job/119812216383 |
+| rocksdb | 7.9.2 | version、upstream-test、api-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191779070 | — |
+| rocksdb | 8.3.3 | version、upstream-test、api-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191779302 | — |
+| rocksdb | 11.8.1 | version、upstream-test、api-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191779186 | — |
+| folly | 2026.10.12.00 | version、upstream-test、link-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191778946 | — |
+| lz4 | 1.9.3 | version、upstream-test、cli-roundtrip | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780409 | — |
+| lz4 | 1.10.0 | version、upstream-test、cli-roundtrip | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191779311 | — |
+| protobuf | 36.2 | version、upstream-test、cpp-roundtrip | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780594 | — |
+| snappy | 1.1.7 | source-integrity、version、roundtrip | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780340 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39923102905/job/120315645883 |
+| sonic-cpp | 1.0.2 | version、upstream-test、json-roundtrip | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927295878 | — |
+| zstd | 1.5.7 | version、upstream-test、cli-roundtrip | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927296126 | — |
+| x264 | 0480cb05 | version、upstream-checkasm、encode-smoke、decoder-dependencies、decode-check | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780805 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39921590280/job/120307924589 |
+| x265 | 4.2 | version、quality-metrics、encode-smoke、decoder-dependencies、decode-check | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781255 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39922024879/job/120317546386 |
+| brpc | 1.18.0 | version、upstream-test、cpp-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781195 | — |
+| cloudwego | 0.16.4 | source-integrity、version、upstream-test、smoke、codegen、generated-build、kitex-rpc、eino-test | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780767 | — |
+| envoy | 1.37.1 | version、upstream-test、proxy-smoke | ❌ 失败 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39622847513/job/119300574024 | — |
+| envoy | 1.40.0 | version、upstream-test、proxy-smoke | ❌ 失败 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39622847513/job/119300574077 | — |
+| kubernetes | 1.28.4 | version、upstream-test、kubectl-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191782210 | — |
+| kubernetes | 1.37.1 | version、upstream-test、kubectl-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781425 | — |
+| ceph | 21.3.0 | version、upstream-test、cluster-smoke | ⚠️ 未完成 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/38887050842/job/116927298771 | — |
+| ceph | 16.2.8 | version、upstream-test、cluster-smoke | 未开始 | 未开始 | — | — |
+| gcc | 16.2.0 | version、upstream-test、smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781863 | — |
+| glibc | 2.34 | version、upstream-test、smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781801 | — |
+| glibc | 2.43 | version、upstream-test、smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781508 | — |
+| golang | 1.27.1 | version、upstream-test、smoke | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191782495 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39803138038/job/119909478849 |
+| openjdk | 28_19 | version、upstream-test、smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191782279 | — |
+| python | 3.15.0 | version、upstream-test、smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191783044 | — |
+
 
 ## 3. 测试用例与描述
 
