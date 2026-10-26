@@ -3,6 +3,8 @@
 name: lz4
 category: HPC
 enabled: true
+# hub.oepkgs.net 上没有 1.10.0,该软件的预构建镜像仍走 SWR。
+image_template: "swr.cn-southwest-2.myhuaweicloud.com/base_image/lzr/{software}:{version}-oe2403sp4-{arch}"
 
 # 人工指定的待测版本(白名单),由人工维护;
 # 不要求与 software/HPC/lz4/case.yaml 一致,可含更高或额外版本。

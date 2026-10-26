@@ -218,6 +218,13 @@ def validate_case(
                 )
             except (KeyError, IndexError, ValueError):
                 errors.append("bootstrap_image contains unsupported placeholders")
+    # 可选:该软件的预构建镜像模板,覆盖 config/functional.yaml 里 OS 级别的 image_template。
+    image_template = case.get("image_template")
+    if image_template is not None:
+        if not isinstance(image_template, str) or not image_template:
+            errors.append("image_template must be a non-empty string")
+        elif "{software}" not in image_template or "{version}" not in image_template:
+            errors.append("image_template must contain {software} and {version}")
 
     try:
         relative = path.resolve().relative_to((root / CASES_DIRNAME).resolve())
@@ -449,7 +456,7 @@ def build_matrix(
                     image = os_spec["image"]
                 else:
                     image = compose_image(
-                        os_spec["image_template"],
+                        case.get("image_template") or os_spec["image_template"],
                         case.get("image_name") or case_name,
                         case_version,
                         architecture,

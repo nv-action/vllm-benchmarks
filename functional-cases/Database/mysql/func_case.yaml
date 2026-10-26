@@ -4,6 +4,8 @@ name: mysql
 category: Database
 # 临时禁用:该软件本轮功能测试已通过,矩阵中跳过。
 enabled: false
+# hub.oepkgs.net 上没有 26.7.0,该软件的预构建镜像仍走 SWR。
+image_template: "swr.cn-southwest-2.myhuaweicloud.com/base_image/lzr/{software}:{version}-oe2403sp4-{arch}"
 
 # 人工指定的待测版本(白名单),与 software/Database/mysql/case.yaml 保持一致。
 versions:

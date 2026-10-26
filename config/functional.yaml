@@ -13,13 +13,14 @@ architectures:
 #   prebuilt - 使用预构建软件镜像(image_template 渲染),已装好软件,install 只校验
 #   build    - 使用基础镜像(image),在容器内跑安装脚本(装依赖 + 构建)与测试脚本
 # image_template 支持 {software}、{version}、{arch} 占位,
-# 例:docker.1ms.run/openeulertest/redis:6.0.20-oe2403sp4-aarch64
-# 运行机无法直连 Docker Hub,预构建软件镜像走 1ms.run 公共加速地址。
+# 例:hub.oepkgs.net/openeuler/redis:8.10.2-oe2403sp4
+# openEuler 预构建镜像统一走 hub.oepkgs.net(多架构索引,含 linux/arm64);
+# 个别软件在 hub 上没有对应版本时,可在该软件 func_case.yaml 里用 image_template 覆盖。
 operating_systems:
   - name: openeuler-24.03-sp4
     runtime: job-container
     mode: prebuilt
-    image_template: "swr.cn-southwest-2.myhuaweicloud.com/base_image/lzr/{software}:{version}-oe2403sp4-{arch}"
+    image_template: "hub.oepkgs.net/openeuler/{software}:{version}-oe2403sp4"
   - name: ubuntu-26.04.1
     runtime: job-container
     mode: build

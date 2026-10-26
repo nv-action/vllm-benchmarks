@@ -20,7 +20,8 @@ run_upstream_selftest() {
         log "ERROR: ceph-dencoder is not available"
         return 40
     }
-    ceph_exec "${dencoder}" types list >>"${RESULTS_DIR}/ceph_smoke.log" 2>&1 || {
+    # ceph-dencoder 的子命令是 list_types(不是 types list),输出一行一个类型名。
+    ceph_exec "${dencoder}" list_types >>"${RESULTS_DIR}/ceph_smoke.log" 2>&1 || {
         log "ERROR: ceph-dencoder self-test failed"
         return 40
     }

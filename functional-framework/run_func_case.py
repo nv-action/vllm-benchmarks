@@ -126,7 +126,7 @@ def build_context(args: argparse.Namespace, case: dict[str, Any], config: dict[s
         image = os_spec["image"]
     else:
         image = compose_image(
-            os_spec["image_template"],
+            case.get("image_template") or os_spec["image_template"],
             case.get("image_name") or software,
             args.version,
             args.architecture,
@@ -403,7 +403,11 @@ def _ensure_container(
         value = environment.get(key)
         if value is not None:
             command += ["-e", f"{key}={value}"]
-    command += [context.image, "sleep", "infinity"]
+    # 常驻容器只用来承载后续 docker exec,不执行镜像自带的 ENTRYPOINT:
+    # 上游 ceph 镜像的 ENTRYPOINT 是相对的 "./entrypoint.sh",依赖它自己的
+    # WORKDIR(/opt/ceph);这里用 -w 切到用例目录后相对路径就找不到了,
+    # docker run 会直接报 "stat ./entrypoint.sh: no such file or directory"。
+    command += ["--entrypoint", "/bin/sh", context.image, "-c", "exec sleep infinity"]
     result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(
