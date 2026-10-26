@@ -5,7 +5,7 @@
 - 数据来源：鲲鹏920 取自 `FdeCad/boostkit-performance-evaluation` 的 `functional-test` 历史运行；鲲鹏950 取自 `nv-action/vllm-benchmarks` 的 `boostkit-performance-evaluation` 分支运行，以及 `FdeCad/boostkit-performance-evaluation` 的 `functional-test-temporary` 工作流运行。
 - 统计口径：每个“软件 × 版本 × 测试OS”单元格取最近一次产出终态结果的运行；`未完成` 表示最近一次运行被取消或中断，没有产出最终结论。
 - 统计时间：2026-10-26。
-- 鲲鹏920 · openeuler-24.03-sp4：共 45 个单元格，通过 44，失败 0，未完成 0，未开始 1。
+- 鲲鹏920 · openeuler-24.03-sp4：共 45 个单元格，通过 45，失败 0，未完成 0，未开始 0。
 - 鲲鹏920 · ubuntu-26.04.1：共 45 个单元格，通过 39，失败 3，未完成 2，未开始 1。
 - 鲲鹏950 · openeuler-24.03-sp4：共 45 个单元格，通过 33，失败 0，未完成 0，未开始 12。
 - 鲲鹏950 · ubuntu-26.04.1：共 45 个单元格，通过 7，失败 2，未完成 2，未开始 34。
@@ -54,7 +54,7 @@
 | kubernetes | 1.28.4 | version、upstream-test、kubectl-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781347 | — |
 | kubernetes | 1.37.1 | version、upstream-test、kubectl-smoke | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780936 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39924948769/job/120347431065 |
 | ceph | 21.3.0 | version、upstream-test、cluster-smoke | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/40265389196/job/121386606500 | https://github.com/nv-action/vllm-benchmarks/actions/runs/40271186484/job/121404247374 |
-| ceph | 16.2.8 | version、upstream-test、cluster-smoke | 未开始 | 未开始 | — | — |
+| ceph | 16.2.8 | version、upstream-test、cluster-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/40287581890/job/121454852503 | — |
 | gcc | 16.2.0 | version、upstream-test、smoke | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781798 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39924948769/job/120347441812 |
 | glibc | 2.34 | version、upstream-test、smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191784109 | — |
 | glibc | 2.43 | version、upstream-test、smoke | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781858 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39927884162/job/120331555747 |

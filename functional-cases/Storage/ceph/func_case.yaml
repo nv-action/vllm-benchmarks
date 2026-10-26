@@ -14,6 +14,7 @@ bootstrap_image: "docker.1ms.run/openeulertest/{software}:{version}-oe2403sp4-{a
 # 人工指定的待测版本(白名单),与预构建镜像 tag 一一对应。
 versions:
   - "21.3.0"
+  - "16.2.8"
 
 # build 模式(FUNC_MODE=build)软件获取为分层优先:1) 上游官方二进制 tarball 2) 厂商/发行版
 # 仓库中版本一致的包 3) 源码编译。Ceph 官方无二进制 tarball(仅源码 tarball),官方镜像
