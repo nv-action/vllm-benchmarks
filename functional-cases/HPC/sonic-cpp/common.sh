@@ -5,7 +5,7 @@ set -euo pipefail
 
 SOFTWARE_NAME="sonic-cpp"
 CATEGORY="HPC"
-SOFTWARE_VERSION="${SOFTWARE_VERSION:-69deb02}"
+SOFTWARE_VERSION="${SOFTWARE_VERSION:-1.0.2}"
 EXPECTED_ARCH="${EXPECTED_ARCH:-$(uname -m)}"
 FUNC_OS="${FUNC_OS:-}"
 FUNC_HARDWARE="${FUNC_HARDWARE:-}"
@@ -16,7 +16,6 @@ RESULTS_DIR="${RESULTS_DIR:-}"
 PERF_ACTUAL_VERSION_FILE="${PERF_ACTUAL_VERSION_FILE:-}"
 
 SONIC_CPP_SOURCE_URL="${SONIC_CPP_SOURCE_URL:-https://github.com/bytedance/sonic-cpp.git}"
-SONIC_CPP_REVISION="69deb02c099361139dd387eb6c7034a4836ce9b3"
 
 # 运行期路径(configure_runtime_paths 里赋值)。
 SOURCE_DIR=""
@@ -102,7 +101,7 @@ configure_runtime_paths() {
 
     export SOFTWARE_NAME CATEGORY SOFTWARE_VERSION EXPECTED_ARCH FUNC_OS FUNC_HARDWARE FUNC_MODE
     export PERF_RUN_ID PERF_WORK_DIR RESULTS_DIR PERF_ACTUAL_VERSION_FILE TMPDIR
-    export SONIC_CPP_SOURCE_URL SONIC_CPP_REVISION SOURCE_DIR BUILD_DIR SONIC_BENCH SONIC_INCLUDE HARNESS_DIR
+    export SONIC_CPP_SOURCE_URL SOURCE_DIR BUILD_DIR SONIC_BENCH SONIC_INCLUDE HARNESS_DIR
 }
 
 initialize_runtime() {
@@ -127,9 +126,25 @@ resolve_sonic_lib() {
     return 1
 }
 
-# 解析检出源码的提交号(短哈希)。
+# 把请求的版本换算成 git 引用:发布版本(如 1.0.2)对应上游标签 v1.0.2,
+# 其余按提交号处理。
+sonic_cpp_git_ref() {
+    if [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        printf 'v%s\n' "$1"
+    else
+        printf '%s\n' "$1"
+    fi
+}
+
+# 解析检出源码的版本:HEAD 正好落在标签上时返回发布版本(去掉 v 前缀),
+# 否则返回短提交号。
 read_sonic_cpp_version() {
-    local src="$1"
+    local src="$1" tag
+    tag="$(git -C "${src}" describe --tags --exact-match 2>/dev/null || true)"
+    if [[ -n "${tag}" ]]; then
+        printf '%s\n' "${tag#v}"
+        return 0
+    fi
     git -C "${src}" rev-parse --short=10 HEAD 2>/dev/null || true
 }
 

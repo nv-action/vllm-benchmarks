@@ -114,11 +114,11 @@ func_check() {
     local roundtrip_status="failed" roundtrip_detail=""
     local actual
 
-    # 1) 版本(提交号)
+    # 1) 版本(发布标签或提交号)
     actual="$(read_sonic_cpp_version "${SOURCE_DIR}")"
     if [[ -n "${actual}" && "${actual:0:${#SOFTWARE_VERSION}}" == "${SOFTWARE_VERSION}" ]]; then
         version_status="passed"
-        version_detail="revision ${actual}"
+        version_detail="version ${actual}"
     else
         version_detail="checked-out revision '${actual:-unknown}', expected ${SOFTWARE_VERSION}"
     fi
@@ -188,7 +188,7 @@ Usage: $(basename "$0") [OPTIONS]
 Run the sonic-cpp functional checks and clean up for one OS/hardware cell.
 
 Options:
-  --version VERSION    sonic-cpp revision (default: ${SOFTWARE_VERSION})
+  --version VERSION    sonic-cpp release version (e.g. 1.0.2) or commit sha (default: ${SOFTWARE_VERSION})
   --results-dir DIR    Persistent result directory
   --os OS_LABEL        OS label (default: detect from /etc/os-release)
   --hardware HW_LABEL  Hardware label, e.g. kunpeng920

@@ -49,18 +49,21 @@ prepare_sonic_cpp_source() {
         log "ERROR: source directory already exists: ${SOURCE_DIR}"
         return 20
     }
-    [[ "${SOFTWARE_VERSION}" == "69deb02" ]] || {
-        log "ERROR: supported sonic-cpp revision is 69deb02, got ${SOFTWARE_VERSION}"
+    # 版本既支持上游发布标签(如 1.0.2 -> v1.0.2),也支持提交号(短/长哈希)。
+    [[ "${SOFTWARE_VERSION}" =~ ^([0-9]+\.[0-9]+\.[0-9]+|[0-9a-f]{7,40})$ ]] || {
+        log "ERROR: unsupported sonic-cpp version: ${SOFTWARE_VERSION}"
         return 10
     }
+    local ref
+    ref="$(sonic_cpp_git_ref "${SOFTWARE_VERSION}")"
     export GIT_TERMINAL_PROMPT=0
     log "cloning sonic-cpp from ${SONIC_CPP_SOURCE_URL}"
     git clone "${SONIC_CPP_SOURCE_URL}" "${SOURCE_DIR}" || {
         log "ERROR: failed to clone sonic-cpp"
         return 30
     }
-    git -C "${SOURCE_DIR}" checkout --detach "${SONIC_CPP_REVISION}" || {
-        log "ERROR: failed to check out sonic-cpp revision ${SONIC_CPP_REVISION}"
+    git -C "${SOURCE_DIR}" checkout --detach "${ref}" || {
+        log "ERROR: failed to check out sonic-cpp ref ${ref}"
         return 30
     }
 }
@@ -122,7 +125,7 @@ Capture the environment and prepare sonic-cpp for one OS/hardware cell.
   --mode prebuilt | build   (default: ${FUNC_MODE})
 
 Options:
-  --version VERSION    sonic-cpp revision (default: ${SOFTWARE_VERSION})
+  --version VERSION    sonic-cpp release version (e.g. 1.0.2) or commit sha (default: ${SOFTWARE_VERSION})
   --results-dir DIR    Persistent result directory
   --os OS_LABEL        OS label (default: detect from /etc/os-release)
   --hardware HW_LABEL  Hardware label, e.g. kunpeng920
