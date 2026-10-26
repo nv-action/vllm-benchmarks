@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Bolt 测试脚本:功能判定 + 收尾。
-# 判定:版本(ref/commit)校验 + 上游 ctest(gtest)子集 + 构建产物链接冒烟。
+# 判定:版本(ref/commit)校验 + engine-smoke(install 阶段注入构建的最小消费者
+#   二进制真实运行,两个模式同一用例) + 构建产物链接冒烟。
 # 暴露给 Framework 的阶段:check、cleanup。独立执行时依次运行这两个阶段。
 set -euo pipefail
 
@@ -33,7 +34,7 @@ find_bolt_lib() {
     return 1
 }
 
-# find_ctest_tree 已上移至 common.sh(build 模式与 prebuilt 补建逻辑共用)。
+# find_ctest_tree 位于 common.sh(engine-smoke 之外的辅助发现,保留备用)。
 
 write_functional_result() {
     local overall="$1" v_status="$2" v_detail="$3" u_status="$4" u_detail="$5" c_status="$6" c_detail="$7"
@@ -58,7 +59,7 @@ payload = {
     "status": env("FUNC_OVERALL"),
     "checks": [
         {"name": "version", "status": env("FUNC_V_STATUS"), "detail": env("FUNC_V_DETAIL")},
-        {"name": "upstream-unit-test", "status": env("FUNC_U_STATUS"), "detail": env("FUNC_U_DETAIL")},
+        {"name": "engine-smoke", "status": env("FUNC_U_STATUS"), "detail": env("FUNC_U_DETAIL")},
         {"name": "link-smoke", "status": env("FUNC_C_STATUS"), "detail": env("FUNC_C_DETAIL")},
     ],
 }
@@ -113,36 +114,22 @@ func_check() {
         version_detail="Bolt ${actual:-unknown}, expected ${SOFTWARE_VERSION}"
     fi
 
-    # 2) 上游自带 gtest 单测子集(经 ctest 过滤运行)。
-    #    build 模式:install 阶段用上游 release_with_test 目标编译了测试,必须真实存在,
-    #    0 测试视为构建异常(failed);prebuilt 模式:镜像未随带测试树记 skipped
-    #    (镜像不含测试树不是被测软件的功能缺陷)。
-    local ctest_tree test_count
-    ctest_tree="$(find_ctest_tree || true)"
-    if [[ -n "${ctest_tree}" ]] && command -v ctest >/dev/null 2>&1; then
-        test_count="$(ctest --test-dir "${ctest_tree}" -N -R "${BOLT_UPSTREAM_TEST_FILTER}" 2>/dev/null |
-            sed -n 's/^Total Tests: //p' | tail -n 1 || true)"
-        if [[ -z "${test_count}" || "${test_count}" == "0" ]]; then
-            # 严禁零测试空跑通过(ctest 对 0 测试返回 0,不设此防会假性 passed)。
-            if [[ "${FUNC_MODE}" == "prebuilt" ]]; then
-                unit_status="skipped"
-                unit_detail="skipped: prebuilt image ships no ctest tests for filter '${BOLT_UPSTREAM_TEST_FILTER}' (upstream 'make release' does not compile tests)"
-            else
-                unit_detail="no tests registered for filter '${BOLT_UPSTREAM_TEST_FILTER}' in ${ctest_tree}; expected them from the release_with_test build; see bolt_test.log"
-            fi
-        elif (cd "${ctest_tree}" && ctest -R "${BOLT_UPSTREAM_TEST_FILTER}" --output-on-failure -j "$(nproc 2>/dev/null || printf '1')") \
-            >>"${RESULTS_DIR}/bolt_test.log" 2>&1; then
-            unit_status="passed"
-            unit_detail="ctest subset '${BOLT_UPSTREAM_TEST_FILTER}' passed (${test_count} tests) in ${ctest_tree}"
-        else
-            unit_detail="ctest subset '${BOLT_UPSTREAM_TEST_FILTER}' failed (${test_count} tests registered); see bolt_test.log"
-        fi
+    # 2) engine-smoke:install 阶段在被测构建树上注入并构建的最小消费者二进制,
+    #    此处真实运行。两个模式共用同一用例(prebuilt 用镜像内构建树,build 用
+    #    本地源码构建树),验证交付的引擎库可被外部代码链接并执行。
+    #    二进制缺失视为 install 阶段异常(failed),不设 skip 语义。
+    local smoke_bin smoke_rc=0
+    smoke_bin="$(cat "${RESULTS_DIR}/smoke_binary.path" 2>/dev/null || true)"
+    if [[ -z "${smoke_bin}" || ! -x "${smoke_bin}" ]]; then
+        unit_detail="engine smoke binary was not prepared by the install stage (expected path file: ${RESULTS_DIR}/smoke_binary.path); see install log"
     else
-        if [[ "${FUNC_MODE}" == "prebuilt" ]]; then
-            unit_status="skipped"
-            unit_detail="skipped: prebuilt image ships no ctest tree (upstream 'make release' does not compile tests)"
+        # 硬超时兜底:smoke 只做取址与退出,60s 足够;卡死时按失败处理并留日志。
+        timeout 60 "${smoke_bin}" >>"${RESULTS_DIR}/bolt_test.log" 2>&1 || smoke_rc=$?
+        if [[ "${smoke_rc}" -eq 0 ]]; then
+            unit_status="passed"
+            unit_detail="engine smoke binary (linked against the bolt engine) ran successfully: ${smoke_bin}"
         else
-            unit_detail="upstream test tree not available (no CMake/ctest build directory); prebuilt images ship no gtest tree"
+            unit_detail="engine smoke binary exited rc=${smoke_rc} (124 = timeout); see bolt_test.log"
         fi
     fi
 
@@ -165,7 +152,7 @@ func_check() {
         smoke_detail="native library failed to load: ${lib}; see bolt_test.log"
     fi
 
-    # 只对 failed 判败(skipped 不影响整体,与 spark 用例的 skip 语义一致)。
+    # 所有检查只有 passed/failed 两态(无 skip 语义),任一 failed 判败。
     local overall="passed"
     if [[ "${version_status}" == "failed" || "${unit_status}" == "failed" || "${smoke_status}" == "failed" ]]; then
         overall="failed"
@@ -174,7 +161,7 @@ func_check() {
         "${version_status}" "${version_detail}" \
         "${unit_status}" "${unit_detail}" \
         "${smoke_status}" "${smoke_detail}"
-    log "checks: version=${version_status} upstream-unit-test=${unit_status} link-smoke=${smoke_status}"
+    log "checks: version=${version_status} engine-smoke=${unit_status} link-smoke=${smoke_status}"
 
     [[ "${overall}" == "passed" ]] || return 50
 }

@@ -8,8 +8,16 @@
 # Bolt(字节跳动 C++ 原生执行引擎,经 Apache Gluten 作为 Spark 后端集成)功能测试清单。
 name: bolt
 category: Bigdata
-# 临时禁用:全量功能测试跳过该软件。
-enabled: false
+enabled: true
+
+# 镜像源:本用例预构建镜像托管在 hub.oepkgs.net(openeuler 项目,多架构 tag
+# 不带 -{arch} 后缀),与 config/functional.yaml 的 SWR 模板不同,此处按软件覆盖。
+# 镜像:hub.oepkgs.net/openeuler/bolt:2d01261-oe2403sp4(OCI index,含 linux/arm64)
+image_template: "hub.oepkgs.net/openeuler/{software}:{version}-oe2403sp4"
+# 暂只跑 openEuler prebuilt cell;ubuntu build 模式为 6h 级重源码构建,待
+# dedicated runner 资源确认后再放开(去掉本行即恢复跟随 config 全量 OS)。
+operating_systems:
+  - openeuler-24.03-sp4
 
 # 人工指定的待测版本(白名单):commit 短 sha。
 versions:
@@ -34,22 +42,25 @@ execution:
     cleanup:
       script: test.sh
       function: func_cleanup
-  # Bolt 首次构建会用 Conan 从源码编译全部依赖(LLVM/Arrow 等)并编译测试二进制
-  # (上游 release_with_test 目标),非常重。
+  # Bolt 源码构建会用 Conan 从源码编译全部依赖(folly/Arrow 等),非常重;
+  # build 模式 CONAN_OPTIONS 追加 enable_jit=False(砍掉 llvm-core/19.1.7-bolt,
+  # 该依赖无任何公开二进制,源码编译 2.5h+)与 enable_paimon=False(砍掉
+  # paimon-cpp 及其 avro 依赖链),两者均为上游一等公民可选项;
+  # engine-smoke 准备阶段另有 10+20 分钟硬超时的重配置与定向构建。
   timeout_minutes: 360
-  # Conan + CMake 完整构建 C++ 引擎,依赖、中间产物与测试二进制都很大。
+  # Conan + CMake 完整构建 C++ 引擎,依赖与中间产物都很大。
   min_free_disk_gb: 24
 
 # 功能判定项,名称与 functional_result.json 中 checks[].name 一一对应。
-# 判定来源:优先复用上游自带 gtest 单测子集;不可行时退化为构建产物链接冒烟。
+# 两个模式(openEuler prebuilt / ubuntu build)跑完全相同的一组检查,无 skipped 语义。
 checks:
   - name: version
     description: 校验源码 commit / 镜像内 BUILD_VERSION 等于请求版本(短 sha 与完整 sha 互为前缀即可匹配)
-  - name: upstream-unit-test
-    description: 运行上游自带 gtest 单测子集(ctest -R 过滤);build 模式经上游 release_with_test 目标编译测试后真实执行(0 测试视为构建异常),prebuilt 镜像无测试树时记 skipped
-    upstream_command: ctest -R bolt_ --output-on-failure
+  - name: engine-smoke
+    description: 在被测构建树(CMakeCache 复用,引擎对象不重编)上注入最小 CMake 消费者,链接树内 bolt 引擎目标并真实运行;install 阶段构建,check 阶段执行
+    upstream_command: cmake --build <build_tree> --target bolt_func_smoke && ./bolt_func_smoke
   - name: link-smoke
-    description: 最小可用性冒烟,校验构建产物 libbolt*.so 可被动态链接器加载
+    description: 最小可用性冒烟,校验构建产物 libbolt*.so 可被动态链接器加载,静态库以 ar 归档完整性检查替代
 
 outputs:
   functional_result:

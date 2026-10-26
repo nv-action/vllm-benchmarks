@@ -218,6 +218,28 @@ def validate_case(
                 )
             except (KeyError, IndexError, ValueError):
                 errors.append("bootstrap_image contains unsupported placeholders")
+    # 可选:按软件覆盖 OS 级 prebuilt 镜像模板。用于该软件镜像托管在其它
+    # registry/项目(如 hub.oepkgs.net/openeuler)、或 tag 不带 -{arch} 后缀的场景;
+    # 必须含 {software} 与 {version} 占位。
+    case_image_template = case.get("image_template")
+    if case_image_template is not None:
+        if not isinstance(case_image_template, str) or not case_image_template:
+            errors.append("image_template must be a non-empty string")
+        elif (
+            "{software}" not in case_image_template
+            or "{version}" not in case_image_template
+        ):
+            errors.append("image_template must contain {software} and {version} placeholders")
+    # 可选:限制该软件只在部分 OS 上生成矩阵 cell(缺省跟随 config 全量 OS),
+    # 用于暂时不上某 OS(如重源码构建的 build 模式)的场景。
+    case_os_filter = case.get("operating_systems")
+    if case_os_filter is not None:
+        if (
+            not isinstance(case_os_filter, list)
+            or not case_os_filter
+            or not all(isinstance(value, str) and value for value in case_os_filter)
+        ):
+            errors.append("operating_systems must be a non-empty list of strings")
 
     try:
         relative = path.resolve().relative_to((root / CASES_DIRNAME).resolve())
@@ -454,6 +476,10 @@ def build_matrix(
                 continue
             matched_versions.add(case_version)
             for os_name in os_names:
+                # 用例级 OS 过滤:某些软件暂时不上某些 OS(如重源码构建)。
+                case_os_filter = case.get("operating_systems")
+                if case_os_filter is not None and os_name not in case_os_filter:
+                    continue
                 if selected_os is not None and os_name not in selected_os:
                     continue
                 os_spec = config["operating_systems"][os_name]
@@ -463,7 +489,7 @@ def build_matrix(
                     image = os_spec["image"]
                 else:
                     image = compose_image(
-                        os_spec["image_template"],
+                        case.get("image_template") or os_spec["image_template"],
                         case.get("image_name") or case_name,
                         case_version,
                         architecture,
@@ -480,7 +506,7 @@ def build_matrix(
                         "os": os_name,
                         "os_runtime": os_spec["runtime"],
                         "os_mode": os_spec["mode"],
-                        "os_image_template": os_spec["image_template"],
+                        "os_image_template": case.get("image_template") or os_spec["image_template"],
                         "image": image,
                         "hardware": hardware_name,
                         "runner_labels": json.dumps(hw_spec["runner_labels"]),
