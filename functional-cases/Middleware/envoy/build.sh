@@ -36,19 +36,6 @@ EOF
 
 # ---------- 阶段:install ----------
 
-# 读取 envoy 版本号。`envoy --version` 形如:
-#   envoy  version: <hash>/1.39.1/<build>/<ssl>...
-read_envoy_version() {
-    local line value
-    [[ -x "${ENVOY_BIN}" ]] || return 1
-    line="$("${ENVOY_BIN}" --version 2>/dev/null | head -n 1)"
-    value="$(printf '%s\n' "${line}" | sed -n 's#.*/\([0-9][0-9.]*\)/.*#\1#p' | head -n 1)"
-    if [[ -z "${value}" ]]; then
-        value="$(printf '%s\n' "${line}" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)"
-    fi
-    printf '%s\n' "${value}"
-}
-
 # 优先使用 runner 离线目录中的官方资产,否则按 sha256 校验后下载。
 copy_or_download_verified_file() {
     local url="$1" asset_name="$2" output="$3" expected_sha256="$4"

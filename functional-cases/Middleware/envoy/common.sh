@@ -70,6 +70,20 @@ check_architecture() {
     }
 }
 
+# 读取 envoy 版本号。`envoy --version` 形如:
+#   envoy  version: <hash>/1.39.1/<build>/<ssl>...
+# 1.40 的输出首行是空行,故取第一行非空内容再解析。
+read_envoy_version() {
+    local line value
+    [[ -x "${ENVOY_BIN}" ]] || return 1
+    line="$("${ENVOY_BIN}" --version 2>/dev/null | sed -n '/[^[:space:]]/{p;q;}')"
+    value="$(printf '%s\n' "${line}" | sed -n 's#.*/\([0-9][0-9.]*\)/.*#\1#p' | head -n 1)"
+    if [[ -z "${value}" ]]; then
+        value="$(printf '%s\n' "${line}" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)"
+    fi
+    printf '%s\n' "${value}"
+}
+
 configure_runtime_paths() {
     if [[ -z "${PERF_RUN_ID}" ]]; then
         PERF_RUN_ID="local-$(date -u '+%Y%m%dT%H%M%SZ')-$$"
@@ -96,11 +110,18 @@ configure_runtime_paths() {
     INSTALL_DIR="${PERF_WORK_DIR}/envoy-install"
     RUNTIME_DIR="${PERF_WORK_DIR}/runtime"
     if [[ "${FUNC_MODE}" == "prebuilt" ]]; then
-        # 镜像已装好 envoy:定位可执行文件。
-        local path
-        path="$(command -v envoy 2>/dev/null || true)"
-        [[ -n "${path}" ]] || path="/usr/local/bin/envoy"
-        ENVOY_BIN="${path}"
+        # 镜像已装好 envoy:按候选路径定位可执行文件。
+        # 官方预构建镜像把二进制放在 /usr/local/envoy/envoy,不一定是 PATH 上的 envoy。
+        local candidate
+        ENVOY_BIN=""
+        for candidate in "$(command -v envoy 2>/dev/null || true)" \
+            /usr/local/bin/envoy /usr/local/envoy/envoy /usr/bin/envoy; do
+            if [[ -n "${candidate}" && -x "${candidate}" ]]; then
+                ENVOY_BIN="${candidate}"
+                break
+            fi
+        done
+        [[ -n "${ENVOY_BIN}" ]] || ENVOY_BIN="/usr/local/bin/envoy"
     else
         ENVOY_BIN="${INSTALL_DIR}/envoy"
     fi

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # sonic-cpp 测试脚本:功能判定 + 收尾。
-# 判定为:提交号 + 运行上游官方 benchmark + 链接 libsonic 的 JSON 回环程序。
+# 判定为:版本标签/提交号 + 运行上游官方 benchmark + 基于头文件的 JSON 回环程序。
 # 暴露给 Framework 的阶段:check、cleanup。独立执行时依次运行这两个阶段。
 set -euo pipefail
 
@@ -27,10 +27,9 @@ run_upstream_benchmark() {
     )
 }
 
-# 编译并运行链接 libsonic 的 JSON 解析/序列化回环程序。
+# 编译并运行 JSON 解析/序列化回环程序。sonic-cpp 是纯头文件库,无需链接任何库产物。
 run_json_roundtrip() {
-    local lib program binary
-    lib="$(resolve_sonic_lib)" || return 1
+    local program binary
     program="${HARNESS_DIR}/roundtrip.cc"
     binary="${HARNESS_DIR}/roundtrip"
     mkdir -p "${HARNESS_DIR}"
@@ -62,9 +61,9 @@ int main() {
     return 0;
 }
 CPP
-    c++ -std=c++11 -O2 -I"${SONIC_INCLUDE}" "${program}" "${lib}" -lpthread \
+    c++ -std=c++11 -O2 -I"${SONIC_INCLUDE}" "${program}" -lpthread \
         -o "${binary}" || return 1
-    LD_LIBRARY_PATH="$(dirname "${lib}")${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" "${binary}"
+    "${binary}"
 }
 
 write_functional_result() {

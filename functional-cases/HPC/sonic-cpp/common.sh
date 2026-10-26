@@ -16,6 +16,10 @@ RESULTS_DIR="${RESULTS_DIR:-}"
 PERF_ACTUAL_VERSION_FILE="${PERF_ACTUAL_VERSION_FILE:-}"
 
 SONIC_CPP_SOURCE_URL="${SONIC_CPP_SOURCE_URL:-https://github.com/bytedance/sonic-cpp.git}"
+# sonic-cpp 的 external.cmake 仍按 master 分支拉 gflags,而上游已把默认分支改名为 main,
+# 直接浅克隆会 fatal: invalid reference;这里固定用发布版本,由构建脚本预取后交给 FetchContent。
+SONIC_GFLAGS_URL="${SONIC_GFLAGS_URL:-https://github.com/gflags/gflags.git}"
+SONIC_GFLAGS_TAG="${SONIC_GFLAGS_TAG:-v2.2.2}"
 
 # 运行期路径(configure_runtime_paths 里赋值)。
 SOURCE_DIR=""
@@ -101,7 +105,8 @@ configure_runtime_paths() {
 
     export SOFTWARE_NAME CATEGORY SOFTWARE_VERSION EXPECTED_ARCH FUNC_OS FUNC_HARDWARE FUNC_MODE
     export PERF_RUN_ID PERF_WORK_DIR RESULTS_DIR PERF_ACTUAL_VERSION_FILE TMPDIR
-    export SONIC_CPP_SOURCE_URL SOURCE_DIR BUILD_DIR SONIC_BENCH SONIC_INCLUDE HARNESS_DIR
+    export SONIC_CPP_SOURCE_URL SONIC_GFLAGS_URL SONIC_GFLAGS_TAG \
+        SOURCE_DIR BUILD_DIR SONIC_BENCH SONIC_INCLUDE HARNESS_DIR
 }
 
 initialize_runtime() {
@@ -109,21 +114,12 @@ initialize_runtime() {
     mkdir -p "${RESULTS_DIR}" "${PERF_WORK_DIR}" "${TMPDIR}"
 }
 
-# 在构建目录中定位 libsonic 静态/动态库。
-resolve_sonic_lib() {
-    local candidate
-    for candidate in "${BUILD_DIR}/libsonic.a" "${BUILD_DIR}/libsonic.so"; do
-        [[ -f "${candidate}" ]] && {
-            printf '%s\n' "${candidate}"
-            return 0
-        }
-    done
-    candidate="$(find "${BUILD_DIR}" -name 'libsonic*' -type f 2>/dev/null | head -n 1 || true)"
-    [[ -n "${candidate}" ]] && {
-        printf '%s\n' "${candidate}"
-        return 0
-    }
-    return 1
+# sonic-cpp 是纯头文件库:上游 CMakeLists 只构建 tests/benchmark 子目录,不产出 libsonic。
+# 因此以公共头文件作为安装产物存在性判据。
+resolve_sonic_header() {
+    local header="${SONIC_INCLUDE}/sonic/sonic.h"
+    [[ -f "${header}" ]] || return 1
+    printf '%s\n' "${header}"
 }
 
 # 把请求的版本换算成 git 引用:发布版本(如 1.0.2)对应上游标签 v1.0.2,
