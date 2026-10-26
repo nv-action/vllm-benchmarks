@@ -17,7 +17,7 @@ on:
           - pytorch
           - scann
           # Bigdata
-          # - bolt
+          - bolt
           - flink
           - spark
           # Database
