@@ -68,12 +68,30 @@ prepare_sonic_cpp_source() {
     }
 }
 
+patch_sonic_cpp_dependencies() {
+    local external="${SOURCE_DIR}/cmake/external.cmake"
+    [[ -f "${external}" ]] || {
+        log "ERROR: missing dependency file: ${external}"
+        return 40
+    }
+    # 上游 cmake/external.cmake 把 6 个依赖都钉在 GIT_TAG master,但 gflags 已把
+    # 默认分支改成 main:浅克隆后 checkout master 会直接报 "invalid reference: master",
+    # cmake configure 阶段失败。这里只把 gflags 那一处的 GIT_TAG 改成 main,
+    # 其余 5 个依赖(simdjson/rapidjson/cJSON/yyjson/jsoncpp)仍有 master 分支。
+    sed -i '/^[[:space:]]*gflags$/,/GIT_TAG/ s/GIT_TAG[[:space:]]\+master/GIT_TAG  main/' "${external}"
+    if ! grep -q 'GIT_TAG  main' "${external}"; then
+        log "ERROR: failed to patch gflags GIT_TAG in ${external}"
+        return 40
+    fi
+}
+
 build_sonic_cpp() {
     [[ ! -e "${BUILD_DIR}" ]] || {
         log "ERROR: build directory is not clean: ${BUILD_DIR}"
         return 20
     }
     prepare_sonic_cpp_source || return $?
+    patch_sonic_cpp_dependencies || return $?
     log "building sonic-cpp library and official benchmark target 'bench'"
     cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" \
         -DCMAKE_BUILD_TYPE=Release -DBUILD_BENCH=ON || {
