@@ -14,6 +14,11 @@ name: 'temp: probe pre-commit store lock'
 
 on:
   workflow_dispatch:
+  # The fork's API cannot dispatch a workflow that is absent from the default
+  # branch; a self-referential push (this file only) is the dispatch path.
+  push:
+    paths:
+      - .github/workflows/temp_probe_precommit_lock.yaml
 
 defaults:
   run:
