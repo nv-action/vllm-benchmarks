@@ -4,10 +4,10 @@
 
 - 数据来源：鲲鹏920 取自 `FdeCad/boostkit-performance-evaluation` 的 `functional-test` 历史运行；鲲鹏950 取自 `nv-action/vllm-benchmarks` 的 `boostkit-performance-evaluation` 分支运行，以及 `FdeCad/boostkit-performance-evaluation` 的 `functional-test-temporary` 工作流运行。
 - 统计口径：每个“软件 × 版本 × 测试OS”单元格取最近一次产出终态结果的运行；`未完成` 表示最近一次运行被取消或中断，没有产出最终结论。
-- 统计时间：2026-10-23。
+- 统计时间：2026-10-26。
 - 鲲鹏920 · openeuler-24.03-sp4：共 45 个单元格，通过 39，失败 2，未完成 3，未开始 1。
 - 鲲鹏920 · ubuntu-26.04.1：共 45 个单元格，通过 39，失败 3，未完成 2，未开始 1。
-- 鲲鹏950 · openeuler-24.03-sp4：共 45 个单元格，通过 27，失败 0，未完成 0，未开始 18。
+- 鲲鹏950 · openeuler-24.03-sp4：共 45 个单元格，通过 29，失败 0，未完成 0，未开始 16。
 - 鲲鹏950 · ubuntu-26.04.1：共 45 个单元格，通过 7，失败 2，未完成 2，未开始 34。
 
 ## 2. 测试结果
@@ -23,7 +23,7 @@
 | openviking | 0.5.0 | version、agfs-readwrite、agfs-operations | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191776468 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39906178119/job/120289758057 |
 | pytorch | 2.14.1 | version、matmul-autograd、nn-training-loop | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191776450 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39906178119/job/120289657750 |
 | scann | 1.4.2 | version、scann-dot-product、scann-squared-l2 | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191776395 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39906178119/job/120289671627 |
-| bolt | 2d01261 | version、upstream-unit-test、link-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39723027653/job/119640638442 | — |
+| bolt | 2d01261 | version、upstream-unit-test、link-smoke | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39723027653/job/119640638442 | https://github.com/nv-action/vllm-benchmarks/actions/runs/40278794677/job/121427484929 |
 | flink | 1.16.3 | version、upstream-example、cluster-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191776684 | — |
 | flink | 1.17.1 | version、upstream-example、cluster-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191776824 | — |
 | flink | 2.3.0 | version、upstream-example、cluster-smoke | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191776608 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39906178119/job/120289670836 |
@@ -48,7 +48,7 @@
 | x264 | 0480cb05 | version、upstream-checkasm、encode-smoke、decoder-dependencies、decode-check | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780247 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39921590280/job/120307924666 |
 | x265 | 4.2 | version、quality-metrics、encode-smoke、decoder-dependencies、decode-check | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780667 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39922024879/job/120317544664 |
 | brpc | 1.18.0 | version、upstream-test、cpp-smoke | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780809 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39929802722/job/120335046305 |
-| cloudwego | 0.16.4 | source-integrity、version、upstream-test、smoke、codegen、generated-build、kitex-rpc、eino-test | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780733 | — |
+| cloudwego | 0.16.4 | source-integrity、version、upstream-test、smoke、codegen、generated-build、kitex-rpc、eino-test | ✅ 通过 | ✅ 通过 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191780733 | https://github.com/nv-action/vllm-benchmarks/actions/runs/39936019631/job/120356077024 |
 | envoy | 1.37.1 | version、upstream-test、proxy-smoke | ❌ 失败 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39622847513/job/119300574073 | — |
 | envoy | 1.40.0 | version、upstream-test、proxy-smoke | ❌ 失败 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39622847513/job/119300574110 | — |
 | kubernetes | 1.28.4 | version、upstream-test、kubectl-smoke | ✅ 通过 | 未开始 | https://github.com/FdeCad/boostkit-performance-evaluation/actions/runs/39784091800/job/120191781347 | — |
