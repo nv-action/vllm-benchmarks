@@ -3,13 +3,16 @@
 name: lz4
 category: HPC
 enabled: true
-# hub.oepkgs.net 上没有 1.10.0,该软件的预构建镜像仍走 SWR。
-image_template: "swr.cn-southwest-2.myhuaweicloud.com/base_image/lzr/{software}:{version}-oe2403sp4-{arch}"
+# 两个版本的来源不同:hub.oepkgs.net 只有 1.9.3,1.10.0 只在 SWR 上,故按版本指定模板。
+image_template:
+  "1.9.3": "hub.oepkgs.net/openeuler/{software}:{version}-oe2403sp4"
+  "1.10.0": "swr.cn-southwest-2.myhuaweicloud.com/base_image/lzr/{software}:{version}-oe2403sp4-{arch}"
 
 # 人工指定的待测版本(白名单),由人工维护;
 # 不要求与 software/HPC/lz4/case.yaml 一致,可含更高或额外版本。
 versions:
   - "1.10.0"
+  - "1.9.3"
 
 execution:
   type: shell-functions

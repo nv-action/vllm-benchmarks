@@ -7,6 +7,8 @@ enabled: true
 # 人工指定的待测版本(白名单),与 software/Database/rocksdb/case.yaml 保持一致。
 versions:
   - "11.8.1"
+  - "7.9.2"
+  - "8.3.3"
 
 execution:
   type: shell-functions

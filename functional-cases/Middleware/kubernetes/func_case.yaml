@@ -7,6 +7,7 @@ enabled: true
 # 人工指定的待测版本:由人工维护,不要求与性能用例 software/Middleware/kubernetes/case.yaml 的版本列表一致。
 versions:
   - "1.37.1"
+  - "1.28.4"
 
 execution:
   type: shell-functions

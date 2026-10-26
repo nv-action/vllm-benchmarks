@@ -16,7 +16,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TextIO
 
-from catalog_func import FUNC_STAGES, ROOT, compose_image, load_config, validate_case
+from catalog_func import (
+    FUNC_STAGES,
+    ROOT,
+    compose_image,
+    load_config,
+    resolve_image_template,
+    validate_case,
+)
 
 STAGE_EXIT_CODES = {"prepare": 20, "install": 30, "check": 50, "cleanup": 70}
 # check 阶段的脚本用 python3 汇总 functional_result.json;部分基础镜像(如 ubuntu:26.04)
@@ -126,7 +133,7 @@ def build_context(args: argparse.Namespace, case: dict[str, Any], config: dict[s
         image = os_spec["image"]
     else:
         image = compose_image(
-            case.get("image_template") or os_spec["image_template"],
+            resolve_image_template(case, args.version, os_spec),
             case.get("image_name") or software,
             args.version,
             args.architecture,

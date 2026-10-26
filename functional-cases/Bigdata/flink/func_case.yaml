@@ -2,12 +2,13 @@
 # 独立于性能测试框架 software/Bigdata/flink;版本与 software/Bigdata/flink/case.yaml 保持一致,人工指定。
 name: flink
 category: Bigdata
-# 临时禁用:该软件本轮功能测试已通过,矩阵中跳过。
-enabled: false
+enabled: true
 
 # 人工指定的待测版本(白名单):与 software/Bigdata/flink/case.yaml 一致。
 versions:
   - "2.3.0"
+  - "1.16.3"
+  - "1.17.1"
 
 # build 模式(FUNC_MODE=build)软件获取为分层优先:优先上游官方二进制 tarball,
 # 其次与请求版本一致的三方打包产物,最后源码编译;每层均用 bin/flink --version 校验版本。

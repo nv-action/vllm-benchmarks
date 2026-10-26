@@ -141,6 +141,14 @@ def compose_image(image_template: str, software: str, version: str, arch: str) -
     return image_template.format(software=software, version=version, arch=arch)
 
 
+def resolve_image_template(case: dict[str, Any], version: str, os_spec: dict[str, Any]) -> str:
+    """软件级 image_template 可以是字符串,也可以是 版本→模板 的映射(同一软件的版本分处不同仓库时用)。"""
+    template = case.get("image_template")
+    if isinstance(template, dict):
+        template = template.get(str(version))
+    return template or os_spec["image_template"]
+
+
 def discover_cases(root: Path = ROOT) -> list[Path]:
     return sorted((root / CASES_DIRNAME).glob("*/*/func_case.yaml"))
 
@@ -219,12 +227,17 @@ def validate_case(
             except (KeyError, IndexError, ValueError):
                 errors.append("bootstrap_image contains unsupported placeholders")
     # 可选:该软件的预构建镜像模板,覆盖 config/functional.yaml 里 OS 级别的 image_template。
+    # 支持两种写法:字符串(整套软件统一),或 版本→模板 映射(不同版本来源不同时用)。
     image_template = case.get("image_template")
     if image_template is not None:
-        if not isinstance(image_template, str) or not image_template:
-            errors.append("image_template must be a non-empty string")
-        elif "{software}" not in image_template or "{version}" not in image_template:
-            errors.append("image_template must contain {software} and {version}")
+        templates = list(image_template.values()) if isinstance(image_template, dict) else [image_template]
+        if not templates:
+            errors.append("image_template must not be an empty mapping")
+        for template in templates:
+            if not isinstance(template, str) or not template:
+                errors.append("image_template must be a non-empty string")
+            elif "{software}" not in template or "{version}" not in template:
+                errors.append("image_template must contain {software} and {version}")
 
     try:
         relative = path.resolve().relative_to((root / CASES_DIRNAME).resolve())
@@ -456,7 +469,7 @@ def build_matrix(
                     image = os_spec["image"]
                 else:
                     image = compose_image(
-                        case.get("image_template") or os_spec["image_template"],
+                        resolve_image_template(case, case_version, os_spec),
                         case.get("image_name") or case_name,
                         case_version,
                         architecture,
