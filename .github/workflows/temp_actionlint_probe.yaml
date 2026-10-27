@@ -1,0 +1,122 @@
+# TEMPORARY: where does the actionlint hook actually block?
+#
+# Production (run 40328552576) shows: six hooks pass in <6 s, then
+# "Lint GitHub Actions workflow files....." never returns; killed at 1800 s.
+# The store's actionlint v1.7.11 env (repoxqgigsmc) still has its Oct-15
+# binary, so pre-commit did NOT reinstall it -- the block is inside the hook.
+# Difference from my earlier repro: production has apt shellcheck on PATH.
+#
+# This run:
+#   1. installs shellcheck + strace (as the real job does) and pre-commit 4.0.1
+#   2. prints the actionlint env state (install_state files, binary mtime)
+#   3. runs actionlint directly, with shellcheck and with -shellcheck=
+#   4. runs the pre-commit hook in the background, samples it at 25 s:
+#      ps forest, wchan, fds, and an strace of process+network for 6 s
+name: 'temp: actionlint probe'
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/temp_actionlint_probe.yaml
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  probe:
+    name: actionlint block point (a3-16)
+    runs-on: linux-aarch64-a3-16-sh-001
+    timeout-minutes: 20
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-a3-ubuntu22.04-py3.12
+      env:
+        PRE_COMMIT_HOME: /root/.cache/main2main-pre-commit-a3-16-aarch64
+        SKIP: gitleaks-offline-scan
+        PYTHONUNBUFFERED: "1"
+        GOPROXY: https://repo.huaweicloud.com/repository/goproxy/
+        GONOSUMDB: '*'
+    steps:
+      - name: Install shellcheck, strace, pre-commit; clone vllm-ascend
+        run: |
+          set -u
+          if ! command -v strace >/dev/null; then
+            apt-get update -qq
+            apt-get install -y -qq shellcheck strace
+          fi
+          echo "shellcheck=$(command -v shellcheck || echo MISSING)"
+          shellcheck --version 2>&1 | head -3
+          if ! command -v pre-commit >/dev/null; then
+            pip install -q pre-commit==4.0.1
+          fi
+          pre-commit --version
+          rm -rf /tmp/ascend
+          timeout 300 git clone --depth 1 https://github.com/vllm-project/vllm-ascend.git /tmp/ascend
+          git config --global --add safe.directory /tmp/ascend
+          git -C /tmp/ascend log -1 --format='%H %ci %s'
+      - name: Print actionlint env state
+        run: |
+          set -u
+          STORE="$PRE_COMMIT_HOME"
+          for d in "$STORE"/repo*; do
+            u=$(git -C "$d" remote get-url origin 2>/dev/null || true)
+            case "$u" in
+              *actionlint*)
+                echo "== $d rev=$(git -C "$d" rev-parse --short HEAD) origin=$u"
+                ls -la "$d" | head -20
+                ls -la "$d/golangenv-default" 2>&1 | head -20
+                echo "install_state_v2: $(ls -la "$d/golangenv-default/.install_state_v2" 2>&1)"
+                echo "install_state: $(cat "$d/golangenv-default/.install_state" 2>&1)"
+                ls -la "$d/golangenv-default/bin" 2>&1 | head -10
+                ls -la "$d/golangenv-default/.go/bin/go" 2>&1
+                ;;
+            esac
+          done
+      - name: Run actionlint directly
+        run: |
+          set -u
+          BIN=""
+          for b in "$PRE_COMMIT_HOME"/repo*/golangenv-default/bin; do
+            if [ -x "$b/actionlint" ]; then BIN="$b"; break; fi
+          done
+          echo "BIN=$BIN"
+          cd /tmp/ascend
+          FILES=$(git ls-files '.github/workflows/*.yml' '.github/workflows/*.yaml')
+          echo "workflow_files=$(printf '%s\n' "$FILES" | wc -l)"
+          start=$SECONDS
+          echo "== with shellcheck =="
+          PATH="$BIN:$PATH" timeout -k 5 90 actionlint $FILES
+          echo "DIRECT_RC=$? elapsed=$((SECONDS - start))s"
+          start=$SECONDS
+          echo "== shellcheck disabled =="
+          PATH="$BIN:$PATH" timeout -k 5 90 actionlint -shellcheck= $FILES
+          echo "NOSHC_RC=$? elapsed=$((SECONDS - start))s"
+      - name: Run the pre-commit hook and sample it
+        run: |
+          set -u
+          cd /tmp/ascend
+          start=$SECONDS
+          ( timeout -k 5 240 pre-commit run actionlint --all-files --hook-stage manual
+            echo "PC_RC=$? elapsed=$((SECONDS - start))s" ) &
+          BG=$!
+          sleep 25
+          echo "== process tree =="
+          ps -ef --forest | grep -E 'pre.commit|actionlint|shellcheck|go ' | grep -v grep || echo "(none)"
+          PIDS=$(pgrep -f 'pre.commit|pre_commit|actionlint|shellcheck' || true)
+          echo "pids=$PIDS"
+          for p in $PIDS; do
+            echo "--- pid $p: $(tr '\0' ' ' < /proc/$p/cmdline 2>/dev/null | cut -c1-160)"
+            echo "wchan=$(cat /proc/$p/wchan 2>/dev/null) $(grep -m1 State /proc/$p/status 2>/dev/null)"
+            ls -l /proc/$p/fd 2>/dev/null | head -15
+            if command -v strace >/dev/null; then
+              timeout -k 2 6 strace -f -tt -T -p $p -e trace=process,network -o /tmp/st_$p.log 2>/dev/null
+              echo "strace tail:"
+              tail -25 /tmp/st_$p.log 2>/dev/null
+            fi
+          done
+          wait $BG || true
+      - name: Leftovers
+        if: always()
+        run: |
+          ps -ef | grep -E 'actionlint|pre-commit' | grep -v grep || echo "(none left)"
