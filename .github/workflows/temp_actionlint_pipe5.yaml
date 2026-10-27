@@ -1,0 +1,141 @@
+# TEMPORARY: end-to-end check of the flow's actionlint ladder on a3-16.
+#
+# Probe 4 proved the raw binary deadlocks under pipe pressure and that
+# `actionlint -shellcheck=` does not.  This run checks the exact invocation
+# the flow will use: the repo's own .pre-commit-config.yaml copied into a
+# one-hook temp config (same repo/rev -> warm env reused), driven by
+# `pre-commit run --config <tmp> actionlint --all-files --hook-stage manual`.
+#
+#   1. hold 6,000 pipes -> fresh pipes fall to PIPE_MIN_DEF_BUFFERS (8 KiB)
+#   2. full hook under pressure          -> expect timeout (rc 124)
+#   3. degraded hook under pressure      -> expect pass in seconds
+#   4. release, full hook again          -> expect pass (control)
+name: 'temp: actionlint pipe 5'
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/temp_actionlint_pipe5.yaml
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  probe:
+    name: pre-commit ladder under pressure (a3-16)
+    runs-on: linux-aarch64-a3-16-sh-001
+    timeout-minutes: 20
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-a3-ubuntu22.04-py3.12
+      env:
+        PRE_COMMIT_HOME: /root/.cache/main2main-pre-commit-a3-16-aarch64
+        PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Tools and clone
+        run: |
+          set -eu
+          if ! command -v shellcheck >/dev/null; then
+            apt-get update -qq
+            apt-get install -y -qq shellcheck
+          fi
+          if ! command -v pre-commit >/dev/null; then
+            pip install -q pre-commit==4.0.1
+          fi
+          pre-commit --version
+          shellcheck --version | sed -n '1,2p'
+          rm -rf /tmp/ascend
+          timeout 300 git clone --depth 1 https://github.com/vllm-project/vllm-ascend.git /tmp/ascend
+          git config --global --add safe.directory /tmp/ascend
+
+      - name: Ladder under pipe pressure
+        run: |
+          set +e
+          cd /tmp/ascend
+          unset SKIP
+          python3 - <<'EOF'
+          import yaml
+          data = yaml.safe_load(open('.pre-commit-config.yaml'))
+          found = False
+          for entry in data.get('repos') or []:
+              if 'actionlint' not in str(entry.get('repo', '')):
+                  continue
+              for h in entry.get('hooks') or []:
+                  if h.get('id') != 'actionlint':
+                      continue
+                  found = True
+                  for name, extra in (('full', []),
+                                      ('noshell', ['-shellcheck='])):
+                      hook = dict(h)
+                      hook['args'] = [*(h.get('args') or []), *extra]
+                      hook['stages'] = ['manual']
+                      out = dict(data)
+                      out['repos'] = [{'repo': entry['repo'],
+                                       'rev': entry['rev'],
+                                       'hooks': [hook]}]
+                      with open(f'/tmp/al_{name}.yaml', 'w') as f:
+                          yaml.safe_dump(out, f, sort_keys=False)
+                      print('wrote', name, hook['args'])
+          print('actionlint_hook_found', found)
+          EOF
+          for c in /tmp/al_full.yaml /tmp/al_noshell.yaml; do
+            [ -f "$c" ] || { echo "MISSING $c"; exit 1; }
+          done
+
+          run_hook() {
+            local cfg="$1" cap="$2"
+            local start=$SECONDS
+            timeout -k 5 "$cap" pre-commit run --config "$cfg" actionlint \
+              --all-files --hook-stage manual
+            echo "$3=$? elapsed=$((SECONDS - start))s"
+          }
+
+          echo "== control: full hook, no pressure =="
+          run_hook /tmp/al_full.yaml 120 CONTROL_FULL_RC
+
+          echo "== holding 6000 pipes =="
+          rm -f /tmp/pipe_ready
+          python3 - <<'EOF' &
+          import fcntl, os, time
+          r, w = os.pipe()
+          print("fresh_pipe_sz_before", fcntl.fcntl(r, 1032), flush=True)
+          os.close(r); os.close(w)
+          held = []
+          for i in range(6000):
+              r, w = os.pipe()
+              os.set_blocking(w, False)
+              try:
+                  os.write(w, b'x' * 65536)
+              except BlockingIOError:
+                  pass
+              held.append((r, w))
+          r, w = os.pipe()
+          print("fresh_pipe_sz_under_pressure", fcntl.fcntl(r, 1032), flush=True)
+          os.close(r); os.close(w)
+          open('/tmp/pipe_ready', 'w').write(str(len(held)))
+          time.sleep(240)
+          EOF
+          HOLDER=$!
+          for _ in $(seq 1 120); do
+            [ -f /tmp/pipe_ready ] && break
+            sleep 1
+          done
+          echo "holder_pipes=$(cat /tmp/pipe_ready 2>/dev/null)"
+
+          echo "== full hook under pressure =="
+          run_hook /tmp/al_full.yaml 90 PRESSURE_FULL_RC
+          echo "== degraded hook under pressure =="
+          run_hook /tmp/al_noshell.yaml 180 PRESSURE_NOSHELL_RC
+
+          echo "== release =="
+          kill -9 $HOLDER 2>/dev/null
+          wait $HOLDER 2>/dev/null
+          sleep 2
+          echo "== control after release =="
+          run_hook /tmp/al_full.yaml 120 AFTER_FULL_RC
+
+      - name: Leftovers
+        if: always()
+        run: |
+          ps -ef | grep -E 'actionlint|shellcheck|pre-commit' | grep -v grep || echo "(none left)"
