@@ -64,18 +64,18 @@ jobs:
             case "$u" in
               *actionlint*)
                 echo "== $d rev=$(git -C "$d" rev-parse --short HEAD) origin=$u"
-                ls -la "$d" | head -20
-                ls -la "$d/golangenv-default" 2>&1 | head -20
+                ls -la "$d" | sed -n '1,25p'
+                ls -la "$d/golangenv-default" 2>&1 | sed -n '1,25p'
                 echo "install_state_v2: $(ls -la "$d/golangenv-default/.install_state_v2" 2>&1)"
                 echo "install_state: $(cat "$d/golangenv-default/.install_state" 2>&1)"
-                ls -la "$d/golangenv-default/bin" 2>&1 | head -10
+                ls -la "$d/golangenv-default/bin" 2>&1 | sed -n '1,12p'
                 ls -la "$d/golangenv-default/.go/bin/go" 2>&1
                 ;;
             esac
           done
       - name: Run actionlint directly
         run: |
-          set -u
+          set +e
           BIN=""
           for b in "$PRE_COMMIT_HOME"/repo*/golangenv-default/bin; do
             if [ -x "$b/actionlint" ]; then BIN="$b"; break; fi
@@ -94,7 +94,7 @@ jobs:
           echo "NOSHC_RC=$? elapsed=$((SECONDS - start))s"
       - name: Run the pre-commit hook and sample it
         run: |
-          set -u
+          set +e
           cd /tmp/ascend
           start=$SECONDS
           ( timeout -k 5 240 pre-commit run actionlint --all-files --hook-stage manual
@@ -108,7 +108,7 @@ jobs:
           for p in $PIDS; do
             echo "--- pid $p: $(tr '\0' ' ' < /proc/$p/cmdline 2>/dev/null | cut -c1-160)"
             echo "wchan=$(cat /proc/$p/wchan 2>/dev/null) $(grep -m1 State /proc/$p/status 2>/dev/null)"
-            ls -l /proc/$p/fd 2>/dev/null | head -15
+            ls -l /proc/$p/fd 2>/dev/null | sed -n '1,15p'
             if command -v strace >/dev/null; then
               timeout -k 2 6 strace -f -tt -T -p $p -e trace=process,network -o /tmp/st_$p.log 2>/dev/null
               echo "strace tail:"
