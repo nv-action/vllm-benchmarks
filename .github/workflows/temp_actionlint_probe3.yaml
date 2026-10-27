@@ -1,0 +1,114 @@
+# TEMPORARY: why does actionlint deadlock only when shellcheck is on PATH?
+#
+# Round 2 proved it: `actionlint FILES` hangs (killed at 90 s) with
+# /usr/bin/shellcheck present, and `actionlint -shellcheck= FILES` finishes in
+# 0 s.  While hung, actionlint has NO child process and holds both ends of one
+# pipe (read fd 23 + write fd 37), i.e. it is waiting on its own pipe.
+#
+# This run pins down whether shellcheck is ever spawned and what it is passed:
+#   1. shellcheck sanity on a tiny script
+#   2. a PATH wrapper logs every shellcheck invocation (argv) and forwards
+#   3. actionlint launched UNDER strace -f, one workflow file, 30 s cap
+#   4. same file with -shellcheck=/usr/bin/shellcheck
+name: 'temp: actionlint probe 3'
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/temp_actionlint_probe3.yaml
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  probe:
+    name: actionlint/shellcheck handshake (a3-16)
+    runs-on: linux-aarch64-a3-16-sh-001
+    timeout-minutes: 15
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-a3-ubuntu22.04-py3.12
+      env:
+        PRE_COMMIT_HOME: /root/.cache/main2main-pre-commit-a3-16-aarch64
+        PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Install tools and clone vllm-ascend
+        run: |
+          set -eu
+          if ! command -v strace >/dev/null; then
+            apt-get update -qq
+            apt-get install -y -qq shellcheck strace
+          fi
+          command -v shellcheck
+          shellcheck --version | sed -n '1,3p'
+          rm -rf /tmp/ascend
+          timeout 300 git clone --depth 1 https://github.com/vllm-project/vllm-ascend.git /tmp/ascend
+          git config --global --add safe.directory /tmp/ascend
+      - name: Shellcheck sanity and wrapped actionlint
+        run: |
+          set +e
+          cd /tmp/ascend
+          BIN=""
+          for b in "$PRE_COMMIT_HOME"/repo*/golangenv-default/bin; do
+            if [ -x "$b/actionlint" ]; then BIN="$b"; break; fi
+          done
+          echo "BIN=$BIN"
+          printf '#!/bin/bash\necho hi\n' > /tmp/hello.sh
+          start=$SECONDS
+          /usr/bin/shellcheck -f json1 -x - < /tmp/hello.sh
+          echo "SC_SANITY_RC=$? elapsed=$((SECONDS-start))s"
+
+          mkdir -p /tmp/scbin
+          cat > /tmp/scbin/shellcheck <<'EOS'
+          #!/bin/bash
+          echo "SC_CALL: $*" >> /tmp/sc_calls.log
+          exec /usr/bin/shellcheck "$@"
+          EOS
+          chmod +x /tmp/scbin/shellcheck
+          : > /tmp/sc_calls.log
+
+          FILE=.github/workflows/schedule_lint_image_build.yaml
+          ls -la "$FILE"
+          start=$SECONDS
+          PATH="/tmp/scbin:$BIN:$PATH" timeout -k 5 30 actionlint "$FILE"
+          echo "WRAPPED_ONE_FILE_RC=$? elapsed=$((SECONDS-start))s"
+          echo "== shellcheck calls =="
+          sed -n '1,40p' /tmp/sc_calls.log
+      - name: strace actionlint on one file
+        run: |
+          set +e
+          cd /tmp/ascend
+          BIN=""
+          for b in "$PRE_COMMIT_HOME"/repo*/golangenv-default/bin; do
+            if [ -x "$b/actionlint" ]; then BIN="$b"; break; fi
+          done
+          FILE=.github/workflows/schedule_lint_image_build.yaml
+          start=$SECONDS
+          PATH="$BIN:$PATH" timeout -k 5 30 strace -f -tt -T -o /tmp/st.log \
+            -e trace=process,read,write,close,pipe,pipe2,wait4,futex \
+            actionlint "$FILE"
+          echo "STRACE_RC=$? elapsed=$((SECONDS-start))s"
+          echo "== execve / clone / shellcheck =="
+          grep -n "execve\|shellcheck\|clone3\|clone(" /tmp/st.log | sed -n '1,60p'
+          echo "== last 60 syscalls =="
+          tail -60 /tmp/st.log
+      - name: Explicit shellcheck path
+        run: |
+          set +e
+          cd /tmp/ascend
+          BIN=""
+          for b in "$PRE_COMMIT_HOME"/repo*/golangenv-default/bin; do
+            if [ -x "$b/actionlint" ]; then BIN="$b"; break; fi
+          done
+          FILE=.github/workflows/schedule_lint_image_build.yaml
+          start=$SECONDS
+          PATH="$BIN:$PATH" timeout -k 5 30 actionlint -shellcheck=/usr/bin/shellcheck "$FILE"
+          echo "EXPLICIT_SC_RC=$? elapsed=$((SECONDS-start))s"
+          echo "== all shellcheck calls so far =="
+          wc -l /tmp/sc_calls.log
+          sed -n '1,60p' /tmp/sc_calls.log
+      - name: Leftovers
+        if: always()
+        run: |
+          ps -ef | grep -E 'actionlint|shellcheck' | grep -v grep || echo "(none left)"
