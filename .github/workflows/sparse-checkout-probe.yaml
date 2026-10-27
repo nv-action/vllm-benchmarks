@@ -1,0 +1,49 @@
+name: Sparse checkout local action probe
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/sparse-checkout-probe.yaml
+      - .github/workflows/_sparse_checkout_probe.yaml
+      - .github/actions/sparse-checkout-probe/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sparse-checkout-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    name: ${{ matrix.environment }} / ${{ matrix.checkout }}
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [hosted, hosted-container, cpu, a2, a3]
+        checkout: [full, bare, wildcard]
+        include:
+          - environment: hosted
+            runner: ubuntu-latest
+            image: ''
+          - environment: hosted-container
+            runner: ubuntu-latest
+            image: ubuntu:22.04
+          - environment: cpu
+            runner: linux-amd64-cpu-8-hk
+            image: swr.cn-north-12.myhuaweicloud.com/atlas_inference/cann:9.2.0_20260928212200-910b-ubuntu22.04-py3.12
+          - environment: a2
+            runner: linux-aarch64-a2b3-1
+            image: swr.cn-north-12.myhuaweicloud.com/atlas_inference/cann:9.2.0_20260928212200-910b-ubuntu22.04-py3.12
+          - environment: a3
+            runner: linux-aarch64-a3-2
+            image: swr.cn-north-12.myhuaweicloud.com/atlas_inference/cann:9.2.0_20260928212200-a3-ubuntu22.04-py3.12
+    uses: ./.github/workflows/_sparse_checkout_probe.yaml
+    with:
+      environment: ${{ matrix.environment }}
+      runner: ${{ matrix.runner }}
+      image: ${{ matrix.image }}
+      checkout: ${{ matrix.checkout }}
