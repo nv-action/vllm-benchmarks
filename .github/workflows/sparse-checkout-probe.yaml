@@ -1,12 +1,8 @@
 name: Sparse checkout local action probe
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - .github/workflows/sparse-checkout-probe.yaml
-      - .github/workflows/_sparse_checkout_probe.yaml
-      - .github/actions/sparse-checkout-probe/**
+  # The first matrix has completed; keep it available without restarting CPU/A3
+  # on every follow-up commit in the same diagnostic PR.
   workflow_dispatch:
 
 permissions:
