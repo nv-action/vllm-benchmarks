@@ -1,0 +1,118 @@
+name: Observe action synchronization scope and freshness
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      runner:
+        type: string
+        required: true
+      image:
+        type: string
+        required: true
+      location:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ${{ inputs.runner }}
+    container: ${{ inputs.image }}
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: bash
+    env:
+      SYNC_PROBE_LOCATION: ${{ inputs.location }}
+      SYNC_PROBE_ENVIRONMENT: ${{ inputs.environment }}
+    steps:
+      - name: Bootstrap tools
+        run: |
+          set -euo pipefail
+          if ! command -v git >/dev/null || ! command -v python3 >/dev/null; then
+            if [ "$SYNC_PROBE_ENVIRONMENT" = a2 ]; then
+              sed -Ei 's@(ports|archive).ubuntu.com@cache-service.nginx-pypi-cache.svc.cluster.local:8081@g' /etc/apt/sources.list
+            fi
+            apt-get update -y
+            apt-get install -y --no-install-recommends git python3 ca-certificates
+          fi
+          git --version
+          python3 --version
+
+      - name: Checkout diagnostic driver only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          path: .sync-test-code
+          persist-credentials: false
+          sparse-checkout: .github/workflows/scripts/probe_action_sync.py
+          sparse-checkout-cone-mode: false
+
+      - name: Write v1 immediately before action loading
+        run: python3 .sync-test-code/.github/workflows/scripts/probe_action_sync.py stage --phase v1
+
+      - name: Immediately load from ordinary workspace
+        id: first_workspace
+        if: ${{ inputs.location == 'workspace' }}
+        continue-on-error: true
+        uses: ./action-sync-probe
+      - name: Immediately load from hidden workspace directory
+        id: first_hidden
+        if: ${{ inputs.location == 'hidden' }}
+        continue-on-error: true
+        uses: ./.action-sync-probe
+      - name: Immediately load from ordinary runner temp
+        id: first_temp
+        if: ${{ inputs.location == 'temp' }}
+        continue-on-error: true
+        uses: ./../../_temp/action-sync-probe
+      - name: Immediately load from isolated command-directory fixture
+        id: first_commands
+        if: ${{ inputs.location == 'commands' }}
+        continue-on-error: true
+        uses: ./../../_temp/_runner_file_commands/action-sync-probe
+
+      - name: Execute an intervening script step and replace v1 with v2
+        run: python3 .sync-test-code/.github/workflows/scripts/probe_action_sync.py stage --phase v2
+
+      - name: Reload from ordinary workspace
+        id: retry_workspace
+        if: ${{ inputs.location == 'workspace' }}
+        continue-on-error: true
+        uses: ./action-sync-probe
+      - name: Reload from hidden workspace directory
+        id: retry_hidden
+        if: ${{ inputs.location == 'hidden' }}
+        continue-on-error: true
+        uses: ./.action-sync-probe
+      - name: Reload from ordinary runner temp
+        id: retry_temp
+        if: ${{ inputs.location == 'temp' }}
+        continue-on-error: true
+        uses: ./../../_temp/action-sync-probe
+      - name: Reload from isolated command-directory fixture
+        id: retry_commands
+        if: ${{ inputs.location == 'commands' }}
+        continue-on-error: true
+        uses: ./../../_temp/_runner_file_commands/action-sync-probe
+
+      - name: Record observed visibility and loaded versions
+        if: ${{ always() }}
+        env:
+          SYNC_PROBE_FIRST: ${{ toJSON(steps[format('first_{0}', inputs.location)]) }}
+          SYNC_PROBE_RETRY: ${{ toJSON(steps[format('retry_{0}', inputs.location)]) }}
+        run: python3 .sync-test-code/.github/workflows/scripts/probe_action_sync.py report
+
+      - name: Upload observations
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: action-sync-${{ inputs.environment }}-${{ inputs.location }}
+          path: action-sync-results/*.json
+          if-no-files-found: warn
+          retention-days: 7
