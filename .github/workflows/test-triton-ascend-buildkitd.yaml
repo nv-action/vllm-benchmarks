@@ -31,9 +31,7 @@ jobs:
 
     strategy:
       fail-fast: false
-      # Match triton-ascend's own build-docker-image.yml concurrency limit so the
-      # shared buildkitd workers are driven hard but not overwhelmed.
-      max-parallel: 8
+      # 不限制并发：16 个组合全量并行，压测 buildkitd 弹性扩缩容。
       matrix:
         cann_version: [9.0.0-beta.2, 9.2.0-beta.1]
         chip_type: [910b, a3]
