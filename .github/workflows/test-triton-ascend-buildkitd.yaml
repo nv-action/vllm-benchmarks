@@ -49,7 +49,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: docker-triton
-          file: Dockerfile
+          file: docker-triton/Dockerfile
           push: false
           tags: |
             quay.io/ascend/triton:test-${{ matrix.cann_version }}-${{ matrix.chip_type }}-${{ matrix.platforms }}
