@@ -1,0 +1,61 @@
+# Test: build triton-ascend real images on the gy006 buildkitd to stress the
+# KEDA + dispatcher elastic scale-out with a heavy, realistic workload
+# (CANN + torch + torch-npu) instead of the tiny sleep-based Dockerfile.e2e.
+#
+# Trigger: add the `image-build` label to a PR, or run manually (workflow_dispatch).
+# This workflow is a TEST harness only — it never pushes images (push: false).
+name: Test Triton Ascend Buildkit (gy006)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    types: [labeled]
+
+concurrency:
+  group: test-triton-ascend-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: ${{ github.event_name != 'pull_request' || github.event.label.name == 'image-build' }}
+    name: Build ${{ matrix.cann_version }}-${{ matrix.chip_type }}-${{ matrix.os }}-py${{ matrix.python_version }}-${{ matrix.platforms }}
+    # Run on the gy006 buildkit runners matching the target platform.
+    runs-on: ${{ matrix.platforms == 'amd64' && 'linux-amd64-cpu-4-gy006' || 'linux-aarch64-cpu-4-gy006' }}
+    container:
+      image: swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-a3-ubuntu22.04-py3.12
+    timeout-minutes: 360
+
+    strategy:
+      fail-fast: false
+      # Match triton-ascend's own build-docker-image.yml concurrency limit so the
+      # shared buildkitd workers are driven hard but not overwhelmed.
+      max-parallel: 8
+      matrix:
+        cann_version: [9.0.0-beta.2, 9.2.0-beta.1]
+        chip_type: [910b, a3]
+        os: [ubuntu22.04]
+        python_version: ["3.10", "3.11"]
+        platforms: [amd64, arm64]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Triton Ascend image (test only, no push)
+        uses: docker/build-push-action@v7
+        with:
+          context: docker-triton
+          file: Dockerfile
+          push: false
+          tags: |
+            quay.io/ascend/triton:test-${{ matrix.cann_version }}-${{ matrix.chip_type }}-${{ matrix.platforms }}
+          build-args: |
+            CANN_BASE_IMAGE=swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-${{ matrix.chip_type }}-${{ matrix.os }}-py${{ matrix.python_version }}
+            APTMIRROR=http://cache-service.nginx-pypi-cache.svc.cluster.local:8081
+            PIP_INDEX_URL=http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+            PIP_TRUSTED_HOST=cache-service.nginx-pypi-cache.svc.cluster.local
+            TORCH_INDEX_URL=http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu
