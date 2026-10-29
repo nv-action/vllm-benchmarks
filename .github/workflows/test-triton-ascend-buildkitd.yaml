@@ -12,10 +12,7 @@ on:
     branches: [main]
     types: [labeled]
 
-concurrency:
-  group: test-triton-ascend-${{ github.ref }}
-  cancel-in-progress: true
-
+# 注意：故意去掉 concurrency，允许多个 run 并行叠加，用于压测更大并发驱动 scale-up。
 permissions:
   contents: read
 
