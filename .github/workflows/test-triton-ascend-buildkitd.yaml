@@ -33,7 +33,7 @@ jobs:
     # Run on the gy006 buildkit runners matching the target platform.
     runs-on: ${{ matrix.platforms == 'amd64' && 'linux-amd64-cpu-4-gy006' || 'linux-aarch64-cpu-4-gy006' }}
     container:
-      image: swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-a3-ubuntu22.04-py3.12
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-310p-ubuntu22.04-py3.12
     timeout-minutes: 360
 
     strategy:
