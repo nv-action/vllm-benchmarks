@@ -61,6 +61,7 @@ jobs:
             quay.io/ascend/triton:test-${{ matrix.cann_version }}-${{ matrix.chip_type }}-${{ matrix.platforms }}
           build-args: |
             CANN_BASE_IMAGE=swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-${{ matrix.chip_type }}-${{ matrix.os }}-py${{ matrix.python_version }}
+            CACHE_BUSTER=${{ github.run_id }}-${{ matrix.cann_version }}-${{ matrix.chip_type }}-${{ matrix.python_version }}-${{ matrix.platforms }}-${{ matrix.load }}
             APTMIRROR=http://cache-service.nginx-pypi-cache.svc.cluster.local:8081
             PIP_INDEX_URL=http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
             PIP_TRUSTED_HOST=cache-service.nginx-pypi-cache.svc.cluster.local

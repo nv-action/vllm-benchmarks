@@ -7,6 +7,10 @@ FROM ${CANN_BASE_IMAGE}
 # build time with --build-arg TORCH_NPU_VERSION=2.10.0.post4 for the a5 image.
 ARG TORCH_NPU_VERSION=2.7.1.post8
 
+# 压测用 cache-bust 标记：每个 job 传入唯一值，强制下面的 apt/pip 层全部重跑，
+# 制造真实冷构建（否则同组合的 load 副本会命中 layer cache，几秒就结束）。
+ARG CACHE_BUSTER=0
+
 ARG APTMIRROR=http://mirrors.huaweicloud.com
 ARG PIP_INDEX_URL=https://repo.huaweicloud.com/repository/pypi/simple
 ARG PIP_TRUSTED_HOST=repo.huaweicloud.com
@@ -15,6 +19,8 @@ ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
 SHELL ["/bin/bash", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ="Asia/shanghai"
+
+RUN echo "cache-buster=${CACHE_BUSTER}"
 
 RUN sed -i "s|http://archive.ubuntu.com|${APTMIRROR}|g" /etc/apt/sources.list 2>/dev/null || true && \
     sed -i "s|http://security.ubuntu.com|${APTMIRROR}|g" /etc/apt/sources.list 2>/dev/null || true && \
