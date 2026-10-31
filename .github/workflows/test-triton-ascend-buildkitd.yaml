@@ -4,10 +4,20 @@
 #
 # Trigger: add the `image-build` label to a PR, or run manually (workflow_dispatch).
 # This workflow is a TEST harness only — it never pushes images (push: false).
+#
+# 压测并发/找极限：workflow_dispatch 时可多次触发叠加，或用 `load` 输入放大单次
+# 矩阵（16 组合 × load 数组长度，如 load=[0,1,2,3] → 64 并发），再结合
+# dispatcher 的 active/pending/desired 指标观察扩到几副本开始排队/失败。
 name: Test Triton Ascend Buildkit (gy006)
 
 on:
   workflow_dispatch:
+    inputs:
+      load:
+        description: '并发倍数（JSON 数组，每个元素=每组合多跑一份）。[0]=1x(16 并发)，[0,1]=2x(32)，[0,1,2,3]=4x(64)'
+        required: false
+        default: '[0]'
+        type: string
   pull_request:
     branches: [main]
     types: [labeled]
@@ -19,7 +29,7 @@ permissions:
 jobs:
   build:
     if: ${{ github.event_name != 'pull_request' || github.event.label.name == 'image-build' }}
-    name: Build ${{ matrix.cann_version }}-${{ matrix.chip_type }}-${{ matrix.os }}-py${{ matrix.python_version }}-${{ matrix.platforms }}
+    name: Build ${{ matrix.cann_version }}-${{ matrix.chip_type }}-${{ matrix.os }}-py${{ matrix.python_version }}-${{ matrix.platforms }}-[load ${{ matrix.load }}]
     # Run on the gy006 buildkit runners matching the target platform.
     runs-on: ${{ matrix.platforms == 'amd64' && 'linux-amd64-cpu-4-gy006' || 'linux-aarch64-cpu-4-gy006' }}
     container:
@@ -35,6 +45,7 @@ jobs:
         os: [ubuntu22.04]
         python_version: ["3.10", "3.11"]
         platforms: [amd64, arm64]
+        load: ${{ fromJSON(inputs.load || '[0]') }}
 
     steps:
       - name: Checkout code
