@@ -1,0 +1,79 @@
+# Test: build vllm-ascend real images on the gy006 buildkitd to stress the
+# KEDA + dispatcher elastic scale-out with a heavy, realistic workload
+# (CANN base + vLLM + vllm-ascend custom kernel compile) instead of the tiny
+# sleep-based Dockerfile.e2e.
+#
+# Trigger: add the `image-build` label to a PR, or run manually (workflow_dispatch).
+# This workflow is a TEST harness only — it never pushes images (push: false).
+#
+# Matrix mirrors vllm-ascend's schedule_nightly_image_build_with_base.yaml:
+#   8 combos (chip a2/a3/310p/a5 x os ubuntu/openeuler) x amd64/arm64 = 16 builds.
+#
+# 压测并发/找极限：workflow_dispatch 时可多次触发叠加，或用 `load` 输入放大单次
+# 矩阵（16 组合 × load 数组长度，如 load=[0,1,2,3] → 64 并发），再结合
+# dispatcher 的 active/pending/desired 指标观察扩到几副本开始排队/失败。
+name: Test Vllm Ascend Buildkit (gy006)
+
+on:
+  workflow_dispatch:
+    inputs:
+      load:
+        description: '并发倍数（JSON 数组，每个元素=每组合多跑一份）。[0]=1x(16 并发)，[0,1]=2x(32)，[0,1,2,3]=4x(64)'
+        required: false
+        default: '[0]'
+        type: string
+  pull_request:
+    branches: [main]
+    types: [labeled]
+
+# 注意：故意去掉 concurrency，允许多个 run 并行叠加，用于压测更大并发驱动 scale-up。
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: ${{ github.event_name != 'pull_request' || github.event.label.name == 'image-build' }}
+    name: Build ${{ matrix.target }}-${{ matrix.os }}-${{ matrix.platforms }}-[load ${{ matrix.load }}]
+    # Run on the gy006 buildkit runners matching the target platform.
+    runs-on: ${{ matrix.platforms == 'amd64' && 'linux-amd64-cpu-4-gy006' || 'linux-aarch64-cpu-4-gy006' }}
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-${{ matrix.soc }}-${{ matrix.base_os }}-py3.12
+    timeout-minutes: 360
+
+    strategy:
+      fail-fast: false
+      # 不限制并发：16 个组合全量并行，压测 buildkitd 弹性扩缩容。
+      matrix:
+        include:
+          - {target: a2,   os: ubuntu,    soc: 910b, dockerfile: docker-vllm-ascend/Dockerfile,               base_os: ubuntu22.04,    soc_version: ascend910b1}
+          - {target: a3,   os: ubuntu,    soc: a3,   dockerfile: docker-vllm-ascend/Dockerfile.a3,             base_os: ubuntu22.04,    soc_version: ascend910_9391}
+          - {target: 310p, os: ubuntu,    soc: 310p, dockerfile: docker-vllm-ascend/Dockerfile.310p,           base_os: ubuntu22.04,    soc_version: ascend310p1}
+          - {target: a5,   os: ubuntu,    soc: 950,  dockerfile: docker-vllm-ascend/Dockerfile.a5,             base_os: ubuntu22.04,    soc_version: ascend950dt_9582}
+          - {target: a2,   os: openeuler, soc: 910b, dockerfile: docker-vllm-ascend/Dockerfile.openEuler,      base_os: openeuler24.03, soc_version: ascend910b1}
+          - {target: a3,   os: openeuler, soc: a3,   dockerfile: docker-vllm-ascend/Dockerfile.a3.openEuler,   base_os: openeuler24.03, soc_version: ascend910_9391}
+          - {target: 310p, os: openeuler, soc: 310p, dockerfile: docker-vllm-ascend/Dockerfile.310p.openEuler, base_os: openeuler24.03, soc_version: ascend310p1}
+          - {target: a5,   os: openeuler, soc: 950,  dockerfile: docker-vllm-ascend/Dockerfile.a5.openEuler,   base_os: openeuler24.03, soc_version: ascend950dt_9582}
+        platforms: [amd64, arm64]
+        load: ${{ fromJSON(inputs.load || '[0]') }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Vllm Ascend image (test only, no push)
+        uses: docker/build-push-action@v7
+        with:
+          # vllm-ascend Dockerfile does `COPY . /vllm-workspace/vllm-ascend/`, so the
+          # context must be the repo root (full source), not just docker-vllm-ascend/.
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: false
+          tags: |
+            quay.io/ascend/vllm-ascend:test-${{ matrix.target }}-${{ matrix.os }}-${{ matrix.platforms }}
+          build-args: |
+            CANN_QUAY_URL=swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci
+            CANN_VERSION=9.1.0
+            CACHE_BUSTER=${{ github.run_id }}-${{ matrix.target }}-${{ matrix.os }}-${{ matrix.platforms }}-${{ matrix.load }}
+            COMPILE_CUSTOM_KERNELS=1
+            BUILD_TYPE=release
+            SOC_VERSION=${{ matrix.soc_version }}
