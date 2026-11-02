@@ -1,0 +1,171 @@
+name: Dump OBS Build Info
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Ensure esdk-obs-python
+        run: python3 -c "import obs" 2>/dev/null || python3 -m pip install --user esdk-obs-python || python3 -m pip install --break-system-packages esdk-obs-python
+
+      - name: Dump ci/build-info with each credential pair
+        env:
+          OBS_ENDPOINT: https://obs.cn-north-4.myhuaweicloud.com
+          OBS_BUCKET: vllm-ascend
+          OBS_PREFIX: ci/build-info
+          DUMP_DIR: ${{ runner.temp }}/obs-dump
+          OBS_NAME_1: precision
+          OBS_AK_1: ${{ secrets.OBS_ACCESS_KEY_PRECISION }}
+          OBS_SK_1: ${{ secrets.OBS_SECRET_ACCESS_KEY_PRECISION }}
+          OBS_NAME_2: nightly-logs
+          OBS_AK_2: ${{ secrets.OBS_ACCESS_KEY_ID }}
+          OBS_SK_2: ${{ secrets.OBS_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PYEOF'
+          import json
+          import os
+          from pathlib import Path
+
+          from obs import ObsClient
+
+          endpoint = os.environ["OBS_ENDPOINT"]
+          bucket = os.environ["OBS_BUCKET"]
+          prefix = os.environ["OBS_PREFIX"].strip("/")
+          dump = Path(os.environ["DUMP_DIR"])
+          dump.mkdir(parents=True, exist_ok=True)
+          objects_dir = dump / "objects"
+          report = []
+
+
+          class ObsError(Exception):
+              def __init__(self, response):
+                  self.status = response.status
+                  self.error_code = response.errorCode
+                  super().__init__(f"HTTP {response.status} {response.errorCode}")
+
+
+          def client_for(ak, sk):
+              return ObsClient(
+                  access_key_id=ak,
+                  secret_access_key=sk,
+                  server=endpoint,
+              )
+
+
+          def save(key, body):
+              if key.endswith("/"):
+                  print(f"  skipped folder marker: {key}")
+                  return
+              dest = objects_dir / key
+              dest.parent.mkdir(parents=True, exist_ok=True)
+              dest.write_bytes(body)
+              print(f"  saved {key} ({len(body)} bytes)")
+
+
+          def get_body(client, key):
+              response = client.getObject(bucket, key, loadStreamInMemory=True)
+              if response.status >= 300:
+                  raise ObsError(response)
+              return response.body.buffer
+
+
+          def list_objects(client, list_filter):
+              found, marker = [], None
+              while True:
+                  kwargs = {"prefix": list_filter, "max_keys": 1000}
+                  if marker:
+                      kwargs["marker"] = marker
+                  response = client.listObjects(bucket, **kwargs)
+                  if response.status >= 300:
+                      raise ObsError(response)
+                  found.extend(response.body.contents or [])
+                  if not response.body.is_truncated:
+                      return found
+                  marker = response.body.next_marker
+
+
+          def dump_via_index(client, name):
+              root_key = f"{prefix}/index.json"
+              try:
+                  root = json.loads(get_body(client, root_key))
+              except ObsError as error:
+                  report.append(f"[{name}] root index GET failed ({error.error_code}): {root_key}")
+                  return
+              save(root_key, get_body(client, root_key))
+              report.append(
+                  f"[{name}] root index: {len(root.get('index_urls', []))} branch indexes, "
+                  f"active={list(root.get('active_urls', {}).keys())}"
+              )
+              for index_name in root.get("index_urls", []):
+                  branch_key = f"{prefix}/{index_name}"
+                  try:
+                      branch = json.loads(get_body(client, branch_key))
+                  except ObsError as error:
+                      report.append(f"[{name}] GET failed: {branch_key} ({error.error_code})")
+                      continue
+                  save(branch_key, get_body(client, branch_key))
+                  report.append(f"[{name}] branch index {index_name}: {len(branch.get('info_urls', {}))} build entries")
+                  for order, url in sorted(branch.get("info_urls", {}).items()):
+                      detail_key = f"{prefix}/{url}"
+                      try:
+                          save(detail_key, get_body(client, detail_key))
+                      except ObsError as error:
+                          report.append(f"[{name}] GET failed: {detail_key} ({error.error_code})")
+
+          for index in (1, 2):
+              name = os.environ.get(f"OBS_NAME_{index}", f"pair{index}")
+              ak = os.environ.get(f"OBS_AK_{index}")
+              sk = os.environ.get(f"OBS_SK_{index}")
+              if not ak or not sk:
+                  continue
+              client = client_for(ak, sk)
+              try:
+                  report.append(f"--- credential pair [{name}] ---")
+                  keys = None
+                  for list_filter in (prefix + "/", ""):
+                      scope = list_filter or "(whole bucket)"
+                      try:
+                          found = list_objects(client, list_filter)
+                      except ObsError as error:
+                          report.append(f"[{name}] list denied [{scope}]: {error.error_code}")
+                          continue
+                      keys = {o.key: getattr(o, "size", 0) for o in found}
+                      report.append(f"[{name}] list OK [{scope}]: {len(keys)} objects, {sum(keys.values()) / 1e6:.1f} MB")
+                      break
+                  if keys:
+                      (dump / f"listing-{name}.txt").write_text(
+                          "\n".join(f"{size}\t{key}" for key, size in sorted(keys.items())) + "\n", encoding="utf-8"
+                      )
+                      limit_count, limit_bytes = 500, 200 * 1024 * 1024
+                      downloaded, downloaded_bytes = 0, 0
+                      for key, size in sorted(keys.items()):
+                          if downloaded >= limit_count or downloaded_bytes >= limit_bytes:
+                              report.append(f"[{name}] download truncated at {downloaded} objects")
+                              break
+                          save(key, get_body(client, key))
+                          downloaded += 1
+                          downloaded_bytes += size
+                      report.append(f"[{name}] downloaded {downloaded} objects")
+                  else:
+                      report.append(f"[{name}] listing unavailable - walking the published indexes instead")
+                      dump_via_index(client, name)
+              finally:
+                  client.close()
+
+          (dump / "report.txt").write_text("\n".join(report) + "\n", encoding="utf-8")
+          print("\n===== REPORT =====")
+          print("\n".join(report))
+          PYEOF
+
+      - name: Upload dump
+        uses: actions/upload-artifact@v7
+        with:
+          name: obs-vllm-ascend-dump
+          path: ${{ runner.temp }}/obs-dump
+          if-no-files-found: error
