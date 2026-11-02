@@ -89,7 +89,7 @@ jobs:
           tags: |
             quay.io/ascend/vllm-ascend:test-${{ matrix.target }}-${{ matrix.os }}-${{ matrix.platforms }}
           build-args: |
-            CANN_QUAY_URL=swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci
+            CANN_QUAY_URL=swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann
             CANN_VERSION=9.1.0
             CACHE_BUSTER=${{ github.run_id }}-${{ matrix.target }}-${{ matrix.os }}-${{ matrix.platforms }}-${{ matrix.load }}
             COMPILE_CUSTOM_KERNELS=1
