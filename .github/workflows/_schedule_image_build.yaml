@@ -26,6 +26,14 @@ on:
         required: false
         type: boolean
         default: False
+      mock_mode:
+        required: false
+        type: boolean
+        default: false
+      mock_scenario:
+        required: false
+        type: string
+        default: success
       dockerfile:
         description: 'The Dockerfile to use'
         required: false
@@ -81,9 +89,9 @@ env:
 jobs:
   build-push-digest:
     name: build
-    runs-on: ${{ matrix.runner_info.runner }}
+    runs-on: ${{ inputs.mock_mode && 'ubuntu-latest' || matrix.runner_info.runner }}
     container:
-      image: ${{ format('{0}:{1}-{2}-ubuntu22.04-py3.12', inputs.cann_swr_url, inputs.cann_image_version, inputs.soc) }}
+      image: ${{ inputs.mock_mode && 'node:20-bookworm' || format('{0}:{1}-{2}-ubuntu22.04-py3.12', inputs.cann_swr_url, inputs.cann_image_version, inputs.soc) }}
       env:
         SOC: ${{ inputs.soc }}
     permissions:
@@ -147,10 +155,33 @@ jobs:
         CSRC_HASH=$(printf '%s\n' "$CSRC_MANIFEST" | sha256sum | awk '{print $1}')
         echo "CSRC_HASH=$CSRC_HASH" >> "$GITHUB_OUTPUT"
 
+    - name: Record source commit
+      if: ${{ inputs.should_push }}
+      run: |
+        mkdir -p /tmp/source-commit
+        git rev-parse HEAD > /tmp/source-commit/commit.txt
+
+    - name: Upload source commit
+      if: ${{ inputs.should_push }}
+      uses: actions/upload-artifact@v7
+      with:
+        name: build-info-source-base-${{ github.run_attempt }}-${{ inputs.suffix || 'a2' }}-${{ matrix.runner_info.tag }}
+        path: /tmp/source-commit/commit.txt
+        if-no-files-found: error
+        retention-days: 30
+
     - name: Get architecture
       id: get_arch
       run: |
-        ARCH=$(uname -m)
+        # Hosted mock runners are amd64; use the matrix architecture for cache metadata.
+        if [ "${{ inputs.mock_mode }}" = "true" ]; then
+          case "${{ matrix.runner_info.tag }}" in
+            arm64) ARCH=aarch64 ;;
+            amd64) ARCH=x86_64 ;;
+          esac
+        else
+          ARCH=$(uname -m)
+        fi
         case "$ARCH" in
           x86_64) echo "arch=X64" >> "$GITHUB_OUTPUT" ;;
           aarch64) echo "arch=ARM64" >> "$GITHUB_OUTPUT" ;;
@@ -169,7 +200,7 @@ jobs:
         key: vllm-ascend-build-v2-${{ steps.get_arch.outputs.arch }}-${{ steps.get_base_image_tag.outputs.BASE_IMAGE_TAG }}-${{ steps.get_csrc_hash.outputs.CSRC_HASH }}
 
     - name: Login to SWR
-      if: ${{ inputs.should_push }}
+      if: ${{ inputs.should_push && !inputs.mock_mode }}
       uses: docker/login-action@v4
       with:
         registry: ${{ inputs.swr_registry }}
@@ -187,6 +218,7 @@ jobs:
         echo "pattern=${PATTERN}" >> "$GITHUB_OUTPUT"
 
     - name: Build and push
+      if: ${{ !inputs.mock_mode }}
       uses: docker/build-push-action@v7
       id: build
       with:
@@ -207,10 +239,25 @@ jobs:
         cache-from: type=registry,ref=${{ inputs.swr_temp_repo }}:${{ steps.cache-tag.outputs.value }}
         cache-to: ${{ inputs.should_push && format('type=registry,ref={0}:{1},mode=max', inputs.swr_temp_repo, steps.cache-tag.outputs.value) || '' }}
 
+    - name: Simulate architecture image build and push
+      if: ${{ inputs.mock_mode }}
+      id: mock-build
+      run: |
+        set -euo pipefail
+        if [ "${{ inputs.mock_scenario }}" = "missing" ] || \
+           { [ "${{ inputs.mock_scenario }}" = "rerun" ] && [ "$GITHUB_RUN_ATTEMPT" = 1 ]; }; then
+          if [ "${{ inputs.suffix }}" = "" ] && [ "${{ matrix.runner_info.tag }}" = "arm64" ]; then
+            echo "::error::Simulated missing a2 Ubuntu architecture image"
+            exit 1
+          fi
+        fi
+        digest=$(printf '%s' "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ inputs.suffix }}-${{ matrix.runner_info.tag }}" | sha256sum | cut -d' ' -f1)
+        echo "digest=sha256:${digest}" >> "$GITHUB_OUTPUT"
+
     # Quay.io/swr automatically cleans up untagged digests on a regular basis, with a cycle of approximately one hour. 
     # Add temporary tags to digests to prevent them from being removed.
     - name: Tag digest to prevent GC
-      if: ${{ inputs.should_push }}
+      if: ${{ inputs.should_push && !inputs.mock_mode }}
       run: |
         SUFFIX=""
         if [ -n "${{ inputs.suffix }}" ]; then
@@ -224,12 +271,12 @@ jobs:
         # a Docker manifest list which SWR accepts (no skopeo/sudo needed).
         docker buildx imagetools create \
           -t "${{ inputs.swr_temp_repo }}:$TAG" \
-          "${{ inputs.swr_temp_repo }}@${{ steps.build.outputs.digest }}"
+          "${{ inputs.swr_temp_repo }}@${{ steps.build.outputs.digest || steps.mock-build.outputs.digest }}"
 
     - name: Export digest
       run: |
         mkdir -p /tmp/digests
-        digest="${{ steps.build.outputs.digest }}"
+        digest="${{ steps.build.outputs.digest || steps.mock-build.outputs.digest }}"
         touch "/tmp/digests/${digest#sha256:}"
         ls -al /tmp/digests
 
@@ -242,10 +289,19 @@ jobs:
         retention-days: 1
 
   merge-image:
-    runs-on: linux-amd64-cpu-4
+    runs-on: ${{ inputs.mock_mode && 'ubuntu-latest' || 'linux-amd64-cpu-4' }}
     needs: build-push-digest
     if: ${{ inputs.should_push }}
     steps:
+      - uses: actions/checkout@v7
+        if: ${{ inputs.mock_mode }}
+      - name: Install simulated Docker publisher
+        if: ${{ inputs.mock_mode }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/mock-bin"
+          cp .github/workflows/scripts/mock_docker_publish.py "$RUNNER_TEMP/mock-bin/docker"
+          chmod +x "$RUNNER_TEMP/mock-bin/docker"
+          echo "$RUNNER_TEMP/mock-bin" >> "$GITHUB_PATH"
       - name: Download arm64 digests
         uses: actions/download-artifact@v8
         with:
@@ -314,7 +370,7 @@ jobs:
             latest=false
 
       - name: Login to SWR
-        if: ${{ inputs.should_push }}
+        if: ${{ inputs.should_push && !inputs.mock_mode }}
         uses: docker/login-action@v4
         with:
           registry: ${{ inputs.swr_registry }}
@@ -338,6 +394,8 @@ jobs:
           echo "Current tags:"
           echo "$TAGS"
 
+          PUBLISHED_DIR="${RUNNER_TEMP}/published-base"
+          mkdir -p "$PUBLISHED_DIR"
           for tag in $TAGS; do
             echo "Creating tag $tag"
 
@@ -352,13 +410,109 @@ jobs:
             done
 
             # shellcheck disable=SC2086
+            metadata_file="$PUBLISHED_DIR/$(printf '%s' "$tag" | sha256sum | cut -c1-16).json"
             docker buildx imagetools create \
               -t "$tag" \
+              --metadata-file "$metadata_file" \
               $DIGESTS
+            digest=$(jq -er '."containerimage.descriptor".digest' "$metadata_file")
+            jq -n --arg image_ref "$tag" --arg digest "$digest" \
+              '{image_ref: $image_ref, digest: $digest}' > "$metadata_file.tmp"
+            mv "$metadata_file.tmp" "$metadata_file"
           done
 
+      - name: Download source commits for build information
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          path: ${{ runner.temp }}/source-commits
+          pattern: build-info-source-base-*-${{ inputs.suffix || 'a2' }}-*
+
+      - name: Restore source commits from previous complete attempt
+        if: ${{ github.run_attempt > 1 }}
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          path: ${{ runner.temp }}/previous-build-info-bundles
+          pattern: build-info-run-*
+
+      - name: Merge restored source commits
+        if: ${{ github.run_attempt > 1 }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${{ runner.temp }}/source-commits"
+          for bundle in "${{ runner.temp }}"/previous-build-info-bundles/build-info-run-*/sources; do
+            [ -d "$bundle" ] || continue
+            cp -R "$bundle/." "${{ runner.temp }}/source-commits/"
+          done
+
+      - name: Collect published image information
+        env:
+          SOC: ${{ inputs.soc }}
+          SUFFIX: ${{ inputs.suffix }}
+          BUILD_TYPE: ${{ github.event_name == 'push' && 'tag' || 'base' }}
+        run: |
+          set -euo pipefail
+          case "$SOC" in
+            910b) HARDWARE=a2 ;;
+            a3|310p) HARDWARE="$SOC" ;;
+            950) HARDWARE=a5 ;;
+            *) echo "::error::Unsupported SoC: $SOC"; exit 1 ;;
+          esac
+          OS=ubuntu
+          if [[ "$SUFFIX" == *openeuler* ]]; then
+            OS=openeuler
+          fi
+          for arch in arm64 amd64; do
+            latest_attempt=0
+            for dir in "$RUNNER_TEMP"/source-commits/build-info-source-base-*-"${SUFFIX:-a2}"-"$arch"; do
+              [ -d "$dir" ] || continue
+              attempt="$(basename "$dir")"
+              attempt="${attempt#build-info-source-base-}"
+              attempt="${attempt%%-*}"
+              if (( attempt > latest_attempt && attempt <= GITHUB_RUN_ATTEMPT )); then
+                latest_attempt="$attempt"
+                commit_file="$dir/commit.txt"
+              fi
+            done
+            [ "$latest_attempt" -gt 0 ] && [ -f "$commit_file" ]
+            if [ "$arch" = arm64 ]; then ARM_COMMIT=$(cat "$commit_file"); else AMD_COMMIT=$(cat "$commit_file"); fi
+          done
+          REPORT_DIR="${RUNNER_TEMP}/build-info-image"
+          mkdir -p "$REPORT_DIR"
+          published_files=("$RUNNER_TEMP"/published-base/*.json)
+          if [ "${#published_files[@]}" -ne 1 ] || [ ! -f "${published_files[0]}" ]; then
+            echo "::error::Expected exactly one published base image"
+            exit 1
+          fi
+          image_ref=$(jq -er '.image_ref' "${published_files[0]}")
+          repository="${image_ref%:*}"
+          tag="${image_ref##*:}"
+          digest=$(jq -er '.digest' "${published_files[0]}")
+          jq -n \
+            --arg type "$BUILD_TYPE" \
+            --arg hardware "$HARDWARE" \
+            --arg os "$OS" \
+            --arg arm_commit "$ARM_COMMIT" \
+            --arg amd_commit "$AMD_COMMIT" \
+            --arg tag "$tag" \
+            --arg digest "$digest" \
+            --arg repository "$repository" \
+            '{type: $type, hardware: $hardware, os: $os,
+              commits: {arm64: $arm_commit, amd64: $amd_commit}, tag: $tag, digest: $digest,
+              repositories: [$repository]}' \
+            > "$REPORT_DIR/image.json"
+
+      - name: Upload published image information
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-info-image-${{ github.run_attempt }}-${{ github.event_name == 'push' && 'tag' || 'base' }}-${{ inputs.suffix || 'a2' }}
+          path: ${{ runner.temp }}/build-info-image/*.json
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Dispatch quay.io sync
-        if: ${{ inputs.should_push }}
+        if: ${{ inputs.should_push && !inputs.mock_mode }}
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.SYNC_TOOLS_TOKEN }}
