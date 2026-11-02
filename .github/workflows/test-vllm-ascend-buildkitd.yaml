@@ -8,6 +8,9 @@
 #
 # Matrix mirrors vllm-ascend's schedule_nightly_image_build_with_base.yaml:
 #   8 combos (chip a2/a3/310p/a5 x os ubuntu/openeuler) x amd64/arm64 = 16 builds.
+# The matrix is computed in the setup-matrix job (jq cartesian product incl. the
+# `load` multiplier) and fed via fromJSON — mixing `include` with sibling array
+# keys in a static matrix does NOT multiply in GitHub Actions.
 #
 # 压测并发/找极限：workflow_dispatch 时可多次触发叠加，或用 `load` 输入放大单次
 # 矩阵（16 组合 × load 数组长度，如 load=[0,1,2,3] → 64 并发），再结合
@@ -31,8 +34,34 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  setup-matrix:
     if: ${{ github.event_name != 'pull_request' || github.event.label.name == 'image-build' }}
+    runs-on: linux-amd64-cpu-2-hk
+    outputs:
+      matrix: ${{ steps.gen.outputs.matrix }}
+    steps:
+      - name: Generate build matrix
+        id: gen
+        run: |
+          LOAD='${{ inputs.load || '[0]' }}'
+          ALL=$(jq -nc '[
+            {target:"a2",   os:"ubuntu",    soc:"910b", dockerfile:"docker-vllm-ascend/Dockerfile",               base_os:"ubuntu22.04",    soc_version:"ascend910b1"},
+            {target:"a3",   os:"ubuntu",    soc:"a3",   dockerfile:"docker-vllm-ascend/Dockerfile.a3",             base_os:"ubuntu22.04",    soc_version:"ascend910_9391"},
+            {target:"310p", os:"ubuntu",    soc:"310p", dockerfile:"docker-vllm-ascend/Dockerfile.310p",           base_os:"ubuntu22.04",    soc_version:"ascend310p1"},
+            {target:"a5",   os:"ubuntu",    soc:"950",  dockerfile:"docker-vllm-ascend/Dockerfile.a5",             base_os:"ubuntu22.04",    soc_version:"ascend950dt_9582"},
+            {target:"a2",   os:"openeuler", soc:"910b", dockerfile:"docker-vllm-ascend/Dockerfile.openEuler",      base_os:"openeuler24.03", soc_version:"ascend910b1"},
+            {target:"a3",   os:"openeuler", soc:"a3",   dockerfile:"docker-vllm-ascend/Dockerfile.a3.openEuler",   base_os:"openeuler24.03", soc_version:"ascend910_9391"},
+            {target:"310p", os:"openeuler", soc:"310p", dockerfile:"docker-vllm-ascend/Dockerfile.310p.openEuler", base_os:"openeuler24.03", soc_version:"ascend310p1"},
+            {target:"a5",   os:"openeuler", soc:"950",  dockerfile:"docker-vllm-ascend/Dockerfile.a5.openEuler",   base_os:"openeuler24.03", soc_version:"ascend950dt_9582"}
+          ]')
+          MATRIX=$(echo "$ALL" | jq -c --argjson load "$LOAD" '
+            [ .[] as $c | ["amd64","arm64"][] as $platform | $load[] as $l
+              | $c + {platforms: $platform, load: $l}
+            ]')
+          echo "matrix={\"include\":$MATRIX}" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: setup-matrix
     name: Build ${{ matrix.target }}-${{ matrix.os }}-${{ matrix.platforms }}-[load ${{ matrix.load }}]
     # Run on the gy006 buildkit runners matching the target platform.
     runs-on: ${{ matrix.platforms == 'amd64' && 'linux-amd64-cpu-4-gy006' || 'linux-aarch64-cpu-4-gy006' }}
@@ -43,18 +72,7 @@ jobs:
     strategy:
       fail-fast: false
       # 不限制并发：16 个组合全量并行，压测 buildkitd 弹性扩缩容。
-      matrix:
-        include:
-          - {target: a2,   os: ubuntu,    soc: 910b, dockerfile: docker-vllm-ascend/Dockerfile,               base_os: ubuntu22.04,    soc_version: ascend910b1}
-          - {target: a3,   os: ubuntu,    soc: a3,   dockerfile: docker-vllm-ascend/Dockerfile.a3,             base_os: ubuntu22.04,    soc_version: ascend910_9391}
-          - {target: 310p, os: ubuntu,    soc: 310p, dockerfile: docker-vllm-ascend/Dockerfile.310p,           base_os: ubuntu22.04,    soc_version: ascend310p1}
-          - {target: a5,   os: ubuntu,    soc: 950,  dockerfile: docker-vllm-ascend/Dockerfile.a5,             base_os: ubuntu22.04,    soc_version: ascend950dt_9582}
-          - {target: a2,   os: openeuler, soc: 910b, dockerfile: docker-vllm-ascend/Dockerfile.openEuler,      base_os: openeuler24.03, soc_version: ascend910b1}
-          - {target: a3,   os: openeuler, soc: a3,   dockerfile: docker-vllm-ascend/Dockerfile.a3.openEuler,   base_os: openeuler24.03, soc_version: ascend910_9391}
-          - {target: 310p, os: openeuler, soc: 310p, dockerfile: docker-vllm-ascend/Dockerfile.310p.openEuler, base_os: openeuler24.03, soc_version: ascend310p1}
-          - {target: a5,   os: openeuler, soc: 950,  dockerfile: docker-vllm-ascend/Dockerfile.a5.openEuler,   base_os: openeuler24.03, soc_version: ascend950dt_9582}
-        platforms: [amd64, arm64]
-        load: ${{ fromJSON(inputs.load || '[0]') }}
+      matrix: ${{ fromJSON(needs.setup-matrix.outputs.matrix) }}
 
     steps:
       - name: Checkout code
