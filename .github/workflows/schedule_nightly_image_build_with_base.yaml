@@ -31,6 +31,17 @@ name: Nightly Image Build (with base)
 on:
   workflow_dispatch:
     inputs:
+      mock_mode:
+        description: 'Simulate base/nightly publication; publish build information to OBS.'
+        required: false
+        default: true
+        type: boolean
+      mock_scenario:
+        description: 'Mock scenario: success, missing image, rerun, index expiry, or collector queue.'
+        required: false
+        default: success
+        type: choice
+        options: [success, missing, rerun, expire, queue]
       vllm_ascend_branch:
         description: 'Branch to nightly test'
         required: true
@@ -38,6 +49,8 @@ on:
         type: choice
         options:
           - main
+          - czy_collect_build_info
+          - czy_collect_build_info_2
           - releases/v0.32.0rc
           - releases/v0.30.0
           - releases/v0.29.0rc
@@ -63,12 +76,13 @@ on:
         type: boolean
 
 permissions:
+  actions: read
   packages: write
   contents: read
 
 jobs:
   setup-matrix:
-    runs-on: linux-amd64-cpu-2-hk
+    runs-on: ${{ inputs.mock_mode && 'ubuntu-latest' || 'linux-amd64-cpu-2-hk' }}
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
       has_matrix: ${{ steps.matrix.outputs.has_matrix }}
@@ -115,10 +129,36 @@ jobs:
       # Build both architectures for every OS, keeping the fixed runner mapping
       # (and therefore the build cache) used by the nightly pipeline.
       build_type: 'full'
-      should_push: ${{ github.repository == 'vllm-project/vllm-ascend' }}
+      # Keep publication/report jobs enabled; mock_mode replaces only external image operations.
+      should_push: ${{ github.repository == 'vllm-project/vllm-ascend' || inputs.mock_mode }}
+      mock_mode: ${{ inputs.mock_mode }}
+      mock_scenario: ${{ inputs.mock_scenario || 'success' }}
       skip_base: ${{ inputs.skip_base || false }}
       swr_registry: 'swr.cn-north-12.myhuaweicloud.com'
     secrets:
       SWR_USERNAME: ${{ secrets.SWR_USERNAME }}
       SWR_PASSWORD: ${{ secrets.SWR_PASSWORD }}
       SYNC_TOOLS_TOKEN: ${{ secrets.SYNC_TOOLS_TOKEN }}
+
+  collect-build-info:
+    needs: [setup-matrix, build-image]
+    permissions:
+      actions: write
+      contents: read
+    # An intentionally skipped base is excluded from expected_types_json;
+    # missing nightly reports still make the collector fail.
+    if: ${{ always() && needs.setup-matrix.result == 'success' && needs.setup-matrix.outputs.has_matrix == 'true' && (inputs.mock_mode || github.repository == 'vllm-project/vllm-ascend') }}
+    uses: ./.github/workflows/_collect_build_info.yaml
+    with:
+      branch: ${{ inputs.vllm_ascend_branch }}
+      targets_json: ${{ needs.setup-matrix.outputs.matrix }}
+      expected_types_json: ${{ inputs.skip_base && '["nightly"]' || '["base","nightly"]' }}
+      mock_expire_active_urls: ${{ inputs.mock_mode && inputs.mock_scenario == 'expire' }}
+      mock_queue_hold: ${{ inputs.mock_mode && inputs.mock_scenario == 'queue' }}
+      obs_bucket: vllm-ascend
+      obs_endpoint: https://obs.cn-north-4.myhuaweicloud.com
+      obs_region: cn-north-4
+      obs_prefix: ci/build-info
+    secrets:
+      BUILD_INFO_OBS_AK: ${{ secrets.OBS_ACCESS_KEY_PRECISION }}
+      BUILD_INFO_OBS_SK: ${{ secrets.OBS_SECRET_ACCESS_KEY_PRECISION }}

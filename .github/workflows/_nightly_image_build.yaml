@@ -70,6 +70,14 @@ on:
         type: boolean
         default: false
         description: "If true, login to SWR and push built images. Set to false for PR verification builds."
+      mock_mode:
+        required: false
+        type: boolean
+        default: false
+      mock_scenario:
+        required: false
+        type: string
+        default: success
       cann_swr_url:
         required: false
         type: string
@@ -100,7 +108,7 @@ on:
 
 jobs:
   generate-matrix:
-    runs-on: linux-amd64-cpu-2-hk
+    runs-on: ${{ inputs.mock_mode && 'ubuntu-latest' || 'linux-amd64-cpu-2-hk' }}
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       tag_suffix_ubuntu: ${{ steps.set-tag.outputs.tag_suffix_ubuntu }}
@@ -183,12 +191,12 @@ jobs:
   build:
     needs: generate-matrix
     name: Build nightly-${{ inputs.target }}-${{ matrix.os }}-${{ matrix.arch_name }}
-    runs-on: ${{ matrix.arch_runner }}
+    runs-on: ${{ inputs.mock_mode && 'ubuntu-latest' || matrix.arch_runner }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
     container:
-      image: ${{ format('{0}:{1}-{2}-ubuntu22.04-py3.12', inputs.cann_swr_url, inputs.cann_image_version, inputs.soc) }}
+      image: ${{ inputs.mock_mode && 'node:20-bookworm' || format('{0}:{1}-{2}-ubuntu22.04-py3.12', inputs.cann_swr_url, inputs.cann_image_version, inputs.soc) }}
       env:
         SOC: ${{ inputs.soc }}
     steps:
@@ -197,9 +205,25 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.vllm_ascend_branch }}
 
+      - name: Record source commit
+        if: ${{ inputs.should_push }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          mkdir -p /tmp/source-commit
+          git rev-parse HEAD > /tmp/source-commit/commit.txt
+
+      - name: Upload source commit
+        if: ${{ inputs.should_push }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-info-source-nightly-${{ github.run_attempt }}-${{ inputs.target }}-${{ matrix.os }}-${{ matrix.arch_name }}
+          path: /tmp/source-commit/commit.txt
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Login to SWR
         id: login-swr
-        if: ${{ inputs.should_push }}
+        if: ${{ inputs.should_push && !inputs.mock_mode }}
         uses: docker/login-action@v4
         with:
           registry: ${{ inputs.swr_registry }}
@@ -264,7 +288,18 @@ jobs:
             --build-arg TAG_SUFFIX="${TAG_SUFFIX}"
           )
 
-          if [ "${{ inputs.should_push }}" = "true" ]; then
+          if [ "${{ inputs.mock_mode }}" = "true" ]; then
+            if [ "${{ inputs.target }}" = "a2" ] && [ "${{ matrix.os }}" = "ubuntu" ] && [ "${{ matrix.arch_name }}" = "arm64" ]; then
+              if [ "${{ inputs.mock_scenario }}" = "missing" ] || \
+                 { [ "${{ inputs.mock_scenario }}" = "rerun" ] && [ "$GITHUB_RUN_ATTEMPT" = 1 ]; }; then
+                echo "::error::Simulated missing a2 Ubuntu nightly image"
+                exit 1
+              fi
+            fi
+            echo "Simulated buildx build: ${PUSH_IMAGE}"
+            mkdir -p "$RUNNER_TEMP/mock-image"
+            printf '%s\n' "$PUSH_IMAGE" > "$RUNNER_TEMP/mock-image/ref.txt"
+          elif [ "${{ inputs.should_push }}" = "true" ]; then
             docker buildx build "${BUILD_ARGS[@]}" --provenance=false --sbom=false --output "type=image,name=${PUSH_IMAGE},oci-mediatypes=false,push=true" .
           else
             docker buildx build "${BUILD_ARGS[@]}" --provenance=false --sbom=false --output "type=image,name=${PUSH_IMAGE},oci-mediatypes=false" .
@@ -276,6 +311,15 @@ jobs:
             echo "unique_tag=${UNIQUE_TAG}"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Upload simulated published architecture reference
+        if: ${{ inputs.mock_mode }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: mock-published-nightly-${{ github.run_attempt }}-${{ inputs.target }}-${{ matrix.os }}-${{ matrix.arch_name }}
+          path: ${{ runner.temp }}/mock-image/ref.txt
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Log image push status
         if: ${{ inputs.should_push && github.repository_owner == 'vllm-project' && steps.login-swr.conclusion == 'success' }}
         run: |
@@ -283,18 +327,54 @@ jobs:
 
   merge-image:
     name: Merge multi-arch nightly-${{ inputs.target }}
-    runs-on: linux-amd64-cpu-4
+    runs-on: ${{ inputs.mock_mode && 'ubuntu-latest' || 'linux-amd64-cpu-4' }}
     needs: [generate-matrix, build]
     # Run even if some matrix instances failed. Each OS variant is merged
     # independently, only when BOTH arch images exist.
     if: ${{ inputs.should_push && always() && inputs.build_type == 'full' }}
     steps:
+      - uses: actions/checkout@v7
+        if: ${{ inputs.mock_mode }}
+      - name: Install simulated Docker publisher
+        if: ${{ inputs.mock_mode }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/mock-bin"
+          cp .github/workflows/scripts/mock_docker_publish.py "$RUNNER_TEMP/mock-bin/docker"
+          chmod +x "$RUNNER_TEMP/mock-bin/docker"
+          echo "$RUNNER_TEMP/mock-bin" >> "$GITHUB_PATH"
       - name: Login to SWR
+        if: ${{ !inputs.mock_mode }}
         uses: docker/login-action@v4
         with:
           registry: ${{ inputs.swr_registry }}
           username: ${{ secrets.SWR_USERNAME }}
           password: ${{ secrets.SWR_PASSWORD }}
+
+      - name: Download simulated published architecture references
+        if: ${{ inputs.mock_mode }}
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          pattern: mock-published-nightly-*-${{ inputs.target }}-${{ inputs.os_filter }}-*
+          path: ${{ runner.temp }}/mock-image-refs
+
+      - name: Download previous simulated publication bundle
+        if: ${{ inputs.mock_mode && github.run_attempt > 1 }}
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          pattern: build-info-run-*
+          path: ${{ runner.temp }}/previous-build-info-bundles
+
+      - name: Restore simulated published architecture references
+        if: ${{ inputs.mock_mode && github.run_attempt > 1 }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${{ runner.temp }}/mock-image-refs"
+          for bundle in "${{ runner.temp }}"/previous-build-info-bundles/build-info-run-*/mock-publications; do
+            [ -d "$bundle" ] || continue
+            cp -R "$bundle/." "${{ runner.temp }}/mock-image-refs/"
+          done
 
       - name: Create multi-arch manifest
         id: merge
@@ -319,6 +399,8 @@ jobs:
 
           MISSING_VARIANT=0
           MERGED_VARIANT=0
+          PUBLISHED_DIR="${RUNNER_TEMP}/published-nightly"
+          mkdir -p "$PUBLISHED_DIR"
           for OS_NAME in $OS_LIST; do
             if [ "$OS_NAME" = "openeuler" ]; then
               OS_MARK="-openeuler"
@@ -361,8 +443,14 @@ jobs:
               docker buildx imagetools create \
                 -t "${DEST}:${TAG}" \
                 -t "${DEST}:${UNIQUE_TAG}" \
+                --metadata-file "$PUBLISHED_DIR/${OS_NAME}-$(printf '%s' "$DEST" | sha256sum | cut -c1-16).json" \
                 "${TEMP}-amd64" \
                 "${TEMP}-arm64"
+              metadata_file="$PUBLISHED_DIR/${OS_NAME}-$(printf '%s' "$DEST" | sha256sum | cut -c1-16).json"
+              digest=$(jq -er '."containerimage.descriptor".digest' "$metadata_file")
+              jq -n --arg image_ref "${DEST}:${UNIQUE_TAG}" --arg digest "$digest" \
+                '{image_ref: $image_ref, digest: $digest}' > "$metadata_file.tmp"
+              mv "$metadata_file.tmp" "$metadata_file"
             done
             MERGED_VARIANT=1
           done
@@ -377,6 +465,98 @@ jobs:
             echo "::warning::Some variants were skipped due to missing arch images."
           fi
           echo "merged=${MERGED_VARIANT}" >> "$GITHUB_OUTPUT"
+
+      - name: Download source commits for build information
+        if: ${{ steps.merge.outputs.merged == '1' }}
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          path: ${{ runner.temp }}/source-commits
+          pattern: build-info-source-nightly-*-${{ inputs.target }}-*
+
+      - name: Restore source commits from previous complete attempt
+        if: ${{ steps.merge.outputs.merged == '1' && github.run_attempt > 1 }}
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          path: ${{ runner.temp }}/previous-build-info-bundles
+          pattern: build-info-run-*
+
+      - name: Merge restored source commits
+        if: ${{ steps.merge.outputs.merged == '1' && github.run_attempt > 1 }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${{ runner.temp }}/source-commits"
+          for bundle in "${{ runner.temp }}"/previous-build-info-bundles/build-info-run-*/sources; do
+            [ -d "$bundle" ] || continue
+            cp -R "$bundle/." "${{ runner.temp }}/source-commits/"
+          done
+
+      - name: Collect published image information
+        if: ${{ steps.merge.outputs.merged == '1' }}
+        env:
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          REPORT_DIR="${RUNNER_TEMP}/build-info-image"
+          mkdir -p "$REPORT_DIR"
+          for OS_NAME in ubuntu openeuler; do
+            REPOSITORIES=()
+            UNIQUE_TAG=""
+            IMAGE_DIGEST=""
+            for published_file in "$RUNNER_TEMP"/published-nightly/"${OS_NAME}"-*.json; do
+              [ -f "$published_file" ] || continue
+              IMAGE_REF=$(jq -er '.image_ref' "$published_file")
+              tag="${IMAGE_REF##*:}"
+              digest=$(jq -er '.digest' "$published_file")
+              if [ -n "$UNIQUE_TAG" ] && [ "$tag" != "$UNIQUE_TAG" ]; then
+                echo "::error::Published tags differ for $OS_NAME"
+                exit 1
+              fi
+              if [ -n "$IMAGE_DIGEST" ] && [ "$digest" != "$IMAGE_DIGEST" ]; then
+                echo "::error::Published digests differ for $OS_NAME"
+                exit 1
+              fi
+              UNIQUE_TAG="$tag"
+              IMAGE_DIGEST="$digest"
+              REPOSITORIES+=("${IMAGE_REF%:*}")
+            done
+            [ "${#REPOSITORIES[@]}" -gt 0 ] || continue
+            latest_attempt=0
+            for ARCH in amd64 arm64; do
+              selected=""
+              for file in "$RUNNER_TEMP"/source-commits/build-info-source-nightly-*-"$TARGET"-"$OS_NAME"-"$ARCH"/commit.txt; do
+                [ -f "$file" ] || continue
+                attempt=$(basename "$(dirname "$file")")
+                attempt="${attempt#build-info-source-nightly-}"
+                attempt="${attempt%%-*}"
+                if (( attempt <= GITHUB_RUN_ATTEMPT && attempt > latest_attempt )); then
+                  selected="$file"
+                  latest_attempt="$attempt"
+                fi
+              done
+              [ -n "$selected" ] || { echo "::error::Missing source commit for $OS_NAME-$ARCH"; exit 1; }
+              if [ "$ARCH" = amd64 ]; then AMD_COMMIT=$(cat "$selected"); else ARM_COMMIT=$(cat "$selected"); fi
+              latest_attempt=0
+            done
+            REPOSITORIES_JSON=$(printf '%s\n' "${REPOSITORIES[@]}" | jq -R . | jq -s .)
+            jq -n --arg hardware "$TARGET" --arg os "$OS_NAME" \
+              --arg arm_commit "$ARM_COMMIT" --arg amd_commit "$AMD_COMMIT" \
+              --arg tag "$UNIQUE_TAG" --arg digest "$IMAGE_DIGEST" --argjson repositories "$REPOSITORIES_JSON" \
+              '{type: "nightly", hardware: $hardware, os: $os,
+                commits: {arm64: $arm_commit, amd64: $amd_commit},
+                tag: $tag, digest: $digest, repositories: $repositories}' > "$REPORT_DIR/${OS_NAME}.json"
+          done
+          compgen -G "$REPORT_DIR/*.json" >/dev/null
+
+      - name: Upload published image information
+        if: ${{ steps.merge.outputs.merged == '1' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-info-image-${{ github.run_attempt }}-nightly-${{ inputs.target }}-${{ inputs.os_filter }}
+          path: ${{ runner.temp }}/build-info-image/*.json
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Dispatch cn-north-4 sync
         if: ${{ steps.merge.outputs.merged == '1' && github.repository == 'vllm-project/vllm-ascend' }}
