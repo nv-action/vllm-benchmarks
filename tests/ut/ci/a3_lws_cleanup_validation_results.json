@@ -1,0 +1,151 @@
+{
+  "date_utc": "2026-11-02",
+  "repository": "nv-action/vllm-benchmarks",
+  "repository_id": "940455377",
+  "branch": "test/a3-lws-cleanup-validation",
+  "tested_commit": "b7f92ede05c718078a59c64d25e8368840665f3f",
+  "overall_result": "partial: ordinary cancellation passed; manual recovery timed out before eventual garbage collection",
+  "workload": {
+    "hardware": "A3",
+    "nodes": 2,
+    "replicas": 1,
+    "size": 2,
+    "npu_resource_units_per_pod": 16,
+    "config": "GLM5_1-W8A8-A3-dual-nodes.yaml",
+    "image": "swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-main-a3",
+    "real_startup_script": true,
+    "benchmark_completion_tested": false,
+    "vllm_service_readiness_tested": false
+  },
+  "cases": [
+    {
+      "case": "ordinary cancel with shared local cleanup",
+      "result": "passed",
+      "workload_run": 41442647485,
+      "workload_conclusion": "cancelled",
+      "cleanup": {
+        "name": "Delete LWS resources",
+        "conclusion": "success",
+        "started_at": "2026-11-02T12:13:58Z",
+        "completed_at": "2026-11-02T12:15:18Z"
+      },
+      "cancel_api_response_at": "2026-11-02T12:13:00.592729+00:00",
+      "all_workload_resources_absent_observed_at": "2026-11-02T12:15:17Z"
+    },
+    {
+      "case": "manual recovery after successful local cleanup",
+      "result": "passed: no deletion required",
+      "recovery_run": 41443280240,
+      "source_run": 41442647485,
+      "recovery_job_conclusion": "success"
+    },
+    {
+      "case": "ordinary cancel with local cleanup disabled, followed by manual recovery",
+      "result": "failed: 120-second deletion wait exceeded; resources later disappeared without intervention",
+      "workload_run": 41443801239,
+      "workload_conclusion": "cancelled",
+      "local_cleanup": {
+        "name": "Delete LWS resources",
+        "conclusion": "skipped",
+        "started_at": "2026-11-02T12:22:26Z",
+        "completed_at": "2026-11-02T12:22:26Z"
+      },
+      "resources_still_running_after_source_completed_observed_at": "2026-11-02T12:23:07Z",
+      "recovery_run": 41444285339,
+      "recovery_job_conclusion": "failure",
+      "grace_step": {
+        "name": "Allow the same completion grace period as automatic recovery",
+        "conclusion": "success",
+        "started_at": "2026-11-02T12:26:02Z",
+        "completed_at": "2026-11-02T12:28:04Z"
+      },
+      "recovery_step": {
+        "name": "Recover only the selected validation run",
+        "conclusion": "failure",
+        "started_at": "2026-11-02T12:28:04Z",
+        "completed_at": "2026-11-02T12:30:08Z"
+      },
+      "deletion_reason": "job completed (cancelled)",
+      "timeline": [
+        {
+          "time": "2026-11-02T12:28:06Z",
+          "event": "LWS foreground deletion and stopping original worker observed"
+        },
+        {
+          "time": "2026-11-02T12:29:24Z",
+          "event": "controller events show replacement StatefulSet/worker creation; worker UID changed"
+        },
+        {
+          "time": "2026-11-02T12:29:35Z",
+          "event": "replacement worker began image pull"
+        },
+        {
+          "time": "2026-11-02T12:30:08Z",
+          "event": "recovery step failed while waiting for remaining pods"
+        },
+        {
+          "time": "2026-11-02T12:31:15Z",
+          "event": "replacement worker image pull completed after approximately 100 seconds"
+        },
+        {
+          "time": "2026-11-02T12:31:19Z",
+          "event": "kubelet began stopping the replacement worker"
+        },
+        {
+          "time": "2026-11-02T12:33:37Z",
+          "event": "read-only observation found no remaining LWS, Service, Pod or StatefulSet"
+        }
+      ]
+    },
+    {
+      "case": "force cancellation followed by manual recovery",
+      "result": "not executed: stopped further cases after recovery timeout"
+    },
+    {
+      "case": "workflow_run automatic trigger",
+      "result": "not tested: user selected manual recovery only"
+    }
+  ],
+  "environment_findings": [
+    {
+      "run": 41440580433,
+      "finding": "nightly-cpu lacks regex; provisioning stopped before resource creation; replaced regex with Python stdlib re"
+    },
+    {
+      "run": 41441136458,
+      "finding": "nightly-cpu lacks PyYAML; provisioning stopped before resource creation"
+    },
+    {
+      "run": 41441785965,
+      "finding": "read-only container inspection confirmed Python 3.11.11, jinja2 present, yaml and regex absent"
+    },
+    {
+      "fix": "install PyYAML==6.0.3 in both producer and recovery jobs, as authorized by user"
+    }
+  ],
+  "local_validation": {
+    "tests_passed": 58,
+    "changed_files_checks": "passed",
+    "full_format_check": "failed on seven pre-existing actionlint errors; each affected file was unchanged from origin/main"
+  },
+  "boundaries": {
+    "direct_cluster_operations": "read-only SSH kubectl queries only",
+    "manual_cluster_deletion_performed": false,
+    "extra_recovery_retries_performed": false,
+    "scheduled_sweeper_added": false,
+    "default_branch_changed": false,
+    "final_observed_workload_resources_remaining": 0
+  },
+  "follow_up": [
+    "Investigate LWS controller reconciliation during foreground deletion before treating the cleanup design as fully validated.",
+    "Do not infer success from parent disappearance: retain checks for replacement or terminating descendant pods.",
+    "Evaluate the deletion wait and step timeouts using the observed controller and image-pull delays.",
+    "Force-cancel validation remains outstanding."
+  ],
+  "cluster_controller_image": "k8s.m.daocloud.io/lws/lws:0.6.3",
+  "source_review": {
+    "url": "https://github.com/kubernetes-sigs/lws/blob/v0.6.3/pkg/controllers/leaderworkerset_controller.go#L97-L179",
+    "finding": "Reconcile gets the LWS and continues revision/StatefulSet/service reconciliation without checking its deletion timestamp.",
+    "interpretation": "This is consistent with replacement resources observed while foreground deletion kept the LWS visible. It is not evidence that extending the wait alone fixes the lifecycle race."
+  }
+}
