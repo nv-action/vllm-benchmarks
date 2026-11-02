@@ -186,6 +186,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
+      - name: Install cleanup dependency
+        timeout-minutes: 2
+        run: |
+          python3 -m pip install --disable-pip-version-check --retries 2 --timeout 15 \
+            -r .github/workflows/scripts/requirements-lws-cleanup.txt
+          python3 .github/workflows/scripts/lws_cleanup_validation.py --help > /dev/null
+
       - name: Set job variables
         id: vars
         env:

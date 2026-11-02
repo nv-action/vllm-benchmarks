@@ -8,7 +8,7 @@ on:
       mode:
         description: Launch a real two-node workload or manually recover a completed validation run
         type: choice
-        options: [launch, recover, inspect]
+        options: [launch, recover]
         default: launch
       skip_local_cleanup:
         description: Simulate a missing local cleanup step (validation only)
@@ -58,7 +58,7 @@ jobs:
       KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
 
   recover:
-    if: ${{ !cancelled() && (inputs.mode == 'recover' || inputs.mode == 'inspect') && github.ref == 'refs/heads/test/a3-lws-cleanup-validation' }}
+    if: ${{ !cancelled() && inputs.mode == 'recover' && github.ref == 'refs/heads/test/a3-lws-cleanup-validation' }}
     runs-on: linux-aarch64-a3-800t-0
     timeout-minutes: 10
     container:
@@ -74,29 +74,24 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Install cleanup dependency
+        timeout-minutes: 2
+        run: |
+          python3 -m pip install --disable-pip-version-check --retries 2 --timeout 15 \
+            -r .github/workflows/scripts/requirements-lws-cleanup.txt
+          python3 .github/workflows/scripts/lws_cleanup_validation.py --help > /dev/null
+
       - name: Decode kubeconfig and check tools
         env:
           KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
         run: |
           umask 077
           printf '%s' "$KUBECONFIG_B64" | base64 -d > "$KUBECONFIG"
+          python3 .github/workflows/scripts/lws_cleanup_validation.py --help
           kubectl version --client
-      - name: Inspect existing Python interpreters
-        if: ${{ inputs.mode == 'inspect' }}
-        run: |
-          command -v python python3 jinja2 kubectl
-          ls -l "$(command -v python)" "$(command -v python3)" "$(command -v jinja2)"
-          head -n 1 "$(command -v jinja2)"
-          for executable in python python3 python3.10 python3.11 python3.12; do
-            if command -v "$executable" > /dev/null; then
-              "$executable" -c 'import sys, importlib.util; print(sys.executable, sys.version); print({name: str(importlib.util.find_spec(name)) for name in ("yaml", "regex", "jinja2")})'
-            fi
-          done
       - name: Allow the same completion grace period as automatic recovery
-        if: ${{ inputs.mode == 'recover' }}
         run: sleep 120
       - name: Recover only the selected validation run
-        if: ${{ inputs.mode == 'recover' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SOURCE_RUN_ID: ${{ inputs.source_run_id }}
