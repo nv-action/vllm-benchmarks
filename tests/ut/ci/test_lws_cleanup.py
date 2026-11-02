@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """CPU-only lifecycle tests; no GitHub or Kubernetes writes are performed."""
 
+import builtins
 import copy
 import importlib.util
 import json
@@ -351,3 +352,17 @@ def test_ambiguous_job_identity_rejected(monkeypatch):
     monkeypatch.setattr(cleanup.time, "sleep", Mock())
     with pytest.raises(cleanup.CleanupError, match="exactly one"):
         github.current_job("100", "1", "ours")
+
+
+def test_cleanup_import_does_not_require_regex(monkeypatch):
+    original_import = builtins.__import__
+
+    def import_without_regex(name, *args, **kwargs):
+        if name == "regex":
+            raise ModuleNotFoundError("nightly-cpu does not provide regex")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", import_without_regex)
+    module = importlib.util.module_from_spec(SPEC)
+    SPEC.loader.exec_module(module)
+    assert module.positive_id("100") == "100"

@@ -1,13 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 """Record CI ownership before provisioning, and reclaim finished LWS tasks.
 
-Requires Python, PyYAML, regex and kubectl. GitHub credentials are read only from
+Requires Python, PyYAML and kubectl. GitHub credentials are read only from
 GITHUB_TOKEN; cluster credentials are handled by kubectl's normal kubeconfig.
 """
 
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -15,7 +16,6 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import regex as re
 import yaml
 
 LABEL_PREFIX = "ci.vllm.ai/"
