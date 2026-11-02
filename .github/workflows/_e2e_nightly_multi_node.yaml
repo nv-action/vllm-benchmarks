@@ -3,6 +3,16 @@ name: 'e2e nightly test multi_node'
 on:
   workflow_call:
     inputs:
+      cleanup_validation:
+        required: false
+        type: boolean
+        default: false
+        description: Isolate this run for the A3 cleanup validation branch
+      skip_local_cleanup:
+        required: false
+        type: boolean
+        default: false
+        description: Simulate missing local cleanup only during validation
       soc_version:
         required: true
         type: string
@@ -162,7 +172,7 @@ jobs:
     timeout-minutes: ${{ inputs.request_id != '' && (inputs.aop_multi_enabled && 1440 || 240) || fromJSON(inputs.testcase_timeout) }}
     # This is the runner with no NPU for k8s controller
     runs-on: ${{ inputs.runner }}
-    if: ${{ inputs.should_run }}
+    if: ${{ !cancelled() && inputs.should_run }}
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-cpu
       env:
@@ -178,6 +188,8 @@ jobs:
 
       - name: Set job variables
         id: vars
+        env:
+          CLEANUP_VALIDATION: ${{ inputs.cleanup_validation }}
         run: |
           # Derive a unique, valid k8s resource name from config_file_path.
           # Append 6-char random suffix to avoid conflicts; total length capped at 63 chars.
@@ -187,6 +199,11 @@ jobs:
           lws_suffix=$(echo "$config_stem" | tr '[:upper:]' '[:lower:]' | tr '._' '-' | cut -c1-43)
           rand_suffix=$(tr -d '-' < /proc/sys/kernel/random/uuid | cut -c1-6)
           LWS_NAME="vllm-${lws_suffix}-${rand_suffix}"
+          SCRIPT_DIR=/root/.cache/tests
+          if [ "$CLEANUP_VALIDATION" = true ]; then
+            LWS_NAME="vllm-cleanup-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            SCRIPT_DIR="/root/.cache/cleanup-validation/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/scripts"
+          fi
 
           branch="${{ inputs.vllm_ascend_branch }}"
           if [ -n "$branch" ]; then
@@ -202,6 +219,7 @@ jobs:
           BENCHMARK_JOB_NAME="${branch}-${job_name}"
 
           {
+            echo "SCRIPT_DIR=${SCRIPT_DIR}"
             echo "LWS_NAME=${LWS_NAME}"
             echo "LEADER_POD=${LWS_NAME}-0"
             echo "LOG_PREFIX=${{ inputs.ascend_log_prefix }}/${LWS_NAME}"
@@ -214,12 +232,13 @@ jobs:
 
       - name: Prepare scripts
         run: |
-          install -D tests/e2e/common/multi_node/run.sh /root/.cache/tests/run.sh
-          install -D tests/e2e/common/multi_node/download_archive.sh /root/.cache/tests/download_archive.sh
-          install -D tests/e2e/nightly/scripts/bisect_args.sh /root/.cache/tests/bisect_args.sh
-          install -D .github/workflows/scripts/collect_download.py /root/.cache/tests/collect_download.py
+          install -D tests/e2e/common/multi_node/run.sh "$SCRIPT_DIR"/run.sh
+          install -D tests/e2e/common/multi_node/download_archive.sh "$SCRIPT_DIR"/download_archive.sh
+          install -D tests/e2e/nightly/scripts/bisect_args.sh "$SCRIPT_DIR"/bisect_args.sh
+          install -D .github/workflows/scripts/collect_download.py "$SCRIPT_DIR"/collect_download.py
 
       - name: Clear resources
+        if: ${{ !inputs.cleanup_validation }}
         run: |
           set -euo pipefail
           TIMEOUT=120
@@ -251,6 +270,9 @@ jobs:
 
       - name: Launch cluster
         env:
+          GITHUB_TOKEN: ${{ github.token }}
+          JOB_TIMEOUT_MINUTES: ${{ inputs.request_id != '' && (inputs.aop_multi_enabled && 1440 || 240) || fromJSON(inputs.testcase_timeout) }}
+          CLEANUP_VALIDATION: ${{ inputs.cleanup_validation }}
           BISECT_GOOD_COMMIT: ${{ inputs.bisect_good_commit }}
           BISECT_BAD_COMMIT: ${{ inputs.bisect_bad_commit }}
           BISECT_FAIL_CONFIRM_RETRIES: ${{ inputs.bisect_fail_confirm_retries }}
@@ -331,6 +353,18 @@ jobs:
             -D bisect_config_base_path="$BISECT_CONFIG_BASE_PATH" \
             --outfile lws.yaml
 
+          python3 .github/workflows/scripts/lws_cleanup.py stamp \
+            --manifest lws.yaml --namespace "$NAMESPACE" \
+            --repository "$GITHUB_REPOSITORY" --repository-id "$GITHUB_REPOSITORY_ID" \
+            --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --workflow-ref "$GITHUB_WORKFLOW_REF" --runner-name "$RUNNER_NAME" \
+            --timeout-minutes "$JOB_TIMEOUT_MINUTES"
+
+          if [ "$CLEANUP_VALIDATION" = true ]; then
+            python3 .github/workflows/scripts/lws_cleanup_validation.py prepare \
+              --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+              --repository "$GITHUB_REPOSITORY" --repository-id "$GITHUB_REPOSITORY_ID"
+          fi
           kubectl apply -f ./lws.yaml
 
       - name: Wait for pods ready
@@ -582,7 +616,7 @@ jobs:
             --vllm-version "${{ steps.stream_logs.outputs.vllm_hash }}"
 
       - name: Fetch benchmark results from PVC
-        if: always()
+        if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
           mkdir -p /tmp/benchmark_results
@@ -604,7 +638,9 @@ jobs:
           fi
 
       - name: Post process
-        if: always()
+        if: ${{ !cancelled() && env.LWS_NAME != '' }}
+        timeout-minutes: 2
+        continue-on-error: true
         env:
           DOWNLOAD_PATH: ${{ inputs.download_path }}
         run: |
@@ -629,35 +665,17 @@ jobs:
               "$DOWNLOAD_PATH" --list --node-count ${{ inputs.size }})
           fi
 
-          echo "Current pod status:"
-          kubectl get pods -n "$NAMESPACE" --ignore-not-found=true
-
-          echo "Deleting resources for [$LWS_NAME]..."
-          kubectl delete -f ./lws.yaml --ignore-not-found=true --wait=false || true
-
-          echo "Waiting for pods of [$LWS_NAME] to fully terminate..."
-          TIMEOUT=300
-          SLEEP_INTERVAL=5
-          START_TIME=$(date +%s)
-          while true; do
-            ELAPSED=$(( $(date +%s) - START_TIME ))
-            if [[ $ELAPSED -ge $TIMEOUT ]]; then
-              echo "Timeout reached ($TIMEOUT seconds) waiting for termination, continuing anyway."
-              kubectl get pods -n "$NAMESPACE" | grep "^${LWS_NAME}-" || true
-              break
-            fi
-            PODS_EXIST=$(kubectl get pods -n "$NAMESPACE" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null \
-              | tr ' ' '\n' | grep "^${LWS_NAME}-" || true)
-            if [[ -z "$PODS_EXIST" ]]; then
-              echo "All pods for [$LWS_NAME] have terminated."
-              break
-            fi
-            echo "Waiting for pods to terminate: $PODS_EXIST"
-            sleep $SLEEP_INTERVAL
-          done
+      - name: Delete LWS resources
+        if: ${{ (success() || failure() || cancelled()) && env.LWS_NAME != '' && !(inputs.cleanup_validation && inputs.skip_local_cleanup) }}
+        timeout-minutes: 3
+        run: |
+          python3 .github/workflows/scripts/lws_cleanup.py cleanup \
+            --namespace "$NAMESPACE" --repository "$GITHUB_REPOSITORY" \
+            --repository-id "$GITHUB_REPOSITORY_ID" --run-id "$GITHUB_RUN_ID" \
+            --attempt "$GITHUB_RUN_ATTEMPT" --task-id "$LWS_NAME" --wait-seconds 120
 
       - name: Collect requested paths from test pods
-        if: ${{ always() && inputs.download_path != '' }}
+        if: ${{ !cancelled() && inputs.download_path != '' }}
         id: collect_download
         continue-on-error: true
         env:
@@ -704,7 +722,7 @@ jobs:
           echo "name=nightly-download-${safe_label}" >> "$GITHUB_OUTPUT"
 
       - name: Upload requested paths
-        if: ${{ always() && steps.collect_download.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.collect_download.outcome == 'success' }}
         id: upload_download
         continue-on-error: true
         uses: actions/upload-artifact@v7
@@ -716,12 +734,12 @@ jobs:
           compression-level: 0
 
       - name: Remove uploaded archives from shared storage
-        if: ${{ always() && steps.upload_download.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.upload_download.outcome == 'success' }}
         continue-on-error: true
         run: rm -f "${LOG_PREFIX}"/node*_download.tar.gz
 
       - name: Collect Ascend logs
-        if: always()
+        if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
           size="${{ inputs.size }}"
@@ -754,7 +772,7 @@ jobs:
           tar -czf /tmp/ascend-logs.tar.gz -C /tmp collected-logs
 
       - name: Upload Ascend logs
-        if: always()
+        if: ${{ !cancelled() }}
         continue-on-error: true
         uses: ascend-gha-runners/artifact/upload@v0.3
         with:
@@ -765,7 +783,7 @@ jobs:
           retention-days: 7
 
       - name: Upload Ascend logs (GitHub Artifacts)
-        if: always()
+        if: ${{ !cancelled() }}
         continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
@@ -774,12 +792,12 @@ jobs:
           retention-days: 7
 
       - name: Set benchmark artifact timestamp
-        if: always()
+        if: ${{ !cancelled() }}
         id: bench_ts
         run: echo "artifact_ts=$(date -u +%Y%m%dT%H%M%SZ)" >> $GITHUB_OUTPUT
 
       - name: Upload benchmark results
-        if: always()
+        if: ${{ !cancelled() }}
         continue-on-error: true
         uses: ascend-gha-runners/artifact/upload@v0.3
         with:
@@ -791,7 +809,7 @@ jobs:
           retention-days: 90
 
       - name: Upload benchmark results (GitHub Artifacts)
-        if: always()
+        if: ${{ !cancelled() }}
         continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
