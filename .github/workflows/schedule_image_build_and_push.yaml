@@ -28,6 +28,17 @@ on:
     types: [ labeled ]
   workflow_dispatch:
     inputs:
+      mock_mode:
+        description: 'Simulate image publication; publish build information to OBS.'
+        required: false
+        default: true
+        type: boolean
+      mock_scenario:
+        description: 'Mock outcome for the a2 Ubuntu image.'
+        required: false
+        default: success
+        type: choice
+        options: [success, missing, rerun]
       docker_ref:
         description: 'Branch to build (main or releases/*).'
         default: "main"
@@ -35,6 +46,7 @@ on:
         type: choice
         options:
           - 'main'
+          - 'czy_collect_build_info'
           - 'releases/v0.30.0'
           - 'releases/v0.29.0rc'
           - 'releases/v0.28.0rc'
@@ -49,12 +61,13 @@ on:
           - 'releases/v0.18.0'
 
 permissions:
+  actions: read
   packages: write
   contents: read
 
 jobs:
   setup-matrix:
-    runs-on: linux-amd64-cpu-2-hk
+    runs-on: ${{ (inputs.mock_mode || (github.event_name == 'push' && github.repository == 'nv-action/vllm-benchmarks')) && 'ubuntu-latest' || 'linux-amd64-cpu-2-hk' }}
     if: ${{ github.event_name != 'pull_request' || github.event.label.name == 'image-build' }}
     outputs:
       build_meta: ${{ steps.matrix.outputs.build_meta }}
@@ -88,10 +101,34 @@ jobs:
       dockerfile: ${{ matrix.build_meta.dockerfile }}
       suffix: ${{ matrix.build_meta.suffix }}
       soc: ${{ matrix.build_meta.soc }}
-      should_push: ${{ github.repository == 'vllm-project/vllm-ascend' && github.event_name != 'pull_request' }}
+      # Keep publication/report jobs enabled; mock_mode replaces only external image operations.
+      should_push: ${{ (github.repository == 'vllm-project/vllm-ascend' || inputs.mock_mode || (github.event_name == 'push' && github.repository == 'nv-action/vllm-benchmarks')) && github.event_name != 'pull_request' }}
+      mock_mode: ${{ inputs.mock_mode || (github.event_name == 'push' && github.repository == 'nv-action/vllm-benchmarks') }}
+      mock_scenario: ${{ inputs.mock_scenario || 'success' }}
       branch_ref: ${{ inputs.docker_ref }}
       schedule_tag_pattern: 'main'
     secrets:
       SWR_USERNAME: ${{ secrets.SWR_USERNAME }}
       SWR_PASSWORD: ${{ secrets.SWR_PASSWORD }}
       SYNC_TOOLS_TOKEN: ${{ secrets.SYNC_TOOLS_TOKEN }}
+
+  collect-build-info:
+    needs: [setup-matrix, image_build]
+    permissions:
+      actions: write
+      contents: read
+    # Check the reports even if a matrix leg failed or was skipped. The
+    # collector fails until every image expected from this run is published.
+    if: ${{ always() && needs.setup-matrix.result == 'success' && ((inputs.mock_mode || (github.event_name == 'push' && github.repository == 'nv-action/vllm-benchmarks')) || github.repository == 'vllm-project/vllm-ascend') && github.event_name != 'pull_request' }}
+    uses: ./.github/workflows/_collect_build_info.yaml
+    with:
+      branch: ${{ github.event_name == 'workflow_dispatch' && inputs.docker_ref || github.ref_name }}
+      targets_json: ${{ needs.setup-matrix.outputs.build_meta }}
+      expected_types_json: ${{ github.event_name == 'push' && '["tag"]' || '["base"]' }}
+      obs_bucket: vllm-ascend
+      obs_endpoint: https://obs.cn-north-4.myhuaweicloud.com
+      obs_region: cn-north-4
+      obs_prefix: ci/build-info
+    secrets:
+      BUILD_INFO_OBS_AK: ${{ secrets.OBS_ACCESS_KEY_PRECISION }}
+      BUILD_INFO_OBS_SK: ${{ secrets.OBS_SECRET_ACCESS_KEY_PRECISION }}

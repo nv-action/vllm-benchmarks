@@ -68,6 +68,14 @@ on:
         type: boolean
         default: false
         description: "If true, login to SWR and push built images."
+      mock_mode:
+        required: false
+        type: boolean
+        default: false
+      mock_scenario:
+        required: false
+        type: string
+        default: success
       skip_base:
         required: false
         type: boolean
@@ -89,13 +97,15 @@ on:
 jobs:
   build-base:
     name: Build base image (${{ inputs.suffix || 'a2' }}-${{ inputs.os }})
-    if: ${{ !inputs.skip_base && github.repository == 'vllm-project/vllm-ascend' }}
+    if: ${{ !inputs.skip_base && (github.repository == 'vllm-project/vllm-ascend' || inputs.mock_mode) }}
     uses: ./.github/workflows/_schedule_image_build.yaml
     with:
       dockerfile: ${{ inputs.dockerfile }}
       suffix: ${{ inputs.suffix }}
       soc: ${{ inputs.soc }}
       should_push: ${{ inputs.should_push }}
+      mock_mode: ${{ inputs.mock_mode }}
+      mock_scenario: ${{ inputs.mock_scenario }}
       schedule_tag_pattern: 'main'
       branch_ref: ${{ inputs.vllm_ascend_branch || 'main' }}
       swr_registry: ${{ inputs.swr_registry }}
@@ -116,6 +126,8 @@ jobs:
       base_image_branch: ${{ inputs.base_image_branch || inputs.vllm_ascend_branch }}
       build_type: ${{ inputs.build_type }}
       should_push: ${{ inputs.should_push }}
+      mock_mode: ${{ inputs.mock_mode }}
+      mock_scenario: ${{ inputs.mock_scenario }}
       soc: ${{ inputs.soc }}
     secrets:
       SWR_USERNAME: ${{ secrets.SWR_USERNAME }}
