@@ -1,0 +1,39 @@
+name: PR-only sparse checkout probe
+description: Separate local action loading from execution of a nested helper script.
+
+inputs:
+  expected-sha:
+    description: Exact PR revision that must supply this action.
+    required: true
+
+outputs:
+  entered:
+    description: Whether the runner entered the composite action.
+    value: ${{ steps.enter.outputs.entered }}
+  marker:
+    description: Marker emitted only by the checked-out helper script.
+    value: ${{ steps.helper.outputs.marker }}
+  checkout-sha:
+    description: Actual revision read from the helper checkout.
+    value: ${{ steps.helper.outputs.checkout-sha }}
+
+runs:
+  using: composite
+  steps:
+    - name: Mark composite action entry
+      id: enter
+      shell: bash
+      env:
+        PROBE_ACTION_PATH: ${{ github.action_path }}
+      run: |
+        printf 'Composite action entered; action_path=%s; workspace=%s\n' \
+          "$PROBE_ACTION_PATH" "$GITHUB_WORKSPACE"
+        echo 'entered=true' >> "$GITHUB_OUTPUT"
+
+    - name: Execute the nested helper
+      id: helper
+      shell: bash
+      env:
+        PROBE_ACTION_PATH: ${{ github.action_path }}
+        PROBE_EXPECTED_SHA: ${{ inputs.expected-sha }}
+      run: bash "$PROBE_ACTION_PATH/scripts/probe.sh"

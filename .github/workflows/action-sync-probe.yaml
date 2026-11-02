@@ -1,0 +1,41 @@
+name: Local action synchronization probe
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/action-sync-probe.yaml
+      - .github/workflows/_action_sync_probe.yaml
+      - .github/workflows/scripts/probe_action_sync.py
+      - tests/ut/_tools/test_probe_action_sync.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: action-sync-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    name: ${{ matrix.environment }} / ${{ matrix.location }}
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [hosted-container, a2]
+        location: [workspace, hidden, temp, commands]
+        include:
+          - environment: hosted-container
+            runner: ubuntu-latest
+            image: ubuntu:22.04
+          - environment: a2
+            runner: linux-aarch64-a2b3-1
+            image: swr.cn-north-12.myhuaweicloud.com/atlas_inference/cann:9.2.0_20260928212200-910b-ubuntu22.04-py3.12
+    uses: ./.github/workflows/_action_sync_probe.yaml
+    with:
+      environment: ${{ matrix.environment }}
+      runner: ${{ matrix.runner }}
+      image: ${{ matrix.image }}
+      location: ${{ matrix.location }}

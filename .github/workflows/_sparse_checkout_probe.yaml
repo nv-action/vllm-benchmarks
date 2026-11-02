@@ -1,0 +1,208 @@
+name: Probe sparse checkout and local action loading
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      runner:
+        type: string
+        required: true
+      image:
+        type: string
+        required: true
+      checkout:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ${{ inputs.runner }}
+    # An empty image leaves the hosted control job outside a container.
+    container: ${{ inputs.image }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Bootstrap Git and Python
+        id: bootstrap
+        env:
+          PROBE_ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          if command -v git >/dev/null && command -v python3 >/dev/null; then
+            git --version
+            python3 --version
+            exit 0
+          fi
+          case "$PROBE_ENVIRONMENT" in
+            cpu|a2|a3)
+              sed -Ei 's@(ports|archive).ubuntu.com@cache-service.nginx-pypi-cache.svc.cluster.local:8081@g' /etc/apt/sources.list
+              ;;
+          esac
+          apt-get update -y
+          apt-get install -y --no-install-recommends git python3 ca-certificates
+          git --version
+          python3 --version
+
+      - name: Checkout the PR implementation
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          path: .ci-workflow
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            ${{ inputs.checkout == 'bare' && '.github/actions/csrc-l1-restore' || inputs.checkout == 'wildcard' && '.github/actions/csrc-l1-restore/*' || '' }}
+            ${{ inputs.checkout == 'bare' && '.github/actions/sparse-checkout-probe' || inputs.checkout == 'wildcard' && '.github/actions/sparse-checkout-probe/*' || '' }}
+
+      - name: Inspect checked-out files before loading the action
+        id: inspect
+        if: ${{ always() && steps.bootstrap.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          PROBE_ENVIRONMENT: ${{ inputs.environment }}
+          PROBE_CASE: ${{ inputs.checkout }}
+          PROBE_EXPECTED_SHA: ${{ github.sha }}
+          PROBE_RUNNER: ${{ runner.name }}
+          PROBE_ARCH: ${{ runner.arch }}
+          PROBE_CONTEXT_WORKSPACE: ${{ github.workspace }}
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import platform
+          import subprocess
+          from pathlib import Path
+
+          root = Path('.ci-workflow').resolve()
+
+          def git(*args):
+              result = subprocess.run(
+                  ['git', '-c', f'safe.directory={root}', '-C', str(root), *args],
+                  capture_output=True, text=True,
+              )
+              return result.stdout.strip() if result.returncode == 0 else result.stderr.strip()
+
+          paths = [
+              '.github/actions/csrc-l1-restore/action.yaml',
+              '.github/actions/sparse-checkout-probe/action.yaml',
+              '.github/actions/sparse-checkout-probe/scripts/probe.sh',
+          ]
+          files = {}
+          for name in paths:
+              path = root / name
+              exists = path.is_file()
+              files[name] = {
+                  'exists': exists,
+                  'sha256': hashlib.sha256(path.read_bytes()).hexdigest() if exists else None,
+                  'index': git('ls-files', '-t', '--', name),
+              }
+          sparse_path = Path(git('rev-parse', '--git-path', 'info/sparse-checkout'))
+          if not sparse_path.is_absolute():
+              sparse_path = root / sparse_path
+          data = {
+              'environment': os.environ['PROBE_ENVIRONMENT'],
+              'case': os.environ['PROBE_CASE'],
+              'runner': os.environ['PROBE_RUNNER'],
+              'runner_arch': os.environ['PROBE_ARCH'],
+              'machine': platform.machine(),
+              'git_version': git('--version'),
+              'expected_sha': os.environ['PROBE_EXPECTED_SHA'],
+              'checkout_sha': git('rev-parse', 'HEAD'),
+              'workspace': os.environ['GITHUB_WORKSPACE'],
+              'workspace_context': os.environ['PROBE_CONTEXT_WORKSPACE'],
+              'checkout_path': str(root),
+              'patterns': sparse_path.read_text() if sparse_path.is_file() else None,
+              'sparse_enabled': git('config', '--get', 'core.sparseCheckout'),
+              'cone_enabled': git('config', '--get', 'core.sparseCheckoutCone'),
+              'files': files,
+          }
+          output = Path('sparse-probe-results')
+          output.mkdir(exist_ok=True)
+          (output / 'inspection.json').write_text(json.dumps(data, indent=2) + '\n')
+          print(json.dumps(data, indent=2), flush=True)
+          assert data['checkout_sha'] == data['expected_sha'], 'Wrong checkout revision'
+          assert all(item['exists'] for item in files.values()), 'Missing checkout files'
+          if data['case'] != 'full':
+              assert data['sparse_enabled'] == 'true', 'Sparse checkout was not enabled'
+              assert data['cone_enabled'] != 'true', 'Expected non-cone mode'
+          PY
+
+      - name: Load and execute the PR-only local action
+        id: action
+        if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
+        continue-on-error: true
+        uses: ./.ci-workflow/.github/actions/sparse-checkout-probe
+        with:
+          expected-sha: ${{ github.sha }}
+
+      - name: Record the result and assert all stages passed
+        if: ${{ always() && steps.bootstrap.outcome == 'success' }}
+        env:
+          PROBE_ENVIRONMENT: ${{ inputs.environment }}
+          PROBE_CASE: ${{ inputs.checkout }}
+          PROBE_CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+          PROBE_INSPECT_OUTCOME: ${{ steps.inspect.outcome }}
+          PROBE_ACTION_OUTCOME: ${{ steps.action.outcome }}
+          PROBE_ACTION_ENTERED: ${{ steps.action.outputs.entered }}
+          PROBE_ACTION_MARKER: ${{ steps.action.outputs.marker }}
+          PROBE_ACTION_SHA: ${{ steps.action.outputs.checkout-sha }}
+          PROBE_EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          output = Path('sparse-probe-results')
+          output.mkdir(exist_ok=True)
+          inspection = output / 'inspection.json'
+          data = json.loads(inspection.read_text()) if inspection.is_file() else {}
+          stages = {
+              'checkout': os.environ['PROBE_CHECKOUT_OUTCOME'],
+              'inspect': os.environ['PROBE_INSPECT_OUTCOME'],
+              'action': os.environ['PROBE_ACTION_OUTCOME'],
+          }
+          data.update({
+              'environment': os.environ['PROBE_ENVIRONMENT'],
+              'case': os.environ['PROBE_CASE'],
+              'stages': stages,
+              'action_entered': os.environ['PROBE_ACTION_ENTERED'],
+              'action_marker': os.environ['PROBE_ACTION_MARKER'],
+              'action_sha': os.environ['PROBE_ACTION_SHA'],
+          })
+          (output / 'result.json').write_text(json.dumps(data, indent=2) + '\n')
+          print(json.dumps(data, indent=2), flush=True)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write(f"### {data['environment']} / {data['case']}\n\n")
+              summary.write('| Stage | Outcome |\n| --- | --- |\n')
+              for name, result in stages.items():
+                  summary.write(f'| {name} | {result} |\n')
+              for name, record in data.get('files', {}).items():
+                  summary.write(f"| `{name}` exists | {record['exists']} |\n")
+              summary.write(f"\nAction entered: `{data['action_entered']}`; marker: `{data['action_marker']}`\n")
+              summary.write(f"\nCheckout SHA: `{data.get('checkout_sha', 'unavailable')}`\n")
+          assert all(value == 'success' for value in stages.values()), 'A probe stage failed; see result.json'
+          assert data['action_entered'] == 'true', 'Composite action was not entered'
+          assert data['action_marker'] == 'pr-only-sparse-checkout-probe-v1', 'Helper script did not complete'
+          assert data['action_sha'] == os.environ['PROBE_EXPECTED_SHA'], 'Action ran from the wrong revision'
+          PY
+
+      - name: Upload diagnostic records
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: sparse-checkout-${{ inputs.environment }}-${{ inputs.checkout }}
+          path: sparse-probe-results/*.json
+          if-no-files-found: warn
+          retention-days: 7
