@@ -58,8 +58,7 @@ RUN yum update -y && \
     rm -rf /var/cache/yum
 
 # Install modelscope (for fast download) and ray (for multinode)
-RUN python3 -m pip install 'modelscope<1.38' 'ray>=2.47.1,<=2.48.0' 'protobuf>3.20.0' && \
-    python3 -m pip cache purge
+RUN --mount=type=cache,target=/root/.cache/pip python3 -m pip install 'modelscope<1.38' 'ray>=2.47.1,<=2.48.0' 'protobuf>3.20.0'
 
 # Install vLLM
 RUN if [ -n "$VLLM_COMMIT" ]; then \
@@ -71,9 +70,8 @@ RUN if [ -n "$VLLM_COMMIT" ]; then \
     fi
 
 # In x86, triton will be installed by vllm. But in Ascend, triton doesn't work correctly. we need to uninstall it.
-RUN VLLM_TARGET_DEVICE="empty" python3 -m pip install -e /vllm-workspace/vllm/[audio] --extra-index-url ${PYTORCH_INDEX_URL} && \
-    python3 -m pip uninstall -y triton && \
-    python3 -m pip cache purge
+RUN --mount=type=cache,target=/root/.cache/pip VLLM_TARGET_DEVICE="empty" python3 -m pip install -e /vllm-workspace/vllm/[audio] --extra-index-url ${PYTORCH_INDEX_URL} && \
+    python3 -m pip uninstall -y triton
 
 # Install vllm-ascend
 ENV SOC_VERSION=$SOC_VERSION \
@@ -81,18 +79,17 @@ ENV SOC_VERSION=$SOC_VERSION \
     OMP_NUM_THREADS=1
 COPY . /vllm-workspace/vllm-ascend/
 
-RUN export PIP_EXTRA_INDEX_URL="${ASCEND_INDEX_URL}" && \
+RUN --mount=type=cache,target=/root/.cache/pip export PIP_EXTRA_INDEX_URL="${ASCEND_INDEX_URL}" && \
     source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
     source /usr/local/Ascend/nnal/atb/set_env.sh && \
     python3 -m pip install -e /vllm-workspace/vllm-ascend/ --extra-index-url ${PYTORCH_INDEX_URL} && \
-    python3 -m pip uninstall -y triton-ascend triton && \
-    python3 -m pip cache purge
+    python3 -m pip uninstall -y triton-ascend triton
 
 # Install _rust_tool_parser for the Rust frontend.
 # The default toolchain is read from vllm's rust-toolchain.toml (falling back
 # to stable).
 ENV PATH="/root/.cargo/bin:$PATH"
-RUN cd /vllm-workspace/vllm && \
+RUN --mount=type=cache,target=/root/.cargo cd /vllm-workspace/vllm && \
     export PROTOC_INCLUDE=/usr/include && \
     python3 -m pip install setuptools-rust && \
     ./build_rust.sh
