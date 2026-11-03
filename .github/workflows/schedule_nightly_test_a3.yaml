@@ -480,7 +480,7 @@ jobs:
       OPENLIBING_SECRET: ${{ secrets.OPENLIBING_SECRET }}
 
   multi-card-tests:
-    name: single-node
+    name: multi-card
     needs: [setup-vars, parse-trigger, build-image, double-node-tests]
     if: >-
       always() &&
