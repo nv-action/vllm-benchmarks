@@ -202,8 +202,8 @@ class Kubernetes:
             "apiVersion": "v1",
             "kind": "DeleteOptions",
             "preconditions": {"uid": metadata["uid"]},
-            # Keep the owner visible until its children disappear, so later sweeps can retry.
-            "propagationPolicy": "Foreground",
+            # LWS v0.6.3 can recreate children while foreground deletion keeps the owner visible.
+            "propagationPolicy": "Background",
         }
 
         try:

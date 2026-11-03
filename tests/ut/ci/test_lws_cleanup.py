@@ -276,7 +276,7 @@ def test_local_cancel_cleanup_is_scoped_and_does_not_need_github(args):
     assert not cluster.deleted
 
 
-def test_delete_uses_uid_precondition_and_foreground_gc(monkeypatch):
+def test_delete_uses_uid_precondition_and_background_gc(monkeypatch):
     item = resource()
     run = Mock(
         side_effect=[SimpleNamespace(returncode=0, stdout=json.dumps(item)), SimpleNamespace(returncode=0, stdout="")]
@@ -288,7 +288,7 @@ def test_delete_uses_uid_precondition_and_foreground_gc(monkeypatch):
     assert "/apis/leaderworkerset.x-k8s.io/v1/namespaces/vllm-project/leaderworkersets/vllm-test-abc123" in command
     options = json.loads(run.call_args.kwargs["input"])
     assert options["preconditions"] == {"uid": item["metadata"]["uid"]}
-    assert options["propagationPolicy"] == "Foreground"
+    assert options["propagationPolicy"] == "Background"
 
 
 def test_replaced_resource_is_not_deleted(monkeypatch):
