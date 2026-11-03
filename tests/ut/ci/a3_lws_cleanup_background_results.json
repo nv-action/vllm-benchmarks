@@ -1,0 +1,258 @@
+{
+  "date_utc": "2026-11-03",
+  "repository": "nv-action/vllm-benchmarks",
+  "branch": "test/a3-lws-cleanup-validation",
+  "tested_commit": "fafd4b1882b04c2728eb807aff6df853b1e8e7d4",
+  "result": "Passed: two-node ordinary cancellation, independent recovery with local cleanup disabled, and idempotent recovery. Running two-node force cancellation remains untested due to shared cluster capacity.",
+  "deletion_policy": "Background",
+  "reason_for_change": "Avoid the LWS v0.6.3 foreground deletion reconciliation bug while retaining UID preconditions and checks that descendant pods disappear.",
+  "upstream_fix_reference": "https://github.com/kubernetes-sigs/lws/pull/523",
+  "previous_foreground_recovery_run": 41444285339,
+  "lws_controller_image": "k8s.m.daocloud.io/lws/lws:0.6.3",
+  "deletion_wait_seconds": 120,
+  "completion_grace_seconds": 120,
+  "workload": {
+    "hardware": "A3",
+    "nodes": 2,
+    "config": "GLM5_1-W8A8-A3-dual-nodes.yaml",
+    "real_startup_script": true,
+    "benchmark_completion_tested": false,
+    "vllm_service_readiness_tested": false
+  },
+  "ordinary_cancel": {
+    "run_id": 41562420691,
+    "url": "https://github.com/nv-action/vllm-benchmarks/actions/runs/41562420691",
+    "conclusion": "cancelled",
+    "completed_at": "2026-11-03T01:55:03Z",
+    "cancel": {
+      "time": "2026-11-03T01:52:56.164123+00:00",
+      "mode": "ordinary",
+      "returncode": 0,
+      "stdout": "{}",
+      "stderr": ""
+    },
+    "local_cleanup": {
+      "name": "Delete LWS resources",
+      "conclusion": "success",
+      "started_at": "2026-11-03T01:53:48Z",
+      "completed_at": "2026-11-03T01:54:54Z",
+      "duration_seconds": 66.0
+    },
+    "nodes": [
+      "172.22.5.119",
+      "172.22.5.7"
+    ],
+    "both_pods_ready_observed_at": "2026-11-03T01:52:47.640475+00:00",
+    "all_resources_absent_observed_at": "2026-11-03T01:54:55.059782+00:00",
+    "pod_uids": {
+      "vllm-cleanup-41562420691-1-0": [
+        "a8366ffb-a5e4-4c3d-9381-83fbc733e8fc"
+      ],
+      "vllm-cleanup-41562420691-1-0-1": [
+        "c5dca16c-51e0-48b5-b7f8-34e45c16e276"
+      ]
+    },
+    "pod_replacement_observed": false,
+    "pod_creation_events": [
+      {
+        "statefulset": "vllm-cleanup-41562420691-1-0",
+        "count": 1,
+        "last_timestamp": "2026-11-03T01:52:25Z"
+      },
+      {
+        "statefulset": "vllm-cleanup-41562420691-1",
+        "count": 1,
+        "last_timestamp": "2026-11-03T01:52:25Z"
+      }
+    ]
+  },
+  "skipped_local_cleanup": {
+    "workload": {
+      "run_id": 41562893430,
+      "url": "https://github.com/nv-action/vllm-benchmarks/actions/runs/41562893430",
+      "conclusion": "cancelled",
+      "completed_at": "2026-11-03T01:58:28Z",
+      "cancel": {
+        "time": "2026-11-03T01:57:18.640530+00:00",
+        "mode": "ordinary",
+        "returncode": 0,
+        "stdout": "{}",
+        "stderr": ""
+      },
+      "local_cleanup": {
+        "name": "Delete LWS resources",
+        "conclusion": "skipped",
+        "started_at": "2026-11-03T01:58:18Z",
+        "completed_at": "2026-11-03T01:58:18Z",
+        "duration_seconds": 0.0
+      },
+      "nodes": [
+        "172.22.5.119",
+        "172.22.5.7"
+      ],
+      "both_pods_ready_observed_at": "2026-11-03T01:57:09.867633+00:00",
+      "all_resources_absent_observed_at": "2026-11-03T02:03:46.993694+00:00",
+      "pod_uids": {
+        "vllm-cleanup-41562893430-1-0": [
+          "ae9b3543-7920-46c1-a4c3-c5991f214c3b"
+        ],
+        "vllm-cleanup-41562893430-1-0-1": [
+          "7c4bbc4b-144a-462c-b2fe-c49f6741e18e"
+        ]
+      },
+      "pod_replacement_observed": false,
+      "pod_creation_events": [
+        {
+          "statefulset": "vllm-cleanup-41562893430-1-0",
+          "count": 1,
+          "last_timestamp": "2026-11-03T01:56:51Z"
+        },
+        {
+          "statefulset": "vllm-cleanup-41562893430-1",
+          "count": 1,
+          "last_timestamp": "2026-11-03T01:56:50Z"
+        }
+      ]
+    },
+    "recovery": {
+      "run_id": 41563224087,
+      "url": "https://github.com/nv-action/vllm-benchmarks/actions/runs/41563224087",
+      "conclusion": "success",
+      "grace": {
+        "name": "Allow the same completion grace period as automatic recovery",
+        "conclusion": "success",
+        "started_at": "2026-11-03T02:00:25Z",
+        "completed_at": "2026-11-03T02:02:27Z",
+        "duration_seconds": 122.0
+      },
+      "cleanup": {
+        "name": "Recover only the selected validation run",
+        "conclusion": "success",
+        "started_at": "2026-11-03T02:02:27Z",
+        "completed_at": "2026-11-03T02:03:50Z",
+        "duration_seconds": 83.0
+      },
+      "deletion_reason": "job completed (cancelled)"
+    },
+    "idempotent_recovery": {
+      "run_id": 41563795444,
+      "url": "https://github.com/nv-action/vllm-benchmarks/actions/runs/41563795444",
+      "conclusion": "success",
+      "grace": {
+        "name": "Allow the same completion grace period as automatic recovery",
+        "conclusion": "success",
+        "started_at": "2026-11-03T02:05:15Z",
+        "completed_at": "2026-11-03T02:07:17Z",
+        "duration_seconds": 122.0
+      },
+      "cleanup": {
+        "name": "Recover only the selected validation run",
+        "conclusion": "success",
+        "started_at": "2026-11-03T02:07:17Z",
+        "completed_at": "2026-11-03T02:07:20Z",
+        "duration_seconds": 3.0
+      },
+      "deletions_performed": 0
+    },
+    "resources_after_source_completion": {
+      "observed_at": "2026-11-03T01:58:51.048886+00:00",
+      "kinds": [
+        "LeaderWorkerSet",
+        "Service",
+        "Service",
+        "Pod",
+        "Pod",
+        "StatefulSet",
+        "StatefulSet",
+        "ControllerRevision",
+        "ControllerRevision",
+        "ControllerRevision"
+      ],
+      "both_pods_running_and_ready": true
+    }
+  },
+  "force_cancel": {
+    "coverage": "Both requested pods remained Pending because other workloads occupied the available NPU nodes. Local cleanup still executed successfully after force-cancel; subsequent recovery was a no-op. Running two-node force cancellation and abrupt runner loss were not tested.",
+    "workload": {
+      "run_id": 41563823141,
+      "url": "https://github.com/nv-action/vllm-benchmarks/actions/runs/41563823141",
+      "conclusion": "cancelled",
+      "completed_at": "2026-11-03T02:08:40Z",
+      "cancel": {
+        "time": "2026-11-03T02:08:40.531401+00:00",
+        "mode": "force",
+        "workload_state": "both pods Pending, unscheduled due to NPU capacity",
+        "returncode": 0,
+        "stdout": "{}",
+        "stderr": ""
+      },
+      "local_cleanup": {
+        "name": "Delete LWS resources",
+        "conclusion": "success",
+        "started_at": "2026-11-03T02:09:06Z",
+        "completed_at": "2026-11-03T02:09:09Z",
+        "duration_seconds": 3.0
+      },
+      "nodes": [],
+      "both_pods_ready_observed_at": null,
+      "all_resources_absent_observed_at": "2026-11-03T02:09:38.244488+00:00",
+      "pod_uids": {
+        "vllm-cleanup-41563823141-1-0": [
+          "633d098c-2489-47ec-999f-7c2ae4cc775e"
+        ],
+        "vllm-cleanup-41563823141-1-0-1": [
+          "d18f801a-f1b7-406b-9e58-8c38b762ca4b"
+        ]
+      },
+      "pod_replacement_observed": false,
+      "pod_creation_events": [
+        {
+          "statefulset": "vllm-cleanup-41563823141-1-0",
+          "count": 1,
+          "last_timestamp": "2026-11-03T02:05:48Z"
+        },
+        {
+          "statefulset": "vllm-cleanup-41563823141-1",
+          "count": 1,
+          "last_timestamp": "2026-11-03T02:05:48Z"
+        }
+      ]
+    },
+    "recovery": {
+      "run_id": 41564332314,
+      "url": "https://github.com/nv-action/vllm-benchmarks/actions/runs/41564332314",
+      "conclusion": "success",
+      "grace": {
+        "name": "Allow the same completion grace period as automatic recovery",
+        "conclusion": "success",
+        "started_at": "2026-11-03T02:10:21Z",
+        "completed_at": "2026-11-03T02:12:22Z",
+        "duration_seconds": 121.0
+      },
+      "cleanup": {
+        "name": "Recover only the selected validation run",
+        "conclusion": "success",
+        "started_at": "2026-11-03T02:12:22Z",
+        "completed_at": "2026-11-03T02:12:25Z",
+        "duration_seconds": 3.0
+      },
+      "deletions_performed": 0
+    }
+  },
+  "local_validation": {
+    "tests_passed": 58,
+    "changed_file_checks": "passed",
+    "full_format_check": "seven pre-existing actionlint errors, unchanged from the previous validation"
+  },
+  "boundaries": {
+    "direct_cluster_operations": "read-only",
+    "manual_cluster_deletion": false,
+    "default_branch_changed": false,
+    "workflow_run_trigger_tested": false,
+    "scheduled_sweeper_added": false
+  },
+  "final_observation": {
+    "checked_at": "2026-11-03T02:11:12.992342+00:00",
+    "remaining_validation_resources": []
+  }
+}
