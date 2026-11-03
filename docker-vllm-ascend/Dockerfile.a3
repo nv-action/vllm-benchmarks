@@ -122,10 +122,10 @@ RUN ARCH=${TARGETPLATFORM:-$(uname -m)}; \
     case "$ARCH" in \
         "linux/arm64"|"aarch64") \
             FLA_WHL="flash_linear_attention_npu_a3-${FLA_VERSION}-py3-none-manylinux_2_34_aarch64.whl"; \
-            FLA_SHA256="be6437793540798b97eb23a81ccd69f9739bda76b476cfb4dddfcd0086fc57e9" ;; \
+            FLA_SHA256="0e0febfe0b524df54c02dead985b787cf51f276ef904e4c2f88c5d43707a370b" ;; \
         "linux/amd64"|"x86_64") \
             FLA_WHL="flash_linear_attention_npu_a3-${FLA_VERSION}-py3-none-manylinux_2_34_x86_64.whl"; \
-            FLA_SHA256="8f610205d5b9023b4b74fc998f60126f84c38d449ea00e84191a9443b08bae24" ;; \
+            FLA_SHA256="18b8c9d54eadbefb264fd5989577e3bbdb6f2e5cfc8d60d86a0887f2d8a2f26a" ;; \
         *) echo "Unsupported arch for flash-linear-attention-npu: $ARCH" && exit 1 ;; \
     esac && \
     FLA_DOWNLOAD_URL="https://github.com/flashserve/flash-linear-attention-npu/releases/download/${FLA_RELEASE_TAG}/${FLA_WHL}"; \
