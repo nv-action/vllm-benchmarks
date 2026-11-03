@@ -92,6 +92,8 @@ jobs:
             CANN_QUAY_URL=swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann
             CANN_VERSION=9.1.0
             CACHE_BUSTER=${{ github.run_id }}-${{ matrix.target }}-${{ matrix.os }}-${{ matrix.platforms }}-${{ matrix.load }}
+            # 绕开 github 直连限流（502）：git clone 走内部 git-cdn（Dockerfile 用 insteadOf 重写）
+            GIT_PROXY=http://git-cdn-service.git-cdn.svc.cluster.local:8000/
             COMPILE_CUSTOM_KERNELS=1
             BUILD_TYPE=release
             SOC_VERSION=${{ matrix.soc_version }}
