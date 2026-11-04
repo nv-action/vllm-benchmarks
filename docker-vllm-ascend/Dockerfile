@@ -127,7 +127,7 @@ RUN ARCH=${TARGETPLATFORM:-$(uname -m)}; \
             FLA_SHA256="411927b9544c60f5f396d5e4e1450766f253e30fc3e2f54f2e29fbe2033fcb13" ;; \
         *) echo "Unsupported arch for flash-linear-attention-npu: $ARCH" && exit 1 ;; \
     esac && \
-    FLA_DOWNLOAD_URL="https://github.com/flashserve/flash-linear-attention-npu/releases/download/${FLA_RELEASE_TAG}/${FLA_WHL}" && \
+    FLA_DOWNLOAD_URL="http://cache-service.nginx-pypi-cache.svc.cluster.local:8081/fla/${FLA_WHL}" && \
     wget --quiet "$FLA_DOWNLOAD_URL" -O /tmp/${FLA_WHL} && \
     echo "${FLA_SHA256}  /tmp/${FLA_WHL}" | sha256sum --check && \
     python3 -m pip install --force-reinstall --no-deps /tmp/${FLA_WHL} && \
