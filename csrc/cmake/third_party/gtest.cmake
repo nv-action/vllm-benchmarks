@@ -65,7 +65,7 @@ message("gtest found:${gtest_FOUND}")
 if(gtest_FOUND AND NOT FORCE_REBUILD_CANN_3RD)
     message("gtest found in ${GTEST_INSTALL_PATH}, and not force rebuild cann third_party")
 else()
-    set(REQ_URL "https://gitcode.com/cann-src-third-party/googletest/releases/download/v1.14.0/googletest-1.14.0.tar.gz")
+    set(REQ_URL "http://git-cdn-service.git-cdn-gitcode.svc.cluster.local:8000/cann-src-third-party/googletest/releases/download/v1.14.0/googletest-1.14.0.tar.gz")
     set (gtest_CXXFLAGS "-D_GLIBCXX_USE_CXX11_ABI=0 -O2 -D_FORTIFY_SOURCE=2 -fPIC -fstack-protector-all -Wl,-z,relro,-z,now,-z,noexecstack")
     set (gtest_CFLAGS   "-D_GLIBCXX_USE_CXX11_ABI=0 -O2 -D_FORTIFY_SOURCE=2 -fPIC -fstack-protector-all -Wl,-z,relro,-z,now,-z,noexecstack")
 

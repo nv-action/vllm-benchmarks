@@ -107,6 +107,7 @@ COPY . /vllm-workspace/vllm-ascend/
 
 RUN --mount=type=cache,target=/root/.cache/pip export PIP_EXTRA_INDEX_URL="${ASCEND_INDEX_URL}" && \
     export VLLM_BATCH_INVARIANT=1 && \
+    git config --global url."http://git-cdn-service.git-cdn-gitcode.svc.cluster.local:8000/".insteadOf "https://gitcode.com/" && \
     source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
     source /usr/local/Ascend/nnal/atb/set_env.sh && \
     python3 -m pip install -e /vllm-workspace/vllm-ascend/ --extra-index-url ${PYTORCH_INDEX_URL} && \
