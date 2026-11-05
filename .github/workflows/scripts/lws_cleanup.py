@@ -1,167 +1,76 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Record CI ownership before provisioning, and reclaim finished LWS tasks.
+"""Clean up the current LWS task or completed runs in one hardware cluster.
 
-Requires Python, PyYAML and kubectl. GitHub credentials are read only from
-GITHUB_TOKEN; cluster credentials are handled by kubectl's normal kubeconfig.
+Requires Python and kubectl. Only independent cleanup reads GITHUB_TOKEN;
+local cleanup does not call GitHub. Kubernetes credentials come from kubectl.
 """
 
 import argparse
 import json
 import os
-import re
 import subprocess
 import sys
 import time
 import urllib.request
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
-
-import yaml
 
 LABEL_PREFIX = "ci.vllm.ai/"
 MANAGED_BY = "lws-cleanup"
-LWS_RESOURCE = "leaderworkerset.x-k8s.io/v1"
-WORKFLOWS = frozenset(
-    {
-        ".github/workflows/schedule_nightly_test_a2.yaml",
-        ".github/workflows/schedule_nightly_test_a3.yaml",
-        ".github/workflows/schedule_nightly_test_a5.yaml",
-        ".github/workflows/schedule_weekly_test_a3.yaml",
-    }
-)
+LWS_LABEL = "leaderworkerset.sigs.k8s.io/name"
 REQUEST_TIMEOUT_SECONDS = 15
 PROCESS_TIMEOUT_SECONDS = 20
-POLL_SECONDS = 2
-IDENTITY_ATTEMPTS = 3
-EXPIRY_MARGIN_MINUTES = 30
-FINISHED_GRACE_SECONDS = 120
-PAGE_SIZE = 100
+POLL_SECONDS = 5
+DELETE_WAIT_SECONDS = 300
+# Delete controllers before their pods so missing pods are not recreated.
+RESOURCE_PATHS = {
+    "LeaderWorkerSet": ("/apis/leaderworkerset.x-k8s.io/v1", "leaderworkersets"),
+    "StatefulSet": ("/apis/apps/v1", "statefulsets"),
+    "Service": ("/api/v1", "services"),
+    "Pod": ("/api/v1", "pods"),
+}
 
 
 class CleanupError(RuntimeError):
     pass
 
 
-def timestamp(value: str) -> datetime:
-    if not isinstance(value, str):
-        raise CleanupError("Missing or invalid timestamp")
-    result = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    if result.tzinfo is None:
-        raise CleanupError("Timestamp must include a timezone")
-    return result
+def labels(resource: dict) -> dict:
+    if resource["kind"] == "StatefulSet":
+        # LWS copies Pod labels into this template, not StatefulSet metadata.
+        return resource["spec"]["template"].get("metadata", {}).get("labels", {})
+    return resource["metadata"].get("labels", {})
 
 
-def positive_id(value: str) -> str:
-    if not re.fullmatch(r"[1-9][0-9]*", str(value)):
-        raise CleanupError("Invalid CI identifier")
-    return str(value)
+def identity(resource: dict) -> tuple[str, str, str]:
+    ownership = labels(resource)
+    return (
+        ownership[f"{LABEL_PREFIX}run-id"],
+        ownership[f"{LABEL_PREFIX}run-attempt"],
+        ownership[f"{LABEL_PREFIX}task-id"],
+    )
 
 
 class GitHub:
     def __init__(self, repository: str, token: str):
-        if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
-            raise CleanupError("Invalid repository")
-
         self.repository = repository
         self.token = token
-        self.cache: dict[str, dict] = {}
 
-    def get(self, endpoint: str) -> dict:
-        if endpoint not in self.cache:
-            request = urllib.request.Request(
-                f"https://api.github.com/repos/{self.repository}/actions/{endpoint}",
-                headers={
-                    "Authorization": f"Bearer {self.token}",
-                    "Accept": "application/vnd.github+json",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
-            )
+    def run_completed(self, run_id: str, attempt: str) -> bool:
+        request = urllib.request.Request(
+            f"https://api.github.com/repos/{self.repository}/actions/runs/{run_id}/attempts/{attempt}",
+            headers={
+                "Authorization": f"Bearer {self.token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+            run = json.load(response)
 
-            try:
-                with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-                    data = json.load(response)
-                    if not isinstance(data, dict):
-                        raise CleanupError(f"Invalid GitHub response for {endpoint}")
-                    self.cache[endpoint] = data
-            except (OSError, ValueError) as error:
-                # Do not print headers, tokens or response bodies.
-                raise CleanupError(f"Cannot verify GitHub {endpoint}: {type(error).__name__}") from error
-
-        return self.cache[endpoint]
-
-    def current_job(self, run_id: str, attempt: str, runner_name: str) -> str:
-        for retry in range(IDENTITY_ATTEMPTS):
-            self.cache.clear()
-            matches = []
-            page = 1
-
-            while True:
-                data = self.get(f"runs/{run_id}/attempts/{attempt}/jobs?per_page={PAGE_SIZE}&page={page}")
-                jobs = data["jobs"]
-                matches.extend(
-                    job for job in jobs if job["runner_name"] == runner_name and job["status"] == "in_progress"
-                )
-                if len(jobs) < PAGE_SIZE:
-                    break
-                page += 1
-
-            if len(matches) == 1:
-                return positive_id(matches[0]["id"])
-            if retry + 1 < IDENTITY_ATTEMPTS:
-                time.sleep(POLL_SECONDS)
-
-        raise CleanupError("Cannot identify exactly one running job; refusing to provision unowned resources")
-
-
-def stamp_manifest(args, github: GitHub, now: datetime) -> None:
-    """Write ownership into both resources before the first Kubernetes API write."""
-    run_id, attempt = positive_id(args.run_id), positive_id(args.attempt)
-    repository_id = positive_id(args.repository_id)
-    workflow = args.workflow_ref.removeprefix(f"{args.repository}/").split("@", 1)[0]
-    if workflow not in WORKFLOWS or args.timeout_minutes <= 0:
-        raise CleanupError("Unsupported workflow or invalid job timeout")
-
-    documents = list(yaml.safe_load_all(args.manifest.read_text()))
-    if len(documents) != 2 or [doc["kind"] for doc in documents] != ["LeaderWorkerSet", "Service"]:
-        raise CleanupError("Expected one LWS and its leader Service")
-
-    task_id = documents[0]["metadata"]["name"]
-    if not re.fullmatch(r"vllm-[a-z0-9-]{1,58}", task_id):
-        raise CleanupError("Invalid LWS task name")
-    if documents[1]["metadata"]["name"] != f"{task_id}-leader":
-        raise CleanupError("Service does not belong to the LWS")
-
-    job_id = github.current_job(run_id, attempt, args.runner_name)
-    labels = {
-        f"{LABEL_PREFIX}managed-by": MANAGED_BY,
-        f"{LABEL_PREFIX}repository-id": repository_id,
-        f"{LABEL_PREFIX}run-id": run_id,
-        f"{LABEL_PREFIX}run-attempt": attempt,
-        f"{LABEL_PREFIX}job-id": job_id,
-        f"{LABEL_PREFIX}task-id": task_id,
-    }
-
-    expires = now + timedelta(minutes=args.timeout_minutes + EXPIRY_MARGIN_MINUTES)
-    annotations = {
-        f"{LABEL_PREFIX}repository": args.repository,
-        f"{LABEL_PREFIX}workflow": workflow,
-        f"{LABEL_PREFIX}expires-at": expires.isoformat(),
-    }
-
-    for document in documents:
-        metadata = document["metadata"]
-        if metadata.get("namespace") != args.namespace:
-            raise CleanupError("Unexpected resource namespace")
-        metadata.setdefault("labels", {}).update(labels)
-        metadata.setdefault("annotations", {}).update(annotations)
-
-    args.manifest.write_text(yaml.safe_dump_all(documents, sort_keys=False))
+        return run["status"] == "completed"
 
 
 class Kubernetes:
     def __init__(self, namespace: str):
-        if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", namespace):
-            raise CleanupError("Invalid namespace")
         self.namespace = namespace
 
     def command(self, *arguments: str, body: dict | None = None) -> str:
@@ -176,185 +85,161 @@ class Kubernetes:
             raise CleanupError(f"kubectl failed: {result.stderr.strip()}")
         return result.stdout
 
-    def resources(self, selector: str) -> list[dict]:
-        return json.loads(self.command("get", "leaderworkerset,service", "-l", selector, "-o", "json"))["items"]
+    def resources(self, selector: str, *, include_children: bool = False) -> list[dict]:
+        kinds = "leaderworkerset,service,pod" if include_children else "leaderworkerset,service"
+        resources = json.loads(self.command("get", kinds, "-l", selector, "-o", "json"))["items"]
+        if include_children:
+            statefulsets = json.loads(self.command("get", "statefulsets", "-l", LWS_LABEL, "-o", "json"))["items"]
+            expected = dict(part.split("=", 1) for part in selector.split(","))
+            resources.extend(s for s in statefulsets if all(labels(s).get(k) == v for k, v in expected.items()))
+        return resources
 
     def delete(self, resource: dict) -> None:
-        """Use a UID precondition: a replaced object must never be deleted."""
         metadata = resource["metadata"]
-        kind = resource["kind"]
-        resource_type = "leaderworkerset" if kind == "LeaderWorkerSet" else "service"
-
-        current = self.command("get", resource_type, metadata["name"], "--ignore-not-found", "-o", "json")
-        if not current:
-            return
-
-        current_metadata = json.loads(current)["metadata"]
-        if any(current_metadata.get(key) != metadata.get(key) for key in ("uid", "labels", "annotations")):
-            raise CleanupError(f"Ownership changed for {kind}/{metadata['name']}; retry on the next sweep")
-
-        if kind == "LeaderWorkerSet":
-            path = f"/apis/{LWS_RESOURCE}/namespaces/{self.namespace}/leaderworkersets/{metadata['name']}"
-        else:
-            path = f"/api/v1/namespaces/{self.namespace}/services/{metadata['name']}"
-
+        api, plural = RESOURCE_PATHS[resource["kind"]]
+        path = f"{api}/namespaces/{self.namespace}/{plural}/{metadata['name']}"
         options = {
             "apiVersion": "v1",
             "kind": "DeleteOptions",
             "preconditions": {"uid": metadata["uid"]},
-            # LWS v0.6.3 can recreate children while foreground deletion keeps the owner visible.
+            # LWS v0.6.3 can recreate children during foreground deletion.
             "propagationPolicy": "Background",
         }
 
         try:
             self.command("delete", "--raw", path, "-f", "-", body=options)
-        except CleanupError:
-            # Concurrent local/recovery cleanup is harmless only when the old UID is gone.
-            remaining = self.command("get", resource_type, metadata["name"], "--ignore-not-found", "-o", "json")
-            if remaining and json.loads(remaining)["metadata"]["uid"] == metadata["uid"]:
+        except CleanupError as error:
+            # Another cleanup or Kubernetes GC may already have removed it.
+            if "(NotFound)" not in str(error):
                 raise
 
-    def wait_deleted(self, selector: str, task_ids: set[str], seconds: int) -> None:
+    def wait_deleted(self, selector: str, targets: set[tuple[str, str, str]], seconds: int) -> None:
         deadline = time.monotonic() + seconds
-
         while True:
-            resources = self.resources(selector)
-            remaining = [r for r in resources if r["metadata"]["labels"].get(f"{LABEL_PREFIX}task-id") in task_ids]
-
-            pods = []
-            for task_id in task_ids:
-                pods.extend(
-                    json.loads(
-                        self.command("get", "pods", "-l", f"leaderworkerset.sigs.k8s.io/name={task_id}", "-o", "json")
-                    )["items"]
-                )
-
-            if not remaining and not pods:
+            remaining = [r for r in self.resources(selector, include_children=True) if identity(r) in targets]
+            if not remaining:
                 return
             if time.monotonic() >= deadline:
-                raise CleanupError("Resources or LWS pods still exist; the next recovery run will retry")
+                names = ", ".join(f"{r['kind']}/{r['metadata']['name']}" for r in remaining)
+                raise CleanupError(f"Resources still exist: {names}; rerun cleanup or wait for the next hardware sweep")
             time.sleep(POLL_SECONDS)
 
 
-def ownership(resource: dict, args) -> tuple[str, str, str, datetime]:
-    metadata = resource["metadata"]
-    labels, annotations = metadata["labels"], metadata["annotations"]
-    task_id = labels[f"{LABEL_PREFIX}task-id"]
-    expected_name = task_id if resource["kind"] == "LeaderWorkerSet" else f"{task_id}-leader"
-
-    if (
-        resource["kind"] not in {"LeaderWorkerSet", "Service"}
-        or metadata["namespace"] != args.namespace
-        or metadata["name"] != expected_name
-        or not re.fullmatch(r"vllm-[a-z0-9-]{1,58}", task_id)
-        or labels[f"{LABEL_PREFIX}managed-by"] != MANAGED_BY
-        or labels[f"{LABEL_PREFIX}repository-id"] != args.repository_id
-        or annotations[f"{LABEL_PREFIX}repository"] != args.repository
-        or annotations[f"{LABEL_PREFIX}workflow"] not in WORKFLOWS
-        or not metadata["uid"]
-    ):
-        raise CleanupError("Invalid resource ownership")
-
-    run_id = positive_id(labels[f"{LABEL_PREFIX}run-id"])
-    attempt = positive_id(labels[f"{LABEL_PREFIX}run-attempt"])
-    job_id = positive_id(labels[f"{LABEL_PREFIX}job-id"])
-
-    expires = timestamp(annotations[f"{LABEL_PREFIX}expires-at"])
-    if expires <= timestamp(metadata["creationTimestamp"]):
-        raise CleanupError("Invalid resource expiry")
-
-    return run_id, attempt, job_id, expires
+def managed_selector(repository_id: str) -> str:
+    return f"{LABEL_PREFIX}managed-by={MANAGED_BY},{LABEL_PREFIX}repository-id={repository_id}"
 
 
-def deletion_reason(resource: dict, args, github: GitHub, now: datetime) -> str | None:
-    run_id, attempt, job_id, expires = ownership(resource, args)
-    if args.command == "cleanup":
-        if run_id == args.run_id and attempt == args.attempt:
-            return "local job cleanup"
-        return None
+def delete_resources(cluster: Kubernetes, resources: list[dict], *, dry_run: bool) -> bool:
+    """Submit controller deletions first, continuing if an individual request fails."""
+    succeeded = True
+    for resource in sorted(resources, key=lambda r: list(RESOURCE_PATHS).index(r["kind"])):
+        name = f"{resource['kind']}/{resource['metadata']['name']}"
+        print(f"{'Would delete' if dry_run else 'Submitting deletion for'} {name}")
+        if dry_run:
+            continue
 
-    if now >= expires:
-        return "hard deadline expired"
-
-    job = github.get(f"jobs/{job_id}")
-    if str(job["run_id"]) != run_id or str(job["run_attempt"]) != attempt:
-        raise CleanupError("GitHub job does not match the resource's run/attempt")
-
-    if job["status"] == "completed":
-        completed = timestamp(job["completed_at"])
-        if now >= completed + timedelta(seconds=FINISHED_GRACE_SECONDS):
-            return f"job completed ({job['conclusion']})"
-    elif job["status"] not in {"queued", "in_progress", "waiting", "pending", "requested"}:
-        raise CleanupError("Unknown GitHub job status")
-
-    return None
-
-
-def reclaim(args, github: GitHub, cluster: Kubernetes, now: datetime) -> int:
-    selector = f"{LABEL_PREFIX}managed-by={MANAGED_BY},{LABEL_PREFIX}repository-id={args.repository_id}"
-    if args.command == "cleanup":
-        selector += f",{LABEL_PREFIX}task-id={args.task_id}"
-
-    failed = False
-    tasks = set()
-    for resource in cluster.resources(selector):
-        name = resource["metadata"]["name"]
         try:
-            reason = deletion_reason(resource, args, github, now)
-            if reason is None:
-                print(f"Keeping {name}: job is active or within completion grace period")
-                continue
+            cluster.delete(resource)
+        except (CleanupError, KeyError, OSError, subprocess.TimeoutExpired) as error:
+            print(f"::error::Could not delete {name}: {error}", file=sys.stderr)
+            succeeded = False
 
-            print(f"{'Would delete' if args.dry_run else 'Deleting'} {resource['kind']}/{name}: {reason}")
-            if not args.dry_run:
-                cluster.delete(resource)
-                tasks.add(resource["metadata"]["labels"][f"{LABEL_PREFIX}task-id"])
-        except (CleanupError, KeyError, TypeError, ValueError, subprocess.TimeoutExpired) as error:
-            print(f"::error::Could not reclaim {name}: {error}", file=sys.stderr)
+    return succeeded
+
+
+def cleanup_current_task(args, cluster: Kubernetes) -> int:
+    selector = (
+        f"{managed_selector(args.repository_id)}"
+        f",{LABEL_PREFIX}run-id={args.run_id},{LABEL_PREFIX}run-attempt={args.attempt}"
+        f",{LABEL_PREFIX}task-id={args.task_id}"
+    )
+    resources = cluster.resources(selector)
+    if not delete_resources(cluster, resources, dry_run=args.dry_run):
+        return 1
+
+    if not args.dry_run:
+        if args.wait_seconds:
+            targets = {(args.run_id, args.attempt, args.task_id)}
+            cluster.wait_deleted(selector, targets, args.wait_seconds)
+            print("Verified absence of resources for the current task")
+        else:
+            print("Deletion requests submitted; Kubernetes continues resource termination in the background")
+    return 0
+
+
+def sweep_completed_runs(args, github: GitHub, cluster: Kubernetes) -> int:
+    selector = managed_selector(args.repository_id)
+
+    # Group the hardware's resources by run/attempt; query GitHub once per group.
+    groups: dict[tuple[str, str], list[dict]] = {}
+    failed = False
+    for resource in cluster.resources(selector, include_children=True):
+        try:
+            run_id, attempt, _ = identity(resource)
+            groups.setdefault((run_id, attempt), []).append(resource)
+        except (KeyError, TypeError, ValueError) as error:
+            print(f"::error::Invalid ownership for {resource['metadata']['name']}: {error}", file=sys.stderr)
             failed = True
 
-    if tasks and args.wait_seconds:
-        cluster.wait_deleted(selector, tasks, args.wait_seconds)
+    targets: set[tuple[str, str, str]] = set()
+    for (run_id, attempt), resources in groups.items():
+        try:
+            if not github.run_completed(run_id, attempt):
+                print(f"Keeping run {run_id}/{attempt}: not completed")
+                continue
+        except (CleanupError, KeyError, TypeError, ValueError, OSError) as error:
+            print(f"::error::Cannot verify run {run_id}/{attempt}: {error}", file=sys.stderr)
+            failed = True
+            continue
 
+        print(f"Run {run_id}/{attempt} has completed")
+        if not delete_resources(cluster, resources, dry_run=args.dry_run):
+            failed = True
+        elif not args.dry_run:
+            targets.update(identity(resource) for resource in resources)
+
+    if not args.dry_run and not failed:
+        if targets and args.wait_seconds:
+            cluster.wait_deleted(selector, targets, args.wait_seconds)
+            print("Verified absence of resources for the completed runs")
+        elif not targets:
+            print("No completed-run resources to reclaim")
     return int(failed)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("stamp", "cleanup", "sweep"))
-    parser.add_argument("--repository", required=True)
-    parser.add_argument("--repository-id", required=True, type=positive_id)
+    parser.add_argument("command", choices=("cleanup", "sweep"))
+    parser.add_argument("--repository", help="GitHub owner/repository (required for sweep)")
+    parser.add_argument("--repository-id", required=True)
     parser.add_argument("--namespace", default="vllm-project")
-    parser.add_argument("--run-id", type=positive_id)
-    parser.add_argument("--attempt", type=positive_id)
+    parser.add_argument("--run-id")
+    parser.add_argument("--attempt")
     parser.add_argument("--task-id")
-    parser.add_argument("--manifest", type=Path)
-    parser.add_argument("--workflow-ref")
-    parser.add_argument("--runner-name")
-    parser.add_argument("--timeout-minutes", type=int)
-    parser.add_argument("--wait-seconds", type=int, default=0)
+    parser.add_argument(
+        "--wait-seconds",
+        type=int,
+        default=DELETE_WAIT_SECONDS,
+        help="Wait for resource deletion in either mode; 0 disables waiting (default: %(default)s seconds)",
+    )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    if args.command == "stamp" and any(
-        getattr(args, name) is None
-        for name in ("run_id", "attempt", "manifest", "workflow_ref", "runner_name", "timeout_minutes")
-    ):
-        parser.error("stamp requires run-id, attempt, manifest, workflow-ref, runner-name and timeout-minutes")
+    if args.command == "sweep" and not args.repository:
+        parser.error("sweep requires --repository")
     if args.command == "cleanup" and not (args.run_id and args.attempt and args.task_id):
         parser.error("cleanup requires run-id, attempt and task-id")
-    if args.task_id and not re.fullmatch(r"vllm-[a-z0-9-]{1,58}", args.task_id):
-        parser.error("invalid task-id")
+    if args.wait_seconds < 0:
+        parser.error("wait-seconds must not be negative")
 
     try:
-        github = GitHub(args.repository, os.environ.get("GITHUB_TOKEN", ""))
-        now = datetime.now(timezone.utc)
+        cluster = Kubernetes(args.namespace)
+        if args.command == "cleanup":
+            return cleanup_current_task(args, cluster)
 
-        if args.command == "stamp":
-            stamp_manifest(args, github, now)
-            return 0
-        return reclaim(args, github, Kubernetes(args.namespace), now)
-    except (CleanupError, KeyError, TypeError, ValueError, OSError, yaml.YAMLError, subprocess.TimeoutExpired) as error:
+        github = GitHub(args.repository, os.environ.get("GITHUB_TOKEN", ""))
+        return sweep_completed_runs(args, github, cluster)
+    except (CleanupError, KeyError, TypeError, ValueError, OSError, subprocess.TimeoutExpired) as error:
         print(f"::error::LWS cleanup failed: {error}", file=sys.stderr)
         return 1
 

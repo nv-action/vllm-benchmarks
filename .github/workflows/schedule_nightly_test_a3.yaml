@@ -6,24 +6,24 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Launch a real two-node workload or manually recover a completed validation run
+        description: Launch a real two-node workload or manually clean up a completed validation run
         type: choice
-        options: [launch, recover]
+        options: [launch, cleanup]
         default: launch
       skip_local_cleanup:
         description: Simulate a missing local cleanup step (validation only)
         type: boolean
         default: false
       source_run_id:
-        description: Completed workload run to recover (required for recover)
+        description: Completed workload run to clean up (required for cleanup)
         type: string
         default: ''
       source_attempt:
-        description: Exact workload attempt to recover
+        description: Exact workload attempt to clean up
         type: string
         default: '1'
       dry_run:
-        description: Only report eligible resources during recovery
+        description: Only report eligible resources during cleanup
         type: boolean
         default: true
 
@@ -57,8 +57,8 @@ jobs:
     secrets:
       KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
 
-  recover:
-    if: ${{ !cancelled() && inputs.mode == 'recover' && github.ref == 'refs/heads/test/a3-lws-cleanup-validation' }}
+  cleanup:
+    if: ${{ !cancelled() && inputs.mode == 'cleanup' && github.ref == 'refs/heads/test/a3-lws-cleanup-validation' }}
     runs-on: linux-aarch64-a3-800t-0
     timeout-minutes: 10
     container:
@@ -74,11 +74,9 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Install cleanup dependency
-        timeout-minutes: 2
+      - name: Check validation tools
         run: |
-          python3 -m pip install --disable-pip-version-check --retries 2 --timeout 15 \
-            -r .github/workflows/scripts/requirements-lws-cleanup.txt
+          python3 -c "import yaml" || python3 -m pip install -r .github/workflows/scripts/requirements-lws-cleanup.txt
           python3 .github/workflows/scripts/lws_cleanup_validation.py --help > /dev/null
 
       - name: Decode kubeconfig and check tools
@@ -89,9 +87,7 @@ jobs:
           printf '%s' "$KUBECONFIG_B64" | base64 -d > "$KUBECONFIG"
           python3 .github/workflows/scripts/lws_cleanup_validation.py --help
           kubectl version --client
-      - name: Allow the same completion grace period as automatic recovery
-        run: sleep 120
-      - name: Recover only the selected validation run
+      - name: Clean up only the selected validation run
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SOURCE_RUN_ID: ${{ inputs.source_run_id }}
@@ -100,10 +96,10 @@ jobs:
         run: |
           args=()
           if [ "$DRY_RUN" = true ]; then args+=(--dry-run); fi
-          python3 .github/workflows/scripts/lws_cleanup_validation.py recover \
+          python3 .github/workflows/scripts/lws_cleanup_validation.py cleanup \
             --run-id "$SOURCE_RUN_ID" --attempt "$SOURCE_ATTEMPT" \
             --repository "$GITHUB_REPOSITORY" --repository-id "$GITHUB_REPOSITORY_ID" \
             "${args[@]}"
       - name: Remove temporary kubeconfig
-        if: ${{ success() || failure() || cancelled() }}
+        if: ${{ always() }}
         run: rm -f "$KUBECONFIG"

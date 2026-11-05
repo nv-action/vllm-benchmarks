@@ -4,15 +4,11 @@ on:
   workflow_call:
     inputs:
       cleanup_validation:
-        required: false
         type: boolean
         default: false
-        description: Isolate this run for the A3 cleanup validation branch
       skip_local_cleanup:
-        required: false
         type: boolean
         default: false
-        description: Simulate missing local cleanup only during validation
       soc_version:
         required: true
         type: string
@@ -60,6 +56,11 @@ on:
         default: main
         type: string
         description: used for pr level tests
+      vllm_ref:
+        required: false
+        default: ''
+        type: string
+        description: vllm commit SHA / tag / branch to install in each pod instead of the image-baked vllm (empty = keep image version)
       should_run:
         required: true
         type: boolean
@@ -88,6 +89,9 @@ on:
         type: string
         default: ''
         description: test container file or directory to upload as a GitHub artifact
+      profile_options_json:
+        type: string
+        default: '{}'
       testcase_timeout:
         required: false
         default: 120
@@ -144,6 +148,10 @@ on:
         default: ''
         description: override CONFIG_BASE_PATH for bisect
     secrets:
+      HW_OBS_PROFILE_AK:
+        required: false
+      HW_OBS_PROFILE_SK:
+        required: false
       KUBECONFIG_B64:
         required: true
       OBS_ACCESS_KEY_ID:
@@ -186,11 +194,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
-      - name: Install cleanup dependency
-        timeout-minutes: 2
+      - name: Configure profiling
+        id: profiling
+        env:
+          PROFILE_OPTIONS_JSON: ${{ inputs.profile_options_json }}
         run: |
-          python3 -m pip install --disable-pip-version-check --retries 2 --timeout 15 \
-            -r .github/workflows/scripts/requirements-lws-cleanup.txt
+          python3 -m tools.profiling.capture configure \
+            --options-json "$PROFILE_OPTIONS_JSON" --output "$GITHUB_OUTPUT" \
+            --env-output "$GITHUB_ENV" --env-json "$RUNNER_TEMP/profile-env.json"
+
+      - name: Check validation tools
+        run: |
+          python3 -c "import yaml" || python3 -m pip install -r .github/workflows/scripts/requirements-lws-cleanup.txt
           python3 .github/workflows/scripts/lws_cleanup_validation.py --help > /dev/null
 
       - name: Set job variables
@@ -244,41 +259,8 @@ jobs:
           install -D tests/e2e/nightly/scripts/bisect_args.sh "$SCRIPT_DIR"/bisect_args.sh
           install -D .github/workflows/scripts/collect_download.py "$SCRIPT_DIR"/collect_download.py
 
-      - name: Clear resources
-        if: ${{ !inputs.cleanup_validation }}
-        run: |
-          set -euo pipefail
-          TIMEOUT=120
-          SLEEP_INTERVAL=2
-
-
-          echo "Deleting leaderworkerset [$LWS_NAME] in namespace [$NAMESPACE]..."
-          kubectl delete leaderworkerset "$LWS_NAME" -n "$NAMESPACE" --ignore-not-found
-          kubectl delete service "${LWS_NAME}-leader" -n "$NAMESPACE" --ignore-not-found
-
-          echo "Waiting for pods of leaderworkerset [$LWS_NAME] to be deleted..."
-          START_TIME=$(date +%s)
-          while true; do
-            ELAPSED=$(( $(date +%s) - START_TIME ))
-            if [[ $ELAPSED -ge $TIMEOUT ]]; then
-              echo "Timeout reached ($TIMEOUT seconds), some pods still exist:"
-              kubectl get pods -n "$NAMESPACE" | grep "^${LWS_NAME}-" || true
-              exit 1
-            fi
-            PODS_EXIST=$(kubectl get pods -n "$NAMESPACE" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null \
-              | tr ' ' '\n' | grep "^${LWS_NAME}-" || true)
-            if [[ -z "$PODS_EXIST" ]]; then
-              echo "All pods for [$LWS_NAME] deleted."
-              break
-            fi
-            echo "Waiting for pods to be deleted: $PODS_EXIST"
-            sleep $SLEEP_INTERVAL
-          done
-
       - name: Launch cluster
         env:
-          GITHUB_TOKEN: ${{ github.token }}
-          JOB_TIMEOUT_MINUTES: ${{ inputs.request_id != '' && (inputs.aop_multi_enabled && 1440 || 240) || fromJSON(inputs.testcase_timeout) }}
           CLEANUP_VALIDATION: ${{ inputs.cleanup_validation }}
           BISECT_GOOD_COMMIT: ${{ inputs.bisect_good_commit }}
           BISECT_BAD_COMMIT: ${{ inputs.bisect_bad_commit }}
@@ -306,6 +288,7 @@ jobs:
           is_pr_test="${{ inputs.request_id != '' }}"
           vllm_ascend_ref="${{ inputs.vllm_ascend_ref }}"
           vllm_ascend_remote_url="${{ inputs.vllm_ascend_remote_url }}"
+          vllm_ref="${{ inputs.vllm_ref }}"
           runner="${{ inputs.soc_version }}"
           echo "FAIL_TAG=${fail_tag}" >> $GITHUB_ENV
 
@@ -323,8 +306,13 @@ jobs:
 
           benchmark_job_name="${{ steps.vars.outputs.benchmark_job_name }}"
 
-          jinja2 tests/e2e/common/multi_node/lws.yaml.jinja2 \
+          jinja2 tests/e2e/common/multi_node/lws.yaml.jinja2 "$RUNNER_TEMP/profile-env.json" \
             -D lws_name="$LWS_NAME" \
+            -D k8s_namespace="$NAMESPACE" \
+            -D ci_repository="$GITHUB_REPOSITORY" \
+            -D ci_repository_id="$GITHUB_REPOSITORY_ID" \
+            -D ci_run_id="$GITHUB_RUN_ID" \
+            -D ci_run_attempt="$GITHUB_RUN_ATTEMPT" \
             -D log_prefix="$LOG_PREFIX" \
             -D download_spec="$DOWNLOAD_SPEC" \
             -D size="$size" \
@@ -337,6 +325,7 @@ jobs:
             -D is_pr_test="$is_pr_test" \
             -D vllm_ascend_ref="$vllm_ascend_ref" \
             -D vllm_ascend_remote_url="$vllm_ascend_remote_url" \
+            -D vllm_ref="$vllm_ref" \
             -D pvc_name="${pvc_name:-}" \
             -D benchmark_job_name="$benchmark_job_name" \
             -D runner="$runner" \
@@ -360,13 +349,7 @@ jobs:
             -D bisect_config_base_path="$BISECT_CONFIG_BASE_PATH" \
             --outfile lws.yaml
 
-          python3 .github/workflows/scripts/lws_cleanup.py stamp \
-            --manifest lws.yaml --namespace "$NAMESPACE" \
-            --repository "$GITHUB_REPOSITORY" --repository-id "$GITHUB_REPOSITORY_ID" \
-            --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
-            --workflow-ref "$GITHUB_WORKFLOW_REF" --runner-name "$RUNNER_NAME" \
-            --timeout-minutes "$JOB_TIMEOUT_MINUTES"
-
+          python3 -m tools.profiling.capture initialize --root "$LOG_PREFIX/profile_artifact"
           if [ "$CLEANUP_VALIDATION" = true ]; then
             python3 .github/workflows/scripts/lws_cleanup_validation.py prepare \
               --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
@@ -622,10 +605,82 @@ jobs:
             --vllm-ascend-version "${{ steps.stream_logs.outputs.vllm_ascend_hash }}" \
             --vllm-version "${{ steps.stream_logs.outputs.vllm_hash }}"
 
+      - name: Publish profiling data
+        id: profile_bundle
+        if: ${{ !cancelled() && steps.profiling.outputs.enabled == 'true' }}
+        env:
+          PIP_INDEX_URL: https://repo.huaweicloud.com/repository/pypi/simple/
+          AWS_ACCESS_KEY_ID: ${{ secrets.HW_OBS_PROFILE_AK }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.HW_OBS_PROFILE_SK }}
+          PROFILE_KEY_PREFIX: nightly-profiling/${{ github.repository }}/${{ github.run_id }}/${{ github.run_attempt }}/multi-node/${{ steps.vars.outputs.benchmark_job_name }}
+        run: |
+          PROFILE_ROOT="$LOG_PREFIX/profile_artifact"
+          upload_status=0
+          echo "::group::Upload raw profiling traces"
+          python3 -c 'import boto3' 2>/dev/null || python3 -m pip install --quiet boto3 || upload_status=$?
+          if [ "$upload_status" -eq 0 ]; then
+            python3 -m tools.profiling.capture upload --root "$PROFILE_ROOT" --prefix "$PROFILE_KEY_PREFIX" || upload_status=$?
+          fi
+          echo "::endgroup::"
+          echo "::group::Prepare profiling index"
+          python3 -m tools.profiling.artifacts package \
+            --manifest "$LOG_PREFIX/profile_artifact/profile_manifest.json" \
+            --output "$RUNNER_TEMP/profile_artifact" \
+            --prefix "$PROFILE_KEY_PREFIX" --github-output "$GITHUB_OUTPUT"
+          echo "::endgroup::"
+          exit "$upload_status"
+
+      - name: Upload profiling index
+        id: profile_artifact
+        if: ${{ !cancelled() && steps.profile_bundle.outputs.artifact_key != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.profiling.outputs.parse == 'true' && 'profile-capture' || 'profile-artifact' }}-${{ steps.profile_bundle.outputs.artifact_key }}
+          path: ${{ runner.temp }}/profile_artifact/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Profiling summary
+        if: >-
+          !cancelled() && steps.profile_bundle.outputs.artifact_key != '' &&
+          (steps.profiling.outputs.parse != 'true' || steps.profile_bundle.outcome != 'success' ||
+           steps.profile_artifact.outcome != 'success')
+        run: python3 -m tools.profiling.artifacts summary --root "$RUNNER_TEMP/profile_artifact"
+
+      - name: Collect AOP bisect diagnostics
+        if: ${{ !cancelled() && inputs.aop_multi_enabled }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          DEST=/tmp/aop-bisect-diagnostics
+          mkdir -p "$DEST"
+          SRC="${LOG_PREFIX}/nightly_bisect_runs"
+          if [ -d "$SRC" ]; then
+            cp -a "$SRC" "$DEST/bisect_runs"
+          fi
+          for log in "${LOG_PREFIX}"/node_*_pytest.log; do
+            if [ -f "$log" ]; then
+              cp "$log" "$DEST/"
+            fi
+          done
+
+      - name: Upload AOP bisect diagnostics (GitHub Artifacts)
+        if: ${{ !cancelled() && inputs.aop_multi_enabled }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.vars.outputs.artifact_name }}-aop-bisect
+          path: /tmp/aop-bisect-diagnostics/
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Fetch benchmark results from PVC
         if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
+          if [ -d "$LOG_PREFIX/aisbench_outputs" ]; then
+            mv "$LOG_PREFIX/aisbench_outputs" /tmp/aisbench_outputs
+          fi
           mkdir -p /tmp/benchmark_results
           echo "Fetching benchmark results from PVC at /root/.cache/benchmark_results/${{ steps.vars.outputs.benchmark_job_name }}..."
           # Copy from PVC mounted directory (persists after pod termination)
@@ -646,7 +701,6 @@ jobs:
 
       - name: Post process
         if: ${{ !cancelled() && env.LWS_NAME != '' }}
-        timeout-minutes: 2
         continue-on-error: true
         env:
           DOWNLOAD_PATH: ${{ inputs.download_path }}
@@ -672,14 +726,14 @@ jobs:
               "$DOWNLOAD_PATH" --list --node-count ${{ inputs.size }})
           fi
 
-      - name: Delete LWS resources
-        if: ${{ (success() || failure() || cancelled()) && env.LWS_NAME != '' && !(inputs.cleanup_validation && inputs.skip_local_cleanup) }}
-        timeout-minutes: 3
+      - name: Clean up LWS resources
+        if: ${{ always() && env.LWS_NAME != '' && !(inputs.cleanup_validation && inputs.skip_local_cleanup) }}
+        timeout-minutes: 10
         run: |
           python3 .github/workflows/scripts/lws_cleanup.py cleanup \
-            --namespace "$NAMESPACE" --repository "$GITHUB_REPOSITORY" \
-            --repository-id "$GITHUB_REPOSITORY_ID" --run-id "$GITHUB_RUN_ID" \
-            --attempt "$GITHUB_RUN_ATTEMPT" --task-id "$LWS_NAME" --wait-seconds 120
+            --namespace "$NAMESPACE" --repository-id "$GITHUB_REPOSITORY_ID" \
+            --run-id "$GITHUB_RUN_ID" \
+            --attempt "$GITHUB_RUN_ATTEMPT" --task-id "$LWS_NAME"
 
       - name: Collect requested paths from test pods
         if: ${{ !cancelled() && inputs.download_path != '' }}
@@ -785,7 +839,7 @@ jobs:
         with:
           access_key: ${{ secrets.OBS_ACCESS_KEY_ID }}
           secret_key: ${{ secrets.OBS_SECRET_ACCESS_KEY }}
-          name: ${{ inputs.config_file_path }}-ascend-logs
+          name: ${{ steps.vars.outputs.artifact_name }}
           path: /tmp/ascend-logs.tar.gz
           retention-days: 7
 
@@ -810,7 +864,7 @@ jobs:
         with:
           access_key: ${{ secrets.OBS_ACCESS_KEY_ID }}
           secret_key: ${{ secrets.OBS_SECRET_ACCESS_KEY }}
-          name: nightly-test-benchmark-results-${{ inputs.name || inputs.config_file_path }}-${{ steps.bench_ts.outputs.artifact_ts }}
+          name: nightly-test-benchmark-results-${{ steps.vars.outputs.benchmark_job_name }}-${{ steps.bench_ts.outputs.artifact_ts }}
           path: /tmp/benchmark_results/
           if-no-files-found: warn
           retention-days: 90
@@ -825,3 +879,14 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
           compression-level: 0
+
+      - name: Upload AISBench outputs
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: aisbench-outputs-multi-node-${{ steps.vars.outputs.benchmark_job_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/aisbench_outputs/
+          if-no-files-found: warn
+          retention-days: 7
+          include-hidden-files: true

@@ -2,6 +2,7 @@
 """Tests for validation isolation and wiring, without cluster or GitHub writes."""
 
 import importlib.util
+import io
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,6 +20,7 @@ SCRIPTS = ROOT / ".github/workflows/scripts"
 def validation(monkeypatch):
     monkeypatch.syspath_prepend(str(SCRIPTS))
     spec = importlib.util.spec_from_file_location("lws_cleanup_validation", SCRIPTS / "lws_cleanup_validation.py")
+    assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -30,7 +32,7 @@ def manifest(tmp_path):
     template = ROOT / "tests/e2e/common/multi_node/lws.yaml.jinja2"
     path.write_text(
         jinja2.Template(template.read_text()).render(
-            lws_name="vllm-cleanup-100-1", shared_volume_path="", soc_version="a3"
+            lws_name="vllm-cleanup-100-1", shared_volume_path="", soc_version="a3", profile_env={}
         )
     )
     return path
@@ -63,7 +65,7 @@ def test_refuse_more_than_two_pods(validation, manifest, size, replicas):
         validation.isolate_manifest(manifest, "100", "1")
 
 
-def test_recovery_selector_is_scoped_to_run_attempt_task_and_validation(validation, monkeypatch):
+def test_cleanup_selector_is_scoped_to_run_attempt_task_and_validation(validation, monkeypatch):
     cluster = validation.ValidationCluster("100", "2")
     command = Mock(return_value=json.dumps({"items": []}))
     monkeypatch.setattr(cluster, "command", command)
@@ -83,7 +85,7 @@ def test_delete_refuses_resources_outside_scope(validation, monkeypatch):
     command = Mock()
     monkeypatch.setattr(cluster, "command", command)
     with pytest.raises(validation.cleanup.CleanupError, match="outside"):
-        cluster.delete({"metadata": {"labels": {}}})
+        cluster.delete({"kind": "Pod", "metadata": {"labels": {}}})
     command.assert_not_called()
 
 
@@ -98,7 +100,7 @@ def test_delete_refuses_resources_outside_scope(validation, monkeypatch):
         {"status": "in_progress"},
     ],
 )
-def test_recovery_refuses_wrong_source(validation, change):
+def test_cleanup_refuses_wrong_source(validation, change, monkeypatch):
     run = {
         "id": 100,
         "run_attempt": 1,
@@ -108,21 +110,22 @@ def test_recovery_refuses_wrong_source(validation, change):
         "status": "completed",
     }
     github = Mock()
-    github.get.return_value = run | change
+    response = io.StringIO(json.dumps(run | change))
+    monkeypatch.setattr(validation.urllib.request, "urlopen", Mock(return_value=response))
     with pytest.raises(validation.cleanup.CleanupError, match="completed run"):
         validation.verify_source(github, "100", "1", "123")
 
 
-def test_recovery_uses_the_production_sweep_and_checks_remaining_pods(validation, monkeypatch):
+def test_cleanup_uses_the_production_sweep_and_checks_remaining_pods(validation, monkeypatch):
     monkeypatch.setattr(validation, "verify_source", Mock())
-    reclaim = Mock(return_value=0)
-    monkeypatch.setattr(validation.cleanup, "reclaim", reclaim)
+    sweep = Mock(return_value=0)
+    monkeypatch.setattr(validation.cleanup, "sweep_completed_runs", sweep)
     args = SimpleNamespace(run_id="100", attempt="1", repository="owner/repo", repository_id="123", dry_run=False)
     github, cluster = Mock(), Mock()
-    assert validation.recover(args, github, cluster) == 0
-    assert reclaim.call_args.args[0].command == "sweep"
-    assert reclaim.call_args.args[1:3] == (github, cluster)
-    cluster.wait_deleted.assert_called_once_with("", {"vllm-cleanup-100-1"}, 120)
+    assert validation.clean(args, github, cluster) == 0
+    assert sweep.call_args.args[0].command == "sweep"
+    assert sweep.call_args.args[1:3] == (github, cluster)
+    assert sweep.call_args.args[0].wait_seconds == 300
 
 
 def test_workflow_has_one_shared_cleanup_step_and_no_cluster_wide_jobs():
@@ -132,19 +135,18 @@ def test_workflow_has_one_shared_cleanup_step_and_no_cluster_wide_jobs():
     steps = {step.get("name"): step for step in job["steps"]}
     assert "!cancelled()" in job["if"]
     launch = steps["Launch cluster"]
-    assert launch["env"]["JOB_TIMEOUT_MINUTES"] == job["timeout-minutes"]
-    assert launch["run"].index("lws_cleanup.py stamp") < launch["run"].index("kubectl apply")
+    assert launch["run"].index("-D ci_repository_id=") < launch["run"].index("kubectl apply")
     deletes = [s for s in job["steps"] if "lws_cleanup.py cleanup" in s.get("run", "")]
     assert len(deletes) == 1
-    assert all(status in deletes[0]["if"] for status in ("success()", "failure()", "cancelled()"))
+    assert "always()" in deletes[0]["if"]
     assert "inputs.cleanup_validation && inputs.skip_local_cleanup" in deletes[0]["if"]
-    assert deletes[0]["timeout-minutes"] == "3"
-    assert "--wait-seconds 120" in deletes[0]["run"]
+    assert deletes[0]["timeout-minutes"] == "10"
+    assert "--wait-seconds" not in deletes[0]["run"]
 
     entry = yaml.load((directory / "schedule_nightly_test_a3.yaml").read_text(), Loader=yaml.BaseLoader)
     assert set(entry["on"]) == {"workflow_dispatch"}
-    assert set(entry["jobs"]) == {"launch", "recover"}
+    assert set(entry["jobs"]) == {"launch", "cleanup"}
     assert entry["permissions"]["actions"] == "read"
     assert entry["jobs"]["launch"]["with"]["size"] == "2"
-    assert entry["jobs"]["recover"]["runs-on"] == "linux-aarch64-a3-800t-0"
+    assert entry["jobs"]["cleanup"]["runs-on"] == "linux-aarch64-a3-800t-0"
     assert "kubectl taint" not in (directory / "schedule_nightly_test_a3.yaml").read_text()

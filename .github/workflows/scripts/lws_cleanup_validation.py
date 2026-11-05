@@ -6,7 +6,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime, timezone
+import urllib.request
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -18,11 +18,11 @@ VALIDATION_VALUE = "a3-cleanup"
 VALIDATION_BRANCH = "test/a3-lws-cleanup-validation"
 SOURCE_WORKFLOW = ".github/workflows/schedule_nightly_test_a3.yaml"
 NAMESPACE = "vllm-project"
-WAIT_SECONDS = 120
+WAIT_SECONDS = cleanup.DELETE_WAIT_SECONDS
 
 
 def task_name(run_id: str, attempt: str) -> str:
-    return f"vllm-cleanup-{cleanup.positive_id(run_id)}-{cleanup.positive_id(attempt)}"
+    return f"vllm-cleanup-{run_id}-{attempt}"
 
 
 class ValidationCluster(cleanup.Kubernetes):
@@ -30,17 +30,17 @@ class ValidationCluster(cleanup.Kubernetes):
         super().__init__(NAMESPACE)
         self.scope = {
             VALIDATION_LABEL: VALIDATION_VALUE,
-            f"{cleanup.LABEL_PREFIX}run-id": cleanup.positive_id(run_id),
-            f"{cleanup.LABEL_PREFIX}run-attempt": cleanup.positive_id(attempt),
+            f"{cleanup.LABEL_PREFIX}run-id": run_id,
+            f"{cleanup.LABEL_PREFIX}run-attempt": attempt,
             f"{cleanup.LABEL_PREFIX}task-id": task_name(run_id, attempt),
         }
 
-    def resources(self, selector: str) -> list[dict]:
+    def resources(self, selector: str, *, include_children: bool = False) -> list[dict]:
         scope = ",".join(f"{key}={value}" for key, value in self.scope.items())
-        return super().resources(",".join(filter(None, (selector, scope))))
+        return super().resources(",".join(filter(None, (selector, scope))), include_children=include_children)
 
     def delete(self, resource: dict) -> None:
-        labels = resource["metadata"].get("labels", {})
+        labels = cleanup.labels(resource)
         if any(labels.get(key) != value for key, value in self.scope.items()):
             raise cleanup.CleanupError("Resource is outside this validation run")
         super().delete(resource)
@@ -76,7 +76,12 @@ def isolate_manifest(manifest: Path, run_id: str, attempt: str) -> None:
 
 
 def verify_source(github: cleanup.GitHub, run_id: str, attempt: str, repository_id: str) -> None:
-    run = github.get(f"runs/{run_id}/attempts/{attempt}")
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{github.repository}/actions/runs/{run_id}/attempts/{attempt}",
+        headers={"Authorization": f"Bearer {github.token}", "Accept": "application/vnd.github+json"},
+    )
+    with urllib.request.urlopen(request, timeout=cleanup.REQUEST_TIMEOUT_SECONDS) as response:
+        run = json.load(response)
     if (
         str(run["id"]) != run_id
         or str(run["run_attempt"]) != attempt
@@ -89,9 +94,9 @@ def verify_source(github: cleanup.GitHub, run_id: str, attempt: str, repository_
     print(f"Validated source: {run['html_url']} attempt={attempt} conclusion={run['conclusion']}")
 
 
-def recover(args, github: cleanup.GitHub, cluster: ValidationCluster) -> int:
+def clean(args, github: cleanup.GitHub, cluster: ValidationCluster) -> int:
     verify_source(github, args.run_id, args.attempt, args.repository_id)
-    reclaim_args = SimpleNamespace(
+    sweep_args = SimpleNamespace(
         command="sweep",
         repository=args.repository,
         repository_id=args.repository_id,
@@ -99,21 +104,16 @@ def recover(args, github: cleanup.GitHub, cluster: ValidationCluster) -> int:
         dry_run=args.dry_run,
         wait_seconds=WAIT_SECONDS,
     )
-    result = cleanup.reclaim(reclaim_args, github, cluster, datetime.now(timezone.utc))
-    if result == 0 and not args.dry_run:
-        # Also detect pods left behind when an earlier deletion removed the root.
-        cluster.wait_deleted("", {task_name(args.run_id, args.attempt)}, WAIT_SECONDS)
-        print("Verified absence of the target LWS, Service and pods")
-    return result
+    return cleanup.sweep_completed_runs(sweep_args, github, cluster)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("prepare", "recover"))
-    parser.add_argument("--run-id", required=True, type=cleanup.positive_id)
-    parser.add_argument("--attempt", required=True, type=cleanup.positive_id)
+    parser.add_argument("command", choices=("prepare", "cleanup"))
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--attempt", required=True)
     parser.add_argument("--repository", required=True)
-    parser.add_argument("--repository-id", required=True, type=cleanup.positive_id)
+    parser.add_argument("--repository-id", required=True)
     parser.add_argument("--manifest", type=Path, default=Path("lws.yaml"))
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
@@ -123,15 +123,14 @@ def main() -> int:
         if args.command == "prepare":
             selector = f"{VALIDATION_LABEL}={VALIDATION_VALUE},ci.vllm.ai/repository-id={args.repository_id}"
             unscoped = cleanup.Kubernetes(NAMESPACE)
-            existing = unscoped.resources(selector)
-            pods = json.loads(unscoped.command("get", "pods", "-l", selector, "-o", "json"))["items"]
-            if existing or pods:
+            existing = unscoped.resources(selector, include_children=True)
+            if existing:
                 raise cleanup.CleanupError("Earlier validation resources remain; do not launch another case")
             isolate_manifest(args.manifest, args.run_id, args.attempt)
             return 0
 
         github = cleanup.GitHub(args.repository, os.environ.get("GITHUB_TOKEN", ""))
-        return recover(args, github, cluster)
+        return clean(args, github, cluster)
     except (
         cleanup.CleanupError,
         KeyError,

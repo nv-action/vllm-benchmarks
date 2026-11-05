@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 """CPU-only lifecycle tests; no GitHub or Kubernetes writes are performed."""
 
-import builtins
-import copy
 import importlib.util
+import io
 import json
-from datetime import datetime, timedelta, timezone
+import sys
+import urllib.error
+from email.message import Message
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -15,354 +16,394 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
-SCRIPT = ROOT / ".github/workflows/scripts/lws_cleanup.py"
-SPEC = importlib.util.spec_from_file_location("lws_cleanup", SCRIPT)
+SPEC = importlib.util.spec_from_file_location("lws_cleanup", ROOT / ".github/workflows/scripts/lws_cleanup.py")
+assert SPEC is not None and SPEC.loader is not None
 cleanup = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(cleanup)
-NOW = datetime(2026, 10, 23, 12, tzinfo=timezone.utc)
 PREFIX = cleanup.LABEL_PREFIX
-REPOSITORY = "vllm-project/vllm-ascend"
-WORKFLOW = ".github/workflows/schedule_nightly_test_a3.yaml"
 
 
 @pytest.fixture
-def args(tmp_path):
+def args():
     return SimpleNamespace(
         command="sweep",
-        repository=REPOSITORY,
+        repository="private-org/private-ci",
         repository_id="123",
         namespace="vllm-project",
         run_id="100",
         attempt="1",
         task_id="vllm-test-abc123",
-        manifest=tmp_path / "lws.yaml",
-        workflow_ref=f"{REPOSITORY}/{WORKFLOW}@refs/heads/main",
-        runner_name="runner-unique",
-        timeout_minutes=120,
         dry_run=False,
-        wait_seconds=0,
+        wait_seconds=300,
     )
 
 
-def resource(kind="LeaderWorkerSet", task="vllm-test-abc123", attempt="1", job="10"):
-    return {
+def resource(kind="LeaderWorkerSet", *, task="vllm-test-abc123", run="100", attempt="1", repository="123"):
+    names = {"LeaderWorkerSet": task, "Service": f"{task}-leader", "StatefulSet": f"{task}-0", "Pod": f"{task}-0-1"}
+    ownership = {
+        f"{PREFIX}managed-by": cleanup.MANAGED_BY,
+        f"{PREFIX}repository-id": repository,
+        f"{PREFIX}run-id": run,
+        f"{PREFIX}run-attempt": attempt,
+        f"{PREFIX}task-id": task,
+    }
+    item = {
         "kind": kind,
         "metadata": {
-            "name": task if kind == "LeaderWorkerSet" else f"{task}-leader",
+            "name": names[kind],
             "namespace": "vllm-project",
-            "uid": f"{task}-{kind}-uid",
-            "creationTimestamp": (NOW - timedelta(hours=1)).isoformat(),
-            "labels": {
-                f"{PREFIX}managed-by": cleanup.MANAGED_BY,
-                f"{PREFIX}repository-id": "123",
-                f"{PREFIX}run-id": "100",
-                f"{PREFIX}run-attempt": attempt,
-                f"{PREFIX}job-id": job,
-                f"{PREFIX}task-id": task,
-            },
-            "annotations": {
-                f"{PREFIX}repository": REPOSITORY,
-                f"{PREFIX}workflow": WORKFLOW,
-                f"{PREFIX}expires-at": (NOW + timedelta(hours=1)).isoformat(),
-            },
+            "uid": f"{names[kind]}-uid",
+            "labels": ownership,
         },
     }
-
-
-def completed_job(conclusion="failure", attempt=1):
-    return {
-        "run_id": 100,
-        "run_attempt": attempt,
-        "status": "completed",
-        "conclusion": conclusion,
-        "completed_at": (NOW - timedelta(minutes=3)).isoformat(),
-    }
+    if kind == "StatefulSet":
+        item["metadata"]["labels"] = {cleanup.LWS_LABEL: task}
+        item["spec"] = {"template": {"metadata": {"labels": ownership}}}
+    return item
 
 
 class FakeCluster:
     def __init__(self, resources):
         self.items = resources
         self.deleted = []
+        self.wait_deleted = Mock()
 
-    def resources(self, selector):
-        labels = dict(part.split("=", 1) for part in selector.split(","))
-        return [r for r in self.items if all(r["metadata"]["labels"].get(k) == v for k, v in labels.items())]
+    def resources(self, selector, *, include_children=False):
+        expected = dict(part.split("=", 1) for part in selector.split(","))
+        return [
+            r
+            for r in self.items
+            if (include_children or r["kind"] in {"LeaderWorkerSet", "Service"})
+            and all(cleanup.labels(r).get(k) == v for k, v in expected.items())
+        ]
 
     def delete(self, item):
-        self.deleted.append(item["metadata"]["name"])
+        self.deleted.append(item)
+        self.items.remove(item)
 
 
-@pytest.mark.parametrize("budget", [120, 240, 1440])
-def test_stamp_rendered_manifest_before_apply(args, budget):
+@pytest.mark.parametrize("hardware,shared_volume", [("a2", ""), ("a3", ""), ("a5", "/mnt/weight")])
+def test_template_labels_roots_and_pods_without_changing_workload(args, hardware, shared_volume):
     template = ROOT / "tests/e2e/common/multi_node/lws.yaml.jinja2"
-    args.manifest.write_text(
-        jinja2.Template(template.read_text()).render(lws_name=args.task_id, profile_env={}, shared_volume_path="")
-    )
-    args.timeout_minutes = budget
-    github = Mock()
-    github.current_job.return_value = "10"
-    cleanup.stamp_manifest(args, github, NOW)
-    lws, service = yaml.safe_load_all(args.manifest.read_text())
-    for item in (lws, service):
-        assert item["metadata"]["labels"][f"{PREFIX}job-id"] == "10"
-        assert item["metadata"]["labels"][f"{PREFIX}run-attempt"] == "1"
-        assert cleanup.timestamp(item["metadata"]["annotations"][f"{PREFIX}expires-at"]) == NOW + timedelta(
-            minutes=budget + cleanup.EXPIRY_MARGIN_MINUTES
+    context = {
+        "lws_name": args.task_id,
+        "k8s_namespace": "custom-ci",
+        "soc_version": hardware,
+        "npu_per_node": "16" if hardware == "a3" else "8",
+        "profile_env": {"PROFILE_TEST": "enabled"},
+        "shared_volume_path": shared_volume,
+    }
+    render = jinja2.Template(template.read_text()).render
+    unmanaged_lws, unmanaged_service = yaml.safe_load_all(render(**context))
+    lws, service = yaml.safe_load_all(
+        render(
+            **context,
+            ci_repository=args.repository,
+            ci_repository_id=args.repository_id,
+            ci_run_id=args.run_id,
+            ci_run_attempt=args.attempt,
         )
-    assert service["metadata"]["labels"] == lws["metadata"]["labels"]
-    # Stamping does not alter the workload or its existing leader selector.
-    assert lws["spec"]["leaderWorkerTemplate"]["size"] == 2
+    )
+
+    expected = resource()["metadata"]["labels"]
+    assert lws["metadata"]["labels"] == service["metadata"]["labels"] == expected
+    assert lws["metadata"]["namespace"] == service["metadata"]["namespace"] == context["k8s_namespace"]
+    assert lws["metadata"]["annotations"][f"{PREFIX}repository"] == args.repository
+    assert service["spec"] == unmanaged_service["spec"]
     assert service["spec"]["selector"]["role"] == "leader"
+    assert "labels" not in unmanaged_lws["metadata"]
+    assert "labels" not in unmanaged_service["metadata"]
+
+    for role in ("leaderTemplate", "workerTemplate"):
+        pod = lws["spec"]["leaderWorkerTemplate"][role]
+        assert all(pod["metadata"]["labels"][k] == v for k, v in expected.items())
+        assert all(isinstance(v, str) for v in pod["metadata"]["labels"].values())
+        assert pod["spec"] == unmanaged_lws["spec"]["leaderWorkerTemplate"][role]["spec"]
+    assert lws["spec"]["leaderWorkerTemplate"]["leaderTemplate"]["metadata"]["labels"]["role"] == "leader"
 
 
-def test_stamp_refuses_unidentifiable_job_without_modifying_manifest(args):
-    original = yaml.safe_dump_all([resource(), resource("Service")])
-    args.manifest.write_text(original)
-    github = Mock()
-    github.current_job.side_effect = cleanup.CleanupError("API unavailable")
-    with pytest.raises(cleanup.CleanupError):
-        cleanup.stamp_manifest(args, github, NOW)
-    assert args.manifest.read_text() == original
+@pytest.mark.parametrize("roots_exist", [True, False])
+def test_local_cli_waits_for_current_task_children_without_github(args, monkeypatch, roots_exist):
+    roots = [resource(), resource("Service")] if roots_exist else []
+    children = [resource("Pod"), resource("StatefulSet")]
+    others = [
+        resource(task="vllm-other-123"),
+        resource(task="vllm-rerun-123", attempt="2"),
+        resource(repository="456"),
+    ]
+    cluster = FakeCluster(roots + children + others)
+    wait_deleted = cleanup.Kubernetes.wait_deleted
+    cluster.wait_deleted.side_effect = lambda *arguments: wait_deleted(cluster, *arguments)
 
+    def finish_termination(seconds):
+        for child in children:
+            cluster.items.remove(child)
 
-@pytest.mark.parametrize("conclusion", ["success", "failure", "cancelled", "timed_out"])
-def test_completed_job_reclaims_lws_and_service(args, conclusion):
-    github = Mock()
-    github.get.return_value = completed_job(conclusion)
-    cluster = FakeCluster([resource(), resource("Service")])
-    assert cleanup.reclaim(args, github, cluster, NOW) == 0
-    assert cluster.deleted == [args.task_id, f"{args.task_id}-leader"]
-
-
-def test_old_attempt_reclaimed_while_new_attempt_runs(args):
-    github = Mock()
-    github.get.side_effect = lambda path: (
-        completed_job(attempt=1) if path == "jobs/10" else {"run_id": 100, "run_attempt": 2, "status": "in_progress"}
+    sleep = Mock(side_effect=finish_termination)
+    monkeypatch.setattr(cleanup.time, "sleep", sleep)
+    github = Mock(side_effect=AssertionError("Local cleanup must not construct a GitHub client"))
+    monkeypatch.setattr(cleanup, "GitHub", github)
+    monkeypatch.setattr(cleanup, "Kubernetes", Mock(return_value=cluster))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "lws_cleanup.py",
+            "cleanup",
+            "--repository-id",
+            args.repository_id,
+            "--run-id",
+            args.run_id,
+            "--attempt",
+            args.attempt,
+            "--task-id",
+            args.task_id,
+        ],
     )
-    cluster = FakeCluster([resource(), resource(task="vllm-test-new123", attempt="2", job="20")])
-    assert cleanup.reclaim(args, github, cluster, NOW) == 0
-    assert cluster.deleted == [args.task_id]
+    assert cleanup.main() == 0
+    assert cluster.deleted == roots
+    assert cluster.items == others
+    github.assert_not_called()
+    sleep.assert_called_once_with(5)
 
 
-@pytest.mark.parametrize("status", ["in_progress", "queued", "waiting", "pending", "requested"])
-def test_active_job_is_preserved(args, status):
-    github = Mock()
-    github.get.return_value = {"run_id": 100, "run_attempt": 1, "status": status}
-    cluster = FakeCluster([resource()])
-    assert cleanup.reclaim(args, github, cluster, NOW) == 0
-    assert not cluster.deleted
-
-
-def test_completion_grace_period(args):
-    github = Mock()
-    github.get.return_value = completed_job() | {"completed_at": NOW.isoformat()}
-    assert cleanup.deletion_reason(resource(), args, github, NOW) is None
-
-
-@pytest.mark.parametrize("message", ["403", "404", "rate limit", "timeout"])
-def test_api_errors_are_not_completion(args, message):
-    github = Mock()
-    github.get.side_effect = cleanup.CleanupError(message)
-    cluster = FakeCluster([resource()])
-    assert cleanup.reclaim(args, github, cluster, NOW) == 1
-    assert not cluster.deleted
-
-
-def test_expiry_works_without_github_and_does_not_block_other_resources(args):
-    github = Mock()
-    github.get.side_effect = cleanup.CleanupError("unavailable")
-    expired = resource(task="vllm-test-old123")
-    expired["metadata"]["annotations"][f"{PREFIX}expires-at"] = NOW.isoformat()
-    cluster = FakeCluster([resource(), expired])
-    assert cleanup.reclaim(args, github, cluster, NOW) == 1
-    assert cluster.deleted == ["vllm-test-old123"]
-    assert github.get.call_count == 1
-
-
-@pytest.mark.parametrize(
-    "change",
-    [
-        {"run_id": 101},
-        {"run_attempt": 2},
-        {"status": "unknown"},
-        {"completed_at": None},
-    ],
-)
-def test_unverifiable_job_is_preserved(args, change):
-    github = Mock()
-    github.get.return_value = completed_job() | change
-    cluster = FakeCluster([resource()])
-    assert cleanup.reclaim(args, github, cluster, NOW) == 1
-    assert not cluster.deleted
-
-
-@pytest.mark.parametrize("key,value", [("workflow", "other.yml"), ("repository", "other/repo"), ("expires-at", "bad")])
-def test_invalid_ownership_is_preserved(args, key, value):
-    item = resource()
-    item["metadata"]["annotations"][f"{PREFIX}{key}"] = value
-    cluster = FakeCluster([item])
-    assert cleanup.reclaim(args, Mock(), cluster, NOW) == 1
-    assert not cluster.deleted
-
-
-@pytest.mark.parametrize("annotations", [None, {}, {f"{PREFIX}expires-at": None}])
-def test_bad_metadata_does_not_block_other_tasks(args, annotations):
+@pytest.mark.parametrize("field", ["run-id", "run-attempt", "task-id"])
+def test_missing_resource_identity_does_not_block_other_runs(args, field):
     invalid = resource(task="vllm-invalid-123")
-    invalid["metadata"]["annotations"] = annotations
-    cluster = FakeCluster([invalid, resource()])
+    del invalid["metadata"]["labels"][f"{PREFIX}{field}"]
+    valid = resource(run="200", task="vllm-valid-123")
+    cluster = FakeCluster([invalid, valid])
     github = Mock()
-    github.get.return_value = completed_job()
-    assert cleanup.reclaim(args, github, cluster, NOW) == 1
-    assert cluster.deleted == [args.task_id]
+    github.run_completed.return_value = True
+
+    assert cleanup.sweep_completed_runs(args, github, cluster) == 1
+    assert cluster.deleted == [valid]
+    assert cluster.items == [invalid]
+    github.run_completed.assert_called_once_with("200", "1")
+    cluster.wait_deleted.assert_not_called()
 
 
-def test_unlabelled_and_other_repository_resources_are_ignored(args):
-    legacy = resource()
-    legacy["metadata"]["labels"] = {}
-    other = resource()
-    other["metadata"]["labels"][f"{PREFIX}repository-id"] = "456"
-    cluster = FakeCluster([legacy, other])
-    assert cleanup.reclaim(args, Mock(), cluster, NOW) == 0
-    assert not cluster.deleted
-
-
-@pytest.mark.parametrize("command", ["cleanup", "sweep"])
-@pytest.mark.parametrize("expired", [False, True])
-def test_private_repository_reclaims_only_its_own_resources(args, command, expired):
-    args.repository = "private-org/private-ci"
-    args.repository_id = "456"
-    args.workflow_ref = f"{args.repository}/{WORKFLOW}@refs/heads/main"
-    args.task_id = "vllm-private-abc123"
-    args.command = command
-    args.manifest.write_text(yaml.safe_dump_all([resource(task=args.task_id), resource("Service", task=args.task_id)]))
+def test_sweep_reclaims_old_runs_and_orphan_controllers_without_touching_active_attempt(args):
+    orphan_sts = resource("StatefulSet", task="vllm-old-123", run="99")
+    orphan_pod = resource("Pod", task="vllm-old-123", run="99")
+    active = resource(task="vllm-rerun-123", attempt="2")
+    roots = [resource(), resource("Service")]
+    cluster = FakeCluster([orphan_pod, orphan_sts, active, *roots])
     github = Mock()
-    github.current_job.return_value = "10"
-    github.get.return_value = completed_job()
-    cleanup.stamp_manifest(args, github, NOW)
-    private_resources = list(yaml.safe_load_all(args.manifest.read_text()))
-    # The other repository shares the namespace and even the run/job IDs.
-    upstream_resources = [resource(), resource("Service")]
-    items = upstream_resources + private_resources
-    if expired:
-        for item in items:
-            item["metadata"]["annotations"][f"{PREFIX}expires-at"] = NOW.isoformat()
-    cluster = FakeCluster(items)
-    assert cleanup.reclaim(args, github, cluster, NOW) == 0
-    assert cluster.deleted == [args.task_id, f"{args.task_id}-leader"]
+    github.run_completed.side_effect = lambda run, attempt: (run, attempt) != ("100", "2")
+
+    assert cleanup.sweep_completed_runs(args, github, cluster) == 0
+    assert cluster.deleted == [orphan_sts, orphan_pod, *roots]
+    assert cluster.items == [active]
+    assert github.run_completed.call_count == 3
+    targets = cluster.wait_deleted.call_args.args[1]
+    assert targets == {("99", "1", "vllm-old-123"), ("100", "1", args.task_id)}
 
 
-def test_partial_creation_service_only_and_dry_run(args):
+def test_many_tasks_in_one_run_share_one_github_check(args):
+    cluster = FakeCluster([resource(), resource("Service"), resource(task="vllm-other-123"), resource("Pod")])
     github = Mock()
-    github.get.return_value = completed_job()
-    cluster = FakeCluster([resource("Service")])
-    args.dry_run = True
-    assert cleanup.reclaim(args, github, cluster, NOW) == 0
-    assert not cluster.deleted
-    args.dry_run = False
-    assert cleanup.reclaim(args, github, cluster, NOW) == 0
-    assert cluster.deleted == [f"{args.task_id}-leader"]
+    github.run_completed.return_value = True
+    assert cleanup.sweep_completed_runs(args, github, cluster) == 0
+    github.run_completed.assert_called_once_with("100", "1")
+    assert len(cluster.deleted) == 4
+    cluster.wait_deleted.assert_called_once()
 
 
-def test_local_cancel_cleanup_is_scoped_and_does_not_need_github(args):
-    args.command = "cleanup"
-    cluster = FakeCluster([resource(), resource("Service"), resource(task="vllm-other-123")])
+@pytest.mark.parametrize("kind", ["Pod", "StatefulSet", "Service"])
+def test_later_sweep_reclaims_leftover_without_lws(args, kind):
+    cluster = FakeCluster([resource(kind)])
     github = Mock()
-    assert cleanup.reclaim(args, github, cluster, NOW) == 0
-    assert cluster.deleted == [args.task_id, f"{args.task_id}-leader"]
-    github.get.assert_not_called()
-    args.attempt = "2"
-    cluster.deleted.clear()
-    assert cleanup.reclaim(args, github, cluster, NOW) == 0
-    assert not cluster.deleted
+    github.run_completed.return_value = True
+    assert cleanup.sweep_completed_runs(args, github, cluster) == 0
+    assert [r["kind"] for r in cluster.deleted] == [kind]
+    cluster.wait_deleted.assert_called_once()
 
 
-def test_delete_uses_uid_precondition_and_background_gc(monkeypatch):
+def test_legacy_root_labels_work_without_job_id_or_expiry_checks(args):
     item = resource()
-    run = Mock(
-        side_effect=[SimpleNamespace(returncode=0, stdout=json.dumps(item)), SimpleNamespace(returncode=0, stdout="")]
+    item["metadata"]["labels"][f"{PREFIX}job-id"] = "42"
+    item["metadata"]["annotations"] = {f"{PREFIX}expires-at": "2000-01-01T00:00:00Z"}
+    cluster = FakeCluster([item])
+    github = Mock()
+    github.run_completed.return_value = False
+    assert cleanup.sweep_completed_runs(args, github, cluster) == 0
+    assert not cluster.deleted
+
+
+def test_private_repository_scope_and_dry_run(args):
+    unlabelled = resource("Pod")
+    unlabelled["metadata"]["labels"] = {}
+    own = resource("Service")
+    cluster = FakeCluster([resource(repository="456"), resource("StatefulSet", repository="456"), unlabelled, own])
+    github = Mock()
+    github.run_completed.return_value = True
+    args.dry_run = True
+    assert cleanup.sweep_completed_runs(args, github, cluster) == 0
+    assert not cluster.deleted
+    cluster.wait_deleted.assert_not_called()
+    args.dry_run = False
+    assert cleanup.sweep_completed_runs(args, github, cluster) == 0
+    assert cluster.deleted == [own]
+
+
+def test_no_resources_is_success_without_github_or_wait(args):
+    cluster = FakeCluster([])
+    github = Mock()
+    assert cleanup.sweep_completed_runs(args, github, cluster) == 0
+    github.run_completed.assert_not_called()
+    cluster.wait_deleted.assert_not_called()
+
+
+@pytest.mark.parametrize("status", ["completed", "in_progress", "queued", "waiting", "unknown"])
+def test_github_uses_exact_attempt_in_executing_repository(args, monkeypatch, status):
+    response = io.StringIO(json.dumps({"id": 100, "run_attempt": 1, "status": status}))
+    request = Mock(return_value=response)
+    monkeypatch.setattr(cleanup.urllib.request, "urlopen", request)
+    assert cleanup.GitHub(args.repository, "token").run_completed("100", "1") == (status == "completed")
+    assert (
+        request.call_args.args[0].full_url
+        == "https://api.github.com/repos/private-org/private-ci/actions/runs/100/attempts/1"
     )
+
+
+@pytest.mark.parametrize("code,reason", [(403, "Forbidden"), (404, "Not Found"), (500, "Internal Server Error")])
+def test_github_errors_preserve_resources_and_report_reason(args, monkeypatch, capsys, code, reason):
+    token = "test-secret-token"
+    headers = Message()
+    headers["Authorization"] = token
+    error = urllib.error.HTTPError(
+        "https://api.github.com", code, reason, headers, io.BytesIO(b"private response body")
+    )
+    monkeypatch.setattr(cleanup.urllib.request, "urlopen", Mock(side_effect=error))
+    cluster = FakeCluster([resource(), resource("Pod")])
+    assert cleanup.sweep_completed_runs(args, cleanup.GitHub(args.repository, token), cluster) == 1
+    assert not cluster.deleted
+    cluster.wait_deleted.assert_not_called()
+    stderr = capsys.readouterr().err
+    assert f"Cannot verify run 100/1: HTTP Error {code}: {reason}" in stderr
+    assert token not in stderr
+    assert "private response body" not in stderr
+
+
+def test_failure_for_one_run_does_not_block_other_completed_runs(args, capsys):
+    cluster = FakeCluster([resource(), resource("Service"), resource(run="200", task="vllm-other-123")])
+    github = Mock()
+    github.run_completed.side_effect = [urllib.error.URLError("DNS lookup failed"), True]
+    assert cleanup.sweep_completed_runs(args, github, cluster) == 1
+    assert [r["metadata"]["name"] for r in cluster.deleted] == ["vllm-other-123"]
+    assert github.run_completed.call_count == 2
+    assert "DNS lookup failed" in capsys.readouterr().err
+
+
+def test_statefulset_scope_comes_from_template_not_top_level_labels(monkeypatch):
+    own = resource("StatefulSet")
+    other = resource("StatefulSet", repository="456")
+    other["metadata"]["labels"].update(resource()["metadata"]["labels"])
+    cluster = cleanup.Kubernetes("vllm-project")
+    command = Mock(side_effect=[json.dumps({"items": []}), json.dumps({"items": [own, other]})])
+    monkeypatch.setattr(cluster, "command", command)
+    selector = f"{PREFIX}managed-by={cleanup.MANAGED_BY},{PREFIX}repository-id=123"
+    assert cluster.resources(selector, include_children=True) == [own]
+    assert command.call_args_list[0].args[3] == selector
+
+
+@pytest.mark.parametrize("kind", ["LeaderWorkerSet", "StatefulSet", "Service", "Pod"])
+def test_delete_uses_atomic_uid_precondition_without_extra_get(monkeypatch, kind):
+    run = Mock(return_value=SimpleNamespace(returncode=0, stdout=""))
     monkeypatch.setattr(cleanup.subprocess, "run", run)
+    item = resource(kind)
     cleanup.Kubernetes("vllm-project").delete(item)
+    run.assert_called_once()
     command = run.call_args.args[0]
-    assert "--raw" in command and command[-2:] == ["-f", "-"]
-    assert "/apis/leaderworkerset.x-k8s.io/v1/namespaces/vllm-project/leaderworkersets/vllm-test-abc123" in command
+    assert "delete" in command and "get" not in command
     options = json.loads(run.call_args.kwargs["input"])
     assert options["preconditions"] == {"uid": item["metadata"]["uid"]}
     assert options["propagationPolicy"] == "Background"
 
 
-def test_replaced_resource_is_not_deleted(monkeypatch):
-    item = resource()
-    replacement = copy.deepcopy(item)
-    replacement["metadata"]["uid"] = "new-uid"
+@pytest.mark.parametrize("reason", ["NotFound", "Forbidden", "Conflict"])
+def test_only_not_found_is_ignored_on_delete(monkeypatch, reason):
     cluster = cleanup.Kubernetes("vllm-project")
-    command = Mock(return_value=json.dumps(replacement))
+    command = Mock(side_effect=cleanup.CleanupError(f"Error from server ({reason})"))
     monkeypatch.setattr(cluster, "command", command)
-    with pytest.raises(cleanup.CleanupError, match="Ownership changed"):
-        cluster.delete(item)
-    assert command.call_count == 1
+    if reason == "NotFound":
+        cluster.delete(resource())
+    else:
+        with pytest.raises(cleanup.CleanupError, match=reason):
+            cluster.delete(resource())
+    command.assert_called_once()
 
 
-def test_concurrent_deletion_is_idempotent(monkeypatch):
-    cluster = cleanup.Kubernetes("vllm-project")
-    command = Mock(side_effect=[json.dumps(resource()), cleanup.CleanupError("NotFound"), ""])
-    monkeypatch.setattr(cluster, "command", command)
-    cluster.delete(resource())
-
-
-def test_failed_delete_is_reported_and_does_not_stop_service_cleanup(args):
+@pytest.mark.parametrize("command", ["cleanup", "sweep"])
+def test_failed_delete_does_not_block_other_deletions_or_spend_time_waiting(args, command, monkeypatch):
     cluster = FakeCluster([resource(), resource("Service")])
-    cluster.delete = Mock(side_effect=[cleanup.CleanupError("Forbidden"), None])
+    delete = Mock(side_effect=[cleanup.CleanupError("Forbidden"), None])
+    monkeypatch.setattr(cluster, "delete", delete)
     github = Mock()
-    github.get.return_value = completed_job()
-    assert cleanup.reclaim(args, github, cluster, NOW) == 1
-    assert cluster.delete.call_count == 2
+    github.run_completed.return_value = True
+    if command == "cleanup":
+        result = cleanup.cleanup_current_task(args, cluster)
+    else:
+        result = cleanup.sweep_completed_runs(args, github, cluster)
+    assert result == 1
+    assert delete.call_count == 2
+    cluster.wait_deleted.assert_not_called()
 
 
-def test_wait_does_not_treat_api_error_or_live_pods_as_success(monkeypatch):
+@pytest.mark.parametrize("kind", ["LeaderWorkerSet", "Service", "StatefulSet", "Pod"])
+def test_wait_checks_all_resource_kinds_and_ignores_unrelated_active_run(monkeypatch, kind):
+    pending = resource(kind)
+    active = resource(run="200", task="vllm-active-123")
     cluster = cleanup.Kubernetes("vllm-project")
-    monkeypatch.setattr(cluster, "resources", Mock(return_value=[]))
-    command = Mock(return_value=json.dumps({"items": [{"metadata": {"name": "remaining-pod"}}]}))
-    monkeypatch.setattr(cluster, "command", command)
-    with pytest.raises(cleanup.CleanupError, match="still exist"):
-        cluster.wait_deleted("managed", {"vllm-test-abc123"}, 0)
-    command.side_effect = cleanup.CleanupError("Forbidden")
-    with pytest.raises(cleanup.CleanupError, match="Forbidden"):
-        cluster.wait_deleted("managed", {"vllm-test-abc123"}, 0)
+    resources = Mock(side_effect=[[pending, active], [active]])
+    monkeypatch.setattr(cluster, "resources", resources)
+    sleep = Mock()
+    monkeypatch.setattr(cleanup.time, "sleep", sleep)
+    cluster.wait_deleted("managed", {cleanup.identity(pending)}, 300)
+    sleep.assert_called_once_with(5)
 
 
-def test_job_identity_paginates(monkeypatch):
-    github = cleanup.GitHub(REPOSITORY, "test-token")
-    get = Mock(
-        side_effect=[
-            {"jobs": [{"runner_name": "other", "status": "in_progress"}] * cleanup.PAGE_SIZE},
-            {"jobs": [{"runner_name": "ours", "status": "in_progress", "id": 10}]},
-        ]
-    )
-    monkeypatch.setattr(github, "get", get)
-    assert github.current_job("100", "1", "ours") == "10"
-    assert "page=2" in get.call_args.args[0]
+def test_wait_reports_leftovers_and_query_errors(monkeypatch):
+    cluster = cleanup.Kubernetes("vllm-project")
+    pod = resource("Pod")
+    resources = Mock(return_value=[pod])
+    monkeypatch.setattr(cluster, "resources", resources)
+    with pytest.raises(cleanup.CleanupError, match="Pod/vllm-test-abc123-0-1"):
+        cluster.wait_deleted("managed", {cleanup.identity(pod)}, 0)
+    resources.side_effect = cleanup.CleanupError("API unavailable")
+    with pytest.raises(cleanup.CleanupError, match="API unavailable"):
+        cluster.wait_deleted("managed", {cleanup.identity(pod)}, 0)
 
 
-def test_ambiguous_job_identity_rejected(monkeypatch):
-    github = cleanup.GitHub(REPOSITORY, "test-token")
-    monkeypatch.setattr(
-        github, "get", Mock(return_value={"jobs": [{"runner_name": "ours", "status": "in_progress", "id": 10}] * 2})
-    )
-    monkeypatch.setattr(cleanup.time, "sleep", Mock())
-    with pytest.raises(cleanup.CleanupError, match="exactly one"):
-        github.current_job("100", "1", "ours")
+def test_cleanup_monitors_all_multinode_workflows():
+    directory = ROOT / ".github/workflows"
+    workflow = yaml.load((directory / "lws_resource_cleanup.yaml").read_text(), Loader=yaml.BaseLoader)
+    names = set()
+    for path in directory.glob("*.y*ml"):
+        caller = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
+        if any(
+            job.get("uses") == "./.github/workflows/_e2e_nightly_multi_node.yaml"
+            for job in caller.get("jobs", {}).values()
+        ):
+            names.add(caller["name"])
+    assert set(workflow["on"]["workflow_run"]["workflows"]) == names
+    assert "schedule" not in workflow["on"]
 
 
-def test_cleanup_import_does_not_require_regex(monkeypatch):
-    original_import = builtins.__import__
-
-    def import_without_regex(name, *args, **kwargs):
-        if name == "regex":
-            raise ModuleNotFoundError("nightly-cpu does not provide regex")
-        return original_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", import_without_regex)
-    module = importlib.util.module_from_spec(SPEC)
-    SPEC.loader.exec_module(module)
-    assert module.positive_id("100") == "100"
+def test_producer_renders_ownership_and_uses_one_cleanup():
+    path = ROOT / ".github/workflows/_e2e_nightly_multi_node.yaml"
+    workflow = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
+    steps = workflow["jobs"]["e2e"]["steps"]
+    launch = next(step for step in steps if step.get("name") == "Launch cluster")
+    render = launch["run"][: launch["run"].index("kubectl apply")]
+    for variable in ("GITHUB_REPOSITORY", "GITHUB_REPOSITORY_ID", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT"):
+        assert f"${variable}" in render
+    assert '-D k8s_namespace="$NAMESPACE"' in render
+    assert "GITHUB_TOKEN" not in launch["env"]
+    cleanup_steps = [step for step in steps if "lws_cleanup.py cleanup" in step.get("run", "")]
+    assert len(cleanup_steps) == 1
+    assert "always()" in cleanup_steps[0]["if"]
+    assert "!cancelled()" in workflow["jobs"]["e2e"]["if"]
+    assert "--wait-seconds" not in cleanup_steps[0]["run"]
+    assert int(cleanup_steps[0]["timeout-minutes"]) * 60 > cleanup.DELETE_WAIT_SECONDS
