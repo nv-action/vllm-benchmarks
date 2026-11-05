@@ -100,9 +100,16 @@ RUN --mount=type=cache,target=/root/.cache/pip VLLM_TARGET_DEVICE="empty" python
 
 # Install vllm-ascend
 ENV DEBIAN_FRONTEND=noninteractive
+# Cap opc/c++/rust build parallelism to bound memory on shared buildkitd nodes:
+# the heavy vllm-ascend compile otherwise spawns unbounded jobs and can exhaust
+# a 128Gi node (OOM-killing kubelet). Overridable via --build-arg MAX_JOBS=N.
+ARG MAX_JOBS=32
+ARG CARGO_BUILD_JOBS=32
 ENV SOC_VERSION=$SOC_VERSION \
     TASK_QUEUE_ENABLE=1 \
-    OMP_NUM_THREADS=1
+    OMP_NUM_THREADS=1 \
+    MAX_JOBS=$MAX_JOBS \
+    CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS
 COPY . /vllm-workspace/vllm-ascend/
 
 RUN --mount=type=cache,target=/root/.cache/pip export PIP_EXTRA_INDEX_URL="${ASCEND_INDEX_URL}" && \
