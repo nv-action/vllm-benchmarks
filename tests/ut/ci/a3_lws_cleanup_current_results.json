@@ -1,0 +1,241 @@
+{
+  "date_utc": "2026-11-05",
+  "repository": "nv-action/vllm-benchmarks",
+  "branch": "test/a3-lws-cleanup-validation",
+  "tested_commit": "62062f20ab0949b233031621a2e05592c5578d73",
+  "source_base_commit": "461ec120a",
+  "source_snapshot": "Includes the four staged source-worktree changes; source index and branch were not committed or pushed.",
+  "identical_production_file_sha256": {
+    ".github/workflows/scripts/lws_cleanup.py": "567d658fa8719b38e7b0267ee30dfced66f9da5ab66adb6dff6e759ba5eca7da",
+    "tests/e2e/common/multi_node/lws.yaml.jinja2": "a9fa432266fa8d58c4b96d072f648c5f26155796ceec78cb45e3c51ffe2061d2"
+  },
+  "result": "Passed ordinary cancellation, skipped-local-cleanup fallback, dry-run preservation, repeated cleanup, and running two-node force cancellation. All validation resources absent at final observation.",
+  "deletion_policy": "Background",
+  "deletion_wait_seconds": 300,
+  "poll_seconds": 5,
+  "completion_grace_seconds": 0,
+  "lws_controller_image": "k8s.m.daocloud.io/lws/lws:0.7.0",
+  "workload": {
+    "hardware": "A3",
+    "nodes_per_run": 2,
+    "maximum_concurrent_test_nodes": 2,
+    "npu_requests_per_pod": 16,
+    "config": "GLM5_1-W8A8-A3-dual-nodes.yaml",
+    "real_startup_script": true,
+    "cancellation_trigger": "Two Pods Ready on distinct nodes",
+    "vllm_service_readiness_tested": false,
+    "benchmark_completion_tested": false
+  },
+  "scope": {
+    "independent_cleanup": "Manually dispatched validation wrapper calls the unchanged production sweep_completed_runs with an additional selected-run/validation-label scope. Hardware-wide multiple-run scanning is covered by unit tests, not this integration run.",
+    "automatic_workflow_run_trigger_tested": false,
+    "default_branch_changed": false,
+    "scheduled_cleanup_enabled": false,
+    "direct_cluster_access": "Read-only kubectl get over SSH via a2-node0; all creation/deletion performed by authorized validation workflows.",
+    "manual_cluster_deletion_performed": false
+  },
+  "cases": {
+    "ordinary_cancel": {
+      "run_id": 42010009361,
+      "url": "https://github.com/nv-action/vllm-benchmarks/actions/runs/42010009361",
+      "source_run_id": 42010009361,
+      "conclusion": "cancelled",
+      "steps": [
+        {
+          "name": "Clean up LWS resources",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-11-05T10:24:50Z",
+          "completed_at": "2026-11-05T10:26:00Z",
+          "duration_seconds": 70.0
+        }
+      ],
+      "cancel": {
+        "time": "2026-11-05T10:24:37.352537+00:00",
+        "mode": "cancel"
+      },
+      "both_pods_ready_observed_at": "2026-11-05T10:24:34.702712+00:00",
+      "nodes": [
+        "172.22.5.36",
+        "172.22.5.45"
+      ],
+      "pod_uids": {
+        "vllm-cleanup-42010009361-1-0": "865dee74-7e6f-4104-b246-55a13ef16a29",
+        "vllm-cleanup-42010009361-1-0-1": "108f3d27-39ff-402d-a10d-791f27ed535b"
+      },
+      "last_case_observation": {
+        "time": "2026-11-05T10:26:13.086416+00:00",
+        "remaining_resource_count": 0
+      }
+    },
+    "skipped_local_cleanup": {
+      "run_id": 42010728947,
+      "url": "https://github.com/nv-action/vllm-benchmarks/actions/runs/42010728947",
+      "source_run_id": 42010728947,
+      "conclusion": "cancelled",
+      "steps": [
+        {
+          "name": "Clean up LWS resources",
+          "status": "completed",
+          "conclusion": "skipped",
+          "started_at": "2026-11-05T10:28:01Z",
+          "completed_at": "2026-11-05T10:28:01Z",
+          "duration_seconds": 0.0
+        }
+      ],
+      "cancel": {
+        "time": "2026-11-05T10:27:56.120411+00:00",
+        "mode": "cancel"
+      },
+      "both_pods_ready_observed_at": "2026-11-05T10:27:53.174302+00:00",
+      "nodes": [
+        "172.22.5.24",
+        "172.22.5.45"
+      ],
+      "pod_uids": {
+        "vllm-cleanup-42010728947-1-0": "a93bcbad-fc4d-4c1c-9e32-e9e4a3f2543f",
+        "vllm-cleanup-42010728947-1-0-1": "02f68339-b95c-4c7c-b055-5b8fc1559bf0"
+      },
+      "last_case_observation": {
+        "time": "2026-11-05T10:28:23.107342+00:00",
+        "remaining_resource_count": 10
+      },
+      "interpretation": "Both Ready Pods and all ten observed resources remained after ordinary cancellation; local cleanup was explicitly skipped. Subsequent dry-run preserved them; independent cleanup removed them."
+    },
+    "independent_dry_run": {
+      "run_id": 42011060634,
+      "url": "https://github.com/nv-action/vllm-benchmarks/actions/runs/42011060634",
+      "source_run_id": 42010728947,
+      "conclusion": "success",
+      "steps": [
+        {
+          "name": "Clean up only the selected validation run",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-11-05T10:29:52Z",
+          "completed_at": "2026-11-05T10:29:55Z",
+          "duration_seconds": 3.0
+        }
+      ],
+      "last_case_observation": {
+        "time": "2026-11-05T10:30:06.815184+00:00",
+        "remaining_resource_count": 10
+      },
+      "resource_uids_unchanged": true
+    },
+    "independent_cleanup": {
+      "run_id": 42011255658,
+      "url": "https://github.com/nv-action/vllm-benchmarks/actions/runs/42011255658",
+      "source_run_id": 42010728947,
+      "conclusion": "success",
+      "steps": [
+        {
+          "name": "Clean up only the selected validation run",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-11-05T10:31:17Z",
+          "completed_at": "2026-11-05T10:31:57Z",
+          "duration_seconds": 40.0
+        }
+      ],
+      "last_case_observation": {
+        "time": "2026-11-05T10:32:11.823849+00:00",
+        "remaining_resource_count": 0
+      }
+    },
+    "repeated_cleanup": {
+      "run_id": 42011585287,
+      "url": "https://github.com/nv-action/vllm-benchmarks/actions/runs/42011585287",
+      "source_run_id": 42010728947,
+      "conclusion": "success",
+      "steps": [
+        {
+          "name": "Clean up only the selected validation run",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-11-05T10:33:33Z",
+          "completed_at": "2026-11-05T10:33:35Z",
+          "duration_seconds": 2.0
+        }
+      ],
+      "last_case_observation": {
+        "time": "2026-11-05T10:33:50.858750+00:00",
+        "remaining_resource_count": 0
+      }
+    },
+    "force_cancel": {
+      "run_id": 42011794679,
+      "url": "https://github.com/nv-action/vllm-benchmarks/actions/runs/42011794679",
+      "source_run_id": 42011794679,
+      "conclusion": "cancelled",
+      "steps": [
+        {
+          "name": "Clean up LWS resources",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-11-05T10:35:40Z",
+          "completed_at": "2026-11-05T10:36:51Z",
+          "duration_seconds": 71.0
+        }
+      ],
+      "cancel": {
+        "time": "2026-11-05T10:35:39.323522+00:00",
+        "mode": "force-cancel"
+      },
+      "both_pods_ready_observed_at": "2026-11-05T10:35:36.675201+00:00",
+      "nodes": [
+        "172.22.5.24",
+        "172.22.5.36"
+      ],
+      "pod_uids": {
+        "vllm-cleanup-42011794679-1-0": "0ba231f3-8432-42c9-a757-274471742132",
+        "vllm-cleanup-42011794679-1-0-1": "36c70a3d-f912-43a5-8651-19815fd24f82"
+      },
+      "last_case_observation": {
+        "time": "2026-11-05T10:35:52.709122+00:00",
+        "remaining_resource_count": 4
+      },
+      "interpretation": "GitHub marked the run completed/cancelled before the runner finished its cleanup step. Refreshed job data and logs show local cleanup succeeded in 71 seconds. The force-followup sweep started after all resources disappeared and performed no deletion. This does not simulate a killed/unavailable runner."
+    },
+    "force_followup_cleanup": {
+      "run_id": 42012113733,
+      "url": "https://github.com/nv-action/vllm-benchmarks/actions/runs/42012113733",
+      "source_run_id": 42011794679,
+      "conclusion": "success",
+      "steps": [
+        {
+          "name": "Clean up only the selected validation run",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-11-05T10:38:51Z",
+          "completed_at": "2026-11-05T10:38:54Z",
+          "duration_seconds": 3.0
+        }
+      ],
+      "last_case_observation": {
+        "time": "2026-11-05T10:39:14.348029+00:00",
+        "remaining_resource_count": 0
+      }
+    }
+  },
+  "final_cluster_observation": {
+    "time": "2026-11-05T10:39:36.616425+00:00",
+    "resources": [],
+    "scope": "All names starting with vllm-cleanup-; LWS, Service, StatefulSet, Pod, ControllerRevision in vllm-project"
+  },
+  "local_validation": {
+    "unit_tests_passed": 55,
+    "changed_file_pre_commit": "Passed",
+    "full_format_ci": "All hooks except actionlint passed. Seven unrelated actionlint errors already present in the validation repository remain.",
+    "existing_actionlint_errors": [
+      "functional-test.yml:107 SC2129",
+      "pr_nightly_command.yml:213 SC2129",
+      "functional-test-2.yml:123 SC2129",
+      "performance-test.yml:76 SC2129",
+      "development-performance-test.yml:62 SC2129",
+      "schedule_nightly_image_build_with_base_presmoke.yaml:180 missing presmoke_tests.yaml",
+      "presmoke_test.yaml:218 invalid $/.github/actions/csrc-l1-restore"
+    ]
+  },
+  "image_observation": "nightly-cpu provides Python and kubectl but still lacks PyYAML. The validation-only manifest helper conditionally installed PyYAML. The production cleanup script uses only the Python standard library."
+}
