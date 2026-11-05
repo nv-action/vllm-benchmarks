@@ -45,9 +45,9 @@ ARG SOC_VERSION="ascend950dt_9582"
 # COMPILE_CUSTOM_KERNELS (optional): Whether to compile custom Ascend kernels (1 = yes, 0 = no).
 ARG COMPILE_CUSTOM_KERNELS=1
 # CARGO_BUILD_JOBS (optional): Number of parallel cargo build jobs.
-ARG CARGO_BUILD_JOBS=16
+ARG CARGO_BUILD_JOBS=32
 # MAX_JOBS (optional): Number of parallel build jobs passed to make/ninja.
-ARG MAX_JOBS=16
+ARG MAX_JOBS=32
 # BUILD_TYPE (optional): Build type: 'release' or 'daily' (daily installs extra deps).
 ARG BUILD_TYPE="release"
 # MEMCACHE_VERSION (optional, empty if unset): memcache package version for daily builds.
@@ -103,7 +103,8 @@ RUN --mount=type=cache,target=/root/.cache/pip VLLM_TARGET_DEVICE="empty" python
 # Install vllm-ascend
 # Limit cargo parallelism to avoid OOM in constrained build environments.
 # Overridable via --build-arg CARGO_BUILD_JOBS=N (e.g. 32-CPU/128Gi buildkitd
-# runs up to 2 builds in parallel, so 16 jobs keep memory within ~64Gi per build).
+# runs up to 2 builds in parallel; gy006 run observed ~45GiB node peak with 2
+# concurrent MAX_JOBS=32 builds, so 32 jobs is safe).
 # Limit opc/c++ build parallelism to avoid OOM. Mirrors
 # .github/workflows/_build_csrc_cache.yaml.
 # TODO: auto-detect buildkitd CPU cores and set MAX_JOBS accordingly
