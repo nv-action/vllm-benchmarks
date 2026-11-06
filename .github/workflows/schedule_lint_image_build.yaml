@@ -1,93 +1,171 @@
-name: 'Image build lint'
-on:
-  schedule:
-    # Runs at 00:00 UTC+8 every day
-    - cron: '0 20 * * *' 
-  workflow_dispatch:
-  push:
-    paths:
-      - '.github/vllm-main-verified.commit'
-      - '.github/workflows/dockerfiles/Dockerfile.lint'
-      - 'requirements-lint.txt'
-      - 'requirements-dev.txt'
-      - 'requirements.txt'
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Huawei Technologies Co., Ltd. All Rights Reserved.
 
-# only cancel in-progress runs of the same workflow
+name: Test CI images
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: Image to build and overwrite on Quay
+        type: choice
+        required: true
+        default: both
+        options:
+          - both
+          - lint-main
+          - ci
+
+permissions:
+  contents: read
+
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: test-ci-images
+  cancel-in-progress: false
+
+env:
+  IMAGE_REPOSITORY: quay.io/ascend-ci/vllm-ascend
 
 jobs:
-
-  build:
-    name: vllm-ascend lint image build
-    runs-on: ubuntu-latest
+  lint:
+    name: Build lint-main (amd64)
+    if: inputs.image == 'both' || inputs.image == 'lint-main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
     steps:
-    - uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
-        persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
-    - name: Print
-      run: |
-        lscpu
-    - name: Docker meta
-      id: meta
-      uses: docker/metadata-action@v6
-      with:
-        images: |
-          quay.io/ascend-ci/vllm-ascend
-        tags: lint
-        flavor:
-          latest=false
+      - name: Log in to Quay
+        uses: docker/login-action@v4
+        with:
+          registry: quay.io
+          username: ${{ vars.QUAY_TEMP_USERNAME }}
+          password: ${{ secrets.QUAY_TEMP_PASSWORD }}
 
-    - name: Read verified vLLM commit
-      id: vllm
-      run: |
-        vllm_commit="$(cat .github/vllm-main-verified.commit)"
-        [ -n "$vllm_commit" ] || { echo "::error::vLLM commit is empty"; exit 1; }
-        echo "main_commit=$vllm_commit" >> "$GITHUB_OUTPUT"
+      - name: Make room for lint dependencies
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
 
-    - name: Build - Set up QEMU
-      uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
 
-    - name: Build - Set up Docker Buildx
-      uses: docker/setup-buildx-action@v4
+      - name: Read verified vLLM commit
+        id: vllm
+        run: |
+          commit="$(tr -d '[:space:]' < .github/vllm-main-verified.commit)"
+          [[ "$commit" =~ ^[0-9a-f]{7,40}$ ]] || { echo '::error::Invalid vLLM commit'; exit 1; }
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
 
-    - name: Publish - Login to Quay Container Registry
-      if: ${{ github.repository_owner == 'vllm-project' }}
-      uses: docker/login-action@v4
-      with:
-        registry: quay.io
-        username: ${{ vars.QUAY_CI_USERNAME }}
-        password: ${{ secrets.QUAY_CI_PASSWORD }}
+      - name: Build and push lint-main
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: .github/workflows/dockerfiles/Dockerfile.lint
+          platforms: linux/amd64
+          tags: ${{ env.IMAGE_REPOSITORY }}:lint-main
+          push: true
+          provenance: false
+          build-args: |
+            VLLM_COMMIT=${{ steps.vllm.outputs.commit }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
 
-    - name: Build and push
-      if: ${{ github.event_name != 'workflow_dispatch' }}
-      uses: docker/build-push-action@v7
-      with:
-        # For now, we only build amd64 lint image
-        platforms: 'linux/amd64'
-        context: .
-        file: .github/workflows/dockerfiles/Dockerfile.lint
-        push: true
-        labels: ${{ steps.meta.outputs.labels }}
-        tags: ${{ steps.meta.outputs.tags }}
-        build-args: |
-          VLLM_COMMIT=${{ steps.vllm.outputs.main_commit }}
-        provenance: false
+      - name: Verify uploaded lint image
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          image="${IMAGE_REPOSITORY}@${DIGEST}"
+          docker pull --platform linux/amd64 "$image"
+          test "$(docker image inspect "$image" --format '{{.Architecture}}')" = amd64
+          docker run --rm --network none --platform linux/amd64 "$image" bash -euo pipefail -c '
+            pre-commit --version
+            mypy --version
+            python3 -c "import yaml, regex; from importlib.metadata import version; print({name: version(name) for name in (\"torch\", \"torch-npu\", \"transformers\", \"pre-commit\", \"mypy\")})"
+          '
+          {
+            echo "Image: ${IMAGE_REPOSITORY}:lint-main"
+            echo "Digest: ${DIGEST}"
+            echo "Source: ${GITHUB_SHA}"
+          } >> "$GITHUB_STEP_SUMMARY"
 
-    - name: Build and push
-      if: ${{ github.event_name == 'workflow_dispatch' }}
-      uses: docker/build-push-action@v7
-      with:
-        # For now, we only build amd64 lint image
-        platforms: 'linux/amd64'
-        context: .
-        file: .github/workflows/dockerfiles/Dockerfile.lint
-        push: true
-        labels: ${{ steps.meta.outputs.labels }}
-        tags: ${{ steps.meta.outputs.tags }}
-        build-args: |
-          VLLM_COMMIT=${{ steps.vllm.outputs.main_commit }}
-        provenance: false
+  ci:
+    name: Build ci (amd64, arm64)
+    if: inputs.image == 'both' || inputs.image == 'ci'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Log in to Quay
+        uses: docker/login-action@v4
+        with:
+          registry: quay.io
+          username: ${{ vars.QUAY_TEMP_USERNAME }}
+          password: ${{ secrets.QUAY_TEMP_PASSWORD }}
+
+      - uses: docker/setup-qemu-action@v4
+        with:
+          platforms: arm64
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build and push ci
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: .github/workflows/dockerfiles/Dockerfile.ci
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ env.IMAGE_REPOSITORY }}:ci
+          push: true
+          provenance: false
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+
+      - name: Verify uploaded CI images
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          image="${IMAGE_REPOSITORY}@${DIGEST}"
+          docker buildx imagetools inspect "$image" --raw | jq -e '
+            [.manifests[].platform | .os + "/" + .architecture] | sort == ["linux/amd64", "linux/arm64"]
+          '
+          for arch in amd64 arm64; do
+            docker run --rm --network none --platform "linux/${arch}" \
+              -v "$GITHUB_WORKSPACE:/workspace:ro" -w /workspace \
+              "$image" bash -euo pipefail -c '
+                git config --global --add safe.directory /workspace
+                git ls-files -s -- csrc setup.py CMakeLists.txt cmake > /tmp/csrc-manifest
+                tar --zstd -cf /tmp/cache.tar.zst -C /tmp csrc-manifest
+                mkdir /tmp/restored
+                tar --zstd -xf /tmp/cache.tar.zst -C /tmp/restored
+                cmp /tmp/csrc-manifest /tmp/restored/csrc-manifest
+                export GITHUB_OUTPUT=/tmp/job-output
+                python3 .github/workflows/scripts/resolve_csrc_cache_targets.py --all
+                python3 .github/workflows/scripts/coverage.py
+                python3 .github/workflows/scripts/select_tests.py --all-tests
+                python3 .github/workflows/scripts/select_tests.py --all-tests --skip-cpu-ut --skip-a5
+                python3 .github/workflows/scripts/select_tests.py \
+                  --curated a5 --runner-label-override linux-aarch64-a5-4
+                python3 .github/workflows/scripts/resolve_daily_tests.py \
+                  --daily-config .github/workflows/configs/daily_config.yaml \
+                  --nightly-config .github/workflows/configs/nightly_config.yaml
+                python3 tests/e2e/doctests/scripts/doctest_helper.py plan \
+                  --quickstart-devices a2,310p --installation-methods pip,uv,source \
+                  --quickstart-image-repository example.invalid/vllm-ascend \
+                  --installation-image-repository example.invalid/cann > /tmp/doctest-plan.json
+                jq -e ".run_quickstart and .run_installation" /tmp/doctest-plan.json
+              '
+          done
+          {
+            echo "Image: ${IMAGE_REPOSITORY}:ci"
+            echo "Digest: ${DIGEST}"
+            echo "Source: ${GITHUB_SHA}"
+          } >> "$GITHUB_STEP_SUMMARY"
