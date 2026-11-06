@@ -19,16 +19,15 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: test-ci-images
-  cancel-in-progress: false
-
 env:
   IMAGE_REPOSITORY: quay.io/wjunlu/vllm-ascend-workflow
 
 jobs:
   lint:
     name: Build lint-main (amd64)
+    concurrency:
+      group: test-image-lint-main
+      cancel-in-progress: false
     if: inputs.image == 'both' || inputs.image == 'lint-main'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -127,6 +126,9 @@ jobs:
 
   ci:
     name: Build ci (amd64, arm64)
+    concurrency:
+      group: test-image-ci
+      cancel-in-progress: false
     if: inputs.image == 'both' || inputs.image == 'ci'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
