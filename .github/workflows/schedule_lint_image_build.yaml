@@ -200,13 +200,18 @@ jobs:
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           image="${IMAGE_REPOSITORY}@${DIGEST}"
-          docker buildx imagetools inspect "$image" --raw | jq -e '
+          manifest="$(docker buildx imagetools inspect "$image" --raw)"
+          jq -e '
             [.manifests[].platform | .os + "/" + .architecture] | sort == ["linux/amd64", "linux/arm64"]
-          '
+          ' <<< "$manifest"
           for arch in amd64 arm64; do
+            # The classic Docker image store cannot keep both architectures under one index digest.
+            arch_digest="$(jq -er --arg arch "$arch" '
+              .manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest
+            ' <<< "$manifest")"
             docker run --rm --network none --platform "linux/${arch}" \
               -v "$GITHUB_WORKSPACE:/workspace:ro" -w /workspace \
-              "$image" bash -euo pipefail -c '
+              "${IMAGE_REPOSITORY}@${arch_digest}" bash -euo pipefail -c '
                 git config --global --add safe.directory /workspace
                 git ls-files -s -- csrc setup.py CMakeLists.txt cmake > /tmp/csrc-manifest
                 tar --zstd -cf /tmp/cache.tar.zst -C /tmp csrc-manifest
