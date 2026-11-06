@@ -32,6 +32,13 @@ RUN echo "cache-buster=${CACHE_BUSTER}"
 ARG PYTORCH_INDEX_URL="https://download.pytorch.org/whl/cpu/"
 # ASCEND_INDEX_URL (optional): Extra pip index URL for Ascend/CANN Python packages.
 ARG ASCEND_INDEX_URL="https://mirrors.huaweicloud.com/ascend/repos/pypi"
+# PIP_INDEX_URL: primary pip index -> huaweicloud mirror. pypi.org via squid
+# intermittently returns "No matching distribution" under 64-way burst; the
+# mirror is fast and reliable from the cluster. Retries/timeout ride out
+# transient index hiccups.
+ENV PIP_INDEX_URL="https://repo.huaweicloud.com/repository/pypi/simple" \
+    PIP_RETRIES=10 \
+    PIP_TIMEOUT=60
 # VLLM_REPO (optional): Git repository URL of vLLM.
 ARG VLLM_REPO=https://github.com/vllm-project/vllm.git
 # VLLM_TAG (optional): vLLM release tag to clone when VLLM_COMMIT is empty.
