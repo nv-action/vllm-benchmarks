@@ -8,13 +8,6 @@ name: Recipes Preview Comment
 # Enable all comment entry points with the repository Actions variable
 # RECIPES_PREVIEW_ENABLED=true, shared with preview dispatch.
 on:
-  pull_request_target:
-    types: [opened, synchronize, reopened, closed, edited, labeled, unlabeled]
-  workflow_run:
-    workflows: [PR Create]
-    types: [completed]
-  schedule:
-    - cron: '23 * * * *'
   workflow_dispatch:
     inputs:
       pr_number:

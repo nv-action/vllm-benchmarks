@@ -181,6 +181,12 @@ jobs:
       VLLM_ASCEND_BRANCH: ${{ inputs.vllm_ascend_branch }}
       ASCEND_PROFILE_ROOT: /vllm-workspace/vllm-ascend/profile_artifact/${{ github.run_id }}-${{ github.run_attempt }}
     steps:
+      - name: Record workflow under validation
+        run: |
+          echo "Workflow commit: ${{ github.sha }}"
+          echo "PR #21349 workflow changes are loaded from this branch."
+          echo "Runtime and small-model test stay on the matching nightly image; no source rebuild."
+
       - name: Check npu and CANN info
         run: |
           npu-smi info
@@ -435,7 +441,7 @@ jobs:
       - name: Update good_table.csv on success
         if: >-
           ${{ always() &&
-          inputs.request_id == '' &&
+          github.repository == 'vllm-project/vllm-ascend' && inputs.request_id == '' &&
           (steps.pytest-driven.outcome == 'success' || steps.pytest-driven.outcome == 'skipped') &&
           (steps.yaml-test.outcome == 'success' || steps.yaml-test.outcome == 'skipped') &&
           (steps.pytest-driven.outcome == 'success' || steps.yaml-test.outcome == 'success') }}

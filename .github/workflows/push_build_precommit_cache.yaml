@@ -19,11 +19,6 @@
 # Fork PRs can then restore this cache read-only using the runner's built-in AK/SK.
 name: 'Cache pre-commit'
 on:
-  push:
-    branches: ["main"]
-    paths:
-      - '.pre-commit-config.yaml'
-      - 'requirements-lint.txt'
   workflow_dispatch:
 
 permissions:

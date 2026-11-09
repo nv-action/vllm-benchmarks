@@ -18,17 +18,6 @@
 name: Cache csrc Build Artifacts
 
 on:
-  push:
-    branches: ["main"]
-    paths:
-      - 'csrc/**'
-      - 'setup.py'
-      - 'pyproject.toml'
-      - 'CMakeLists.txt'
-      - 'cmake/**'
-      - 'packages.txt'
-      - '.github/workflows/_build_csrc_cache.yaml'
-      - '.github/workflows/scripts/csrc_cache_targets.json'
   workflow_dispatch:
 
 defaults:

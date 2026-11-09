@@ -9,16 +9,7 @@ name: Recipes Preview
 # this workflow. Keep the App key in the main-only recipes-preview environment.
 
 on:
-  pull_request_target:
-    branches: [main]
-    types: [opened, synchronize, reopened, closed]
-    paths:
-      - 'recipes/**/*.yaml'
-  push:
-    branches: [main]
-    paths:
-      - 'recipes/**/*.yaml'
-
+  workflow_dispatch:
 permissions:
   contents: read
 

@@ -4,11 +4,7 @@ name: Recipes
 # renderer code from main, matching the renderer that publishes recipes.vllm.ai.
 
 on:
-  pull_request:
-    paths:
-      - 'recipes/**'
-      - '.github/workflows/recipes.yml'
-
+  workflow_dispatch:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

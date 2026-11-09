@@ -18,14 +18,6 @@
 # workflow only selects the source branch and does not accept or pass any version overrides.
 name: Image Build and Push
 on:
-  push:
-    tags:
-      - 'v*'
-  pull_request:
-    branches:
-      - 'main'
-      - 'releases/*'
-    types: [ labeled ]
   workflow_dispatch:
     inputs:
       docker_ref:
