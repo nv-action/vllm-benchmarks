@@ -90,10 +90,7 @@ RUN apt-get update -y && \
 RUN --mount=type=cache,target=/root/.cache/pip python3 -m pip install 'modelscope<1.38' 'ray>=2.47.1,<=2.48.0' 'protobuf>3.20.0'
 
 # Install vLLM
-# 绕开 github 直连限流（502）：GIT_PROXY 走内部 git-cdn（insteadOf 重写 https://github.com/）
-ARG GIT_PROXY=""
-RUN if [ -n "$GIT_PROXY" ]; then git config --global url."${GIT_PROXY}".insteadOf "https://github.com/"; fi && \
-    if [ -n "$VLLM_COMMIT" ]; then \
+RUN if [ -n "$VLLM_COMMIT" ]; then \
       git init /vllm-workspace/vllm && \
       git -C /vllm-workspace/vllm fetch --depth 1 $VLLM_REPO "$VLLM_COMMIT" && \
       git -C /vllm-workspace/vllm checkout FETCH_HEAD; \
@@ -107,16 +104,9 @@ RUN --mount=type=cache,target=/root/.cache/pip VLLM_TARGET_DEVICE="empty" python
 
 # Install vllm-ascend
 ENV DEBIAN_FRONTEND=noninteractive
-# Cap opc/c++/rust build parallelism to bound memory on shared buildkitd nodes:
-# the heavy vllm-ascend compile otherwise spawns unbounded jobs and can exhaust
-# a 128Gi node (OOM-killing kubelet). Overridable via --build-arg MAX_JOBS=N.
-ARG MAX_JOBS=32
-ARG CARGO_BUILD_JOBS=32
 ENV SOC_VERSION=$SOC_VERSION \
     TASK_QUEUE_ENABLE=1 \
-    OMP_NUM_THREADS=1 \
-    MAX_JOBS=$MAX_JOBS \
-    CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS
+    OMP_NUM_THREADS=1
 COPY . /vllm-workspace/vllm-ascend/
 
 RUN --mount=type=cache,target=/root/.cache/pip export PIP_EXTRA_INDEX_URL="${ASCEND_INDEX_URL}" && \
