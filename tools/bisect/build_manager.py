@@ -405,9 +405,10 @@ class BuildManager:
                         out.write("[base-image] applied\n")
                 continue
             command = action.command.replace("-e /vllm-workspace/vllm-ascend/", f"-e {local_root}/")
-            unavailable = next((path for path in unavailable_artifacts if path in command), None)
+            inputs = "\n".join((command, *action.shell_context))
+            unavailable = next((path for path in unavailable_artifacts if path in inputs), None)
             if unavailable and action.kind in ("pipeline", "install"):
-                warning = f"action {action.id} omitted: optional download unavailable: {unavailable}"
+                warning = f"action {action.id} omitted: optional input unavailable: {unavailable}"
                 logger.warning("[build-chain] %s", warning)
                 if log_file is not None:
                     with open(log_file, "a", encoding="utf-8") as out:
@@ -430,9 +431,11 @@ class BuildManager:
             except BuildTransitionError as exc:
                 if not warning_only:
                     raise
-                if action.kind == "download" and action.artifact is not None:
+                if action.kind in ("download", "git-sync") and action.artifact is not None:
                     unavailable_artifacts.add(action.artifact)
                 warning = f"optional {action.kind} action {action.id} failed; continuing: {exc}"
+                if action.kind == "git-sync":
+                    warning += f"\nTarget repository was not prepared: {action.artifact}; existing version retained."
                 logger.warning("[build-chain] %s", warning)
                 if log_file is not None:
                     with open(log_file, "a", encoding="utf-8") as out:

@@ -34,7 +34,11 @@ from tools.bisect.build_analyzer.diff import (
 )
 from tools.bisect.build_analyzer.image_history import target_stage_plan
 from tools.bisect.build_analyzer.ir import BuildAnalysis, Operation
-from tools.bisect.build_analyzer.operation_rules import explicit_rule_for, warning_only_download
+from tools.bisect.build_analyzer.operation_rules import (
+    explicit_rule_for,
+    warning_only_download,
+    warning_only_repository,
+)
 from tools.bisect.build_analyzer.package_effects import (
     has_requirement_marker,
     package_effects,
@@ -306,6 +310,41 @@ def _repository_clone(operation: Operation) -> tuple[str, str, str] | None:
 def _vllm_clone(operation: Operation) -> tuple[str, str, str] | None:
     clone = _repository_clone(operation)
     return clone if clone and clone[1] == "/vllm-workspace/vllm" else None
+
+
+def _repository_sync_command(operation: Operation, repository: str, directory: str, reference: str) -> str:
+    """Replay the target clone against an existing dependency checkout."""
+    clone_words = _words(operation)
+    clone_words[-1] = "__BISECT_CLONE_DESTINATION__"
+    clone_command = shlex.join(clone_words).replace("__BISECT_CLONE_DESTINATION__", '"$bisect_stage/repository"')
+    return "\n".join(
+        (
+            f"bisect_directory={shlex.quote(directory)}",
+            f"bisect_repository={shlex.quote(repository)}",
+            f"bisect_reference={shlex.quote(reference)}",
+            'printf "[git-sync] target=%s ref=%s directory=%s\\n" '
+            '"$bisect_repository" "$bisect_reference" "$bisect_directory"',
+            'if [ -e "$bisect_directory/.git" ] && '
+            'git -C "$bisect_directory" rev-parse --git-dir >/dev/null 2>&1; then',
+            '  git -C "$bisect_directory" fetch --depth 1 "$bisect_repository" "$bisect_reference" &&',
+            '  git -C "$bisect_directory" checkout --force --detach FETCH_HEAD',
+            "else",
+            '  mkdir -p "$(dirname "$bisect_directory")"',
+            '  bisect_stage=$(mktemp -d "${bisect_directory}.bisect-XXXXXX")',
+            f'  {clone_command} || {{ echo "[git-sync] clone failed; original directory retained" >&2; exit 1; }}',
+            '  if [ -e "$bisect_directory" ] || [ -L "$bisect_directory" ]; then',
+            '    mv "$bisect_directory" "$bisect_stage/previous"',
+            '    printf "[git-sync] previous directory retained at %s/previous\\n" "$bisect_stage"',
+            "  fi",
+            '  if ! mv "$bisect_stage/repository" "$bisect_directory"; then',
+            '    if [ -e "$bisect_stage/previous" ] || [ -L "$bisect_stage/previous" ]; then',
+            '      mv "$bisect_stage/previous" "$bisect_directory"',
+            "    fi",
+            "    exit 1",
+            "  fi",
+            "fi",
+        )
+    )
 
 
 def _vllm_editable_install(analysis: BuildAnalysis) -> Operation | None:
@@ -790,16 +829,7 @@ def plan_transition(
         clone = _repository_clone(operation)
         if clone and operation not in vllm_switches:
             repository, directory, reference = clone
-            quoted_directory, quoted_repository = shlex.quote(directory), shlex.quote(repository)
-            command = (
-                f"if [ -e {quoted_directory} ]; then "
-                f"test -d {quoted_directory}/.git && "
-                f'test "$(git -C {quoted_directory} remote get-url origin)" = {quoted_repository} && '
-                f'test -z "$(git -C {quoted_directory} status --porcelain)" && '
-                f"git -C {quoted_directory} fetch --depth 1 origin {shlex.quote(reference)} && "
-                f"git -C {quoted_directory} checkout --detach FETCH_HEAD; "
-                f"else {operation.value}; fi"
-            )
+            command = _repository_sync_command(operation, repository, directory, reference)
             identifier = len(actions) + 1
             actions.append(
                 PlanAction(
@@ -809,6 +839,8 @@ def plan_transition(
                     operation.source,
                     operation.line,
                     requires=(identifier - 1,) if identifier > 1 else (),
+                    artifact=directory,
+                    optional=warning_only_repository(repository),
                 )
             )
             continue
