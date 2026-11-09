@@ -20,6 +20,7 @@ import shlex
 from dataclasses import replace
 from urllib.parse import urlsplit
 
+from tools.bisect.build_analyzer.environment import environment_assignments
 from tools.bisect.build_analyzer.git_commands import git_resources, parse_git_command
 from tools.bisect.build_analyzer.ir import BuildAnalysis, BuildSyntaxError, Instruction, Operation, ShellDependency
 from tools.bisect.build_analyzer.package_effects import package_effects, package_outcomes
@@ -112,7 +113,7 @@ def _download_url(command: str) -> str | None:
 
 
 def _references(text: str) -> tuple[str, ...]:
-    names = re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)[^}]*\}|\$([A-Za-z_][A-Za-z0-9_]*)", text)
+    names = re.findall(r"(?<!\\)(?:\$\{([A-Za-z_][A-Za-z0-9_]*)[^}]*\}|\$([A-Za-z_][A-Za-z0-9_]*))", text)
     return tuple(sorted({first or second for first, second in names}))
 
 
@@ -139,7 +140,9 @@ def _command_kind(source: bytes, node) -> str:
     return "shell"
 
 
-def _shell_operations(unit: SyntaxUnit, variables: dict[str, str | None]) -> tuple[list[Operation], list[str]]:
+def _shell_operations(
+    unit: SyntaxUnit, variables: dict[str, str | None], runtime_names: frozenset[str] = frozenset()
+) -> tuple[list[Operation], list[str]]:
     instruction = unit.instruction
     tree, data = unit.shell_tree, unit.shell_source
     if tree is None or data is None:
@@ -148,6 +151,7 @@ def _shell_operations(unit: SyntaxUnit, variables: dict[str, str | None]) -> tup
     diagnostics: list[str] = []
     scope = variables.copy()
     shell_dependencies: list[ShellDependency] = []
+    inherited_names = set(runtime_names)
 
     def resolve(value: str, scalar: bool = False) -> tuple[str, tuple[str, ...]]:
         value = value.strip()
@@ -156,13 +160,70 @@ def _shell_operations(unit: SyntaxUnit, variables: dict[str, str | None]) -> tup
         default = re.fullmatch(r"\$\{([A-Za-z_][A-Za-z0-9_]*):-([^}]*)\}", value)
         if default:
             value = scope.get(default.group(1)) or default.group(2)
-        return _expand(value, scope)
+        expanded, unknown = _expand(value, scope)
+        if scalar:
+            return expanded, tuple(sorted(set(unknown) | set(_references(expanded))))
+        return expanded, tuple(name for name in unknown if name not in inherited_names)
 
     def visit(node, condition: str | None = None) -> None:
         row = node.start_point.row
         line = instruction.line_map[row] if row < len(instruction.line_map) else instruction.line + row
+        if node.type == "redirected_statement":
+            text = _node_text(data, node)
+            body = next((child for child in node.named_children if child.type != "file_redirect"), None)
+
+            def command_chain(item):
+                if item.type != "list":
+                    return [item]
+                if any(child.type != "&&" for child in item.children if not child.is_named):
+                    return []
+                parts = [command_chain(child) for child in item.named_children]
+                return [command for part in parts for command in part] if all(parts) else []
+
+            chain = command_chain(body) if body is not None else []
+            if (
+                len(chain) > 1
+                and all(_command_kind(data, child) in {"source", "export", "cd"} for child in chain[:-1])
+                and chain[-1].type == "command"
+            ):
+                for child in chain[:-1]:
+                    visit(child, condition)
+                body = chain[-1]
+                text = " ".join(
+                    (
+                        _node_text(data, body),
+                        *(_node_text(data, child) for child in node.named_children if child.type == "file_redirect"),
+                    )
+                )
+            if re.search(r"\bexport\s+[A-Za-z_][A-Za-z0-9_]*=", text):
+                inherited_names.update(name for name in _references(text) if name not in scope)
+            resolved, unknown = resolve(text)
+            command = body if body is not None and body.type == "command" else None
+            command_words = shlex.split(_node_text(data, command)) if command is not None else []
+            simple_write = bool(command_words) and command_words[0] in {"echo", "printf"}
+            destinations = tuple(
+                _node_text(data, child.named_children[-1])
+                for child in node.named_children
+                if child.type == "file_redirect" and child.named_children
+            )
+            operations.append(
+                Operation(
+                    instruction.source,
+                    line,
+                    "file-write" if simple_write else "redirected-command",
+                    resolved,
+                    condition,
+                    unknown if simple_write else (*unknown, "redirected command effects are not modeled"),
+                    _references(text),
+                    tuple(shell_dependencies),
+                    resource_writes=destinations,
+                )
+            )
+            return
         if node.type == "pipeline":
             text = _node_text(data, node)
+            if re.search(r"\bexport\s+[A-Za-z_][A-Za-z0-9_]*=", text):
+                inherited_names.update(name for name in _references(text) if name not in scope)
             resolved, unknown = resolve(text)
             operations.append(
                 Operation(
@@ -321,6 +382,8 @@ def _shell_operations(unit: SyntaxUnit, variables: dict[str, str | None]) -> tup
         if node.type in _COMMANDS:
             # Keep declaration keywords such as `export`; named children omit them.
             text = _node_text(data, node)
+            if re.search(r"\bexport\s+[A-Za-z_][A-Za-z0-9_]*=", text):
+                inherited_names.update(name for name in _references(text) if name not in scope)
             resolved, unknown = resolve(text)
             kind = _command_kind(data, node)
             dependencies = tuple(shell_dependencies)
@@ -343,8 +406,12 @@ def _shell_operations(unit: SyntaxUnit, variables: dict[str, str | None]) -> tup
             if kind in ("source", "export", "cd"):
                 shell_dependencies.append(ShellDependency(kind, resolved))
             if kind == "export":
-                for assignment in re.findall(r"(?:^|\s)([A-Za-z_][A-Za-z0-9_]*)=([^\s]+)", resolved):
-                    scope[assignment[0]] = assignment[1].strip("\"'")
+                try:
+                    assignments = environment_assignments(resolved.removeprefix("export "))
+                except ValueError:
+                    assignments = ()
+                for name, value in assignments:
+                    scope[name] = f"${name}" if _references(value) else value
             if unknown:
                 diagnostics.append(f"{instruction.source}:{line}: unresolved command inputs: {', '.join(unknown)}")
             return
@@ -373,7 +440,7 @@ def _expand(text: str, variables: dict[str, str | None]) -> tuple[str, tuple[str
             return match.group(0)
         return value
 
-    expanded = re.sub(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)", replace, text)
+    expanded = re.sub(r"(?<!\\)(?:\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*))", replace, text)
     return expanded, tuple(sorted(unknown))
 
 
@@ -392,10 +459,12 @@ def analyze_build(
     operations: list[Operation] = []
     diagnostics: list[str] = []
     syntax_layers = parse_build(layers)
+    inherited_environment: dict[str, str] = {}
     for units in syntax_layers:
         global_args: dict[str, str | None] = {}
         stage: dict[str, str | None] = {}
         in_stage = False
+        persistent_environment = dict(inherited_environment)
         for unit in units:
             instruction = unit.instruction
             source = instruction.source
@@ -423,28 +492,39 @@ def analyze_build(
                 )
                 if unknown:
                     diagnostics.append(f"{source}:{instruction.line}: unknown FROM inputs: {', '.join(unknown)}")
+                if in_stage:
+                    persistent_environment = {}
                 in_stage = True
-                stage = {}
+                stage = dict(persistent_environment)
             elif kind == "ENV":
                 # Dockerfile's key=value form; preserve nontrivial expressions
                 # as a raw effect rather than guessing shell semantics.
                 resolved, unknown = _expand(body, stage)
-                assignments = tuple(
-                    f"env:{match.group(1)}" for match in re.finditer(r"(?:^|\s)([A-Za-z_][A-Za-z0-9_]*)=", resolved)
-                )
+                try:
+                    values = environment_assignments(resolved)
+                except ValueError as exc:
+                    operations.append(Operation(source, instruction.line, "env", resolved, unresolved=(str(exc),)))
+                    diagnostics.append(f"{source}:{instruction.line}: {exc}")
+                    continue
+                unknown_arguments = {name for name in unknown if name in stage and stage[name] is None}
+                assignments = tuple(f"env:{name}" for name, _ in values)
                 operations.append(
                     Operation(
                         source,
                         instruction.line,
                         "env",
                         resolved,
-                        unresolved=unknown,
+                        unresolved=tuple(sorted(unknown_arguments)),
                         inputs=_references(body),
                         resource_writes=assignments,
                     )
                 )
-                for match in re.finditer(r"(?:^|\s)([A-Za-z_][A-Za-z0-9_]*)=([^\s]+)", resolved):
-                    stage[match.group(1)] = match.group(2).strip('"')
+                for name, value in values:
+                    if unknown_arguments.intersection(_references(value)):
+                        stage[name] = None
+                    else:
+                        stage[name] = value
+                        persistent_environment[name] = value
             elif kind == "RUN":
                 if body.lstrip().startswith("["):
                     try:
@@ -465,8 +545,26 @@ def analyze_build(
                     )
                     diagnostics.append(f"{source}:{instruction.line}: RUN flags require evaluation")
                 else:
-                    parsed, notes = _shell_operations(unit, stage)
-                    operations.extend(parsed)
+                    run_variables = dict(stage)
+                    for name, value in persistent_environment.items():
+                        if _references(value):
+                            run_variables[name] = f"${name}"
+                    runtime_names = frozenset(
+                        name for value in persistent_environment.values() for name in _references(value)
+                    )
+                    parsed, notes = _shell_operations(unit, run_variables, runtime_names)
+                    operations.extend(
+                        replace(
+                            operation,
+                            environment=tuple(persistent_environment.items()),
+                            resource_reads=tuple(
+                                dict.fromkeys(
+                                    (*operation.resource_reads, *(f"env:{name}" for name in persistent_environment))
+                                )
+                            ),
+                        )
+                        for operation in parsed
+                    )
                     diagnostics.extend(notes)
             elif kind == "COPY":
                 resolved, unknown = _expand(body, stage)
@@ -490,6 +588,7 @@ def analyze_build(
                 operations.append(Operation(source, instruction.line, kind.lower(), resolved, unresolved=unknown))
                 if unknown:
                     diagnostics.append(f"{source}:{instruction.line}: unresolved {kind} inputs: {', '.join(unknown)}")
+        inherited_environment = dict(persistent_environment)
     # Executable build steps inherit tools, libraries and shell state from
     # their base image even when no absolute library path occurs in the text.
     declarations = {
@@ -530,4 +629,5 @@ def analyze_build(
         tuple(diagnostics),
         package_effects(parsed_operations),
         package_outcomes(parsed_operations),
+        tuple(inherited_environment.items()),
     )

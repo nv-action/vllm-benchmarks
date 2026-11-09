@@ -47,6 +47,12 @@ from tools.bisect.build_analyzer.base_image import (
     from_reference,
 )
 from tools.bisect.build_analyzer.diff import package_state_changes
+from tools.bisect.build_analyzer.environment import (
+    build_environment,
+    environment_assignments,
+    environment_references,
+    recover_inherited_environment,
+)
 from tools.bisect.build_analyzer.image_executor import ImageReplayExecutor
 from tools.bisect.build_analyzer.ir import BuildAnalysis, BuildSyntaxError
 from tools.bisect.build_analyzer.planner import TransitionPlan, plan_target_image_transition
@@ -105,6 +111,8 @@ class BuildManager:
         self._base_delta_cache: dict[tuple[str, str], BaseImageDelta | None] = {}
         self._image_resolver = RegistryImageResolver(Path.home() / ".cache" / "nightly_bisect" / "images")
         self.test_environment: dict[str, str] | None = None
+        self._build_env_baseline: dict[str, str | None] = {}
+        self._unknown_build_env: set[str] = set()
 
     def _analysis_at(self, commit: str) -> BuildAnalysis:
         if commit in self._analysis_cache:
@@ -340,6 +348,36 @@ class BuildManager:
         self._analysis_cache.clear()
         return BuildDecision(project_rebuilt, decision.reinstall_reqs, decision.native_hits, decision.reason)
 
+    def _inherited_build_environment(
+        self, plan: TransitionPlan, environment: dict[str, str], log_file: Path | None
+    ) -> dict[str, str]:
+        recovered, unknown = recover_inherited_environment(plan.previous_environment, environment)
+        managed = set(dict(plan.previous_environment)) | set(dict(plan.target_environment or ()))
+        managed.update(name for action in plan.actions for name, _ in action.environment)
+        for name in managed:
+            if name not in self._build_env_baseline:
+                self._build_env_baseline[name] = recovered.get(name)
+                if name in unknown:
+                    self._unknown_build_env.add(name)
+        needed = managed - set(dict(plan.target_environment or ()))
+        needed.update(name for _, value in (plan.target_environment or ()) for name in environment_references(value))
+        needed.update(
+            name for action in plan.actions for _, value in action.environment for name in environment_references(value)
+        )
+        for name in sorted(needed & self._unknown_build_env):
+            warning = f"Cannot recover inherited ENV {name}; retaining its ambient baseline value"
+            logger.warning("[build-chain] %s", warning)
+            if log_file is not None:
+                with open(log_file, "a", encoding="utf-8") as out:
+                    out.write(f"[build-chain:warning] {warning}\n")
+        inherited = dict(environment)
+        for name, value in self._build_env_baseline.items():
+            if value is None:
+                inherited.pop(name, None)
+            else:
+                inherited[name] = value
+        return inherited
+
     def _execute_transition(
         self,
         plan: TransitionPlan,
@@ -347,7 +385,7 @@ class BuildManager:
         env: dict[str, str] | None,
         base_delta: BaseImageDelta | None = None,
     ) -> None:
-        if not plan.actions:
+        if not plan.actions and plan.target_environment is None:
             return
         if env is None:
             env = dict(os.environ)
@@ -364,6 +402,7 @@ class BuildManager:
             self._baseline_untrusted = True
         local_root = shlex.quote(str(self.repo))
         unavailable_artifacts: set[str] = set()
+        inherited_environment = None
         for action in plan.actions:
             if action.kind.startswith("image-"):
                 try:
@@ -373,6 +412,8 @@ class BuildManager:
                             command, log_file, f"image replay action {identifier}", env=environment
                         ),
                     )
+                    self._build_env_baseline.clear()
+                    self._unknown_build_env.clear()
                 except (OSError, RuntimeError, ValueError) as exc:
                     self.invalidate_baseline()
                     raise BuildTransitionError(f"target image replay failed at action {action.id}: {exc}") from exc
@@ -405,6 +446,15 @@ class BuildManager:
                     with open(log_file, "a", encoding="utf-8") as out:
                         out.write("[base-image] applied\n")
                 continue
+            if inherited_environment is None and plan.target_environment is not None:
+                inherited_environment = self._inherited_build_environment(plan, env, log_file)
+            if action.kind in {"set-build-environment", "restore-build-environment"}:
+                if action.kind == "set-build-environment":
+                    env.update(build_environment(environment_assignments(action.command), inherited_environment or env))
+                if log_file is not None:
+                    with open(log_file, "a", encoding="utf-8") as out:
+                        out.write(f"[build-environment] action {action.id} {action.kind}: {action.command}\n")
+                continue
             command = action.command.replace("-e /vllm-workspace/vllm-ascend/", f"-e {local_root}/")
             inputs = "\n".join((command, *action.shell_context))
             unavailable = next(
@@ -432,10 +482,12 @@ class BuildManager:
             warning_only = action.optional
             try:
                 self._run(
-                    ["bash", "-lc", script],
+                    ["/bin/bash", "-c", script],
                     log_file,
                     f"build-chain action {action.id}",
-                    env=env,
+                    env=build_environment(action.environment, inherited_environment)
+                    if inherited_environment is not None
+                    else env,
                     invalidate_on_failure=not warning_only,
                 )
             except BuildTransitionError as exc:
@@ -460,6 +512,12 @@ class BuildManager:
                         for path in tuple(unavailable_artifacts)
                         if path == action.artifact or path.startswith(action.artifact.rstrip("/") + "/")
                     )
+        if plan.target_environment is not None:
+            if inherited_environment is None:
+                inherited_environment = self._inherited_build_environment(plan, env, log_file)
+            final_environment = build_environment(plan.target_environment, inherited_environment)
+            env.clear()
+            env.update(final_environment)
 
     def _verify_cann_child(self, environment: dict[str, str], log_file: Path | None) -> None:
         """Load CANN in a fresh process after replacing its user-space files."""

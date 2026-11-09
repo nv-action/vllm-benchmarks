@@ -285,6 +285,24 @@ def _required_replays(
     return replays
 
 
+def _live_environment_operations(analysis: BuildAnalysis) -> set[int]:
+    writers: dict[str, Operation] = {}
+    live: set[int] = set()
+    source = None
+    for operation in analysis.operations:
+        if operation.kind == "from":
+            if operation.source == source:
+                writers.clear()
+            source = operation.source
+        if operation.kind == "env":
+            for output in operation.resource_writes:
+                writers[output.removeprefix("env:")] = operation
+        else:
+            live.update(id(writers[name]) for name, _ in operation.environment if name in writers)
+    live.update(id(operation) for name, operation in writers.items() if name in dict(analysis.environment))
+    return live
+
+
 def compare_builds(
     before: BuildAnalysis,
     after: BuildAnalysis,
@@ -300,15 +318,21 @@ def compare_builds(
     matcher = difflib.SequenceMatcher(a=old, b=new, autojunk=False)
     old_state = _final_package_keys(before)
     new_state = _final_package_keys(after)
+    old_environment = _live_environment_operations(before)
+    new_environment = _live_environment_operations(after)
     for tag, old_start, old_end, new_start, new_end in matcher.get_opcodes():
         if tag == "equal":
             continue
         for index in range(old_start, old_end):
             operation = before.operations[index]
+            if operation.kind == "env" and id(operation) not in old_environment:
+                continue
             if not _neutral_package_change(operation, old_state, new_state):
                 changes.append(("removed", operation, None))
         for index in range(new_start, new_end):
             operation = after.operations[index]
+            if operation.kind == "env" and id(operation) not in new_environment:
+                continue
             if not _neutral_package_change(operation, old_state, new_state):
                 changes.append(("added", None, operation))
     selected = {id(operation) for _, _, operation in changes if operation is not None}

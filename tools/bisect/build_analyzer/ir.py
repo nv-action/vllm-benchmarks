@@ -62,6 +62,7 @@ class Operation:
     owner_key: tuple[str, str] | None = None
     resource_reads: tuple[str, ...] = ()
     resource_writes: tuple[str, ...] = ()
+    environment: tuple[tuple[str, str], ...] = ()
 
     @property
     def semantic_key(self) -> tuple[object, ...]:
@@ -136,3 +137,4 @@ class BuildAnalysis:
     diagnostics: tuple[str, ...]
     package_effects: tuple[PackageEffect, ...] = ()
     package_outcomes: tuple[PackageOutcome, ...] = ()
+    environment: tuple[tuple[str, str], ...] = ()

@@ -270,6 +270,7 @@ def _analyze_source(
                 dependency,
                 owner_index=owner_index,
                 owner_key=(operation.source, operation.value),
+                environment=operation.environment,
             )
             for dependency in dependencies_by_install.get(id(operation), ())
         )
@@ -287,6 +288,7 @@ def _analyze_source(
         tuple(diagnostics),
         package_effects(parsed_operations),
         package_outcomes(parsed_operations),
+        analysis.environment,
     )
 
 
