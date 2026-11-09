@@ -20,27 +20,43 @@ Decision rule (the compile-optimisation core):
   just the candidate's own diff -- bisect jumps around, so we must catch any
   native change anywhere in the skipped range.
 * If the delta touches native sources / build definitions  -> rebuild.
-* If it only touches ``requirements*``                     -> reinstall deps.
+* Analyze the Docker build chain to decide dependency transition actions.
 * Otherwise (pure ``.py`` / yaml / md)                     -> plain checkout;
   the editable install picks the change up live.
 """
 
 import contextlib
+import json
 import logging
+import os
+import platform
+import shlex
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from tools.bisect import git_ops
+from tools.bisect.build_analyzer import analyze_commit, plan_transition
+from tools.bisect.build_analyzer.base_apply import apply_base_delta, target_environment, validate_base_application
+from tools.bisect.build_analyzer.base_image import (
+    BaseImageDelta,
+    BaseImageError,
+    compare_base_references,
+    from_reference,
+)
+from tools.bisect.build_analyzer.diff import package_state_changes
+from tools.bisect.build_analyzer.image_executor import ImageReplayExecutor
+from tools.bisect.build_analyzer.ir import BuildAnalysis, BuildSyntaxError
+from tools.bisect.build_analyzer.planner import TransitionPlan, plan_target_image_transition
+from tools.bisect.build_analyzer.registry_image import RegistryImageResolver
 from tools.bisect.config import (
     BUILD_DEF_GLOBS,
     NATIVE_GLOBS,
-    REQUIREMENTS_GLOBS,
     BisectOptions,
 )
 from tools.bisect.git_ops import GitError
-from tools.bisect.version_compat import VersionAdaptationError
+from tools.bisect.version_compat import TORCH_NPU_PIP_INDEX_URL, VersionAdaptationError
 
 logger = logging.getLogger(__name__)
 
@@ -78,48 +94,130 @@ class BuildManager:
                 logger.info("[build] assuming container is built at HEAD %s", self.last_built_commit[:12])
             except Exception:  # noqa: BLE001 - best effort; fall back to rebuild
                 self.last_built_commit = None
+        self.installed_commit = self.last_built_commit
+        self._transition_marker = Path(options.work_dir) / f"base-transition-node{options.node_index}.pending"
+        self._baseline_untrusted = self._transition_marker.exists()
+        if self._baseline_untrusted:
+            logger.error("[base-image] incomplete prior transition: %s", self._transition_marker)
+        self._plan_cache: dict[tuple[str, str], TransitionPlan] = {}
+        self._analysis_cache: dict[str, BuildAnalysis] = {}
+        self._base_delta_cache: dict[tuple[str, str], BaseImageDelta | None] = {}
+        self._image_resolver = RegistryImageResolver(Path.home() / ".cache" / "nightly_bisect" / "images")
+        self.test_environment: dict[str, str] | None = None
+
+    def _analysis_at(self, commit: str) -> BuildAnalysis:
+        if commit in self._analysis_cache:
+            return self._analysis_cache[commit]
+        architecture = "aarch64" if platform.machine().lower() in ("aarch64", "arm64") else "x86_64"
+        os_variant = "ubuntu"
+        os_release = Path("/etc/os-release")
+        if os_release.is_file() and "openeuler" in os_release.read_text(encoding="utf-8").lower():
+            os_variant = "openEuler"
+        try:
+            analysis = analyze_commit(self.repo, commit, self.opt.soc, architecture, os_variant)
+        except (BuildSyntaxError, ValueError, OSError) as exc:
+            raise BuildError(f"build-chain analysis failed: {exc}") from exc
+        self._analysis_cache[commit] = analysis
+        return analysis
+
+    def _transition_plan(self, target_commit: str) -> TransitionPlan | None:
+        if self.installed_commit is None or not self.opt.soc:
+            return None
+        key = self.installed_commit, target_commit
+        if key in self._plan_cache:
+            return self._plan_cache[key]
+        before = self._analysis_at(self.installed_commit)
+        after = self._analysis_at(target_commit)
+        before_base = next((op.value for op in before.operations if op.kind == "from"), None)
+        after_base = next((op.value for op in after.operations if op.kind == "from"), None)
+        base_delta = None
+        if before_base != after_base:
+            if before_base is None or after_base is None:
+                raise BuildError("FROM changed, but a base image reference is missing")
+            if "/cann:" in before_base or "/cann:" in after_base:
+                architecture = "aarch64" if platform.machine().lower() in ("aarch64", "arm64") else "x86_64"
+                try:
+                    reference, history = self._image_resolver.resolve_history(from_reference(after_base), architecture)
+                    plan = plan_target_image_transition(before, after, reference, history)
+                except (BaseImageError, ValueError, OSError) as exc:
+                    raise BuildError(f"target CANN history analysis failed: {exc}") from exc
+                destination = Path(self.opt.work_dir) / f"target-image-plan-node{self.opt.node_index}.json"
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_text(json.dumps(asdict(plan), indent=2), encoding="utf-8")
+                self._plan_cache[key] = plan
+                return plan
+            architecture = "aarch64" if platform.machine().lower() in ("aarch64", "arm64") else "x86_64"
+            logger.info("[base-image] inspecting changed FROM: %s -> %s", before_base, after_base)
+            try:
+                base_delta = compare_base_references(
+                    from_reference(before_base), from_reference(after_base), architecture, self._image_resolver
+                )
+            except BaseImageError as exc:
+                raise BuildError(f"base image inspection failed: {exc}") from exc
+            if base_delta is not None:
+                logger.info(
+                    "[base-image] %s -> %s: changed_files=%d changed_config=%d",
+                    base_delta.before.digest,
+                    base_delta.after.digest,
+                    len(base_delta.changed_files),
+                    len(base_delta.changed_config),
+                )
+                blockers = validate_base_application(base_delta, Path("/"))
+                if blockers:
+                    raise BuildError("base image cannot be applied: " + "; ".join(blockers[:10]))
+        plan = plan_transition(before, after, base_delta)
+        self._base_delta_cache[key] = base_delta
+        self._plan_cache[key] = plan
+        return plan
 
     # ------------------------------------------------------------ decision
     def decide(self, target_commit: str) -> BuildDecision:
+        if self._baseline_untrusted:
+            raise BuildError("a previous environment transition failed; restart from a matching container")
+        transition = self._transition_plan(target_commit)
+        if transition and any(action.kind.startswith("image-") for action in transition.actions):
+            return BuildDecision(True, False, [], "target image replay requires rebuilding native extensions")
+        if self.installed_commit is not None:
+            delta = self._base_delta_cache.get((self.installed_commit, target_commit))
+            if delta is not None and (delta.changed_files or delta.changed_config):
+                return BuildDecision(True, False, [], "base image changed; rebuild dependent native extensions")
         if self.last_built_commit is None:
-            # No trusted baseline: rebuild, but only reinstall requirements when
-            # they are actually known-stale (we cannot diff, so be safe=False
-            # and rely on the container already having dev deps).
+            # No trusted baseline: rebuild the extension from the target checkout.
             return BuildDecision(
                 rebuild=True,
                 reinstall_reqs=False,
                 native_hits=[],
                 reason="no established build baseline (clean rebuild)",
             )
-        if self.last_built_commit == target_commit:
-            return BuildDecision(
-                rebuild=False,
-                reinstall_reqs=False,
-                native_hits=[],
-                reason="already built this exact commit",
-            )
-
         # Choose which set of changed files drives the decision.
-        if self.opt.native_check == "per-commit":
+        if self.last_built_commit == target_commit:
+            files = []
+            scope = "already built this exact commit"
+        elif self.opt.native_check == "per-commit":
             files = git_ops.commit_changed_files(self.repo, target_commit)
             scope = "this commit"
         else:
             files = git_ops.changed_files(self.repo, self.last_built_commit, target_commit)
             scope = "since last build"
 
-        native = git_ops.matches_any(files, NATIVE_GLOBS + BUILD_DEF_GLOBS)
-        reqs = git_ops.matches_any(files, REQUIREMENTS_GLOBS)
-
+        build_def_globs = (
+            tuple(pattern for pattern in BUILD_DEF_GLOBS if pattern != "pyproject.toml")
+            if self.opt.soc
+            else BUILD_DEF_GLOBS
+        )
+        native = git_ops.matches_any(files, NATIVE_GLOBS + build_def_globs)
         if native:
             reason = f"native/build-def files changed ({scope}): {native[:5]}"
-            return BuildDecision(True, bool(reqs), native, reason)
-        if reqs:
-            return BuildDecision(False, True, [], f"requirements changed ({scope}): {reqs}")
+            return BuildDecision(True, False, native, reason)
         return BuildDecision(
             rebuild=False,
             reinstall_reqs=False,
             native_hits=[],
-            reason=f"no native/cpp changes ({scope}) -> editable install, no compile",
+            reason=(
+                "already built this exact commit"
+                if self.last_built_commit == target_commit
+                else f"no native/cpp changes ({scope}) -> editable install, no compile"
+            ),
         )
 
     # ------------------------------------------------------------- prepare
@@ -139,24 +237,244 @@ class BuildManager:
         """
         target_commit = git_ops.resolve_commit(self.repo, target_commit)
         decision = self.decide(target_commit)
+        plan = self._transition_plan(target_commit)
+        base_delta = (
+            self._base_delta_cache.get((self.installed_commit, target_commit)) if self.installed_commit else None
+        )
         logger.info("[build] %s -> %s", target_commit[:12], decision.reason)
+        if self.opt.soc and log_file is not None:
+            target_analysis = self._analysis_at(target_commit)
+            source_commit = self.installed_commit
+            sources = ", ".join(dict.fromkeys(instruction.source for instruction in target_analysis.instructions))
+            with open(log_file, "a", encoding="utf-8") as out:
+                out.write(
+                    f"[build-chain:before] installed_commit={source_commit[:12] if source_commit else 'unknown'} "
+                    f"target_commit={target_commit[:12]} SoC={self.opt.soc}\n"
+                    f"[build-chain:target] sources={sources}\n"
+                )
+                if source_commit is not None:
+                    changes = package_state_changes(self._analysis_at(source_commit), target_analysis)
+                    out.write(f"[build-chain:comparison] package_changes={len(changes)}\n")
+                    for change in changes:
+                        before = f"{change.before.action} {change.before.specification}" if change.before else "absent"
+                        after = f"{change.after.action} {change.after.specification}" if change.after else "absent"
+                        out.write(f"[build-chain:package] {change.name}: {before} -> {after}\n")
+                for outcome in target_analysis.package_outcomes:
+                    out.write(
+                        f"[build-chain:target-package] {outcome.source}:{outcome.line} "
+                        f"{outcome.name} {outcome.action} {outcome.specification}\n"
+                    )
+                for diagnostic in target_analysis.diagnostics:
+                    out.write(f"[build-chain:diagnostic] {diagnostic}\n")
+        if plan is not None:
+            logger.info("[build-chain] transition=%s actions=%d", plan.status, len(plan.actions))
+            for blocker in plan.blockers:
+                logger.warning("[build-chain] %s", blocker)
+            if log_file is not None:
+                with open(log_file, "a", encoding="utf-8") as out:
+                    out.write(f"\n[build-chain] transition={plan.status} actions={len(plan.actions)}\n")
+                    for blocker in plan.blockers:
+                        out.write(f"[build-chain] WARNING: {blocker}\n")
+                    for action in plan.actions:
+                        out.write(f"[build-chain] action {action.id} {action.kind}: {action.command}\n")
 
         git_ops.checkout(self.repo, target_commit)
+
+        root_env = None
+        if self.opt.soc:
+            target_analysis = self._analysis_at(target_commit)
+            root_source = target_analysis.instructions[0].source
+            root_args = {
+                name: value
+                for operation in target_analysis.operations
+                if operation.source == root_source and operation.kind == "arg"
+                for name, _, value in (operation.value.partition("="),)
+            }
+            root_env = dict(os.environ)
+            if base_delta is not None:
+                root_env = target_environment(base_delta, root_env)
+            root_env.setdefault("PIP_INDEX_URL", TORCH_NPU_PIP_INDEX_URL)
+            root_env["VLLM_BATCH_INVARIANT"] = "1"
+            root_env["PIP_EXTRA_INDEX_URL"] = " ".join(
+                url for url in (root_args.get("ASCEND_INDEX_URL"), root_args.get("PYTORCH_INDEX_URL")) if url
+            )
 
         if (decision.reinstall_reqs or decision.rebuild) and log_file is not None:
             logger.info(
                 "[build] compiling/installing (this can take a while); follow progress with: tail -f %s", log_file
             )
-        if decision.reinstall_reqs:
-            self._run(self.opt.pip_requirements_cmd, log_file, "uv pip install requirements")
-        if decision.rebuild:
-            self._clean_artifacts()
-            self._run(self.opt.pip_install_cmd, log_file, "uv pip install -e .")
-
+        project_rebuilt = plan is not None and any(
+            action.kind == "install"
+            and any(word.rstrip("/") == "/vllm-workspace/vllm-ascend" for word in shlex.split(action.command))
+            for action in plan.actions
+        )
+        if plan is not None:
+            if decision.rebuild and project_rebuilt:
+                # Project installs in the plan must not inherit the previous
+                # image's native build cache.
+                self._clean_artifacts()
+            self._execute_transition(plan, log_file, root_env, base_delta)
+        image_replayed = plan is not None and any(action.kind.startswith("image-") for action in plan.actions)
+        if image_replayed or (base_delta is not None and "/cann:" in base_delta.after.reference):
+            self._verify_cann_child(root_env or dict(os.environ), log_file)
         # Only advance the baseline once the binary actually matches the source.
-        if decision.rebuild or self.last_built_commit is None:
+        if project_rebuilt:
             self.last_built_commit = target_commit
+        self.installed_commit = target_commit
+        self.test_environment = root_env
+        if base_delta is not None or image_replayed:
+            self._transition_marker.unlink(missing_ok=True)
+        self._baseline_untrusted = False
+        if log_file is not None:
+            with open(log_file, "a", encoding="utf-8") as out:
+                out.write(
+                    f"[build-chain:after] checked_out={git_ops.current_commit(self.repo)[:12]} "
+                    f"installed_commit={self.installed_commit[:12]} "
+                    f"actions_executed={len(plan.actions) if plan else 0} rebuilt={project_rebuilt}\n"
+                )
+        self._plan_cache.clear()
+        self._base_delta_cache.clear()
+        self._analysis_cache.clear()
         return decision
+
+    def _execute_transition(
+        self,
+        plan: TransitionPlan,
+        log_file: Path | None,
+        env: dict[str, str] | None,
+        base_delta: BaseImageDelta | None = None,
+    ) -> None:
+        if not plan.actions:
+            return
+        if env is None:
+            env = dict(os.environ)
+        image_actions = tuple(action for action in plan.actions if action.kind.startswith("image-"))
+        image_executor = None
+        if image_actions:
+            architecture = "aarch64" if platform.machine().lower() in ("aarch64", "arm64") else "x86_64"
+            try:
+                image_executor = ImageReplayExecutor(image_actions, self._image_resolver, architecture, env)
+            except (OSError, RuntimeError, ValueError) as exc:
+                raise BuildError(f"target image replay preflight failed: {exc}") from exc
+            self._transition_marker.parent.mkdir(parents=True, exist_ok=True)
+            self._transition_marker.write_text("target-image replay in progress\n", encoding="utf-8")
+            self._baseline_untrusted = True
+        local_root = shlex.quote(str(self.repo))
+        unavailable_artifacts: set[str] = set()
+        for action in plan.actions:
+            if action.kind.startswith("image-"):
+                try:
+                    image_executor.execute(
+                        action,
+                        lambda command, environment, identifier=action.id: self._run(
+                            command, log_file, f"image replay action {identifier}", env=environment
+                        ),
+                    )
+                except (OSError, RuntimeError, ValueError) as exc:
+                    self.invalidate_baseline()
+                    raise BuildTransitionError(f"target image replay failed at action {action.id}: {exc}") from exc
+                continue
+            if action.kind == "apply-base-image":
+                if base_delta is None:
+                    raise BuildTransitionError("base image action has no resolved snapshot")
+                logger.info(
+                    "[base-image] applying %d changed files from %s",
+                    len(base_delta.changed_files),
+                    base_delta.after.digest,
+                )
+                if log_file is not None:
+                    with open(log_file, "a", encoding="utf-8") as out:
+                        out.write(
+                            f"[base-image] applying digest={base_delta.after.digest} "
+                            f"files={len(base_delta.changed_files)} config={len(base_delta.changed_config)}\n"
+                        )
+                self._transition_marker.parent.mkdir(parents=True, exist_ok=True)
+                self._transition_marker.write_text(
+                    f"{base_delta.before.digest} -> {base_delta.after.digest}\n", encoding="utf-8"
+                )
+                self._baseline_untrusted = True
+                try:
+                    apply_base_delta(base_delta, Path("/"))
+                except (OSError, RuntimeError) as exc:
+                    self.invalidate_baseline()
+                    raise BuildTransitionError(f"base image application failed: {exc}") from exc
+                if log_file is not None:
+                    with open(log_file, "a", encoding="utf-8") as out:
+                        out.write("[base-image] applied\n")
+                continue
+            command = action.command.replace("-e /vllm-workspace/vllm-ascend/", f"-e {local_root}/")
+            unavailable = next((path for path in unavailable_artifacts if path in command), None)
+            if unavailable and action.kind in ("pipeline", "install"):
+                warning = f"action {action.id} omitted: optional download unavailable: {unavailable}"
+                logger.warning("[build-chain] %s", warning)
+                if log_file is not None:
+                    with open(log_file, "a", encoding="utf-8") as out:
+                        out.write(f"[build-chain:warning] {warning}\n")
+                continue
+            context = [
+                f"cd {local_root}" if item == "cd /vllm-workspace/vllm-ascend" else item
+                for item in action.shell_context
+            ]
+            script = " && ".join(["set -e", *context, command])
+            warning_only = action.optional
+            try:
+                self._run(
+                    ["bash", "-lc", script],
+                    log_file,
+                    f"build-chain action {action.id}",
+                    env=env,
+                    invalidate_on_failure=not warning_only,
+                )
+            except BuildTransitionError as exc:
+                if not warning_only:
+                    raise
+                if action.kind == "download" and action.artifact is not None:
+                    unavailable_artifacts.add(action.artifact)
+                warning = f"optional {action.kind} action {action.id} failed; continuing: {exc}"
+                logger.warning("[build-chain] %s", warning)
+                if log_file is not None:
+                    with open(log_file, "a", encoding="utf-8") as out:
+                        out.write(f"[build-chain:warning] {warning}\n")
+
+    def _verify_cann_child(self, environment: dict[str, str], log_file: Path | None) -> None:
+        """Load CANN in a fresh process after replacing its user-space files."""
+        script = (
+            "import torch, torch_npu; "
+            "assert torch.npu.device_count() > 0, 'no NPU devices visible'; "
+            "print(torch.npu.get_device_name(0))"
+        )
+        try:
+            python = shutil.which("python3", path=environment.get("PATH"))
+            if python is None:
+                raise OSError("target environment has no python3 on PATH")
+            result = subprocess.run(
+                [python, "-c", script],
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=120,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            self.invalidate_baseline()
+            raise BuildTransitionError(f"target CANN child-process validation failed: {exc}") from exc
+        if log_file is not None:
+            with open(log_file, "a", encoding="utf-8") as out:
+                out.write(f"[base-image:child-check] rc={result.returncode}\n{result.stdout}{result.stderr}\n")
+        if result.returncode:
+            self.invalidate_baseline()
+            raise BuildTransitionError(
+                f"target CANN child-process validation failed (rc={result.returncode}): {result.stderr[-1000:]}"
+            )
+
+    def invalidate_baseline(self) -> None:
+        """A partially applied transition cannot be compared with the old environment."""
+        self.installed_commit = None
+        self.last_built_commit = None
+        self._baseline_untrusted = True
+        self._plan_cache.clear()
+        self._base_delta_cache.clear()
+        self._analysis_cache.clear()
 
     # ------------------------------------------------------------- helpers
     def _clean_artifacts(self) -> None:
@@ -171,28 +489,45 @@ class BuildManager:
         for cache in self.repo.rglob("__pycache__"):
             shutil.rmtree(cache, ignore_errors=True)
 
-    def _run(self, cmd: list[str], log_file: Path | None, label: str) -> None:
+    def _run(
+        self,
+        cmd: list[str],
+        log_file: Path | None,
+        label: str,
+        env: dict[str, str] | None = None,
+        cwd: Path | None = None,
+        invalidate_on_failure: bool = True,
+    ) -> None:
         logger.info("[build] running: %s", " ".join(cmd))
+        workdir = cwd or self.repo
         if log_file is not None:
+            install_command = "pip install" in shlex.join(cmd)
             with open(log_file, "a", encoding="utf-8") as out:
-                out.write(self._cmake_python_diagnostics("before install"))
+                out.write(f"\n[build-command] {label}: {shlex.join(cmd)}\n")
+                if install_command:
+                    out.write(self._cmake_python_diagnostics("before install"))
                 out.flush()
-                proc = subprocess.run(cmd, cwd=str(self.repo), stdout=out, stderr=subprocess.STDOUT, text=True)
+                command_offset = log_file.stat().st_size
+                proc = subprocess.run(cmd, cwd=str(workdir), stdout=out, stderr=subprocess.STDOUT, text=True, env=env)
             tail = "(see build log)"
             if proc.returncode != 0:
+                # Capture this command's output before appending diagnostics;
+                # stale CMake logs must not hide a download or shell failure.
+                with contextlib.suppress(OSError), open(log_file, "rb") as output:
+                    output.seek(max(command_offset, log_file.stat().st_size - 4000))
+                    tail = output.read().decode("utf-8", errors="replace") or "(command produced no output)"
                 with open(log_file, "a", encoding="utf-8") as out:
-                    out.write(self._cmake_python_diagnostics("after failed install"))
-                    out.write(self._cmake_failure_logs())
-                # Surface the tail of the build log in the job log: the log
-                # file lives in the runner container and is lost when the job
-                # ends, so "(see build log)" alone leaves nothing to debug.
-                with contextlib.suppress(OSError):
-                    tail = log_file.read_text(encoding="utf-8", errors="replace")[-4000:]
+                    out.write(f"\n[build-command] {label}: exit_code={proc.returncode}\n")
+                    if install_command:
+                        out.write(self._cmake_python_diagnostics("after failed install"))
+                        out.write(self._cmake_failure_logs())
         else:
-            proc = subprocess.run(cmd, cwd=str(self.repo), capture_output=True, text=True)
+            proc = subprocess.run(cmd, cwd=str(workdir), capture_output=True, text=True, env=env)
             tail = (proc.stdout or "")[-2000:]
         if proc.returncode != 0:
-            raise BuildError(f"{label} failed (rc={proc.returncode}):\n{tail}")
+            if invalidate_on_failure:
+                self.invalidate_baseline()
+            raise BuildTransitionError(f"{label} failed (rc={proc.returncode}): {shlex.join(cmd)}\n{tail}")
 
     def _cmake_python_diagnostics(self, phase: str) -> str:
         """Report only the CMake Python paths, not the full potentially sensitive cache."""
@@ -237,7 +572,11 @@ class BuildError(RuntimeError):
     pass
 
 
-# Everything a deploy (resolve + checkout + build + version adaptation) can
+class BuildTransitionError(BuildError):
+    """An environment installation failed; continuing the bisect is unsafe."""
+
+
+# Everything a deploy (resolve + checkout + build transition) can
 # raise that must surface as a per-round SKIP instead of killing the driving
 # agent. One shared tuple so every catch site (master runner, worker agent,
 # orchestrator trial loop) stays in lockstep -- a missed copy leaves the other
