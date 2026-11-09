@@ -70,7 +70,7 @@ class TransitionPlan:
 
 
 def plan_target_image_transition(
-    before: BuildAnalysis, after: BuildAnalysis, reference: str, history: list[dict]
+    before: BuildAnalysis, after: BuildAnalysis, reference: str, history: list[dict], *, rebuild_project: bool = False
 ) -> TransitionPlan:
     """Merge target image replay and ordinary build differences in one plan."""
     replay = target_stage_plan(history, reference)
@@ -85,6 +85,7 @@ def plan_target_image_transition(
         ),
         after,
         base_environment_changed=True,
+        rebuild_project=rebuild_project,
     )
     actions = []
     for step in replay["actions"]:
@@ -451,9 +452,22 @@ def plan_transition(
     base_delta: BaseImageDelta | None = None,
     *,
     base_environment_changed: bool = False,
+    rebuild_project: bool = False,
 ) -> TransitionPlan:
     """Plan first-to-second replay of persistent build effects."""
-    changes = compare_builds(before, after, base_delta, base_environment_changed=base_environment_changed)
+    project_installs = tuple(
+        operation
+        for operation in after.operations
+        if operation.kind == "pip-install"
+        and any(word.rstrip("/") == "/vllm-workspace/vllm-ascend" for word in _words(operation))
+    )
+    changes = compare_builds(
+        before,
+        after,
+        base_delta,
+        base_environment_changed=base_environment_changed,
+        replay_operations=project_installs if rebuild_project else (),
+    )
     additions = [operation for kind, _, operation in changes if kind in ("added", "replay") and operation is not None]
     removed = [operation for kind, operation, _ in changes if kind == "removed" and operation is not None]
     old_apt = _apt_outcomes(before)
@@ -542,6 +556,8 @@ def plan_transition(
     handled_old_clones = {previous for previous, _, _ in vllm_switches.values()}
     switch_installs = {id(install) for _, _, install in vllm_switches.values()}
     blockers: list[str] = []
+    if rebuild_project and not project_installs:
+        blockers.append("Target build has no project installation to replay")
     skipped: list[str] = []
     actions: list[PlanAction] = []
     if base_delta is not None and (base_delta.changed_files or base_delta.changed_config):

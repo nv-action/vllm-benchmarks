@@ -270,6 +270,7 @@ def compare_builds(
     base_delta: BaseImageDelta | None = None,
     *,
     base_environment_changed: bool = False,
+    replay_operations: tuple[Operation, ...] = (),
 ) -> tuple[tuple[str, Operation | None, Operation | None], ...]:
     """Align effects by semantics; provenance line moves do not create a delta."""
     old = [operation.semantic_key for operation in before.operations]
@@ -289,6 +290,11 @@ def compare_builds(
             operation = after.operations[index]
             if not _neutral_package_change(operation, old_state, new_state):
                 changes.append(("added", None, operation))
+    selected = {id(operation) for _, _, operation in changes if operation is not None}
+    for operation in replay_operations:
+        if id(operation) not in selected:
+            changes.append(("replay", None, operation))
+            selected.add(id(operation))
     if base_delta is not None and (base_delta.changed_files or base_delta.changed_config):
         # Only replay operations whose inputs can be identified in the base
         # delta. The build manager separately rebuilds native extensions after
