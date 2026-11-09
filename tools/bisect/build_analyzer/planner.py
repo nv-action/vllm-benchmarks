@@ -32,6 +32,7 @@ from tools.bisect.build_analyzer.diff import (
     package_state_changes,
     produces_artifact,
 )
+from tools.bisect.build_analyzer.git_commands import parse_git_command
 from tools.bisect.build_analyzer.image_history import target_stage_plan
 from tools.bisect.build_analyzer.ir import BuildAnalysis, Operation
 from tools.bisect.build_analyzer.operation_rules import (
@@ -295,11 +296,15 @@ def _repository_clone(operation: Operation) -> tuple[str, str, str] | None:
     """Read a clone with an explicit repository, revision and absolute destination."""
     if operation.kind != "git-clone":
         return None
-    words = _words(operation)
-    if words[:2] != ["git", "clone"] or "-b" not in words:
+    git = parse_git_command(_words(operation))
+    if git is None or git.subcommand != "clone":
         return None
-    branch_index = words.index("-b")
-    if branch_index + 1 >= len(words) or len(words) < 4:
+    words = list(git.arguments)
+    branch_option = next((option for option in ("-b", "--branch") if option in words), None)
+    if branch_option is None:
+        return None
+    branch_index = words.index(branch_option)
+    if branch_index + 1 >= len(words) or len(words) < 3:
         return None
     repository, directory = words[-2:]
     if not directory.startswith("/") or not repository.startswith(("https://", "http://", "ssh://", "git@")):
@@ -307,13 +312,8 @@ def _repository_clone(operation: Operation) -> tuple[str, str, str] | None:
     return repository, directory, words[branch_index + 1]
 
 
-def _vllm_clone(operation: Operation) -> tuple[str, str, str] | None:
-    clone = _repository_clone(operation)
-    return clone if clone and clone[1] == "/vllm-workspace/vllm" else None
-
-
 def _repository_sync_command(operation: Operation, repository: str, directory: str, reference: str) -> str:
-    """Replay the target clone against an existing dependency checkout."""
+    """Replay clone itself so reference discovery and metadata match the recipe."""
     clone_words = _words(operation)
     clone_words[-1] = "__BISECT_CLONE_DESTINATION__"
     clone_command = shlex.join(clone_words).replace("__BISECT_CLONE_DESTINATION__", '"$bisect_stage/repository"')
@@ -324,11 +324,6 @@ def _repository_sync_command(operation: Operation, repository: str, directory: s
             f"bisect_reference={shlex.quote(reference)}",
             'printf "[git-sync] target=%s ref=%s directory=%s\\n" '
             '"$bisect_repository" "$bisect_reference" "$bisect_directory"',
-            'if [ -e "$bisect_directory/.git" ] && '
-            'git -C "$bisect_directory" rev-parse --git-dir >/dev/null 2>&1; then',
-            '  git -C "$bisect_directory" fetch --depth 1 "$bisect_repository" "$bisect_reference" &&',
-            '  git -C "$bisect_directory" checkout --force --detach FETCH_HEAD',
-            "else",
             '  mkdir -p "$(dirname "$bisect_directory")"',
             '  bisect_stage=$(mktemp -d "${bisect_directory}.bisect-XXXXXX")',
             f'  {clone_command} || {{ echo "[git-sync] clone failed; original directory retained" >&2; exit 1; }}',
@@ -342,21 +337,7 @@ def _repository_sync_command(operation: Operation, repository: str, directory: s
             "    fi",
             "    exit 1",
             "  fi",
-            "fi",
         )
-    )
-
-
-def _vllm_editable_install(analysis: BuildAnalysis) -> Operation | None:
-    return next(
-        (
-            operation
-            for operation in analysis.operations
-            if operation.kind == "pip-install"
-            and "/vllm-workspace/vllm/" in operation.value
-            and " -e " in operation.value
-        ),
-        None,
     )
 
 
@@ -378,6 +359,8 @@ def _classify(operation: Operation) -> tuple[str, str | None, str | None, bool] 
     words = _words(operation)
     if not words:
         return None
+    if operation.kind in {"git-init", "git-fetch", "git-checkout", "git-switch", "git-reset", "git-submodule"}:
+        return operation.kind, None, None, False
     if operation.kind == "pip-install":
         return "install", _package_from_install(words), None, False
     if operation.kind == "pip-uninstall":
@@ -582,18 +565,6 @@ def plan_transition(
         if (classified := _classify(operation)) is not None
         for kind, package, artifact, _ in (classified,)
     }
-    old_vllm_clones = {clone[1]: operation for operation in removed if (clone := _vllm_clone(operation)) is not None}
-    vllm_switches: dict[Operation, tuple[Operation, tuple[str, str, str], Operation]] = {}
-    vllm_install = _vllm_editable_install(after)
-    for operation in additions:
-        clone = _vllm_clone(operation)
-        if clone is None or vllm_install is None:
-            continue
-        previous = old_vllm_clones.get(clone[1])
-        if previous is not None and (old_clone := _vllm_clone(previous)) is not None and old_clone[0] == clone[0]:
-            vllm_switches[operation] = previous, clone, vllm_install
-    handled_old_clones = {previous for previous, _, _ in vllm_switches.values()}
-    switch_installs = {id(install) for _, _, install in vllm_switches.values()}
     blockers: list[str] = []
     if rebuild_project and not project_installs:
         blockers.append("Target build has no project installation to replay")
@@ -675,7 +646,15 @@ def plan_transition(
     for operation in removed:
         if operation.kind == "source-digest" and operation.owner_key in selected_install_keys:
             continue
-        if operation in handled_old_clones:
+        if operation.kind.startswith("git-") and any(
+            target.kind.startswith("git-")
+            and any(
+                old == new or (new.endswith("/") and old.startswith(new))
+                for old in operation.resource_writes
+                for new in target.resource_writes
+            )
+            for target in after.operations
+        ):
             continue
         old_clone = _repository_clone(operation)
         if old_clone and any(
@@ -824,10 +803,8 @@ def plan_transition(
     for operation in additions:
         if operation.kind == "source-digest" and id(operation) in covered_sources:
             continue
-        if id(operation) in switch_installs:
-            continue
         clone = _repository_clone(operation)
-        if clone and operation not in vllm_switches:
+        if clone:
             repository, directory, reference = clone
             command = _repository_sync_command(operation, repository, directory, reference)
             identifier = len(actions) + 1
@@ -843,28 +820,6 @@ def plan_transition(
                     optional=warning_only_repository(repository),
                 )
             )
-            continue
-        if operation in vllm_switches:
-            _, (repository, directory, reference), install = vllm_switches[operation]
-            commands = (
-                ("git-fetch", shlex.join(["git", "-C", directory, "fetch", "--depth", "1", repository, reference])),
-                ("git-checkout", shlex.join(["git", "-C", directory, "checkout", "FETCH_HEAD"])),
-                ("install", install.value),
-            )
-            for kind, command in commands:
-                action_id = len(actions) + 1
-                actions.append(
-                    PlanAction(
-                        id=action_id,
-                        kind=kind,
-                        command=command,
-                        source=operation.source,
-                        line=operation.line,
-                        requires=(action_id - 1,) if action_id > 1 else (),
-                        package="vllm" if kind == "install" else None,
-                        shell_context=_shell_context(after, install) if kind == "install" else (),
-                    )
-                )
             continue
         if operation.kind in _DECLARATIONS or operation.kind in ("source", "export", "cd"):
             continue
@@ -958,7 +913,7 @@ def plan_transition(
         after_value = operation.value.partition("=")[2]
         consumers = _consumers(after, operation)
         if consumers and not any(
-            consumer in additions and (_classify(consumer) or consumer in vllm_switches) for consumer in consumers
+            consumer in additions and (_classify(consumer) or _repository_clone(consumer)) for consumer in consumers
         ):
             blockers.append(
                 f"{operation.source}:{operation.line}: {name} affects an active operation "
@@ -973,10 +928,6 @@ def plan_transition(
     status = "blocked" if unique_blockers else ("reviewable" if actions else "no-op")
     contexts = tuple(sorted({context for action in actions for context in action.shell_context}))
     preflight = ["python3 -m pip list --format=freeze"]
-    preflight.extend(
-        f"git -C {shlex.quote(directory)} rev-parse --is-inside-work-tree"
-        for directory in sorted({clone[1] for _, clone, _ in vllm_switches.values()})
-    )
     preflight.extend(
         f"test -f {words[1]}"
         for context in contexts

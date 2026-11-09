@@ -104,9 +104,18 @@ def downloaded_artifact(operation: Operation) -> str | None:
 
 def produces_artifact(operation: Operation, artifact: str) -> bool:
     """Match an exact download or an extraction-directory output."""
-    return downloaded_artifact(operation) == artifact or (
-        operation.value.startswith("tar ")
-        and any(output.endswith("/") and artifact.startswith(output) for output in operation.resource_writes)
+    return (
+        (
+            operation.kind.startswith("git-")
+            and any(
+                artifact == output.rstrip("/") or artifact.startswith(output) for output in operation.resource_writes
+            )
+        )
+        or downloaded_artifact(operation) == artifact
+        or (
+            operation.value.startswith("tar ")
+            and any(output.endswith("/") and artifact.startswith(output) for output in operation.resource_writes)
+        )
     )
 
 
@@ -202,6 +211,18 @@ def _required_replays(
             selected.add(id(owner))
             replays.append(("replay", None, owner))
     while True:
+        changed_resources: set[str] = set()
+        for operation in operations:
+            if id(operation) not in selected and any(
+                read == write
+                or (write.endswith("/") and (read.startswith(write) or read.rstrip("/") == write.rstrip("/")))
+                for read in operation.resource_reads
+                for write in changed_resources
+            ):
+                selected.add(id(operation))
+                replays.append(("replay", None, operation))
+            if id(operation) in selected:
+                changed_resources.update(operation.resource_writes)
         artifact_producer = None
         for index, operation in enumerate(operations):
             if id(operation) not in selected:
