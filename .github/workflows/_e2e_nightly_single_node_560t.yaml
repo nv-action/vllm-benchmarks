@@ -490,10 +490,7 @@ jobs:
             "${{ steps.test-result.outputs.yaml_summary }}"
 
       - name: Process - recent real failure
-        if: >-
-          ${{ always() && inputs.aop_single_enabled &&
-          steps.classify.outputs.failure_type == 'not_env_failure' &&
-          (inputs.bisect_good_commit != '' || steps.commit-age.outputs.is_old == 'false') }}
+        if: ${{ always() && inputs.aop_single_enabled }}
         working-directory: /vllm-workspace/vllm-ascend
         env:
           GOOD_TABLE: /root/.cache/vllm-ascend/${{ inputs.vllm_ascend_branch }}/${{ inputs.test_frequency }}/good_table.csv
