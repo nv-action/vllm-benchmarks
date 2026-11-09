@@ -72,3 +72,8 @@ def warning_only_download(artifact: str | None) -> bool:
     """FLA release availability must not stop environment preparation."""
     name = (artifact or "").rsplit("/", 1)[-1].lower().replace("-", "_")
     return name.startswith("flash_linear_attention_npu_") and name.endswith(".whl")
+
+
+def warning_only_repository(repository: str) -> bool:
+    """Keep the existing benchmark available when AISBench cannot be fetched."""
+    return repository.rstrip("/").removesuffix(".git").lower() == "https://github.com/aisbench/benchmark"
