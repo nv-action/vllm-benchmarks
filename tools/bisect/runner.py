@@ -250,7 +250,7 @@ class MultiNodeRunner(BaseRunner):
             action="RUN",
         )
         try:
-            self.builder.prepare(candidate.commit, log_path)
+            decision = self.builder.prepare(candidate.commit, log_path)
         except DEPLOY_ERRORS:
             self.builder.invalidate_baseline()
             self._abort_round(round_idx)

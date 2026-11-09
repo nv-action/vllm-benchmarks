@@ -65,7 +65,7 @@ logger = logging.getLogger(__name__)
 # The custom-op build script preserves csrc/build, including CMakeCache.txt.
 # That cache can point HI_PYTHON at a short-lived uv build-environment path,
 # so discard it before rebuilding a candidate in a new isolated environment.
-_STALE_ARTIFACTS = ("build", "csrc/build", "*.egg-info", "dist")
+_STALE_ARTIFACTS = ("build", "csrc/build", "csrc/torch_ops_extension/*/build", "*.egg-info", "dist")
 
 
 @dataclass
@@ -138,7 +138,9 @@ class BuildManager:
                 architecture = "aarch64" if platform.machine().lower() in ("aarch64", "arm64") else "x86_64"
                 try:
                     reference, history = self._image_resolver.resolve_history(from_reference(after_base), architecture)
-                    plan = plan_target_image_transition(before, after, reference, history)
+                    plan = plan_target_image_transition(
+                        before, after, reference, history, rebuild_project=self.installed_commit != target_commit
+                    )
                 except (BaseImageError, ValueError, OSError) as exc:
                     raise BuildError(f"target CANN history analysis failed: {exc}") from exc
                 destination = Path(self.opt.work_dir) / f"target-image-plan-node{self.opt.node_index}.json"
@@ -165,7 +167,7 @@ class BuildManager:
                 blockers = validate_base_application(base_delta, Path("/"))
                 if blockers:
                     raise BuildError("base image cannot be applied: " + "; ".join(blockers[:10]))
-        plan = plan_transition(before, after, base_delta)
+        plan = plan_transition(before, after, base_delta, rebuild_project=self.installed_commit != target_commit)
         self._base_delta_cache[key] = base_delta
         self._plan_cache[key] = plan
         return plan
@@ -309,7 +311,7 @@ class BuildManager:
             for action in plan.actions
         )
         if plan is not None:
-            if decision.rebuild and project_rebuilt:
+            if project_rebuilt:
                 # Project installs in the plan must not inherit the previous
                 # image's native build cache.
                 self._clean_artifacts()
@@ -335,7 +337,7 @@ class BuildManager:
         self._plan_cache.clear()
         self._base_delta_cache.clear()
         self._analysis_cache.clear()
-        return decision
+        return BuildDecision(project_rebuilt, decision.reinstall_reqs, decision.native_hits, decision.reason)
 
     def _execute_transition(
         self,
