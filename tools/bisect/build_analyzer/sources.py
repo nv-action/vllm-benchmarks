@@ -28,7 +28,7 @@ import tomllib
 from tools.bisect.build_analyzer.ir import BuildAnalysis, BuildSyntaxError, Operation
 from tools.bisect.build_analyzer.package_effects import package_effects, package_outcomes
 from tools.bisect.build_analyzer.semantics import analyze_build
-from tools.bisect.build_recipe import NIGHTLY_DOCKERFILE_DIR, ROOT_DOCKERFILES
+from tools.bisect.build_recipe import NIGHTLY_DOCKERFILE_DIR, ROOT_DOCKERFILES, normalize_build_soc
 
 
 def _read_text(repo: Path, commit: str, path: str) -> str | None:
@@ -65,9 +65,7 @@ def _analyze_source(
     Architecture is an explicit input. The build's TARGETPLATFORM default is
     deliberately not inferred from the machine running the bisect tool.
     """
-    target = soc.lower()
-    if target not in ROOT_DOCKERFILES:
-        raise ValueError(f"unsupported SoC {soc!r}")
+    target = normalize_build_soc(soc)
     if architecture not in ("aarch64", "x86_64"):
         raise ValueError(f"unsupported architecture {architecture!r}")
     root = ROOT_DOCKERFILES[target]

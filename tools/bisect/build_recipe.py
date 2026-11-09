@@ -142,8 +142,8 @@ def _runtime_wheels(dockerfile: str, args: dict[str, str]) -> tuple[str, ...]:
     return tuple(wheels)
 
 
-def recipe_at_commit(repo: Path, commit: str, soc: str, os_variant: str | None = None) -> BuildRecipe:
-    """Resolve build inputs from the selected chip's Dockerfiles at one commit."""
+def normalize_build_soc(soc: str) -> str:
+    """Map device variants to a Dockerfile family without changing case identity."""
     target = soc.lower()
     if target in ("910b", "ascend910b", "ascend910b1") or target.startswith("a2-"):
         target = "a2"
@@ -155,6 +155,12 @@ def recipe_at_commit(repo: Path, commit: str, soc: str, os_variant: str | None =
         target = "310p"
     if target not in ROOT_DOCKERFILES:
         raise ValueError(f"unsupported bisect SoC {soc!r}")
+    return target
+
+
+def recipe_at_commit(repo: Path, commit: str, soc: str, os_variant: str | None = None) -> BuildRecipe:
+    """Resolve build inputs from the selected chip's Dockerfiles at one commit."""
+    target = normalize_build_soc(soc)
 
     if os_variant is None:
         os_release = Path("/etc/os-release")
