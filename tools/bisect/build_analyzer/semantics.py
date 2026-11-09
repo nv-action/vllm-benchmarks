@@ -20,6 +20,7 @@ import shlex
 from dataclasses import replace
 from urllib.parse import urlsplit
 
+from tools.bisect.build_analyzer.git_commands import git_resources, parse_git_command
 from tools.bisect.build_analyzer.ir import BuildAnalysis, BuildSyntaxError, Instruction, Operation, ShellDependency
 from tools.bisect.build_analyzer.package_effects import package_effects, package_outcomes
 from tools.bisect.build_analyzer.syntax import SyntaxUnit, _canonical_syntax, _node_text, parse_build
@@ -48,6 +49,16 @@ def _shell_resources(
         words = shlex.split(value)
     except ValueError:
         return (), ()
+    cwd = "/"
+    for dependency in dependencies:
+        if dependency.kind == "cd":
+            try:
+                cwd = posixpath.normpath(posixpath.join(cwd, shlex.split(dependency.value)[1]))
+            except (ValueError, IndexError):
+                return (), ()
+    git = parse_git_command(words, cwd)
+    if git is not None:
+        return git_resources(git)
     if kind == "source" and len(words) > 1:
         return (words[1],), ()
     if kind == "download":
@@ -61,6 +72,11 @@ def _shell_resources(
     if kind != "pip-install":
         return (), ()
     reads = [word for word in words if word.startswith("/")]
+    for index, word in enumerate(words):
+        if word in {"-e", "--editable", "-r", "--requirement", "-c", "--constraint"} and index + 1 < len(words):
+            reads.append(posixpath.normpath(posixpath.join(cwd, words[index + 1])))
+        elif word == "." or word.startswith(("./", "../")):
+            reads.append(posixpath.normpath(posixpath.join(cwd, word)))
     reads.extend(
         dependency.value.split(maxsplit=1)[1]
         for dependency in dependencies
@@ -113,7 +129,10 @@ def _command_kind(source: bytes, node) -> str:
         return "download"
     if executable in ("pip", "pip3") and len(words) > 1:
         return f"pip-{words[1]}"
-    if executable in ("git", "apt-get", "mfcli") and len(words) > 1:
+    if executable == "git":
+        git = parse_git_command(words)
+        return f"git-{git.subcommand}" if git is not None else "shell"
+    if executable in ("apt-get", "mfcli") and len(words) > 1:
         return f"{executable}-{words[1]}"
     if executable in ("export", "source", "cd", "bash"):
         return executable
@@ -492,7 +511,11 @@ def analyze_build(
         "case-select",
         "pip-cache",
         "git-clone",
+        "git-init",
+        "git-fetch",
         "git-checkout",
+        "git-switch",
+        "git-reset",
         "git-submodule",
     }
     parsed_operations = tuple(
