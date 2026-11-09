@@ -61,6 +61,7 @@ class PlanAction:
     shell_context: tuple[str, ...] = ()
     content_image: str | None = None
     destination: str | None = None
+    environment: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -72,6 +73,8 @@ class TransitionPlan:
     preflight: tuple[str, ...]
     postflight: tuple[str, ...]
     notes: tuple[str, ...]
+    previous_environment: tuple[tuple[str, str], ...] = ()
+    target_environment: tuple[tuple[str, str], ...] | None = None
 
 
 def plan_target_image_transition(
@@ -385,6 +388,10 @@ def _classify(operation: Operation) -> tuple[str, str | None, str | None, bool] 
     words = _words(operation)
     if not words:
         return None
+    if operation.kind == "env":
+        return "set-build-environment", None, None, False
+    if operation.kind == "file-write":
+        return "write-file", None, None, False
     if operation.kind in {"git-init", "git-fetch", "git-checkout", "git-switch", "git-reset", "git-submodule"}:
         return operation.kind, None, None, False
     if operation.kind == "pip-install":
@@ -596,15 +603,21 @@ def plan_transition(
         blockers.append("Target build has no project installation to replay")
     skipped: list[str] = []
     actions: list[PlanAction] = []
+    removed_environment = set(dict(before.environment)) - set(dict(after.environment))
+    if removed_environment:
+        actions.append(
+            PlanAction(1, "restore-build-environment", " ".join(sorted(removed_environment)), "<environment>", 0)
+        )
     if base_delta is not None and (base_delta.changed_files or base_delta.changed_config):
         source = next((operation for operation in after.operations if operation.kind == "from"), None)
         actions.append(
             PlanAction(
-                id=1,
+                id=len(actions) + 1,
                 kind="apply-base-image",
                 command=f"{base_delta.after.reference} (digest {base_delta.after.digest})",
                 source=source.source if source else "<base-image>",
                 line=source.line if source else 0,
+                requires=(actions[-1].id,) if actions else (),
             )
         )
     planned_uninstalls: set[str] = set()
@@ -670,6 +683,11 @@ def plan_transition(
     }
     transient_checkout_lines = _ephemeral_checkout_lines(before)
     for operation in removed:
+        if operation.kind == "env":
+            continue
+        if operation.kind == "unresolved":
+            skipped.append(f"{operation.source}:{operation.line}: removed diagnostic: {operation.value}")
+            continue
         if operation.kind == "source-digest" and operation.owner_key in selected_install_keys:
             continue
         if operation.kind.startswith("git-") and any(
@@ -1002,10 +1020,25 @@ def plan_transition(
         )
     return TransitionPlan(
         status,
-        tuple(actions),
+        tuple(
+            replace(
+                action,
+                environment=next(
+                    (
+                        operation.environment
+                        for operation in after.operations
+                        if (operation.source, operation.line) == (action.source, action.line)
+                    ),
+                    (),
+                ),
+            )
+            for action in actions
+        ),
         unique_blockers,
         tuple(skipped),
         tuple(preflight),
         tuple(postflight),
         notes,
+        before.environment,
+        after.environment,
     )
