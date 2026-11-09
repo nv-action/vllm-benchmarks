@@ -292,27 +292,42 @@ def _explicit_wheel_version(operation: Operation) -> str | None:
     return parts[1] if len(parts) >= 3 else None
 
 
-def _repository_clone(operation: Operation) -> tuple[str, str, str] | None:
-    """Read a clone with an explicit repository, revision and absolute destination."""
+def _repository_clone(operation: Operation) -> tuple[str, str, str | None] | None:
+    """Read a clone with an explicit destination and optional branch/tag."""
     if operation.kind != "git-clone":
         return None
     git = parse_git_command(_words(operation))
     if git is None or git.subcommand != "clone":
         return None
     words = list(git.arguments)
-    branch_option = next((option for option in ("-b", "--branch") if option in words), None)
-    if branch_option is None:
+    if len(words) < 2:
         return None
-    branch_index = words.index(branch_option)
-    if branch_index + 1 >= len(words) or len(words) < 3:
+    if any(
+        word in {"--bare", "--mirror", "--separate-git-dir"} or word.startswith("--separate-git-dir=") for word in words
+    ):
         return None
+    reference = None
+    for index, word in enumerate(words[:-2]):
+        if word in {"-b", "--branch"}:
+            if index + 1 >= len(words) - 2:
+                return None
+            reference = words[index + 1]
+        elif word.startswith("--branch="):
+            reference = word.partition("=")[2]
+        elif word.startswith("-b"):
+            reference = word[2:]
     repository, directory = words[-2:]
-    if not directory.startswith("/") or not repository.startswith(("https://", "http://", "ssh://", "git@")):
+    if (
+        not directory.startswith("/")
+        or posixpath.normpath(directory) == "/"
+        or ".." in directory.split("/")
+        or not repository.startswith(("https://", "http://", "ssh://", "git@"))
+    ):
         return None
-    return repository, directory, words[branch_index + 1]
+    return repository, directory, reference
 
 
-def _repository_sync_command(operation: Operation, repository: str, directory: str, reference: str) -> str:
+def _repository_sync_command(operation: Operation, repository: str, directory: str, reference: str | None) -> str:
     """Replay clone itself so reference discovery and metadata match the recipe."""
     clone_words = _words(operation)
     clone_words[-1] = "__BISECT_CLONE_DESTINATION__"
@@ -321,7 +336,7 @@ def _repository_sync_command(operation: Operation, repository: str, directory: s
         (
             f"bisect_directory={shlex.quote(directory)}",
             f"bisect_repository={shlex.quote(repository)}",
-            f"bisect_reference={shlex.quote(reference)}",
+            f"bisect_reference={shlex.quote(reference or 'HEAD')}",
             'printf "[git-sync] target=%s ref=%s directory=%s\\n" '
             '"$bisect_repository" "$bisect_reference" "$bisect_directory"',
             '  mkdir -p "$(dirname "$bisect_directory")"',
@@ -337,6 +352,17 @@ def _repository_sync_command(operation: Operation, repository: str, directory: s
             "    fi",
             "    exit 1",
             "  fi",
+        )
+    )
+
+
+def _mark_outputs_available(operation: Operation, unavailable: set[str]) -> None:
+    unavailable.difference_update(
+        resource
+        for resource in tuple(unavailable)
+        if any(
+            resource == output or (output.endswith("/") and resource.startswith(output))
+            for output in operation.resource_writes
         )
     )
 
@@ -800,7 +826,24 @@ def plan_transition(
         blockers.append(
             f"{operation.source}:{operation.line}: removed {operation.kind}; no inverse operation can be inferred"
         )
+    unavailable_resources: set[str] = set()
     for operation in additions:
+        unavailable = next(
+            (
+                output
+                for output in unavailable_resources
+                if any(
+                    read == output
+                    or (output.endswith("/") and (read.startswith(output) or read.rstrip("/") == output.rstrip("/")))
+                    for read in operation.resource_reads
+                )
+            ),
+            None,
+        )
+        if unavailable is not None:
+            skipped.append(f"{operation.source}:{operation.line}: dependency unavailable: {unavailable}")
+            unavailable_resources.update(operation.resource_writes)
+            continue
         if operation.kind == "source-digest" and id(operation) in covered_sources:
             continue
         clone = _repository_clone(operation)
@@ -820,6 +863,7 @@ def plan_transition(
                     optional=warning_only_repository(repository),
                 )
             )
+            _mark_outputs_available(operation, unavailable_resources)
             continue
         if operation.kind in _DECLARATIONS or operation.kind in ("source", "export", "cd"):
             continue
@@ -882,6 +926,7 @@ def plan_transition(
         classified = _classify(operation)
         if classified is None:
             blockers.append(f"{operation.source}:{operation.line}: cannot replay {operation.kind}: {operation.value}")
+            unavailable_resources.update(operation.resource_writes)
             continue
         kind, package, artifact, optional = classified
         action_id = len(actions) + 1
@@ -899,6 +944,7 @@ def plan_transition(
                 shell_context=_shell_context(after, operation),
             )
         )
+        _mark_outputs_available(operation, unavailable_resources)
     old_declarations = {
         (operation.source, operation.kind, name): operation
         for operation in removed

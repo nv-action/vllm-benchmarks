@@ -30,6 +30,7 @@ import json
 import logging
 import os
 import platform
+import re
 import shlex
 import shutil
 import subprocess
@@ -406,13 +407,22 @@ class BuildManager:
                 continue
             command = action.command.replace("-e /vllm-workspace/vllm-ascend/", f"-e {local_root}/")
             inputs = "\n".join((command, *action.shell_context))
-            unavailable = next((path for path in unavailable_artifacts if path in inputs), None)
-            if unavailable and action.kind in ("pipeline", "install"):
+            unavailable = next(
+                (
+                    path
+                    for path in sorted(unavailable_artifacts)
+                    if re.search(r"(?<![\w./-])" + re.escape(path.rstrip("/")) + r"(?=$|[/\s\"'\[\];|&)])", inputs)
+                ),
+                None,
+            )
+            if unavailable and action.kind != "git-sync":
                 warning = f"action {action.id} omitted: optional input unavailable: {unavailable}"
                 logger.warning("[build-chain] %s", warning)
                 if log_file is not None:
                     with open(log_file, "a", encoding="utf-8") as out:
                         out.write(f"[build-chain:warning] {warning}\n")
+                if action.kind in {"extract", "prepare-directory"} and action.artifact is not None:
+                    unavailable_artifacts.add(action.artifact)
                 continue
             context = [
                 f"cd {local_root}" if item == "cd /vllm-workspace/vllm-ascend" else item
@@ -440,6 +450,16 @@ class BuildManager:
                 if log_file is not None:
                     with open(log_file, "a", encoding="utf-8") as out:
                         out.write(f"[build-chain:warning] {warning}\n")
+            else:
+                if (
+                    action.kind in {"download", "git-sync", "extract", "prepare-directory"}
+                    and action.artifact is not None
+                ):
+                    unavailable_artifacts.difference_update(
+                        path
+                        for path in tuple(unavailable_artifacts)
+                        if path == action.artifact or path.startswith(action.artifact.rstrip("/") + "/")
+                    )
 
     def _verify_cann_child(self, environment: dict[str, str], log_file: Path | None) -> None:
         """Load CANN in a fresh process after replacing its user-space files."""
