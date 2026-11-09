@@ -88,6 +88,11 @@ on:
         type: boolean
         default: false
         description: enable AOP hooks (capture / classify / skip-or-process)
+      bisect_only:
+        required: false
+        type: boolean
+        default: false
+        description: skip head install and initial test, run only the AOP bisect
       profile_options_json:
         type: string
         default: '{}'
@@ -265,7 +270,7 @@ jobs:
           echo "MAX_JOBS=$((CARDS * 23))" >> $GITHUB_ENV
 
       - name: Install vllm-project/vllm-ascend
-        if: ${{ inputs.request_id != '' }}
+        if: ${{ inputs.request_id != '' && inputs.bisect_only != true }}
         working-directory: /vllm-workspace/vllm-ascend
         env:
           MAX_JOBS: ${{ env.MAX_JOBS }}
@@ -370,7 +375,7 @@ jobs:
 
       - name: Run Pytest (py-driven)
         id: pytest-driven
-        if: ${{ inputs.tests != '' }}
+        if: ${{ inputs.tests != '' && inputs.bisect_only != true }}
         env:
           VLLM_WORKER_MULTIPROC_METHOD: spawn
           VLLM_USE_MODELSCOPE: True
@@ -385,7 +390,7 @@ jobs:
 
       - name: Run Pytest (YAML-driven)
         id: yaml-test
-        if: ${{ always() && inputs.config_file_path != '' }}
+        if: ${{ always() && inputs.config_file_path != '' && inputs.bisect_only != true }}
         env:
           VLLM_WORKER_MULTIPROC_METHOD: spawn
           VLLM_USE_MODELSCOPE: True
