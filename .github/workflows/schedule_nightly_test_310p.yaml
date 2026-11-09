@@ -295,7 +295,7 @@ jobs:
       download_path: ${{ inputs.download_path }}
       vllm_ascend_ref: ${{ inputs.vllm_ascend_ref || '' }}
       vllm_ref: ${{ inputs.vllm_ref || '' }}
-      aop_single_enabled: ${{ inputs.aop_enabled }}
+      aop_single_enabled: true
       bisect_config_base_path: ${{ matrix.test_config.config_base_path }}
       profile_options_json: ${{ needs.setup-vars.outputs.profile_options }}
     secrets:

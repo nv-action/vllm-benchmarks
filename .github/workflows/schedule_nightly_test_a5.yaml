@@ -360,7 +360,7 @@ jobs:
       download_path: ${{ inputs.download_path }}
       vllm_ascend_ref: ${{ inputs.vllm_ascend_ref || '' }}
       vllm_ref: ${{ inputs.vllm_ref || '' }}
-      aop_single_enabled: ${{ inputs.aop_enabled }}
+      aop_single_enabled: true
       profile_options_json: ${{ needs.setup-vars.outputs.profile_options }}
       bisect_good_commit: ${{ fromJSON(inputs.bisect_args_json || '{}').good_commit || '' }}
       bisect_bad_commit: ${{ fromJSON(inputs.bisect_args_json || '{}').bad_commit || 'HEAD' }}
