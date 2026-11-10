@@ -128,23 +128,11 @@ RUN --mount=type=cache,target=/root/.cache/pip export PIP_EXTRA_INDEX_URL="${ASC
     python3 -m pip install triton-ascend==3.2.2 --extra-index-url ${ASCEND_INDEX_URL} && \
     python3 -m pip install concurrent-log-handler
 
-# Install flash-linear-attention-npu (A3 only)
-ARG TARGETPLATFORM
-RUN ARCH=${TARGETPLATFORM:-$(uname -m)}; \
-    case "$ARCH" in \
-        "linux/arm64"|"aarch64") \
-            FLA_WHL="flash_linear_attention_npu_a3-${FLA_VERSION}-py3-none-manylinux_2_34_aarch64.whl"; \
-            FLA_SHA256="0e0febfe0b524df54c02dead985b787cf51f276ef904e4c2f88c5d43707a370b" ;; \
-        "linux/amd64"|"x86_64") \
-            FLA_WHL="flash_linear_attention_npu_a3-${FLA_VERSION}-py3-none-manylinux_2_34_x86_64.whl"; \
-            FLA_SHA256="18b8c9d54eadbefb264fd5989577e3bbdb6f2e5cfc8d60d86a0887f2d8a2f26a" ;; \
-        *) echo "Unsupported arch for flash-linear-attention-npu: $ARCH" && exit 1 ;; \
-    esac && \
-    FLA_DOWNLOAD_URL="http://cache-service.nginx-pypi-cache.svc.cluster.local:8081/fla/${FLA_WHL}"; \
-    wget --quiet "$FLA_DOWNLOAD_URL" -O /tmp/${FLA_WHL} && \
-    echo "${FLA_SHA256}  /tmp/${FLA_WHL}" | sha256sum --check && \
-    python3 -m pip install --force-reinstall --no-deps /tmp/${FLA_WHL} && \
-    rm -f /tmp/${FLA_WHL}
+# Install flash-linear-attention-npu from the Ascend mirror (aligned with vllm-ascend)
+RUN source /usr/local/Ascend/ascend-toolkit/set_env.sh && \
+    source /usr/local/Ascend/nnal/atb/set_env.sh && \
+    export PIP_EXTRA_INDEX_URL="${ASCEND_INDEX_URL}" && \
+    python3 -m pip install "flash-linear-attention-npu-a3===${FLA_VERSION}" --force-reinstall --no-deps
 
 # Install _rust_tool_parser for the Rust frontend.
 # The default toolchain is read from vllm's rust-toolchain.toml (falling back
