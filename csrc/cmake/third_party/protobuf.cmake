@@ -14,7 +14,7 @@ endif()
 include(ExternalProject)
 ExternalProject_Add(external_protobuf
   URL               ${_protobuf_url}
-                    http://git-cdn-service.git-cdn-gitcode.svc.cluster.local:8000/cann-src-third-party/protobuf/releases/download/v25.1/protobuf-25.1.tar.gz
+                    https://gitcode.com/cann-src-third-party/protobuf/releases/download/v25.1/protobuf-25.1.tar.gz
   DOWNLOAD_DIR      download/protobuf
   PREFIX            third_party
   SOURCE_SUBDIR     cmake

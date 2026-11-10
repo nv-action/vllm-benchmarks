@@ -43,7 +43,7 @@ if(json_FOUND AND NOT FORCE_REBUILD_CANN_3RD)
     set(JSON_INCLUDE_DIR ${JSON_INSTALL_PATH}/include)
     add_library(json INTERFACE IMPORTED)
 else()
-    set(REQ_URL "http://git-cdn-service.git-cdn-gitcode.svc.cluster.local:8000/cann-src-third-party/json/releases/download/v3.11.3/include.zip")
+    set(REQ_URL "https://gitcode.com/cann-src-third-party/json/releases/download/v3.11.3/include.zip")
 
     include(ExternalProject)
     ExternalProject_Add(third_party_json
