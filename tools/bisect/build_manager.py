@@ -64,7 +64,7 @@ from tools.bisect.config import (
 )
 from tools.bisect.git_ops import GitError
 from tools.bisect.process_output import run_streaming
-from tools.bisect.version_compat import TORCH_NPU_PIP_INDEX_URL, VersionAdaptationError
+from tools.bisect.version_compat import VersionAdaptationError
 
 logger = logging.getLogger(__name__)
 
@@ -294,21 +294,9 @@ class BuildManager:
 
         root_env = None
         if self.opt.soc:
-            target_analysis = self._analysis_at(target_commit)
-            root_source = target_analysis.instructions[0].source
-            root_args = {
-                name: value
-                for operation in target_analysis.operations
-                if operation.source == root_source and operation.kind == "arg"
-                for name, _, value in (operation.value.partition("="),)
-            }
             root_env = dict(os.environ)
             if base_delta is not None:
                 root_env = target_environment(base_delta, root_env)
-            root_env.setdefault("PIP_INDEX_URL", TORCH_NPU_PIP_INDEX_URL)
-            root_env["PIP_EXTRA_INDEX_URL"] = " ".join(
-                url for url in (root_args.get("ASCEND_INDEX_URL"), root_args.get("PYTORCH_INDEX_URL")) if url
-            )
 
         if (decision.reinstall_reqs or decision.rebuild) and log_file is not None:
             logger.info(
