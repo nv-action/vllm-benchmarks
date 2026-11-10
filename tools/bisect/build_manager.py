@@ -146,6 +146,12 @@ class BuildManager:
             if before_base is None or after_base is None:
                 raise BuildError("FROM changed, but a base image reference is missing")
             if "/cann:" in before_base or "/cann:" in after_base:
+                logger.info(
+                    "[build-chain] CANN FROM changed: %s -> %s; replay target image including Python "
+                    "and the full target build chain",
+                    before_base,
+                    after_base,
+                )
                 architecture = "aarch64" if platform.machine().lower() in ("aarch64", "arm64") else "x86_64"
                 try:
                     reference, history = self._image_resolver.resolve_history(from_reference(after_base), architecture)
@@ -286,6 +292,8 @@ class BuildManager:
             if log_file is not None:
                 with open(log_file, "a", encoding="utf-8") as out:
                     out.write(f"\n[build-chain] transition={plan.status} actions={len(plan.actions)}\n")
+                    if any(action.kind.startswith("image-") for action in plan.actions):
+                        out.write("[build-chain:mode] target image including Python, then full target build replay\n")
                     for blocker in plan.blockers:
                         out.write(f"[build-chain] WARNING: {blocker}\n")
                     for action in plan.actions:

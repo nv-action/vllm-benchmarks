@@ -80,20 +80,13 @@ class TransitionPlan:
 def plan_target_image_transition(
     before: BuildAnalysis, after: BuildAnalysis, reference: str, history: list[dict], *, rebuild_project: bool = False
 ) -> TransitionPlan:
-    """Merge target image replay and ordinary build differences in one plan."""
+    """Replay the target base image, then the complete target build chain."""
     replay = target_stage_plan(history, reference)
-    target_from = {op.source: op.value for op in after.operations if op.kind == "from"}
     base = plan_transition(
-        replace(
-            before,
-            operations=tuple(
-                replace(op, value=target_from.get(op.source, op.value)) if op.kind == "from" else op
-                for op in before.operations
-            ),
-        ),
+        before,
         after,
-        base_environment_changed=True,
         rebuild_project=rebuild_project,
+        replay_all=True,
     )
     actions = []
     for step in replay["actions"]:
@@ -133,7 +126,12 @@ def plan_target_image_transition(
         status="blocked" if blockers else "reviewable",
         actions=tuple(actions),
         blockers=blockers,
-        notes=base.notes + (f"Target image content source: {reference}", *replay.get("warnings", ())),
+        notes=base.notes
+        + (
+            f"Target image content source: {reference}",
+            "Replay target image including its Python, then all target build operations; no downstream diff selection",
+            *replay.get("warnings", ()),
+        ),
     )
 
 
@@ -508,24 +506,29 @@ def plan_transition(
     *,
     base_environment_changed: bool = False,
     rebuild_project: bool = False,
+    replay_all: bool = False,
 ) -> TransitionPlan:
-    """Plan first-to-second replay of persistent build effects."""
+    """Plan incremental effects, or replay the whole target after an image change."""
     project_installs = tuple(
         operation
         for operation in after.operations
         if operation.kind == "pip-install"
         and any(word.rstrip("/") == "/vllm-workspace/vllm-ascend" for word in _words(operation))
     )
-    changes = compare_builds(
-        before,
-        after,
-        base_delta,
-        base_environment_changed=base_environment_changed,
-        replay_operations=project_installs if rebuild_project else (),
+    changes = (
+        tuple(("replay", None, operation) for operation in after.operations)
+        if replay_all
+        else compare_builds(
+            before,
+            after,
+            base_delta,
+            base_environment_changed=base_environment_changed,
+            replay_operations=project_installs if rebuild_project else (),
+        )
     )
     additions = [operation for kind, _, operation in changes if kind in ("added", "replay") and operation is not None]
     removed = [operation for kind, operation, _ in changes if kind == "removed" and operation is not None]
-    old_apt = _apt_outcomes(before)
+    old_apt = {} if replay_all else _apt_outcomes(before)
     target_apt = _apt_outcomes(after)
     if base_delta is not None:
         additions = [operation for operation in additions if operation.kind != "from"]
@@ -535,6 +538,13 @@ def plan_transition(
         outcome.name: outcome for outcome in (after.package_outcomes or package_outcomes(after.operations))
     }
     operation_positions = {id(operation): index for index, operation in enumerate(after.operations)}
+    workdirs: dict[tuple[str, int], str] = {}
+    workdir = "/"
+    if replay_all:
+        for operation in after.operations:
+            if operation.kind == "workdir":
+                workdir = posixpath.normpath(posixpath.join(workdir, operation.value))
+            workdirs[operation.source, operation.line] = workdir
     additions.sort(key=lambda operation: operation_positions[id(operation)])
     if any(_apt_operation(operation) and _apt_operation(operation)[0] in _APT_MUTATIONS for operation in additions):
         first_mutation = min(
@@ -556,23 +566,18 @@ def plan_transition(
     covered_sources = {
         id(operation)
         for operation in after.operations
-        if operation.kind == "source-digest"
+        if operation.kind in {"source-digest", "requirement", "documentation"}
         and operation.owner_index is not None
         and 0 <= operation.owner_index < len(after.operations)
         and id(after.operations[operation.owner_index]) in selected_installs
         and operation.owner_key
         == (after.operations[operation.owner_index].source, after.operations[operation.owner_index].value)
     }
-    covered_requirements: set[int] = set()
-    active_install = False
-    for operation in after.operations:
-        if operation.kind == "pip-install":
-            active_install = id(operation) in selected_installs
-        elif operation.kind in ("source-digest", "requirement"):
-            if active_install and operation.kind == "requirement":
-                covered_requirements.add(id(operation))
-        else:
-            active_install = False
+    covered_requirements = {
+        id(operation)
+        for operation in after.operations
+        if operation.kind == "requirement" and id(operation) in covered_sources
+    }
     replayed_installs = {
         effect.name
         for operation in after.operations
@@ -637,7 +642,7 @@ def plan_transition(
                     package=package,
                 )
             )
-    for delta in package_state_changes(before, after):
+    for delta in () if replay_all else package_state_changes(before, after):
         if (
             delta.after is not None
             and delta.after.action == "unknown"
@@ -846,6 +851,20 @@ def plan_transition(
         )
     unavailable_resources: set[str] = set()
     for operation in additions:
+        if replay_all and operation.kind in {"from", "workdir", "label", "cmd", "entrypoint"}:
+            skipped.append(f"{operation.source}:{operation.line}: {operation.kind} is represented by replay context")
+            continue
+        if (
+            replay_all
+            and operation.kind == "copy"
+            and _words(operation)
+            in (
+                [".", "/vllm-workspace/vllm-ascend/"],
+                [".", "/vllm-workspace/vllm-ascend"],
+            )
+        ):
+            skipped.append(f"{operation.source}:{operation.line}: project COPY supplied by target Git checkout")
+            continue
         unavailable = next(
             (
                 output
@@ -862,7 +881,10 @@ def plan_transition(
             skipped.append(f"{operation.source}:{operation.line}: dependency unavailable: {unavailable}")
             unavailable_resources.update(operation.resource_writes)
             continue
-        if operation.kind == "source-digest" and id(operation) in covered_sources:
+        if id(operation) in covered_sources:
+            continue
+        if operation.kind == "documentation":
+            skipped.append(f"{operation.source}:{operation.line}: documentation has no standalone replay action")
             continue
         clone = _repository_clone(operation)
         if clone:
@@ -942,6 +964,10 @@ def plan_transition(
             skipped.append(f"{operation.source}:{operation.line}: informational echo")
             continue
         classified = _classify(operation)
+        if classified is None and replay_all and operation.kind == "shell":
+            # A fully parsed concrete shell command belongs to the target
+            # recipe even when it has no incremental inverse/classification.
+            classified = "shell", None, None, False
         if classified is None:
             blockers.append(f"{operation.source}:{operation.line}: cannot replay {operation.kind}: {operation.value}")
             unavailable_resources.update(operation.resource_writes)
@@ -968,7 +994,7 @@ def plan_transition(
         for operation in removed
         if (name := _declaration_name(operation)) is not None
     }
-    for operation in additions:
+    for operation in () if replay_all else additions:
         name = _declaration_name(operation)
         if name is None:
             continue
@@ -1030,6 +1056,11 @@ def plan_transition(
                         if (operation.source, operation.line) == (action.source, action.line)
                     ),
                     (),
+                ),
+                shell_context=(
+                    (f"cd {shlex.quote(workdirs[action.source, action.line])}", *action.shell_context)
+                    if replay_all and (action.source, action.line) in workdirs
+                    else action.shell_context
                 ),
             )
             for action in actions
