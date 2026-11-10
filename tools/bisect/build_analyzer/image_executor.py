@@ -13,19 +13,26 @@
 """Execute explicit target-image replay actions after validating all COPYs."""
 
 import shlex
+import time
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
 
 from tools.bisect.build_analyzer.base_apply import _current_entry, apply_base_delta, validate_base_application
 from tools.bisect.build_analyzer.base_image import BaseImageDelta, BaseImageSnapshot
 
+_REPORT_INTERVAL_S = 5.0
+
 
 class ImageReplayExecutor:
-    def __init__(self, actions, resolver, architecture, environment, root=Path("/")):
+    def __init__(
+        self, actions, resolver, architecture, environment, root=Path("/"), report: Callable[[str], None] | None = None
+    ):
         self.environment = environment
         self.root = root
         self.cwd = root
         self.copies = {}
+        self.report = report
         snapshots = {}
         for action in actions:
             if not action.kind.startswith("image-"):
@@ -63,6 +70,7 @@ class ImageReplayExecutor:
             if not path.is_absolute() or ".." in path.parts or str(path) == "/":
                 raise RuntimeError(f"unsafe COPY destination: {path}")
             if action.content_image not in snapshots:
+                self._report(f"[base-image:copy-prepare] action={action.id} resolving={action.content_image}")
                 snapshots[action.content_image] = resolver.resolve(action.content_image, architecture)
             snapshot = snapshots[action.content_image]
             prefix = str(path).lstrip("/")
@@ -72,7 +80,20 @@ class ImageReplayExecutor:
             if not entries:
                 raise RuntimeError(f"target image is missing COPY content: {path}")
             # Docker COPY merges a directory; it does not delete unrelated live files.
-            live = tuple((name, *value) for name, _, _ in entries if (value := _current_entry(root / name)) is not None)
+            self._report(
+                f"[base-image:copy-prepare] action={action.id} destination={path} "
+                f"image_digest={snapshot.digest} target_entries={len(entries)}"
+            )
+            live_entries = []
+            last_report = time.monotonic()
+            for index, (name, _, _) in enumerate(entries, 1):
+                value = _current_entry(root / name)
+                if value is not None:
+                    live_entries.append((name, *value))
+                if time.monotonic() - last_report >= _REPORT_INTERVAL_S:
+                    self._report(f"[base-image:copy-prepare] action={action.id} inspected={index}/{len(entries)}")
+                    last_report = time.monotonic()
+            live = tuple(live_entries)
             before = BaseImageSnapshot(
                 "live COPY destination", "live", snapshot.architecture, live, (), snapshot.archive
             )
@@ -88,7 +109,23 @@ class ImageReplayExecutor:
     def execute(self, action, run):
         kind = action.kind.removeprefix("image-")
         if kind == "copy-from-target-image":
-            apply_base_delta(self.copies[action.id], self.root)
+            delta = self.copies[action.id]
+            started = time.monotonic()
+            self._report(
+                f"[base-image:copy-start] action={action.id} destination={action.destination} "
+                f"image_digest={delta.after.digest} changed_entries={len(delta.changed_files)}"
+            )
+            try:
+                apply_base_delta(delta, self.root, report=self._report)
+            except Exception:
+                self._report(f"[base-image:copy-failed] action={action.id} destination={action.destination}")
+                raise
+            self._report(
+                f"[base-image:copy-done] action={action.id} destination={action.destination} "
+                f"changed_entries={len(delta.changed_files)} "
+                f"elapsed_s={time.monotonic() - started:.2f}"
+            )
+            self._report_versions(delta)
         elif kind == "env":
             assignments = shlex.split(action.command)
             if not assignments or any("=" not in assignment for assignment in assignments):
@@ -109,3 +146,28 @@ class ImageReplayExecutor:
         # CMD/ENTRYPOINT describe container startup; this tool starts pytest explicitly.
         elif kind not in {"arg", "shell", "user", "label", "cmd", "entrypoint"}:
             raise RuntimeError(f"unsupported target-image action: {kind}")
+
+    def _report(self, message: str) -> None:
+        if self.report is not None:
+            self.report(message)
+
+    def _report_versions(self, delta: BaseImageDelta) -> None:
+        seen = set()
+        for name, kind, _ in delta.after.files:
+            path = self.root / name
+            if (
+                kind != "file"
+                or path.name not in {"version.info", "ascend_toolkit_install.info"}
+                or not name.startswith("usr/local/Ascend/")
+            ):
+                continue
+            resolved = path.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            try:
+                content = path.read_text(encoding="utf-8", errors="replace").strip()
+            except OSError as exc:
+                self._report(f"[base-image:version] path={path} unavailable: {exc}")
+            else:
+                self._report(f"[base-image:version] path={path}\n{content}")
