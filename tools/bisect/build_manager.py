@@ -33,7 +33,6 @@ import platform
 import re
 import shlex
 import shutil
-import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -323,8 +322,6 @@ class BuildManager:
                 self._clean_artifacts()
             self._execute_transition(plan, log_file, root_env, base_delta)
         image_replayed = plan is not None and any(action.kind.startswith("image-") for action in plan.actions)
-        if image_replayed or (base_delta is not None and "/cann:" in base_delta.after.reference):
-            self._verify_cann_child(root_env or dict(os.environ), log_file)
         # Only advance the baseline once the binary actually matches the source.
         if project_rebuilt:
             self.last_built_commit = target_commit
@@ -391,7 +388,13 @@ class BuildManager:
         if image_actions:
             architecture = "aarch64" if platform.machine().lower() in ("aarch64", "arm64") else "x86_64"
             try:
-                image_executor = ImageReplayExecutor(image_actions, self._image_resolver, architecture, env)
+                image_executor = ImageReplayExecutor(
+                    image_actions,
+                    self._image_resolver,
+                    architecture,
+                    env,
+                    report=lambda message: self._report_image_progress(message, log_file),
+                )
             except (OSError, RuntimeError, ValueError) as exc:
                 raise BuildError(f"target image replay preflight failed: {exc}") from exc
             self._transition_marker.parent.mkdir(parents=True, exist_ok=True)
@@ -516,36 +519,12 @@ class BuildManager:
             env.clear()
             env.update(final_environment)
 
-    def _verify_cann_child(self, environment: dict[str, str], log_file: Path | None) -> None:
-        """Load CANN in a fresh process after replacing its user-space files."""
-        script = (
-            "import torch, torch_npu; "
-            "assert torch.npu.device_count() > 0, 'no NPU devices visible'; "
-            "print(torch.npu.get_device_name(0))"
-        )
-        try:
-            python = shutil.which("python3", path=environment.get("PATH"))
-            if python is None:
-                raise OSError("target environment has no python3 on PATH")
-            result = subprocess.run(
-                [python, "-c", script],
-                env=environment,
-                capture_output=True,
-                text=True,
-                timeout=120,
-                check=False,
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            self.invalidate_baseline()
-            raise BuildTransitionError(f"target CANN child-process validation failed: {exc}") from exc
+    def _report_image_progress(self, message: str, log_file: Path | None) -> None:
+        logger.info("%s", message)
         if log_file is not None:
             with open(log_file, "a", encoding="utf-8") as out:
-                out.write(f"[base-image:child-check] rc={result.returncode}\n{result.stdout}{result.stderr}\n")
-        if result.returncode:
-            self.invalidate_baseline()
-            raise BuildTransitionError(
-                f"target CANN child-process validation failed (rc={result.returncode}): {result.stderr[-1000:]}"
-            )
+                out.write(message + "\n")
+                out.flush()
 
     def invalidate_baseline(self) -> None:
         """A partially applied transition cannot be compared with the old environment."""

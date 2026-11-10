@@ -22,10 +22,14 @@ import stat
 import sys
 import tarfile
 import tempfile
+import time
+from collections.abc import Callable
 from contextlib import suppress
 from pathlib import Path, PurePosixPath
 
 from tools.bisect.build_analyzer.base_image import BaseImageDelta
+
+_COPY_PROGRESS_INTERVAL_S = 5.0
 
 
 def _current_entry(path: Path) -> tuple[str, str] | None:
@@ -161,12 +165,25 @@ def target_environment(delta: BaseImageDelta, inherited: dict[str, str]) -> dict
     return environment
 
 
-def apply_base_delta(delta: BaseImageDelta, root: Path) -> None:
+def apply_base_delta(
+    delta: BaseImageDelta,
+    root: Path,
+    report: Callable[[str], None] | None = None,
+) -> None:
     """Replace eligible files transactionally; never overwrite upper-layer writes."""
     blockers = validate_base_application(delta, root)
     if blockers:
         raise RuntimeError("base image cannot be applied: " + "; ".join(blockers[:10]))
     target_files = {name: (kind, value) for name, kind, value in delta.after.files}
+    last_report = time.monotonic()
+
+    def progress(phase: str, completed: int, *, final: bool = False) -> None:
+        nonlocal last_report
+        now = time.monotonic()
+        if report is not None and (completed == 0 or final or now - last_report >= _COPY_PROGRESS_INTERVAL_S):
+            report(f"[base-image:copy-progress] phase={phase} entries={completed}/{len(delta.changed_files)}")
+            last_report = now
+
     root = root.resolve()
     backup_parent = root / "usr" / "local"
     backup_parent.mkdir(parents=True, exist_ok=True)
@@ -178,7 +195,8 @@ def apply_base_delta(delta: BaseImageDelta, root: Path) -> None:
         new_directories: list[Path] = []
         with tarfile.open(delta.after.archive, "r") as archive:
             members = {member.name.removeprefix("./").rstrip("/"): member for member in archive}
-            for name in delta.changed_files:
+            for index, name in enumerate(delta.changed_files):
+                progress("stage", index)
                 target = root.joinpath(*PurePosixPath(name).parts)
                 target_kind = target_files.get(name, (None, ""))[0]
                 if target_kind == "directory":
@@ -205,11 +223,15 @@ def apply_base_delta(delta: BaseImageDelta, root: Path) -> None:
                     destination.symlink_to(member.linkname)
                     if os.name != "nt":
                         os.lchown(destination, member.uid, member.gid)
+            progress("stage", len(delta.changed_files), final=True)
         old_metadata: list[tuple[Path, int, int, int]] = []
         try:
             for directory in sorted(new_directories, key=lambda path: len(path.parts)):
                 directory.mkdir(parents=True, exist_ok=True)
-            for name in sorted(delta.changed_files, key=lambda value: (-len(PurePosixPath(value).parts), value)):
+            for index, name in enumerate(
+                sorted(delta.changed_files, key=lambda value: (-len(PurePosixPath(value).parts), value))
+            ):
+                progress("apply", index)
                 target = root.joinpath(*PurePosixPath(name).parts)
                 target_kind = target_files.get(name, (None, ""))[0]
                 if target_kind == "directory":
@@ -231,6 +253,7 @@ def apply_base_delta(delta: BaseImageDelta, root: Path) -> None:
                 if target_kind is not None:
                     target.parent.mkdir(parents=True, exist_ok=True)
                     (staged / name).replace(target)
+            progress("apply", len(delta.changed_files), final=True)
             for name in sorted(delta.changed_files, key=lambda value: (-len(PurePosixPath(value).parts), value)):
                 if name not in target_files:
                     directory = root.joinpath(*PurePosixPath(name).parts)
