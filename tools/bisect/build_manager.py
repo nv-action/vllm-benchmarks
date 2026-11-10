@@ -63,6 +63,7 @@ from tools.bisect.config import (
     BisectOptions,
 )
 from tools.bisect.git_ops import GitError
+from tools.bisect.process_output import run_streaming
 from tools.bisect.version_compat import TORCH_NPU_PIP_INDEX_URL, VersionAdaptationError
 
 logger = logging.getLogger(__name__)
@@ -305,7 +306,6 @@ class BuildManager:
             if base_delta is not None:
                 root_env = target_environment(base_delta, root_env)
             root_env.setdefault("PIP_INDEX_URL", TORCH_NPU_PIP_INDEX_URL)
-            root_env["VLLM_BATCH_INVARIANT"] = "1"
             root_env["PIP_EXTRA_INDEX_URL"] = " ".join(
                 url for url in (root_args.get("ASCEND_INDEX_URL"), root_args.get("PYTORCH_INDEX_URL")) if url
             )
@@ -591,7 +591,7 @@ class BuildManager:
                     out.write(self._cmake_python_diagnostics("before install"))
                 out.flush()
                 command_offset = log_file.stat().st_size
-                proc = subprocess.run(cmd, cwd=str(workdir), stdout=out, stderr=subprocess.STDOUT, text=True, env=env)
+                proc = run_streaming(cmd, cwd=str(workdir), output=out, env=env)
             tail = "(see build log)"
             if proc.returncode != 0:
                 # Capture this command's output before appending diagnostics;
@@ -605,7 +605,7 @@ class BuildManager:
                         out.write(self._cmake_python_diagnostics("after failed install"))
                         out.write(self._cmake_failure_logs())
         else:
-            proc = subprocess.run(cmd, cwd=str(workdir), capture_output=True, text=True, env=env)
+            proc = run_streaming(cmd, cwd=str(workdir), env=env)
             tail = (proc.stdout or "")[-2000:]
         if proc.returncode != 0:
             if invalidate_on_failure:

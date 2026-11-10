@@ -46,6 +46,7 @@ from tools.bisect.config import (
     Candidate,
 )
 from tools.bisect.coordinator import Coordinator
+from tools.bisect.process_output import run_streaming
 from tools.bisect.verdict import RunOutcome
 from tools.bisect.version_compat import VersionAdaptationError
 
@@ -193,7 +194,7 @@ class SingleNodeRunner(BaseRunner):
         # this trial's files.
         results_dir = self._reset_dir(self.repo / "benchmark_results")
         env = self._base_env()
-        cmd = ["python", "-m", "pytest", "-sv", "--show-capture=no", _single_node_test_path(self.repo)]
+        cmd = ["python", "-u", "-m", "pytest", "-sv", "--show-capture=no", _single_node_test_path(self.repo)]
 
         rc = self._run_pytest(cmd, env, log_path)
         outcome = RunOutcome(exit_code=rc, results_dir=results_dir if results_dir.exists() else None)
@@ -206,12 +207,11 @@ class SingleNodeRunner(BaseRunner):
             out.write(f"\n$ {' '.join(cmd)}\n")
             out.flush()
             try:
-                proc = subprocess.run(
+                proc = run_streaming(
                     cmd,
                     cwd=str(self.repo),
                     env=env,
-                    stdout=out,
-                    stderr=subprocess.STDOUT,
+                    output=out,
                     timeout=self.opt.trial_timeout_s,
                 )
                 return proc.returncode
@@ -314,19 +314,18 @@ class MultiNodeRunner(BaseRunner):
         # Source the Ascend toolkit env then exec pytest (mirrors run.sh, but
         # without its broad python3 kill which would take down this driver).
         sources = " ; ".join(f"source {f} 2>/dev/null || true" for f in _ENV_SOURCE_FILES)
-        pytest_cmd = f"python -m pytest -sv --show-capture=no {self._test_path()}"
+        pytest_cmd = f"python -u -m pytest -sv --show-capture=no {self._test_path()}"
         bash_cmd = f"set -e ; {sources} ; exec {pytest_cmd}"
         logger.info("[multi] running: %s", pytest_cmd)
         with open(log_path, "a", encoding="utf-8") as out:
             out.write(f"\n$ {bash_cmd}\n")
             out.flush()
             try:
-                proc = subprocess.run(
+                proc = run_streaming(
                     ["bash", "-c", bash_cmd],
                     cwd=str(self.repo),
                     env=env,
-                    stdout=out,
-                    stderr=subprocess.STDOUT,
+                    output=out,
                     timeout=self.opt.trial_timeout_s,
                 )
                 return proc.returncode
