@@ -52,6 +52,7 @@ jobs:
           import base64
           import json
           import os
+          import urllib.error
           import urllib.parse
           import urllib.request
 
@@ -64,16 +65,32 @@ jobs:
           )
           with urllib.request.urlopen(request, timeout=30) as response:
               token = json.load(response)["token"]
-          payload = token.split(".")[1]
-          claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
-          allowed = any(
-              grant.get("type") == "repository" and grant.get("name") == repository
-              and "push" in grant.get("actions", [])
-              for grant in claims.get("access", [])
+          upload_request = urllib.request.Request(
+              f"https://quay.io/v2/{repository}/blobs/uploads/",
+              data=b"",
+              method="POST",
+              headers={"Authorization": "Bearer " + token, "Content-Type": "application/octet-stream"},
           )
-          if not allowed:
-              raise SystemExit(f"::error::Configured Quay account has no push permission for {repository}")
-          print(f"Push permission confirmed: {repository}")
+          try:
+              with urllib.request.urlopen(upload_request, timeout=30) as response:
+                  if response.status != 202:
+                      raise SystemExit(f"::error::Unexpected registry upload status: {response.status}")
+                  location = urllib.parse.urljoin("https://quay.io", response.headers["Location"])
+          except urllib.error.HTTPError as error:
+              raise SystemExit(
+                  f"::error::Registry upload permission check failed for {repository}: HTTP {error.code}"
+              ) from None
+          parsed = urllib.parse.urlparse(location)
+          if parsed.scheme != "https" or parsed.netloc != "quay.io":
+              raise SystemExit("::error::Unexpected registry upload location")
+          cancel_request = urllib.request.Request(
+              location, method="DELETE", headers={"Authorization": "Bearer " + token},
+          )
+          with urllib.request.urlopen(cancel_request, timeout=30) as response:
+              if response.status != 204:
+                  raise SystemExit(f"::error::Unexpected upload cleanup status: {response.status}")
+          print(f"Push permission confirmed by registry upload API: {repository}")
+          print("Empty upload session cancelled; no image or tag was created.")
           PYTHON
 
       - name: Make room for lint dependencies
@@ -153,6 +170,7 @@ jobs:
           import base64
           import json
           import os
+          import urllib.error
           import urllib.parse
           import urllib.request
 
@@ -165,16 +183,32 @@ jobs:
           )
           with urllib.request.urlopen(request, timeout=30) as response:
               token = json.load(response)["token"]
-          payload = token.split(".")[1]
-          claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
-          allowed = any(
-              grant.get("type") == "repository" and grant.get("name") == repository
-              and "push" in grant.get("actions", [])
-              for grant in claims.get("access", [])
+          upload_request = urllib.request.Request(
+              f"https://quay.io/v2/{repository}/blobs/uploads/",
+              data=b"",
+              method="POST",
+              headers={"Authorization": "Bearer " + token, "Content-Type": "application/octet-stream"},
           )
-          if not allowed:
-              raise SystemExit(f"::error::Configured Quay account has no push permission for {repository}")
-          print(f"Push permission confirmed: {repository}")
+          try:
+              with urllib.request.urlopen(upload_request, timeout=30) as response:
+                  if response.status != 202:
+                      raise SystemExit(f"::error::Unexpected registry upload status: {response.status}")
+                  location = urllib.parse.urljoin("https://quay.io", response.headers["Location"])
+          except urllib.error.HTTPError as error:
+              raise SystemExit(
+                  f"::error::Registry upload permission check failed for {repository}: HTTP {error.code}"
+              ) from None
+          parsed = urllib.parse.urlparse(location)
+          if parsed.scheme != "https" or parsed.netloc != "quay.io":
+              raise SystemExit("::error::Unexpected registry upload location")
+          cancel_request = urllib.request.Request(
+              location, method="DELETE", headers={"Authorization": "Bearer " + token},
+          )
+          with urllib.request.urlopen(cancel_request, timeout=30) as response:
+              if response.status != 204:
+                  raise SystemExit(f"::error::Unexpected upload cleanup status: {response.status}")
+          print(f"Push permission confirmed by registry upload API: {repository}")
+          print("Empty upload session cancelled; no image or tag was created.")
           PYTHON
 
       - uses: docker/setup-qemu-action@v4
