@@ -133,7 +133,7 @@ def plan_target_image_transition(
         status="blocked" if blockers else "reviewable",
         actions=tuple(actions),
         blockers=blockers,
-        notes=base.notes + (f"Target image content source: {reference}",),
+        notes=base.notes + (f"Target image content source: {reference}", *replay.get("warnings", ())),
     )
 
 

@@ -57,6 +57,7 @@ from tools.bisect.build_analyzer.image_executor import ImageReplayExecutor
 from tools.bisect.build_analyzer.ir import BuildAnalysis, BuildSyntaxError
 from tools.bisect.build_analyzer.planner import TransitionPlan, plan_target_image_transition
 from tools.bisect.build_analyzer.registry_image import RegistryImageResolver
+from tools.bisect.build_analyzer.replay_cleanup import protect_replay_cleanup
 from tools.bisect.config import (
     BUILD_DEF_GLOBS,
     NATIVE_GLOBS,
@@ -569,6 +570,13 @@ class BuildManager:
         cwd: Path | None = None,
         invalidate_on_failure: bool = True,
     ) -> None:
+        if len(cmd) >= 3 and Path(cmd[0]).name in {"bash", "sh", "dash"} and cmd[1] in {"-c", "-lc", "-cl"}:
+            protected = [self.repo.resolve().as_posix(), (Path.home() / ".cache" / "nightly_bisect").as_posix()]
+            protected.append(self._transition_marker.parent.resolve().as_posix())
+            if log_file is not None:
+                protected.append(log_file.resolve().parent.as_posix())
+            script, _ = protect_replay_cleanup(cmd[2], tuple(protected))
+            cmd = [*cmd[:2], script, *cmd[3:]]
         logger.info("[build] running: %s", " ".join(cmd))
         workdir = cwd or self.repo
         if log_file is not None:
