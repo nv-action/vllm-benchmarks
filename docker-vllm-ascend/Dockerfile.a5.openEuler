@@ -48,6 +48,10 @@ ARG VLLM_TAG=v0.30.0
 # VLLM_COMMIT (optional): Exact vLLM commit to build; empty to fall back to VLLM_TAG.
 ARG VLLM_COMMIT=""
 # SOC_VERSION (optional): Ascend SoC version used for custom kernel compilation.
+# CARGO_BUILD_JOBS (optional): Number of parallel cargo build jobs.
+ARG CARGO_BUILD_JOBS=32
+# MAX_JOBS (optional): Number of parallel build jobs passed to make/ninja.
+ARG MAX_JOBS=32
 ARG SOC_VERSION="ascend950dt_9582"
 # COMPILE_CUSTOM_KERNELS (optional): Whether to compile custom Ascend kernels (1 = yes, 0 = no).
 ARG COMPILE_CUSTOM_KERNELS=1
@@ -101,9 +105,18 @@ RUN --mount=type=cache,target=/root/.cache/pip VLLM_TARGET_DEVICE="empty" python
     python3 -m pip uninstall -y triton
 
 # Install vllm-ascend
+# Limit cargo parallelism to avoid OOM in constrained build environments.
+# Overridable via --build-arg CARGO_BUILD_JOBS=N (e.g. 32-CPU/128Gi buildkitd
+# runs up to 2 builds in parallel; gy006 run observed ~45GiB node peak with 2
+# concurrent MAX_JOBS=32 builds, so 32 jobs is safe).
+# Limit opc/c++ build parallelism to avoid OOM. Mirrors
+# .github/workflows/_build_csrc_cache.yaml.
+# TODO: auto-detect buildkitd CPU cores and set MAX_JOBS accordingly
 ENV SOC_VERSION=$SOC_VERSION \
     TASK_QUEUE_ENABLE=1 \
-    OMP_NUM_THREADS=1
+    OMP_NUM_THREADS=1 \
+    CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS \
+    MAX_JOBS=$MAX_JOBS
 COPY . /vllm-workspace/vllm-ascend/
 
 RUN --mount=type=cache,target=/root/.cache/pip export PIP_EXTRA_INDEX_URL="${ASCEND_INDEX_URL}" && \
