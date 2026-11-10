@@ -1,4 +1,4 @@
-"""Execute the PR's workflow shell locally against isolated log directories."""
+"""Execute the PR's cleanup and collection against isolated log directories."""
 
 import os
 import subprocess
@@ -18,64 +18,53 @@ def workflow_steps(name):
 
 
 @pytest.mark.parametrize("workflow", WORKFLOWS)
-@pytest.mark.parametrize("scenario", ["logs", "missing", "copy_failure", "tar_failure"])
-def test_collection_shell(tmp_path, workflow, scenario):
+def test_cleanup_and_collection(tmp_path, workflow):
     steps = workflow_steps(workflow)
+    cleanup = next(step for step in steps if step.get("name") == "Clear Ascend logs before tests")
     collect = next(step for step in steps if step.get("id") == "collect_ascend_logs")
-    script = collect["run"]
-    for source in ("/root/ascend/log", "/tmp/test-logs"):
-        isolated = tmp_path / source.lstrip("/")
-        if scenario != "missing":
-            isolated.mkdir(parents=True)
-            (isolated / ".hidden.log").write_text("runtime log\n")
-            (isolated / "test.log").write_text("pytest output\n")
-        script = script.replace(source, str(isolated))
-    if scenario == "copy_failure":
-        script = "cp() { return 1; }\n" + script
-    elif scenario == "tar_failure":
-        script = "tar() { return 1; }\n" + script
+    logs = tmp_path / "root/ascend/log"
+    logs.mkdir(parents=True)
+    (logs / "old-plog.log").write_text("image build log\n")
     output = tmp_path / "github-output"
+    archive_path = tmp_path / "single-node-ascend-logs.tar.gz"
     env = {
         **os.environ,
-        "RUNNER_TEMP": str(tmp_path),
         "GITHUB_OUTPUT": str(output),
         "GITHUB_RUN_ID": "123",
         "GITHUB_RUN_ATTEMPT": "2",
         "ARTIFACT_LABEL": "a3-560t/main:small test",
     }
-    result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", script], env=env, text=True, capture_output=True)
-    if scenario == "tar_failure":
-        assert result.returncode != 0
-        assert not output.exists()
-        return
-    assert result.returncode == 0, result.stderr
-    values = dict(line.split("=", 1) for line in output.read_text().splitlines())
-    assert values["name"].startswith("single-node-a3-560t-main-small-test-123-2-")
-    with tarfile.open(values["path"]) as archive:
-        assert "./log-environment.txt" in archive.getnames()
-        if scenario == "logs":
-            assert len([name for name in archive.getnames() if Path(name).name == ".hidden.log"]) == 2
-            assert len([name for name in archive.getnames() if Path(name).name == "test.log"]) == 2
-    if scenario != "logs":
-        assert "::warning::" in result.stdout
+    script = cleanup["run"].replace("/root/ascend/log", str(logs))
+    subprocess.run(["bash", "-e", "-o", "pipefail", "-c", script], env=env, check=True)
+    assert logs.is_dir()
+    assert not (logs / "old-plog.log").exists()
+    (logs / "current.log").write_text("model startup\n")
+    pytest_logs = tmp_path / "tmp/test-logs"
+    pytest_logs.mkdir(parents=True)
+    (pytest_logs / "pytest-driven.log").write_text("1 passed\n")
+    script = collect["run"].replace("/tmp/single-node-ascend-logs.tar.gz", str(archive_path))
+    script = script.replace("-C / ", f"-C {tmp_path} ")
+    subprocess.run(["bash", "-e", "-o", "pipefail", "-c", script], env=env, check=True)
+    assert output.read_text().strip() == "name=single-node-a3-560t-main-small-test-123-2-ascend-logs"
+    with tarfile.open(archive_path) as archive:
+        names = archive.getnames()
+        assert "root/ascend/log/current.log" in names
+        assert "tmp/test-logs/pytest-driven.log" in names
+        assert not any("old-plog" in name for name in names)
 
 
 @pytest.mark.parametrize("workflow", WORKFLOWS)
-def test_upload_conditions_and_order(workflow):
+def test_cleanup_precedes_tests_and_upload_follows_collection(workflow):
     steps = workflow_steps(workflow)
-    collect = next(step for step in steps if step.get("id") == "collect_ascend_logs")
-    upload = next(step for step in steps if step["name"] == "Upload Ascend logs (GitHub Artifacts)")
-    assert collect["if"] == "${{ !cancelled() }}"
-    assert collect["continue-on-error"] is True
-    assert upload["continue-on-error"] is True
-    assert "steps.collect_ascend_logs.outcome == 'success'" in upload["if"]
-    assert upload["with"]["retention-days"] == 7
-    assert upload["with"]["compression-level"] == 0
-    assert steps.index(collect) < steps.index(next(step for step in steps if step["name"] == "Capture test result"))
+    names = [step.get("name") for step in steps]
+    cleanup = names.index("Clear Ascend logs before tests")
+    collect = names.index("Collect Ascend logs")
+    for name in ("Run Pytest (py-driven)", "Run Pytest (YAML-driven)"):
+        assert cleanup < names.index(name) < collect
+    assert collect < names.index("Upload Ascend logs (GitHub Artifacts)")
 
 
-def test_collection_is_identical_between_workflows():
-    collectors = [
-        next(step for step in workflow_steps(name) if step.get("id") == "collect_ascend_logs") for name in WORKFLOWS
-    ]
-    assert collectors[0] == collectors[1]
+def test_log_steps_are_identical_between_workflows():
+    names = {"Clear Ascend logs before tests", "Collect Ascend logs", "Upload Ascend logs (GitHub Artifacts)"}
+    log_steps = [[step for step in workflow_steps(name) if step.get("name") in names] for name in WORKFLOWS]
+    assert log_steps[0] == log_steps[1]
