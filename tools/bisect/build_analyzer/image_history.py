@@ -16,6 +16,8 @@ import re
 import shlex
 from dataclasses import dataclass
 
+from tools.bisect.build_analyzer.replay_cleanup import protect_replay_cleanup
+
 
 @dataclass(frozen=True)
 class ImageReplayStep:
@@ -31,6 +33,7 @@ def target_stage_plan(history: list[dict], reference: str) -> dict:
     ordered = list(reversed(history))
     start = next((i for i, item in enumerate(ordered) if item.get("Comment") == "buildkit.dockerfile.v0"), None)
     blockers = []
+    warnings = []
     steps = []
     if start is None:
         return {"status": "blocked", "actions": [], "blockers": ["No explicit build boundary in image history"]}
@@ -52,10 +55,17 @@ def target_stage_plan(history: list[dict], reference: str) -> dict:
                 blockers.append(f"Cannot recover RUN command: {text}")
                 continue
             assignments, shell, command = match.groups()
+            command, cleanup_warnings = protect_replay_cleanup(command)
+            warnings.extend(cleanup_warnings)
             prefix = ["env", *shlex.split(assignments)] if assignments else []
             steps.append(ImageReplayStep("run", shlex.join([*prefix, shell, "-c", command])))
         elif kind in {"ARG", "ENV", "SHELL", "ENTRYPOINT", "CMD", "WORKDIR", "USER", "LABEL"}:
             steps.append(ImageReplayStep(kind.lower(), body))
         else:
             blockers.append(f"Unsupported or missing image-history instruction: {text}")
-    return {"status": "blocked" if blockers else "reviewable", "actions": steps, "blockers": blockers}
+    return {
+        "status": "blocked" if blockers else "reviewable",
+        "actions": steps,
+        "blockers": blockers,
+        "warnings": warnings,
+    }
