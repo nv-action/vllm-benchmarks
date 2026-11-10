@@ -12,7 +12,7 @@ RUN apt-get update -y && \
 # Test selection, daily test configuration and doctest planning.
 # Keep vLLM, CANN and requirements-dev.txt in their dedicated images.
 RUN python3 -m pip install --no-cache-dir \
-        PyYAML==6.0.2 \
-        regex==2024.11.6
+        PyYAML \
+        regex
 
 CMD ["/bin/bash"]
