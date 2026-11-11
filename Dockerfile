@@ -15,7 +15,7 @@
 # This file is a part of the vllm-ascend project.
 #
 # CANN_QUAY_URL (optional): Registry URL of the CANN base image.
-ARG CANN_QUAY_URL="quay.io/ascend/cann"
+ARG CANN_QUAY_URL="swr.cn-north-12.myhuaweicloud.com/atlas_inference/cann:9.3.0_20261110170400-910b-ubuntu22.04-py3.12"
 # CANN_VERSION (optional): CANN toolkit version used to select the base image tag.
 ARG CANN_VERSION="9.1.0"
 
