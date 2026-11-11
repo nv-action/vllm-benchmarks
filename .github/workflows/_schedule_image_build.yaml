@@ -123,7 +123,7 @@ on:
         description: 'CANN version for the build container image tag (default matches Dockerfile FROM: 9.1.0)'
         required: false
         type: string
-        default: '9.1.0'
+        default: '9.3.0_20261110170400'
       soc:
         description: 'Ascend SoC type for the CANN base image (e.g. 910b, a3, 310p, 950)'
         required: false
