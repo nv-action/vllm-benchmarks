@@ -14,7 +14,12 @@ on:
         options:
           - both
           - lint-main
-          - ci
+          - lite-tools
+      delete_legacy_ci:
+        description: Delete the old ci tag after lite-tools passes verification
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -142,11 +147,11 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   ci:
-    name: Build ci (amd64, arm64)
+    name: Build lite-tools (amd64, arm64)
     concurrency:
       group: test-image-ci
       cancel-in-progress: false
-    if: inputs.image == 'both' || inputs.image == 'ci'
+    if: inputs.image == 'both' || inputs.image == 'lite-tools'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -217,14 +222,14 @@ jobs:
 
       - uses: docker/setup-buildx-action@v4
 
-      - name: Build and push ci
+      - name: Build and push lite-tools
         id: build
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: .github/workflows/dockerfiles/Dockerfile.ci
+          file: .github/workflows/dockerfiles/dockerfile.tools
           platforms: linux/amd64,linux/arm64
-          tags: ${{ env.IMAGE_REPOSITORY }}:ci
+          tags: ${{ env.IMAGE_REPOSITORY }}:lite-tools
           push: true
           provenance: false
           labels: |
@@ -272,7 +277,76 @@ jobs:
               '
           done
           {
-            echo "Image: ${IMAGE_REPOSITORY}:ci"
+            echo "Image: ${IMAGE_REPOSITORY}:lite-tools"
             echo "Digest: ${DIGEST}"
             echo "Source: ${GITHUB_SHA}"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Retire the legacy ci tag
+        if: inputs.delete_legacy_ci
+        env:
+          QUAY_USER: ${{ vars.QUAY_ASCEND_CI_US }}
+          QUAY_PASSWORD: ${{ secrets.QUAY_ASCEND_CI_PW }}
+          EXPECTED_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          python3 - <<'PYTHON'
+          import base64
+          import json
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          repository = os.environ["IMAGE_REPOSITORY"].removeprefix("quay.io/")
+          if repository != "atlas-ci/vllm-ascend-ci":
+              raise SystemExit("::error::Unexpected repository for legacy tag cleanup")
+          query = urllib.parse.urlencode({"service": "quay.io", "scope": f"repository:{repository}:pull,push"})
+          credentials = (os.environ["QUAY_USER"] + ":" + os.environ["QUAY_PASSWORD"]).encode()
+          request = urllib.request.Request(
+              "https://quay.io/v2/auth?" + query,
+              headers={"Authorization": "Basic " + base64.b64encode(credentials).decode()},
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              token = json.load(response)["token"]
+          headers = {
+              "Authorization": "Bearer " + token,
+              "Accept": ", ".join([
+                  "application/vnd.oci.image.index.v1+json",
+                  "application/vnd.docker.distribution.manifest.list.v2+json",
+                  "application/vnd.oci.image.manifest.v1+json",
+                  "application/vnd.docker.distribution.manifest.v2+json",
+              ]),
+          }
+
+          def digest(tag):
+              request = urllib.request.Request(
+                  f"https://quay.io/v2/{repository}/manifests/{tag}", headers=headers,
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=30) as response:
+                      return response.headers["Docker-Content-Digest"]
+              except urllib.error.HTTPError as error:
+                  if error.code == 404:
+                      return None
+                  raise SystemExit(f"::error::Cannot inspect {tag}: HTTP {error.code}") from None
+
+          expected = os.environ["EXPECTED_DIGEST"]
+          if not expected or digest("lite-tools") != expected:
+              raise SystemExit("::error::lite-tools no longer matches the verified build")
+          lint_digest = digest("lint-main")
+          if not lint_digest:
+              raise SystemExit("::error::Cannot verify lint-main before cleanup")
+          old_digest = digest("ci")
+          if old_digest is not None:
+              if old_digest != "sha256:2cf966738deeab7df76c6e1b30edad8b13611ea4e25f72a3411e16601b923320":
+                  raise SystemExit("::error::The ci tag changed; refusing to delete a different image")
+              request = urllib.request.Request(
+                  f"https://quay.io/v2/{repository}/manifests/ci", method="DELETE", headers=headers,
+              )
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  if response.status != 202:
+                      raise SystemExit(f"::error::Unexpected delete status: {response.status}")
+          if digest("ci") is not None or digest("lite-tools") != expected or digest("lint-main") != lint_digest:
+              raise SystemExit("::error::Unexpected registry state after legacy tag cleanup")
+          print("Legacy ci tag is absent; lite-tools and lint-main are unchanged.")
+          PYTHON
