@@ -203,6 +203,10 @@ jobs:
       matrix:
         vllm_ascend_branch: >-
           ${{ fromJSON(format('["{0}"]', inputs.vllm_ascend_branch)) }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
     uses: ./.github/workflows/_schedule_nightly_pair_image_build.yaml
     with:
       target: a2
