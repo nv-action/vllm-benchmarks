@@ -20,7 +20,7 @@ permissions:
   contents: read
 
 env:
-  IMAGE_REPOSITORY: quay.io/ascend-ci/vllm-ascend
+  IMAGE_REPOSITORY: quay.io/atlas-ci/vllm-ascend-ci
 
 jobs:
   lint:
