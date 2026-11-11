@@ -110,6 +110,10 @@ jobs:
   build-base:
     name: Build base image (${{ inputs.suffix || 'a2' }}-${{ inputs.os }})
     if: ${{ !inputs.skip_base && github.repository == 'vllm-project/vllm-ascend' }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
     uses: ./.github/workflows/_schedule_image_build.yaml
     with:
       dockerfile: ${{ inputs.dockerfile }}
