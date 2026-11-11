@@ -109,7 +109,7 @@ on:
 jobs:
   build-base:
     name: Build base image (${{ inputs.suffix || 'a2' }}-${{ inputs.os }})
-    if: ${{ !inputs.skip_base && github.repository == 'vllm-project/vllm-ascend' }}
+    if: ${{ !inputs.skip_base }}
     permissions:
       contents: read
       packages: write
