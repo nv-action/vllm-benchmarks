@@ -93,6 +93,11 @@ on:
         type: string
         default: 'swr.cn-north-12.myhuaweicloud.com'
         description: 'SWR registry domain'
+      skip_sync:
+        required: false
+        type: boolean
+        default: false
+        description: "If true, the base image build does not dispatch the quay.io sync. Used by presmoke builds, whose images are for issue localization only and must not be mirrored to quay.io."
     secrets:
       SWR_USERNAME:
         required: false
@@ -124,6 +129,7 @@ jobs:
       build_args: |
         ${{ inputs.build_type == 'daily' && format('BASE_OS={0}', inputs.build_base_os) || '' }}
         ${{ inputs.build_type == 'daily' && format('CANN_VERSION={0}', inputs.cann_version) || '' }}
+      skip_sync: ${{ inputs.skip_sync }}
     secrets:
       SWR_USERNAME: ${{ secrets.SWR_USERNAME }}
       SWR_PASSWORD: ${{ secrets.SWR_PASSWORD }}
