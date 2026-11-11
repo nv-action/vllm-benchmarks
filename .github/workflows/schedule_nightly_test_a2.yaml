@@ -218,6 +218,8 @@ jobs:
       skip_base: ${{ inputs.skip_base != 'false' }}
       # presmoke images are for issue localization only and must not be mirrored to quay.io.
       skip_sync: true
+      base_os: ubuntu22.04
+      build_base_os: ubuntu22.04
     secrets:
       SWR_USERNAME: ${{ secrets.SWR_USERNAME }}
       SWR_PASSWORD: ${{ secrets.SWR_PASSWORD }}
@@ -469,4 +471,3 @@ jobs:
           name: nightly-a2
           pattern: nightly-test-benchmark-results-*
           compression-level: 0
-          delete-merged: true
