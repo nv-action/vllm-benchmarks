@@ -469,4 +469,3 @@ jobs:
           name: nightly-a2
           pattern: nightly-test-benchmark-results-*
           compression-level: 0
-          delete-merged: true
