@@ -128,8 +128,8 @@ jobs:
       swr_repo: ${{ inputs.build_type == 'daily' && format('{0}/atlas_ci/vllm-ascend', inputs.swr_registry) || format('{0}/ascend/vllm-ascend', inputs.swr_registry) }}
       swr_temp_repo: ${{ inputs.build_type == 'daily' && format('{0}/atlas_inference/vllm-atlas-temp', inputs.swr_registry) || format('{0}/atlas_ci/vllm-atlas-temp', inputs.swr_registry) }}
       cann_version: ${{ inputs.cann_version }}
-      cann_image_version: ${{ inputs.build_type == 'daily' && inputs.cann_version || '9.3.0' }}
-      cann_swr_url: ${{ inputs.build_type == 'daily' && format('{0}/atlas_inference/cann', inputs.swr_registry) || format('{0}/base_image/ascend-ci/cann', inputs.swr_registry) }}
+      cann_image_version: ${{ inputs.build_type == 'daily' && inputs.cann_version || '9.3.0_20261110170400' }}
+      cann_swr_url: ${{ inputs.build_type == 'daily' && format('{0}/atlas_inference/cann', inputs.swr_registry) || format('{0}/atlas_inference/cann', inputs.swr_registry) }}
       build_args: |
         ${{ inputs.build_type == 'daily' && format('BASE_OS={0}', inputs.build_base_os) || '' }}
         ${{ inputs.build_type == 'daily' && format('CANN_VERSION={0}', inputs.cann_version) || '' }}
