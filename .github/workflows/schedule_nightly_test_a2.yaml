@@ -215,6 +215,8 @@ jobs:
       soc: '910b'
       cann_version: ${{ fromJSON(inputs.base_image_tag).cann_version }}
       base_image_date: ${{ fromJSON(inputs.base_image_tag).base_image_date }}
+      skip_base: ${{ inputs.skip_base != 'false' }}
+      # presmoke images are for issue localization only and must not be mirrored to quay.io.
       skip_sync: true
     secrets:
       SWR_USERNAME: ${{ secrets.SWR_USERNAME }}
