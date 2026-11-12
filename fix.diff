@@ -1,0 +1,34 @@
+diff --git a/tests/ut/_310p/test_model_runner_v2_310p.py b/tests/ut/_310p/test_model_runner_v2_310p.py
+index 43a98e4e4..62ac8228f 100644
+--- a/tests/ut/_310p/test_model_runner_v2_310p.py
++++ b/tests/ut/_310p/test_model_runner_v2_310p.py
+@@ -985,6 +985,7 @@ def test_sampler_accepts_warmup_params_with_empty_history() -> None:
+     assert output.sampled_token_ids.shape == (1, 1)
+     assert output.logprobs_tensors is not None
+
++
+ def test_sampler_warmup_params_tolerated_only_on_main_profile_run() -> None:
+     sampler = Ascend310PSampler(max_num_reqs=2, device="cpu", vocab_size=64)
+     warmup_params = SamplingParams.for_sampler_warmup()
+@@ -1013,6 +1014,7 @@ def test_sampler_warmup_params_tolerated_only_on_main_profile_run() -> None:
+     assert sampler.sampling_states.top_p.gpu[0].item() == pytest.approx(0.9)
+     assert int(sampler.sampling_states.top_k.gpu[0].item()) == 50
+
++
+ def test_sampler_temperature_scales_logits_before_argmax() -> None:
+     """Non-1 temperature must change relative logits before greedy/top paths."""
+     from vllm_ascend._310p.worker.v2.sample.temperature import apply_temperature
+diff --git a/vllm_ascend/_310p/worker/v2/sampler.py b/vllm_ascend/_310p/worker/v2/sampler.py
+index dce48ff43..6b5ef5c0a 100644
+--- a/vllm_ascend/_310p/worker/v2/sampler.py
++++ b/vllm_ascend/_310p/worker/v2/sampler.py
+@@ -36,8 +36,6 @@ from vllm_ascend._310p.worker.v2.sample.penalties import (
+ from vllm_ascend._310p.worker.v2.sample_utils import (
+     _random_sample_310p,
+ )
+-from vllm_ascend.ascend_forward_context import get_mrv2_in_profile_run
+-from vllm_ascend.utils import vllm_version_is
+
+ _NP_INT64_MIN = np.iinfo(np.int64).min
+ _NP_INT64_MAX = np.iinfo(np.int64).max
+

@@ -1,0 +1,95 @@
+name: Clear OBS Build Info
+on:
+  workflow_dispatch:
+  # Registration bootstrap: a run is required before gh can dispatch a
+  # branch-only workflow. Pushes only create a no-op run; the clear job
+  # itself runs exclusively on workflow_dispatch.
+  push:
+    branches: [czy_collect_build_info]
+
+permissions:
+  contents: read
+
+jobs:
+  clear:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ensure esdk-obs-python
+        run: python3 -c "import obs" 2>/dev/null || python3 -m pip install --user esdk-obs-python || python3 -m pip install --break-system-packages esdk-obs-python
+
+      - name: Delete every object under ci/build-info
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.OBS_ACCESS_KEY_PRECISION }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.OBS_SECRET_ACCESS_KEY_PRECISION }}
+          OBS_ENDPOINT: https://obs.cn-north-4.myhuaweicloud.com
+          OBS_BUCKET: vllm-ascend
+          OBS_PREFIX: ci/build-info
+        run: |
+          set -euo pipefail
+          python3 - <<'PYEOF'
+          import os
+          from pathlib import Path
+
+          from obs import ObsClient
+
+          endpoint = os.environ["OBS_ENDPOINT"]
+          bucket = os.environ["OBS_BUCKET"]
+          prefix = os.environ["OBS_PREFIX"].strip("/") + "/"
+          report_dir = Path(os.environ.get("GITHUB_WORKSPACE", ".")) / "clear-report"
+          report = []
+
+          client = ObsClient(
+              access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
+              secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
+              server=endpoint,
+          )
+
+          keys, marker = [], None
+          while True:
+              kwargs = {"prefix": prefix, "max_keys": 1000}
+              if marker:
+                  kwargs["marker"] = marker
+              response = client.listObjects(bucket, **kwargs)
+              if response.status >= 300:
+                  report.append(
+                      f"list failed: HTTP {response.status} {response.errorCode} - nothing deleted"
+                  )
+                  raise SystemExit(1)
+              keys.extend(item.key for item in (response.body.contents or []))
+              if not response.body.is_truncated:
+                  break
+              marker = response.body.next_marker
+
+          report.append(f"found {len(keys)} objects under {prefix}")
+          for key in keys:
+              report.append(f"  {key}")
+
+          deleted, failures = 0, []
+          for key in keys:
+              response = client.deleteObject(bucket, key)
+              if response.status < 300:
+                  deleted += 1
+              else:
+                  failures.append(f"{key}: HTTP {response.status} {response.errorCode}")
+
+          report.append(f"deleted {deleted} of {len(keys)} objects")
+          report.extend(f"FAILED {failure}" for failure in failures)
+          client.close()
+
+          report_dir.mkdir(parents=True, exist_ok=True)
+          (report_dir / "report.txt").write_text("\n".join(report) + "\n", encoding="utf-8")
+          print("\n===== CLEAR REPORT =====")
+          print("\n".join(report))
+          if failures:
+              raise SystemExit(1)
+          PYEOF
+
+      - name: Upload clear report
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: obs-build-info-clear
+          path: clear-report
+          if-no-files-found: error

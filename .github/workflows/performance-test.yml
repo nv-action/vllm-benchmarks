@@ -1,0 +1,300 @@
+name: Manual performance evaluation
+run-name: "Performance evaluation - ${{ inputs.software }} ${{ inputs.version }} (${{ inputs.architecture }})"
+
+on:
+  workflow_dispatch:
+    inputs:
+      software:
+        description: "Software name, comma-separated names, or all"
+        required: true
+        default: sonic-go
+        type: string
+      version:
+        description: "Version, comma-separated versions, or all"
+        required: true
+        default: 1.15.2
+        type: string
+      architecture:
+        description: "Target architecture; all runs both architectures"
+        required: true
+        default: all
+        type: choice
+        options: [all, x86_64, aarch64]
+      update_baseline:
+        description: "Update baseline.json; requires successful x86_64 and aarch64 results"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dedicated-performance-runners
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Validate input and build matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      result_directory: ${{ steps.result_directory.outputs.value }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Allocate UTC+8 result directory
+        id: result_directory
+        shell: bash
+        run: |
+          timestamp="$(TZ=Asia/Shanghai date '+%Y-%m-%d-%H-%M-%S')"
+          echo "value=${timestamp}_${{ github.run_id }}-${{ github.run_attempt }}" >> "${GITHUB_OUTPUT}"
+      - name: Validate baseline update scope
+        if: inputs.update_baseline && inputs.architecture != 'all'
+        shell: bash
+        run: |
+          echo "::error::update_baseline requires architecture=all"
+          exit 2
+      - name: Install framework runtime dependencies from PyPI
+        shell: bash
+        run: |
+          framework_deps="${RUNNER_TEMP}/boostkit-framework-deps"
+          python3 -m pip install \
+            --disable-pip-version-check \
+            --no-input \
+            --no-cache-dir \
+            --target "${framework_deps}" \
+            "PyYAML==6.0.2"
+          echo "PYTHONPATH=${framework_deps}" >> "${GITHUB_ENV}"
+      - name: Validate software catalog and generate execution matrix
+        id: matrix
+        env:
+          INPUT_SOFTWARE: ${{ inputs.software }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_ARCHITECTURE: ${{ inputs.architecture }}
+          INPUT_RUNNER_PROFILE: production
+        shell: bash
+        run: |
+          matrix="$(python3 framework/catalog.py matrix \
+            --software "${INPUT_SOFTWARE}" \
+            --version "${INPUT_VERSION}" \
+            --architecture "${INPUT_ARCHITECTURE}" \
+            --runner-profile "${INPUT_RUNNER_PROFILE}")"
+          echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
+          echo '### Execution matrix' >> "${GITHUB_STEP_SUMMARY}"
+          echo '```json' >> "${GITHUB_STEP_SUMMARY}"
+          echo "${matrix}" | python3 -m json.tool >> "${GITHUB_STEP_SUMMARY}"
+          echo '```' >> "${GITHUB_STEP_SUMMARY}"
+
+  performance:
+    name: ${{ matrix.software }} ${{ matrix.version }} (${{ matrix.arch }})
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    runs-on:
+      - self-hosted
+      - ${{ matrix.runner_label }}
+    timeout-minutes: ${{ matrix.job_timeout_minutes }}
+    env:
+      PERF_DEDICATED_RUNNER: "true"
+      PERF_WORK_ROOT: /home/runner/boostkit-perf
+      PERF_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      PERF_SKIP_SYSTEM_PACKAGES: "true"
+      PERF_PROXY: ${{ secrets.PERF_PROXY }}
+      PERF_GITHUB_DOWNLOAD_PROXY: ""
+    steps:
+      - uses: actions/checkout@v4
+        env:
+          http_proxy: ${{ secrets.PERF_PROXY }}
+          https_proxy: ${{ secrets.PERF_PROXY }}
+          no_proxy: localhost,127.0.0.1,::1
+      - name: Global cleanup before performance test
+        run: bash framework/cleanup_environment.sh --before
+      - name: Install framework runtime dependencies from Huawei mirror
+        shell: bash
+        run: |
+          framework_deps="${RUNNER_TEMP}/boostkit-framework-deps"
+          python3 -m pip install \
+            --disable-pip-version-check \
+            --no-input \
+            --no-cache-dir \
+            --trusted-host mirrors.huaweicloud.com \
+            -i https://mirrors.huaweicloud.com/repository/pypi/simple \
+            --target "${framework_deps}" \
+            "PyYAML==6.0.2" \
+            "esdk-obs-python"
+          echo "PYTHONPATH=${framework_deps}" >> "${GITHUB_ENV}"
+      - name: Verify installed framework runtime
+        run: >-
+          python3 -c "import sys, yaml; from obs import ObsClient;
+          assert sys.version_info >= (3, 11), sys.version;
+          assert yaml.__version__ == '6.0.2', yaml.__version__;
+          print(f'Python {sys.version.split()[0]}, PyYAML {yaml.__version__}, OBS SDK available')"
+      - name: Prepare task and capture environment
+        run: >-
+          python3 framework/run_case.py
+          --case '${{ matrix.case_path }}'
+          --version '${{ matrix.version }}'
+          --architecture '${{ matrix.arch }}'
+          --run-id '${{ env.PERF_RUN_ID }}'
+          --stage prepare
+      - name: Build, install and validate software
+        run: >-
+          python3 framework/run_case.py
+          --case '${{ matrix.case_path }}'
+          --version '${{ matrix.version }}'
+          --architecture '${{ matrix.arch }}'
+          --run-id '${{ env.PERF_RUN_ID }}'
+          --stage build
+      - name: Run software start stage
+        run: >-
+          python3 framework/run_case.py
+          --case '${{ matrix.case_path }}'
+          --version '${{ matrix.version }}'
+          --architecture '${{ matrix.arch }}'
+          --run-id '${{ env.PERF_RUN_ID }}'
+          --stage start
+      - name: Execute performance tests
+        id: execute
+        run: >-
+          python3 framework/run_case.py
+          --case '${{ matrix.case_path }}'
+          --version '${{ matrix.version }}'
+          --architecture '${{ matrix.arch }}'
+          --run-id '${{ env.PERF_RUN_ID }}'
+          --stage test
+      - name: Run software stop stage
+        if: always()
+        run: >-
+          python3 framework/run_case.py
+          --case '${{ matrix.case_path }}'
+          --version '${{ matrix.version }}'
+          --architecture '${{ matrix.arch }}'
+          --run-id '${{ env.PERF_RUN_ID }}'
+          --stage stop
+      - name: Validate results and finalize task report
+        if: always()
+        run: >-
+          python3 framework/run_case.py
+          --case '${{ matrix.case_path }}'
+          --version '${{ matrix.version }}'
+          --architecture '${{ matrix.arch }}'
+          --run-id '${{ env.PERF_RUN_ID }}'
+          --stage finalize
+      - name: Global cleanup after performance test
+        id: post_cleanup
+        if: always()
+        run: bash framework/cleanup_environment.sh --after
+      - name: Record cleanup result
+        if: always()
+        run: >-
+          python3 framework/mark_cleanup.py
+          --output-dir '.perf-output/${{ matrix.category }}/${{ matrix.software }}/${{ matrix.version }}/${{ matrix.arch }}/${{ env.PERF_RUN_ID }}'
+          --outcome '${{ steps.post_cleanup.outcome }}'
+      - name: Upload complete result directory to Huawei OBS
+        if: always()
+        env:
+          OBS_ENDPOINT: ${{ secrets.OBS_ENDPOINT }}
+          OBS_BUCKET: ${{ secrets.OBS_BUCKET }}
+          OBS_PREFIX: ${{ secrets.OBS_PREFIX }}
+          OBS_AK: ${{ secrets.OBS_AK }}
+          OBS_SK: ${{ secrets.OBS_SK }}
+          OBS_SECURITY_TOKEN: ${{ secrets.OBS_SECURITY_TOKEN }}
+          PERF_PROXY: ${{ secrets.PERF_PROXY }}
+          PYTHONPATH: ${{ runner.temp }}/boostkit-framework-deps
+          http_proxy: ${{ secrets.PERF_PROXY }}
+          https_proxy: ${{ secrets.PERF_PROXY }}
+          no_proxy: localhost,127.0.0.1,::1
+        run: >-
+          python3 .github/scripts/obs_transfer.py upload-result
+          --source '.perf-output/${{ matrix.category }}/${{ matrix.software }}/${{ matrix.version }}/${{ matrix.arch }}/${{ env.PERF_RUN_ID }}'
+          --run-id '${{ env.PERF_RUN_ID }}'
+          --category '${{ matrix.category }}'
+          --software '${{ matrix.software }}'
+          --version '${{ matrix.version }}'
+          --architecture '${{ matrix.arch }}'
+          --result-directory '${{ needs.prepare.outputs.result_directory }}'
+
+  report:
+    name: Generate consolidated report
+    if: always()
+    needs: [prepare, performance]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install OBS transfer dependency
+        shell: bash
+        run: |
+          transfer_deps="${RUNNER_TEMP}/boostkit-obs-deps"
+          python3 -m pip install \
+            --disable-pip-version-check \
+            --no-input \
+            --no-cache-dir \
+            --target "${transfer_deps}" \
+            "esdk-obs-python"
+          echo "PYTHONPATH=${transfer_deps}" >> "${GITHUB_ENV}"
+      - name: Download complete task results from Huawei OBS
+        env:
+          OBS_ENDPOINT: ${{ secrets.OBS_ENDPOINT }}
+          OBS_BUCKET: ${{ secrets.OBS_BUCKET }}
+          OBS_PREFIX: ${{ secrets.OBS_PREFIX }}
+          OBS_AK: ${{ secrets.OBS_AK }}
+          OBS_SK: ${{ secrets.OBS_SK }}
+          OBS_SECURITY_TOKEN: ${{ secrets.OBS_SECURITY_TOKEN }}
+          EXECUTION_MATRIX: ${{ needs.prepare.outputs.matrix }}
+          RESULT_DIRECTORY: ${{ needs.prepare.outputs.result_directory }}
+        shell: bash
+        run: |
+          mkdir -p .perf-output
+          printf '%s\n' "${EXECUTION_MATRIX}" > .perf-output/execution-matrix.json
+          python3 .github/scripts/obs_transfer.py download-results \
+            --destination .perf-output/downloaded \
+            --run-id '${{ github.run_id }}-${{ github.run_attempt }}' \
+            --result-directory "${RESULT_DIRECTORY}" \
+            --matrix .perf-output/execution-matrix.json
+      - name: Generate single-run summary and cross-architecture comparison
+        run: >-
+          python3 framework/generate_comparison.py
+          --input-root .perf-output/downloaded
+          --output-dir .perf-output/report
+      - name: Publish report in workflow summary
+        shell: bash
+        run: cat .perf-output/report/combined-report.md >> "${GITHUB_STEP_SUMMARY}"
+      - name: Upload consolidated report to Huawei OBS
+        env:
+          OBS_ENDPOINT: ${{ secrets.OBS_ENDPOINT }}
+          OBS_BUCKET: ${{ secrets.OBS_BUCKET }}
+          OBS_PREFIX: ${{ secrets.OBS_PREFIX }}
+          OBS_AK: ${{ secrets.OBS_AK }}
+          OBS_SK: ${{ secrets.OBS_SK }}
+          OBS_SECURITY_TOKEN: ${{ secrets.OBS_SECURITY_TOKEN }}
+        run: >-
+          python3 .github/scripts/obs_transfer.py upload-report
+          --source .perf-output/report
+          --run-id '${{ github.run_id }}-${{ github.run_attempt }}'
+          --result-directory '${{ needs.prepare.outputs.result_directory }}'
+      - name: Prepare permanent result history
+        if: needs.performance.result == 'success'
+        env:
+          UPDATE_BASELINE: ${{ inputs.update_baseline }}
+        shell: bash
+        run: |
+          baseline_args=()
+          if [[ "${UPDATE_BASELINE}" == "true" ]]; then
+            baseline_args+=(--update-baseline)
+          fi
+          python3 framework/prepare_result_history.py \
+            --input-root .perf-output/downloaded \
+            --report-dir .perf-output/report \
+            --output-root .perf-output/permanent \
+            --run-id '${{ github.run_id }}-${{ github.run_attempt }}' \
+            --repository '${{ github.repository }}' \
+            --source-commit '${{ github.sha }}' \
+            --workflow-url '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}' \
+            "${baseline_args[@]}"
+      - name: Publish permanent results branch
+        if: needs.performance.result == 'success'
+        run: bash framework/publish_result_history.sh .perf-output/permanent performance-results
