@@ -235,8 +235,6 @@ jobs:
       tag_suffix: ${{ inputs.image_tag_suffix }}
       # presmoke images are for issue localization only and must not be mirrored to quay.io.
       skip_sync: true
-      base_os: ubuntu22.04
-      build_base_os: ubuntu22.04
     secrets:
       SWR_USERNAME: ${{ secrets.SWR_USERNAME }}
       SWR_PASSWORD: ${{ secrets.SWR_PASSWORD }}
