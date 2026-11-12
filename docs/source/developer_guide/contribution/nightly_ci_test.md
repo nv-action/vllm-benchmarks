@@ -1,21 +1,22 @@
-#
-# Copyright (c) 2025 Huawei Technologies Co., Ltd. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-# This file is a part of the vllm-ascend project.
-#
+<!--
+Copyright (c) 2025 Huawei Technologies Co., Ltd. All Rights Reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+This file is a part of the vllm-ascend project.
+-->
 
 # This workflow related to the resources atlas 800 A5
+
 name: Nightly-A5
 
 run-name: >-
@@ -87,15 +88,18 @@ on:
         required: false
         default: ''
         type: string
-        
+
 permissions:
   contents: read
   pull-requests: read
   issues: read
 
-# Bash shells do not use ~/.profile or ~/.bashrc so these shells need to be explicitly
-# declared as "shell: bash -el {0}" on steps that need to be properly activated.
-# It's used to activate ascend-toolkit environment variables.
+<!--
+Bash shells do not use ~/.profile or ~/.bashrc so these shells need to be explicitly
+declared as "shell: bash -el {0}" on steps that need to be properly activated.
+It's used to activate ascend-toolkit environment variables.
+-->
+
 defaults:
   run:
     shell: bash -el {0}
@@ -105,9 +109,13 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Single source of truth for all shared variables across jobs.
-  # NOTE: GitHub Actions does not support env context in reusable workflow `with:` inputs,
-  # so these values are exported as job outputs via the `setup-vars` job below.
+
+<!--
+Single source of truth for all shared variables across jobs.
+NOTE: GitHub Actions does not support env context in reusable workflow `with:` inputs,
+so these values are exported as job outputs via the `setup-vars` job below.
+-->
+
   ASCEND_LOG_PREFIX: '/root/.cache/ascend-logs'
 
 jobs:
@@ -171,7 +179,7 @@ jobs:
             try {
               // Only drain PR runs of this workflow, never other platforms.
               const workflowRef = process.env.GITHUB_WORKFLOW_REF || '';
-              const workflow_id = workflowRef.split('@')[0].split('/').pop();
+              const workflow_id = workflowRef.split['@'](0).split('/').pop();
               if (!workflow_id) {
                 core.warning('Cannot derive workflow file from GITHUB_WORKFLOW_REF; skip');
                 return;
