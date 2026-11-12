@@ -135,9 +135,85 @@ check_npu_info() {
     cat "/usr/local/Ascend/ascend-toolkit/latest/$(uname -i)-linux/ascend_toolkit_install.info"
 }
 
+# Git endpoints are tried in order: in-cluster git-cdn, ghfast.top, direct
+# GitHub. Each proxy tier can be disabled by setting its variable to an empty
+# string, e.g. GIT_CDN_BASE_URL="" GHFAST_BASE_URL="" for a direct connection.
+GIT_CDN_DEFAULT_BASE_URL="http://git-cdn-service.git-cdn.svc.cluster.local:8000/"
+GHFAST_DEFAULT_BASE_URL="https://ghfast.top/https://github.com/"
+GIT_PROBE_REPO="vllm-project/vllm-ascend.git"
+GIT_PROBE_TIMEOUT_S="${GIT_PROBE_TIMEOUT_S:-15}"
+
+# Drop insteadOf rewrites this script owns (value == https://github.com/). Runs
+# may share a HOME on bare metal, and git would otherwise apply stale entries
+# from earlier runs while keeping unrelated rewrites intact.
+reset_github_rewrite() {
+    local key value
+    while read -r key value; do
+        if [ -n "$key" ] && [ "$value" = "https://github.com/" ]; then
+            git config --global --unset-all "$key" 2>/dev/null || true
+        fi
+    done < <(git config --global --get-regexp '^url\..*\.insteadof$' 2>/dev/null || true)
+}
+
+# base="" means direct GitHub: no rewrite at all.
+apply_git_rewrite() {
+    local base="${1%/}"
+    reset_github_rewrite
+    if [ -z "$base" ]; then
+        echo "====> git proxy: direct https://github.com (no rewrite)"
+        return 0
+    fi
+    git config --global url."${base}/".insteadOf "https://github.com/"
+    echo "====> git proxy: https://github.com/ -> ${base}/"
+}
+
+# A bare TCP connect is not enough: the proxy may accept the socket and then
+# return 5xx, serve a stale cache, or reject refs. ls-remote checks DNS + TCP +
+# HTTP + repo lookup and is cheap.
+git_endpoint_reachable() {
+    local base="${1%/}" url
+    if [ -z "$base" ]; then
+        url="https://github.com/${GIT_PROBE_REPO}"
+    else
+        url="${base}/${GIT_PROBE_REPO}"
+    fi
+    timeout "${GIT_PROBE_TIMEOUT_S}" \
+        git ls-remote --exit-code "$url" HEAD >/dev/null 2>&1
+}
+
+select_git_endpoint() {
+    local cdn="${GIT_CDN_BASE_URL-$GIT_CDN_DEFAULT_BASE_URL}"
+    local ghfast="${GHFAST_BASE_URL-$GHFAST_DEFAULT_BASE_URL}"
+    local candidates=() candidate
+
+    if [ -n "$cdn" ]; then
+        candidates+=("$cdn")
+    fi
+    if [ -n "$ghfast" ]; then
+        candidates+=("$ghfast")
+    fi
+    candidates+=("")
+
+    for candidate in "${candidates[@]}"; do
+        if git_endpoint_reachable "$candidate"; then
+            apply_git_rewrite "$candidate"
+            return 0
+        fi
+        echo "WARNING: git endpoint '${candidate:-direct GitHub}' is unreachable; trying next" >&2
+    done
+
+    # Keep the direct path so the real clone reports a normal error instead of
+    # hanging on a dead proxy.
+    echo "WARNING: no git endpoint passed the probe; using direct GitHub" >&2
+    apply_git_rewrite ""
+}
+
 check_and_config() {
     echo "====> Configure mirrors and git proxy"
-    git config --global url."https://ghfast.top/https://github.com/".insteadOf "https://github.com/"
+    select_git_endpoint
+    # Abort stalled transfers instead of hanging: <1 KB/s for 30 s.
+    git config --global http.lowSpeedLimit 1000
+    git config --global http.lowSpeedTime 30
     pip config set global.index-url https://mirrors.huaweicloud.com/repository/pypi/simple/
     pip config set global.trusted-host mirrors.huaweicloud.com
     export PIP_EXTRA_INDEX_URL="https://mirrors.huaweicloud.com/ascend/repos/pypi"
@@ -201,6 +277,51 @@ checkout_and_install_vllm() {
         echo "WARNING: vllm version fell back to '$installed_vllm_version': ref '$VLLM_REF' carries no tag info. Version-gated code paths in vllm-ascend may misbehave; prefer a release tag for reliable results."
     fi
 }
+
+# Resolve VLLM_ASCEND_REF inside the freshly cloned repository. PR-triggered
+# runs pass the PR head SHA, scheduled/daily runs pass a branch name or a plain
+# commit. This must never abort silently: run.sh executes with
+# `set -euo pipefail`, so an unmatched grep used to kill the whole run without
+# printing anything.
+checkout_vllm_ascend_ref() {
+    local ref="${VLLM_ASCEND_REF:-}"
+    local pr_ref=""
+    local remote_url=""
+
+    if [ -z "$ref" ]; then
+        echo "ERROR: VLLM_ASCEND_REF is empty; cannot checkout vllm-ascend source" >&2
+        return 1
+    fi
+
+    # Map a PR head SHA to its refs/pull/<n>/head ref. Match the SHA column
+    # prefix (abbreviated SHAs still work) and keep the ls-remote output intact
+    # instead of piping it through grep+head, whose early exit trips pipefail on
+    # large ref lists.
+    pr_ref=$(git ls-remote origin 'refs/pull/*/head' 2>/dev/null | \
+        awk -v sha="$ref" 'index($1, sha) == 1 { print $2 }') || true
+    pr_ref=$(printf '%s\n' "$pr_ref" | head -n 1)
+
+    if [ -n "$pr_ref" ]; then
+        echo "====> Checkout PR ref ${pr_ref}"
+        git fetch --depth 1 origin "$pr_ref"
+        git checkout -f FETCH_HEAD
+        return 0
+    fi
+
+    echo "====> '${ref}' is not a PR head; fetching it directly"
+    if git fetch --depth 1 origin "$ref" || \
+        git fetch --depth 1 origin "refs/heads/${ref}" || \
+        git fetch --depth 1 origin "refs/tags/${ref}"; then
+        git checkout -f FETCH_HEAD
+        return 0
+    fi
+
+    remote_url=$(git remote get-url origin 2>/dev/null || echo "${VLLM_ASCEND_REMOTE_URL}")
+    echo "ERROR: cannot fetch vllm-ascend ref '${ref}' from ${remote_url}" >&2
+    echo "ERROR: VLLM_ASCEND_REF and VLLM_ASCEND_REMOTE_URL must belong to the same repository." >&2
+    return 1
+}
+
 checkout_src() {
     echo "====> Checkout source code"
     mkdir -p "$WORKSPACE"
@@ -213,14 +334,7 @@ checkout_src() {
         echo "Cloning vllm-ascend from $VLLM_ASCEND_REMOTE_URL"
         git clone --depth 1 --recurse-submodules "$VLLM_ASCEND_REMOTE_URL" "$WORKSPACE/vllm-ascend"
         cd "$WORKSPACE/vllm-ascend"
-        PR_REF=$(git ls-remote origin 'refs/pull/*/head' | grep "^${VLLM_ASCEND_REF}" | awk '{print $2}' | head -1)
-        if [ -n "$PR_REF" ]; then
-            git fetch --depth 1 origin "$PR_REF"
-            git checkout FETCH_HEAD
-        else
-            git fetch origin '+refs/pull/*/head:refs/remotes/pull/*' 2>/dev/null || true
-            git checkout "$VLLM_ASCEND_REF"
-        fi
+        checkout_vllm_ascend_ref
         git submodule update --init --recursive
     fi
 }
@@ -599,6 +713,9 @@ backup_ascend_logs() {
 
 finish_run() {
     local rc=$?
+    if [ "$rc" -ne 0 ]; then
+        echo -e "${RED}${FAIL_TAG:-test_failed} ✗ ERROR: run.sh exited with code ${rc}${NC}"
+    fi
     backup_ascend_logs || true
     if [ "${AOP_MULTI_ENABLED:-}" = "true" ] && [ "${LWS_WORKER_INDEX:-}" = "0" ]; then
         echo "AOP_RUN_FINISHED:${LOG_PREFIX}:${rc}"
@@ -609,6 +726,9 @@ finish_run() {
 
 finish_without_aop() {
     local rc=$?
+    if [ "$rc" -ne 0 ]; then
+        echo -e "${RED}${FAIL_TAG:-test_failed} ✗ ERROR: run.sh exited with code ${rc}${NC}"
+    fi
     backup_ascend_logs || true
     backup_requested_directory || true
     return "$rc"

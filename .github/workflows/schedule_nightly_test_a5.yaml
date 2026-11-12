@@ -300,6 +300,9 @@ jobs:
       config_base_path: ${{ matrix.test_config.config_base_path }}
       name: ${{ matrix.test_config.name }}
       vllm_ascend_ref: ${{ inputs.vllm_ascend_ref || needs.parse-trigger.outputs.ref }}
+      # Pods clone this URL, so it must be the repo that owns vllm_ascend_ref
+      # (fork/validation repos included), not always upstream vllm-ascend.
+      vllm_ascend_remote_url: ${{ github.server_url }}/${{ github.repository }}.git
       vllm_ref: ${{ inputs.vllm_ref || '' }}
       aop_multi_enabled: ${{ inputs.aop_enabled }}
       profile_options_json: ${{ needs.setup-vars.outputs.profile_options }}
