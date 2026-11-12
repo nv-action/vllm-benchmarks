@@ -54,6 +54,16 @@ on:
         required: false
         default: 'true'
         type: string
+      image_tag_suffix:
+        description: 'Suffix appended to the nightly test image tag (nightly-ci-<branch>-<target><suffix>) and to the runtime base image it consumes. Used by /presmoke to isolate its images from the standard nightly artifacts. Empty uses the standard tags.'
+        required: false
+        default: ''
+        type: string
+      os_matrix:
+        description: "JSON array of OS variants to build and test, e.g. '[\"ubuntu\"]' or '[\"ubuntu\",\"openeuler\"]'. Each entry adds one lane (runtime base image + nightly image + tests). /presmoke passes both; the default keeps the ubuntu-only nightly."
+        required: false
+        default: '["ubuntu"]'
+        type: string
       vllm_ascend_ref:
         description: 'PR commit SHA for PR-triggered tests'
         required: false
@@ -200,6 +210,7 @@ jobs:
     if: >-
       (github.event_name == 'workflow_dispatch' && inputs.skip_build_image != 'true')
     strategy:
+      fail-fast: false
       matrix:
         vllm_ascend_branch: >-
           ${{ fromJSON(format('["{0}"]', inputs.vllm_ascend_branch)) }}
@@ -210,9 +221,9 @@ jobs:
     uses: ./.github/workflows/_schedule_nightly_pair_image_build.yaml
     with:
       target: a2
-      os: ubuntu
-      dockerfile: Dockerfile
-      suffix: ''
+      os: ${{ matrix.os }}
+      dockerfile: ${{ matrix.os == 'openeuler' && 'Dockerfile.openEuler' || 'Dockerfile' }}
+      suffix: ${{ matrix.os == 'openeuler' && 'openeuler' || '' }}
       vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
       build_type: ${{ inputs.build_type }}
       should_push: ${{ github.repository == 'vllm-project/vllm-ascend' && github.event_name != 'pull_request' }}
@@ -220,6 +231,8 @@ jobs:
       cann_version: ${{ fromJSON(inputs.base_image_tag).cann_version }}
       base_image_date: ${{ fromJSON(inputs.base_image_tag).base_image_date }}
       skip_base: ${{ inputs.skip_base != 'false' }}
+      # presmoke images are for issue localization only and must not be mirrored to quay.io.
+      tag_suffix: ${{ inputs.image_tag_suffix }}
       # presmoke images are for issue localization only and must not be mirrored to quay.io.
       skip_sync: true
       base_os: ubuntu22.04
@@ -241,12 +254,13 @@ jobs:
       max-parallel: 3
       matrix:
         vllm_ascend_branch: ${{ fromJSON(needs.setup-vars.outputs.vllm_ascend_branches) }}
+        os: ${{ fromJSON(inputs.os_matrix) }}
         test_config: ${{ fromJson(needs.setup-vars.outputs.multi_node) }}
     uses: ./.github/workflows/_e2e_nightly_multi_node.yaml
     with:
       soc_version: a2
       runner: linux-amd64-cpu-8-hk
-      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a2'
+      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a2${{ matrix.os == 'openeuler' && '-openeuler' || '' }}${{ inputs.image_tag_suffix }}'
       ascend_log_prefix: ${{ needs.setup-vars.outputs.ascend_log_prefix }}/${{ matrix.vllm_ascend_branch }}
       vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
       request_id: ${{ inputs.request_id || '' }}
@@ -311,12 +325,13 @@ jobs:
       fail-fast: false
       matrix:
         vllm_ascend_branch: ${{ fromJSON(needs.setup-vars.outputs.vllm_ascend_branches) }}
+        os: ${{ fromJSON(inputs.os_matrix) }}
         test_config: ${{ fromJson(needs.setup-vars.outputs.single_node) }}
     uses: ./.github/workflows/_e2e_nightly_single_node.yaml
     with:
       runner: ${{ matrix.test_config.os }}
       soc_version: a2
-      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a2'
+      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a2${{ matrix.os == 'openeuler' && '-openeuler' || '' }}${{ inputs.image_tag_suffix }}'
       tests: ${{ matrix.test_config.tests }}
       config_file_path: ${{ matrix.test_config.config_file_path }}
       config_base_path: ${{ matrix.test_config.config_base_path }}
@@ -398,6 +413,7 @@ jobs:
       fail-fast: false
       matrix:
         vllm_ascend_branch: ${{ fromJSON(needs.setup-vars.outputs.vllm_ascend_branches) }}
+        os: ${{ fromJSON(inputs.os_matrix) }}
         test_config: ${{ fromJson(needs.generate-accuracy-matrix.outputs.nightly_matrix) }}
     uses: ./.github/workflows/_e2e_nightly_single_node_models.yaml
     with:
@@ -405,7 +421,7 @@ jobs:
       soc_version: a2
       model_list: ${{ toJson(matrix.test_config.model_list) }}
       model_filter: ${{ needs.parse-trigger.outputs.filter }}
-      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a2'
+      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a2${{ matrix.os == 'openeuler' && '-openeuler' || '' }}${{ inputs.image_tag_suffix }}'
       is_run: >-
         ${{
           needs.parse-trigger.outputs.run == 'true' && (
@@ -430,6 +446,7 @@ jobs:
       fail-fast: false
       matrix:
         vllm_ascend_branch: ${{ fromJSON(needs.setup-vars.outputs.vllm_ascend_branches) }}
+        os: ${{ fromJSON(inputs.os_matrix) }}
         test_config: ${{ fromJson(needs.generate-accuracy-matrix.outputs.pr_only_matrix) }}
     uses: ./.github/workflows/_e2e_nightly_single_node_models.yaml
     with:
@@ -437,7 +454,7 @@ jobs:
       soc_version: a2
       model_list: ${{ toJson(matrix.test_config.model_list) }}
       model_filter: ${{ needs.parse-trigger.outputs.filter }}
-      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a2'
+      image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a2${{ matrix.os == 'openeuler' && '-openeuler' || '' }}${{ inputs.image_tag_suffix }}'
       is_run: >-
         ${{
           needs.parse-trigger.outputs.run == 'true' &&
