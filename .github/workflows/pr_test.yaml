@@ -312,7 +312,7 @@ jobs:
       ref: ${{ github.event.pull_request.head.sha }}
       base_ref: ${{ github.base_ref }}
       test_groups: >-
-        [{"partition_name":"cpu-ut","runner":"linux-amd64-cpu-8-hk","image_tag":"9.2.1-910b-ubuntu22.04-py3.12","npu_type":"cpu","num_npus":0,"tests":"tests/ut"}]
+        [{"partition_name":"cpu-ut","runner":"linux-amd64-cpu-4-hk","image_tag":"9.2.1-910b-ubuntu22.04-py3.12","npu_type":"cpu","num_npus":0,"tests":"tests/ut"}]
       enable-coverage: false
 
   recommend-tests:
@@ -482,9 +482,9 @@ jobs:
           contains(github.event.pull_request.labels.*.name, 'ready-all')
         )
       }}
-    runs-on: linux-amd64-cpu-2-hk
+    runs-on: linux-amd64-cpu-4-hk
     container:
-      image: quay.io/ascend-ci/vllm-ascend:lint
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
     outputs:
       has_tests: ${{ steps.scope-rec.outputs.has_tests || steps.scope-all.outputs.has_tests || steps.noop.outputs.has_tests }}
       test_groups: ${{ steps.scope-rec.outputs.test_groups || steps.scope-all.outputs.test_groups || steps.noop.outputs.test_groups }}
@@ -813,7 +813,9 @@ jobs:
   ci-gate:
     needs: [pre-commit, cpu-ut, select-tests, run-selected-tests, run-selected-tests-a5]
     if: ${{ !cancelled() }}
-    runs-on: linux-amd64-cpu-2-hk
+    runs-on: linux-amd64-cpu-4-hk
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
     steps:
       - name: Check all required jobs
         env:
