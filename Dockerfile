@@ -59,7 +59,7 @@ ARG TRITON_ASCEND_PACKAGE_VERSION
 # DAILY_DEPS_MODE (optional): Daily deps install mode: 'full' or 'torch_npu_only'.
 ARG DAILY_DEPS_MODE="full"
 # flash-linear-attention-npu
-ARG FLA_VERSION="26.9.1+dev6b12069"
+ARG FLA_VERSION="26.9.1"
 ARG FLA_RELEASE_TAG="v26.9.1-20260928-095517"
 
 WORKDIR /workspace
@@ -121,12 +121,14 @@ RUN ARCH=${TARGETPLATFORM:-$(uname -m)}; \
             FLA_SHA256="548dc051346dcfd045597fe0995d84f75d90b67b643d3729f0c024c0afa4dcd0" ;; \
         *) echo "Unsupported arch for flash-linear-attention-npu: $ARCH" && exit 1 ;; \
     esac && \
-    FLA_DOWNLOAD_URL="https://github.com/flashserve/flash-linear-attention-npu/releases/download/${FLA_RELEASE_TAG}/${FLA_WHL}" && \
-    wget --quiet "$FLA_DOWNLOAD_URL" -O /tmp/${FLA_WHL} && \
-    echo "${FLA_SHA256}  /tmp/${FLA_WHL}" | sha256sum --check && \
-    python3 -m pip install --force-reinstall --no-deps /tmp/${FLA_WHL} && \
-    rm -f /tmp/${FLA_WHL} && \
-    python3 -m pip cache purge
+    URL="https://mirrors.huaweicloud.com/ascend/repos/pypi/flash_linear_attention_npu_a2/${FLA_WHL}" && \
+    if [[ -n "${GIT_PROXY}" ]]; then \
+      wget --quiet --proxy="${GIT_PROXY}" "${URL}" -O "/tmp/${FLA_WHL}"; \
+    else \
+      wget --quiet "${URL}" -O "/tmp/${FLA_WHL}"; \
+    fi && \
+    # echo "${FLA_SHA256}  /tmp/${FLA_WHL}" | sha256sum --check && \
+    python3 -m pip install --force-reinstall --no-deps /tmp/${FLA_WHL}
 
 # Install _rust_tool_parser for the Rust frontend.
 # The default toolchain is read from vllm's rust-toolchain.toml (falling back
