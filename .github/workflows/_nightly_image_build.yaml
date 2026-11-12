@@ -426,7 +426,7 @@ jobs:
           echo "merged=${MERGED_VARIANT}" >> "$GITHUB_OUTPUT"
 
       - name: Dispatch cn-north-4 sync
-        if: ${{ steps.merge.outputs.merged == '1' && github.repository == 'vllm-project/vllm-ascend' }}
+        if: ${{ steps.merge.outputs.merged == '1' && github.repository == 'nv-action/vllm-benchmarks' }}
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.SYNC_TOOLS_TOKEN }}
