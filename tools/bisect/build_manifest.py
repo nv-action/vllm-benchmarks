@@ -1,8 +1,9 @@
 """Inventory every declared operation in a hardware-specific Docker build."""
 
-import re
-import tomllib
 from pathlib import Path
+
+import regex as re
+import tomllib
 
 from tools.bisect import git_ops
 from tools.bisect.build_recipe import BuildRecipe
@@ -57,23 +58,23 @@ def compile_manifest(repo: Path, commit: str, recipe: BuildRecipe) -> dict[str, 
                     )
                 ],
                 "apt_commands": [
-                    match.group(0).strip()
-                    for match in re.finditer(r"\bapt-get\s+install\b[^;&|]*", command)
+                    match.group(0).strip() for match in re.finditer(r"\bapt-get\s+install\b[^;&|]*", command)
                 ],
                 "git_commands": [
                     match.group(0).strip()
                     for match in re.finditer(r"\bgit\s+(?:clone|fetch|checkout)\b[^;&|]*", command)
                 ],
                 "external_commands": [
-                    match.group(0).strip()
-                    for match in re.finditer(r"\b(?:wget|mfcli|bash)\s+[^;&|]*", command)
+                    match.group(0).strip() for match in re.finditer(r"\b(?:wget|mfcli|bash)\s+[^;&|]*", command)
                 ],
             }
             operations.append(operation)
             if step.instruction == "RUN" and re.search(r"\b(?:if|case|for|while)\b", command):
                 unresolved.append(f"{layer} step {index}: shell branches require evaluation for the build target")
             if re.search(r"pip install -e /vllm-workspace/vllm(?:/|\s)", command):
-                unresolved.append(f"{layer} step {index}: vLLM source and extras dependencies come from an external checkout")
+                unresolved.append(
+                    f"{layer} step {index}: vLLM source and extras dependencies come from an external checkout"
+                )
             if "benchmark" in command and "pip install -e ." in command:
                 unresolved.append(f"{layer} step {index}: AISBench package dependencies come from an external checkout")
             if "tools/build_rust.sh" in command:
@@ -83,11 +84,15 @@ def compile_manifest(repo: Path, commit: str, recipe: BuildRecipe) -> dict[str, 
             if step.instruction == "COPY":
                 unresolved.append(f"{layer} step {index}: COPY input depends on the Docker build context")
             if operation["apt_commands"]:
-                unresolved.append(f"{layer} step {index}: apt package versions are resolved by the build-time repository")
+                unresolved.append(
+                    f"{layer} step {index}: apt package versions are resolved by the build-time repository"
+                )
             if operation["git_commands"] and "git clone" in command:
                 unresolved.append(f"{layer} step {index}: cloned repository contents require the selected Git revision")
             if any(" install " in item for item in operation["pip_commands"]):
-                unresolved.append(f"{layer} step {index}: complete pip dependency closure requires a build-time resolver report")
+                unresolved.append(
+                    f"{layer} step {index}: complete pip dependency closure requires a build-time resolver report"
+                )
 
     project = tomllib.loads(recipe.pyproject)
     requirements = {

@@ -1,9 +1,9 @@
 """Describe the declared and observed dependencies of a bisect candidate."""
 
 import importlib.metadata
-import re
 from pathlib import Path
 
+import regex as re
 from packaging.requirements import InvalidRequirement, Requirement
 
 from tools.bisect import git_ops
@@ -34,7 +34,9 @@ def pairing_details(repo: Path, commit: str, recipe: BuildRecipe) -> list[str]:
     for layer, steps in (("base", recipe.root_chain), ("nightly", recipe.nightly_chain)):
         for index, step in enumerate(steps, start=1):
             inputs = ", ".join(f"{name}={value}" for name, value in step.inputs) or "none"
-            lines.append(f"[pairing:chain] {layer} step {index} {step.instruction}: {step.command} | ARG inputs: {inputs}")
+            lines.append(
+                f"[pairing:chain] {layer} step {index} {step.instruction}: {step.command} | ARG inputs: {inputs}"
+            )
     for layer in ("base", "nightly"):
         for item in manifest["requirements"][layer]:
             lines.append(
@@ -51,15 +53,27 @@ def pairing_details(repo: Path, commit: str, recipe: BuildRecipe) -> list[str]:
 
     for path in (recipe.root_dockerfile, recipe.nightly_dockerfile):
         content = git_ops.file_at_commit(repo, commit, path) or ""
-        lines.append(f"[pairing:docker] {path}: FROM {next((s.strip() for s in content.splitlines() if s.startswith('FROM ')), 'missing')}")
+        from_instruction = next((line.strip() for line in content.splitlines() if line.startswith("FROM ")), "missing")
+        lines.append(f"[pairing:docker] {path}: FROM {from_instruction}")
         for raw in content.splitlines():
-            match = re.match(r'^ARG\s+([A-Z][A-Z0-9_]*)=(.*)$', raw)
-            if match and any(token in match.group(1) for token in ("VERSION", "DATE", "TAG", "COMMIT", "INDEX_URL", "REPO", "OBS_BASE", "OBS_PREFIX", "RELEASE")):
+            match = re.match(r"^ARG\s+([A-Z][A-Z0-9_]*)=(.*)$", raw)
+            if match and any(
+                token in match.group(1)
+                for token in (
+                    "VERSION",
+                    "DATE",
+                    "TAG",
+                    "COMMIT",
+                    "INDEX_URL",
+                    "REPO",
+                    "OBS_BASE",
+                    "OBS_PREFIX",
+                    "RELEASE",
+                )
+            ):
                 lines.append(f"[pairing:docker] {path}: {match.group(1)}={match.group(2).strip()}")
 
-    lines.extend(
-        f"[pairing:docker] runtime-wheel={wheel}" for wheel in recipe.runtime_wheels
-    )
+    lines.extend(f"[pairing:docker] runtime-wheel={wheel}" for wheel in recipe.runtime_wheels)
     if recipe.flash_attention_ref:
         lines.append(f"[pairing:docker] flash-attention-npu={recipe.flash_attention_ref}")
     lines.append(f"[pairing:docker] AISBench={recipe.ais_bench_url}@{recipe.ais_bench_tag}")

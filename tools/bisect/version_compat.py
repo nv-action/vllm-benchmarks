@@ -29,6 +29,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+import regex as re
 import tomllib
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.specifiers import SpecifierSet

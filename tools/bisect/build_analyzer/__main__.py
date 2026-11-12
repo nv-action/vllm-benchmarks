@@ -7,7 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from tools.bisect.build_analyzer import analyze_commit, analyze_directory, compare_builds, plan_transition
-from tools.bisect.build_analyzer.base_image import compare_base_references, from_reference
+from tools.bisect.build_analyzer.base_image import from_reference
 from tools.bisect.build_analyzer.diff import package_state_changes
 from tools.bisect.build_analyzer.planner import plan_target_image_transition
 from tools.bisect.build_analyzer.registry_image import RegistryImageResolver
@@ -76,11 +76,9 @@ def main() -> None:
             if before_base is None or after_base is None:
                 parser.error("both builds must have a FROM image to inspect")
             resolver = RegistryImageResolver(args.image_cache_dir)
-            if before_base != after_base and "/cann:" in after_base:
+            if before_base != after_base:
                 reference, history = resolver.resolve_history(after_base, args.arch)
                 target_replay = plan_target_image_transition(before, after, reference, history)
-            else:
-                base_delta = compare_base_references(before_base, after_base, args.arch, resolver)
             result["base_image_delta"] = (
                 {
                     "before": {"reference": base_delta.before.reference, "digest": base_delta.before.digest},

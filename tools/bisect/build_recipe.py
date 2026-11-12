@@ -15,9 +15,10 @@
 """Read the two Docker build layers used by a nightly bisect candidate."""
 
 import platform
-import re
 from dataclasses import dataclass
 from pathlib import Path
+
+import regex as re
 
 from tools.bisect import git_ops
 

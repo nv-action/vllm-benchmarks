@@ -30,19 +30,19 @@ import json
 import logging
 import os
 import platform
-import re
 import shlex
 import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+import regex as re
+
 from tools.bisect import git_ops
 from tools.bisect.build_analyzer import analyze_commit, plan_transition
-from tools.bisect.build_analyzer.base_apply import apply_base_delta, target_environment, validate_base_application
+from tools.bisect.build_analyzer.base_apply import apply_base_delta, target_environment
 from tools.bisect.build_analyzer.base_image import (
     BaseImageDelta,
     BaseImageError,
-    compare_base_references,
     from_reference,
 )
 from tools.bisect.build_analyzer.diff import package_state_changes
@@ -106,8 +106,17 @@ class BuildManager:
         self._transition_marker = Path(options.work_dir) / f"base-transition-node{options.node_index}.pending"
         self._baseline_untrusted = self._transition_marker.exists()
         if self._baseline_untrusted:
-            logger.error("[base-image] incomplete prior transition: %s", self._transition_marker)
-        self._plan_cache: dict[tuple[str, str], TransitionPlan] = {}
+            if options.force_initial_build:
+                # Allow one full initialization, without trusting or deleting
+                # the pending state. A new failure must block later trials.
+                logger.warning(
+                    "[build-chain] recovering incomplete transition with full target replay: %s",
+                    self._transition_marker,
+                )
+                self._baseline_untrusted = False
+            else:
+                logger.error("[base-image] incomplete prior transition: %s", self._transition_marker)
+        self._plan_cache: dict[tuple[str | None, str], TransitionPlan] = {}
         self._analysis_cache: dict[str, BuildAnalysis] = {}
         self._base_delta_cache: dict[tuple[str, str], BaseImageDelta | None] = {}
         self._image_resolver = RegistryImageResolver(Path.home() / ".cache" / "nightly_bisect" / "images")
@@ -131,58 +140,40 @@ class BuildManager:
         return analysis
 
     def _transition_plan(self, target_commit: str) -> TransitionPlan | None:
-        if self.installed_commit is None or not self.opt.soc:
+        if not self.opt.soc:
             return None
         key = self.installed_commit, target_commit
         if key in self._plan_cache:
             return self._plan_cache[key]
-        before = self._analysis_at(self.installed_commit)
+        before = (
+            self._analysis_at(self.installed_commit) if self.installed_commit is not None else BuildAnalysis((), (), ())
+        )
         after = self._analysis_at(target_commit)
         before_base = next((op.value for op in before.operations if op.kind == "from"), None)
         after_base = next((op.value for op in after.operations if op.kind == "from"), None)
         base_delta = None
-        if before_base != after_base:
-            if before_base is None or after_base is None:
-                raise BuildError("FROM changed, but a base image reference is missing")
-            if "/cann:" in before_base or "/cann:" in after_base:
-                logger.info(
-                    "[build-chain] CANN FROM changed: %s -> %s; replay target image including Python "
-                    "and the full target build chain",
-                    before_base,
-                    after_base,
-                )
-                architecture = "aarch64" if platform.machine().lower() in ("aarch64", "arm64") else "x86_64"
-                try:
-                    reference, history = self._image_resolver.resolve_history(from_reference(after_base), architecture)
-                    plan = plan_target_image_transition(
-                        before, after, reference, history, rebuild_project=self.installed_commit != target_commit
-                    )
-                except (BaseImageError, ValueError, OSError) as exc:
-                    raise BuildError(f"target CANN history analysis failed: {exc}") from exc
-                destination = Path(self.opt.work_dir) / f"target-image-plan-node{self.opt.node_index}.json"
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                destination.write_text(json.dumps(asdict(plan), indent=2), encoding="utf-8")
-                self._plan_cache[key] = plan
-                return plan
+        if self.installed_commit is None or before_base != after_base:
+            if after_base is None or (self.installed_commit is not None and before_base is None):
+                raise BuildError("Target image replay requires a base image reference")
+            logger.info(
+                "[build-chain] FROM changed: %s -> %s; replay target image including Python "
+                "and the full target build chain",
+                before_base,
+                after_base,
+            )
             architecture = "aarch64" if platform.machine().lower() in ("aarch64", "arm64") else "x86_64"
-            logger.info("[base-image] inspecting changed FROM: %s -> %s", before_base, after_base)
             try:
-                base_delta = compare_base_references(
-                    from_reference(before_base), from_reference(after_base), architecture, self._image_resolver
+                reference, history = self._image_resolver.resolve_history(from_reference(after_base), architecture)
+                plan = plan_target_image_transition(
+                    before, after, reference, history, rebuild_project=self.installed_commit != target_commit
                 )
-            except BaseImageError as exc:
-                raise BuildError(f"base image inspection failed: {exc}") from exc
-            if base_delta is not None:
-                logger.info(
-                    "[base-image] %s -> %s: changed_files=%d changed_config=%d",
-                    base_delta.before.digest,
-                    base_delta.after.digest,
-                    len(base_delta.changed_files),
-                    len(base_delta.changed_config),
-                )
-                blockers = validate_base_application(base_delta, Path("/"))
-                if blockers:
-                    raise BuildError("base image cannot be applied: " + "; ".join(blockers[:10]))
+            except (BaseImageError, ValueError, OSError) as exc:
+                raise BuildError(f"target image history analysis failed: {exc}") from exc
+            destination = Path(self.opt.work_dir) / f"target-image-plan-node{self.opt.node_index}.json"
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(json.dumps(asdict(plan), indent=2), encoding="utf-8")
+            self._plan_cache[key] = plan
+            return plan
         plan = plan_transition(before, after, base_delta, rebuild_project=self.installed_commit != target_commit)
         self._base_delta_cache[key] = base_delta
         self._plan_cache[key] = plan
@@ -191,7 +182,10 @@ class BuildManager:
     # ------------------------------------------------------------ decision
     def decide(self, target_commit: str) -> BuildDecision:
         if self._baseline_untrusted:
-            raise BuildError("a previous environment transition failed; restart from a matching container")
+            raise BuildError(
+                "a previous environment transition failed; restart with --force-initial-build "
+                "for full target initialization, or use a matching container"
+            )
         transition = self._transition_plan(target_commit)
         if transition and any(action.kind.startswith("image-") for action in transition.actions):
             return BuildDecision(True, False, [], "target image replay requires rebuilding native extensions")
@@ -298,6 +292,13 @@ class BuildManager:
                     for action in plan.actions:
                         out.write(f"[build-chain] action {action.id} {action.kind}: {action.command}\n")
 
+        if plan is not None and (plan.actions or plan.target_environment is not None):
+            self._transition_marker.parent.mkdir(parents=True, exist_ok=True)
+            self._transition_marker.write_text(
+                f"environment transition to {target_commit} in progress\n", encoding="utf-8"
+            )
+            self._baseline_untrusted = True
+
         git_ops.checkout(self.repo, target_commit)
 
         root_env = None
@@ -321,14 +322,12 @@ class BuildManager:
                 # image's native build cache.
                 self._clean_artifacts()
             self._execute_transition(plan, log_file, root_env, base_delta)
-        image_replayed = plan is not None and any(action.kind.startswith("image-") for action in plan.actions)
         # Only advance the baseline once the binary actually matches the source.
         if project_rebuilt:
             self.last_built_commit = target_commit
         self.installed_commit = target_commit
         self.test_environment = root_env
-        if base_delta is not None or image_replayed:
-            self._transition_marker.unlink(missing_ok=True)
+        self._transition_marker.unlink(missing_ok=True)
         self._baseline_untrusted = False
         if log_file is not None:
             with open(log_file, "a", encoding="utf-8") as out:

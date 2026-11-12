@@ -1,7 +1,8 @@
 """Symbolic Docker ENV values, evaluated against the inherited environment."""
 
-import re
 import shlex
+
+import regex as re
 
 _VARIABLE = re.compile(r"(?<!\\)(?:\$\{([A-Za-z_][A-Za-z0-9_]*)(?::([-+])([^{}]*))?\}|\$([A-Za-z_][A-Za-z0-9_]*))")
 _ESCAPED_DOLLAR = "__BISECT_LITERAL_DOLLAR__"

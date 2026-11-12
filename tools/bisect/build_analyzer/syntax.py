@@ -12,8 +12,9 @@
 
 """Bash syntactic analysis with source-positioned errors."""
 
-import re
 from dataclasses import dataclass
+
+import regex as re
 
 from tools.bisect.build_analyzer.ir import BuildSyntaxError, Instruction
 from tools.bisect.build_analyzer.lexer import lex_dockerfile

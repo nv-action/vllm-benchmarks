@@ -17,11 +17,11 @@ changes block automatic replay rather than being silently skipped.
 """
 
 import posixpath
-import re
 import shlex
 from dataclasses import dataclass, replace
 from urllib.parse import urlsplit
 
+import regex as re
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
 

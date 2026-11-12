@@ -18,7 +18,6 @@ import hashlib
 import http.client
 import json
 import logging
-import re
 import shutil
 import tarfile
 import time
@@ -28,6 +27,8 @@ import urllib.request
 from contextlib import closing
 from pathlib import Path, PurePosixPath
 from uuid import uuid4
+
+import regex as re
 
 from tools.bisect.build_analyzer.base_image import BaseImageError, BaseImageSnapshot, _manifest
 

@@ -49,7 +49,9 @@ def command_fragments(old: str, new: str) -> list[str]:
     """Show the changed shell tokens in one RUN instruction."""
     before, after = old.split(), new.split()
     return [
-        f"-{' '.join(before[i:j])[:80]} +{' '.join(after[k:l])[:80]}"
-        for operation, i, j, k, l in difflib.SequenceMatcher(a=before, b=after, autojunk=False).get_opcodes()
+        f"-{' '.join(before[i:j])[:80]} +{' '.join(after[new_start:new_end])[:80]}"
+        for operation, i, j, new_start, new_end in difflib.SequenceMatcher(
+            a=before, b=after, autojunk=False
+        ).get_opcodes()
         if operation != "equal"
     ]

@@ -12,9 +12,10 @@
 
 """Recover explicit target-image replay steps from Docker image history."""
 
-import re
 import shlex
 from dataclasses import dataclass
+
+import regex as re
 
 from tools.bisect.build_analyzer.replay_cleanup import protect_replay_cleanup
 

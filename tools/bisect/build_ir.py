@@ -1,7 +1,8 @@
 """Semantic intermediate representation of a Docker-built bisect environment."""
 
-import tomllib
 from dataclasses import dataclass
+
+import tomllib
 
 from tools.bisect.build_recipe import BuildRecipe
 
@@ -16,9 +17,7 @@ class EnvironmentEffect:
 def compile_environment(recipe: BuildRecipe) -> tuple[EnvironmentEffect, ...]:
     """Project the ordered Docker build into effects the in-place adapter knows."""
     project = tomllib.loads(recipe.pyproject)
-    build_metadata = (
-        project.get("build-system"), project.get("project"), project.get("tool", {}).get("setuptools")
-    )
+    build_metadata = (project.get("build-system"), project.get("project"), project.get("tool", {}).get("setuptools"))
     return (
         EnvironmentEffect("CANN base image", recipe.cann_image, "matching image required"),
         EnvironmentEffect("vLLM source", recipe.vllm_ref, "switch vLLM"),

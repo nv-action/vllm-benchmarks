@@ -16,13 +16,13 @@ import ast
 import hashlib
 import json
 import posixpath
-import re
 import shlex
 import subprocess
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
+import regex as re
 import tomllib
 
 from tools.bisect.build_analyzer.ir import BuildAnalysis, BuildSyntaxError, Operation

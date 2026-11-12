@@ -15,10 +15,11 @@
 import fnmatch
 import json
 import posixpath
-import re
 import shlex
 from dataclasses import replace
 from urllib.parse import urlsplit
+
+import regex as re
 
 from tools.bisect.build_analyzer.environment import environment_assignments
 from tools.bisect.build_analyzer.git_commands import git_resources, parse_git_command

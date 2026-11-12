@@ -399,10 +399,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--force-initial-build",
         action="store_true",
-        help="clean-rebuild on the first trial instead of trusting the container's existing build at HEAD",
+        help="replay the target base image and full build chain before the first actual trial",
     )
     p.add_argument(
-        "--no-assume-built-head", action="store_true", help="do not treat the container's HEAD as already built"
+        "--no-assume-built-head",
+        action="store_true",
+        help="initialize from the target base image and full build chain instead of trusting HEAD",
     )
     p.add_argument(
         "--native-check",

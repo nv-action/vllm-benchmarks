@@ -10,7 +10,7 @@
 # limitations under the License.
 # This file is a part of the vllm-ascend project.
 
-"""Execute explicit target-image replay actions after validating all COPYs."""
+"""Execute explicit target-image replay actions after validating all copies."""
 
 import shlex
 import time
