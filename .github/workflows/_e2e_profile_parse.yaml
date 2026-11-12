@@ -33,7 +33,7 @@ jobs:
   prepare:
     name: Plan
     if: ${{ inputs.should_run }}
-    runs-on: linux-aarch64-cpu-4
+    runs-on: [linux-amd64-cpu-4,gy006]
     timeout-minutes: 30
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-cpu-py3.12
@@ -125,7 +125,7 @@ jobs:
     name: Finalize
     needs: [prepare, parse]
     if: ${{ always() && inputs.should_run }}
-    runs-on: linux-aarch64-cpu-4
+    runs-on: [linux-amd64-cpu-4,gy006]
     timeout-minutes: 30
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-cpu-py3.12
