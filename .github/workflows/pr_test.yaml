@@ -45,9 +45,9 @@ concurrency:
 
 jobs:
   pre-commit:
-    runs-on: linux-amd64-cpu-4-hk
+    runs-on: linux-amd64-cpu-8-hk
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
+      image: quay.io/ascend-ci/vllm-ascend:lint
     outputs:
       # Primary vLLM ref for this branch: main / *-dev use the verified vLLM
       # main commit, releases/v* use the pinned release tag.
@@ -501,9 +501,9 @@ jobs:
           contains(github.event.pull_request.labels.*.name, 'ready-all')
         )
       }}
-    runs-on: linux-amd64-cpu-4-hk
+    runs-on: linux-amd64-cpu-2-hk
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
+      image: quay.io/ascend-ci/vllm-ascend:lint
     outputs:
       has_tests: ${{ steps.scope-rec.outputs.has_tests || steps.scope-all.outputs.has_tests || steps.noop.outputs.has_tests }}
       test_groups: ${{ steps.scope-rec.outputs.test_groups || steps.scope-all.outputs.test_groups || steps.noop.outputs.test_groups }}
@@ -808,7 +808,7 @@ jobs:
     # artifacts instead. Runs regardless of test outcomes because the
     # comment workflow fires on any completed run.
     if: ${{ !cancelled() }}
-    runs-on: linux-amd64-cpu-4-hk
+    runs-on: linux-amd64-cpu-8-hk
     steps:
       - name: Write PR context
         run: |
@@ -832,9 +832,9 @@ jobs:
   ci-gate:
     needs: [pre-commit, cpu-ut, select-tests, run-selected-tests, run-selected-tests-a5]
     if: ${{ !cancelled() }}
-    runs-on: linux-amd64-cpu-4-hk
+    runs-on: linux-amd64-cpu-2-hk
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
+      image: quay.io/ascend-ci/vllm-ascend:lint
     steps:
       - name: Check all required jobs
         env:
