@@ -455,6 +455,15 @@ class TestNPUPlatform(TestBase):
         self._enable_sp_patch = patch("vllm_ascend.utils.enable_sp", return_value=False)
         self._enable_sp_patch.start()
         self.addCleanup(self._enable_sp_patch.stop)
+        # check_and_update_config() configures Ascend file logging as a side
+        # effect; it reads the process-global Ascend config, which other
+        # tests in the same xdist worker may leave polluted (e.g. a MagicMock
+        # config from test_linear), making os.makedirs() operate on mock
+        # paths and raise FileExistsError. These tests do not exercise file
+        # logging, so stub it for the whole class.
+        self._file_logging_patch = patch("vllm_ascend.logger.configure_ascend_file_logging")
+        self._file_logging_patch.start()
+        self.addCleanup(self._file_logging_patch.stop)
         self.platform = NPUPlatform()
         self.platform.supported_quantization[:] = ["ascend", "compressed-tensors"]
 

@@ -155,5 +155,5 @@ partition:
     runner_label: linux-aarch64-a3-800i-4
     count: 5
   cpu-0:
-    runner_label: linux-amd64-cpu-8-hk
+    runner_label: linux-amd64-cpu-4-hk
     count: 1
