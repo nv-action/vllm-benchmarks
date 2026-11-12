@@ -22,7 +22,7 @@ on:
         required: true
         type: string
       tag_suffix:
-        description: "Extra suffix appended to the published image tag only, after 'suffix', including the leading dash (e.g. '-presmoke' → nightly-main-310p-presmoke). Cache tags and artifact names keep using 'suffix', so isolated builds still reuse the warm build cache. Default '' leaves the tag unchanged."
+        description: "Extra suffix appended to the published image tag only, after 'suffix', including the leading dash (e.g. '-presmoke' → nightly-main-310p-presmoke). Cache tags and artifact names keep using 'suffix', so isolated builds still reuse the warm build cache. When set, the build also publishes a chip-qualified alias tag (nightly-main-presmoke-a2 / -a3 / -a5 / -310p) so a single chip can be referenced unambiguously. Default '' leaves the tag unchanged."
         required: false
         type: string
         default: ''
@@ -61,7 +61,7 @@ on:
         type: string
         default: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/cann'
       cann_image_version:
-        description: 'CANN image version for the CI job container only. It is independent of the CANN version baked into the built image, which comes from the FROM line in the Dockerfile.'
+        description: 'CANN image version for the CI job container only. It is independent of the CANN version baked into the built image, which comes from the FROM line in the Dockerfile. It must exist in the cann_swr_url repository, which does not carry every CANN release, hence the fixed default.'
         required: false
         type: string
         default: '9.1.0'
@@ -70,6 +70,11 @@ on:
         required: false
         type: string
         default: '910b'
+      target:
+        description: "Nightly target / chip name ('a2', 'a3', '310p' or 'a5'). Only used to build the chip-qualified alias tag of an isolated build, so it is required whenever tag_suffix is set."
+        required: false
+        type: string
+        default: ''
     secrets:
       SWR_USERNAME:
         description: 'SWR username for pushing images'
@@ -313,6 +318,33 @@ jobs:
           fi
           echo "pattern=${PATTERN}" >> "$GITHUB_OUTPUT"
 
+      - name: Prepare chip alias tag
+        id: alias
+        if: ${{ inputs.tag_suffix != '' }}
+        env:
+          PATTERN: ${{ steps.tag_pattern.outputs.pattern }}
+          SUFFIX: ${{ inputs.suffix }}
+          TAG_SUFFIX: ${{ inputs.tag_suffix }}
+          CHIP: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          # Isolated builds (presmoke, i.e. tag_suffix != '') additionally publish a
+          # chip-qualified alias tag: nightly-<pattern>[-openeuler]<tag_suffix>-<chip>,
+          # e.g. nightly-main-presmoke-a2 / nightly-main-presmoke-a3. The chip comes
+          # straight from the caller, and the OS marker from the 'suffix' (the a2
+          # variant carries an empty suffix). The standard tags are left untouched and
+          # this alias is not recorded as a separate build-info report (it points at
+          # the same manifest).
+          if [ -z "$CHIP" ]; then
+            echo "::error::tag_suffix is set but no chip (target) was provided"
+            exit 1
+          fi
+          OS_MARK=""
+          if [[ "$SUFFIX" == *openeuler* ]]; then
+            OS_MARK="-openeuler"
+          fi
+          echo "tag=nightly-${PATTERN}${OS_MARK}${TAG_SUFFIX}-${CHIP}" >> "$GITHUB_OUTPUT"
+
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v6
@@ -358,6 +390,7 @@ jobs:
           # the quay.io repo; the sync tool then mirrors swr.cn-north-12 → quay.io).
           SOURCE_IMAGE: ${{ inputs.swr_temp_repo }}
           TAGS: ${{ steps.meta.outputs.tags }}
+          ALIAS_TAG: ${{ steps.alias.outputs.tag }}
         run: |
           set -euo pipefail
 
@@ -394,6 +427,21 @@ jobs:
               '{image_ref: $image_ref, digest: $digest}' > "$metadata_file.tmp"
             mv "$metadata_file.tmp" "$metadata_file"
           done
+
+          # Isolation builds also publish a chip-qualified alias tag pointing at the
+          # same multi-arch manifest, e.g. nightly-main-presmoke-a2. No metadata file
+          # is written so the build-info collection still reports a single image.
+          if [ -n "${ALIAS_TAG:-}" ]; then
+            echo "Creating chip alias tag $ALIAS_TAG"
+            DIGESTS=""
+            for digest_file in "$DIGEST_DIR"/*; do
+              digest=$(basename "$digest_file")
+              DIGESTS="$DIGESTS $SOURCE_IMAGE@sha256:$digest"
+            done
+
+            # shellcheck disable=SC2086
+            docker buildx imagetools create -t "$ALIAS_TAG" $DIGESTS
+          fi
 
       - name: Dispatch quay.io sync
         if: ${{ inputs.should_push && !inputs.skip_sync }}
