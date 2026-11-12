@@ -292,6 +292,21 @@ def _setup_file_logging(log_dir: str | None = None) -> None:
     _file_logging_configured = True
 
 
+def get_ascend_log_dir() -> str:
+    """Return the directory where vllm-ascend log files are written.
+
+    Prefers ``ascend_log_path`` from the ascend config and falls back to
+    the default Ascend log directory when the config is unavailable.
+    """
+    try:
+        from vllm_ascend.ascend_config import get_ascend_config
+
+        ascend_config = get_ascend_config()
+        return os.path.expanduser(ascend_config.ascend_log_path)
+    except Exception:
+        return _LOG_DIR
+
+
 def configure_ascend_file_logging() -> None:
     global _file_logging_configured, _file_handler
     log_dir = _LOG_DIR
