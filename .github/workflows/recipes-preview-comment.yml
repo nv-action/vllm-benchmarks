@@ -13,8 +13,8 @@ on:
   workflow_run:
     workflows: [PR Create]
     types: [completed]
-  schedule:
-    - cron: '23 * * * *'
+      #  schedule:
+      #- cron: '23 * * * *'
   workflow_dispatch:
     inputs:
       pr_number:
