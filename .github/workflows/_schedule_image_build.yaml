@@ -127,11 +127,31 @@ jobs:
 
     - uses: actions/checkout@v7
       with:
-        submodules: recursive
+        submodules: false
         fetch-depth: 0
         persist-credentials: false
         # Empty on tag pushes and PR events, so the default event ref is used.
         ref: ${{ inputs.branch_ref }}
+
+    # gitcode.com (catlass / googletest submodules) intermittently returns 503
+    # or drops the connection mid-clone. Fetch the submodules separately with
+    # retries so a transient gitcode.com failure does not fail the build.
+    - name: Init git submodules (retry)
+      run: |
+        set -euo pipefail
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        cd "$GITHUB_WORKSPACE"
+        for i in 1 2 3 4 5; do
+          if git submodule sync --recursive \
+             && git submodule update --init --recursive; then
+            echo "git submodules initialized on attempt $i"
+            exit 0
+          fi
+          echo "::warning::git submodule update failed (attempt $i/5); retrying in $((i * 10))s"
+          sleep $((i * 10))
+        done
+        echo "::error::git submodule update failed after 5 attempts"
+        exit 1
 
     - name: Checkout Dockerfile from ref
       if: ${{ inputs.dockerfile_ref != '' }}
