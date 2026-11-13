@@ -142,7 +142,7 @@ jobs:
       # The standard nightly pipeline builds both architectures for every OS,
       # keeping the fixed runner mapping (and therefore the build cache).
       build_type: ${{ inputs.build_type }}
-      should_push: ${{ github.repository == 'vllm-project/vllm-ascend' }}
+      should_push: ${{ github.repository == 'nv-action/vllm-benchmarks' }}
       skip_base: ${{ inputs.skip_base || false }}
       swr_registry: 'swr.cn-north-12.myhuaweicloud.com'
       tag_suffix: ${{ inputs.tag_suffix }}
