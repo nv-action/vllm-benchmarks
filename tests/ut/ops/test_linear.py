@@ -183,16 +183,20 @@ class TestShouldReshapeWoATo3d(unittest.TestCase):
 
 
 class TestAscendRowParallelLinear(BaseLinearTest):
+    # The platform config is a process-global singleton: replacing it with a
+    # scoped mock (instead of assigning the module attribute directly) keeps
+    # the previous value restored afterwards, so the mock cannot leak into
+    # other tests running later in the same xdist worker.
+    @patch.object(ascend_config, "_ASCEND_CONFIG", MagicMock())
     @patch("vllm_ascend.ops.linear.get_current_vllm_config", return_value=MagicMock())
     @patch(
         "vllm_ascend.ops.linear.AscendUnquantizedLinearMethod.apply",
         new=lambda self, layer, x, bias=None: torch.nn.functional.linear(x, layer.weight, bias),
     )
-    def test_mlp_optimize(self, mock_get_current_vllm_config):
-        ascend_config._ASCEND_CONFIG = MagicMock()
-        ascend_config._ASCEND_CONFIG.scheduler_config.recompute_scheduler_enable = False
-        ascend_config._ASCEND_CONFIG.finegrained_tp_config.mlp_tensor_parallel_size = 2
-        ascend_config._ASCEND_CONFIG.ascend_scheduler_config.enabled = False
+    def test_mlp_optimize(self, mock_get_current_vllm_config, mock_ascend_config):
+        mock_ascend_config.scheduler_config.recompute_scheduler_enable = False
+        mock_ascend_config.finegrained_tp_config.mlp_tensor_parallel_size = 2
+        mock_ascend_config.ascend_scheduler_config.enabled = False
 
         linear = AscendRowParallelLinear(
             input_size=16,
@@ -204,16 +208,16 @@ class TestAscendRowParallelLinear(BaseLinearTest):
         input_tensor = torch.randn(16, 8)
         linear(input_tensor)
 
+    @patch.object(ascend_config, "_ASCEND_CONFIG", MagicMock())
     @patch("vllm_ascend.ops.linear.get_current_vllm_config", return_value=MagicMock())
     @patch(
         "vllm_ascend.ops.linear.AscendUnquantizedLinearMethod.apply",
         new=lambda self, layer, x, bias=None: torch.nn.functional.linear(x, layer.weight, bias),
     )
-    def test_oproj_tp(self, mock_get_current_vllm_config):
-        ascend_config._ASCEND_CONFIG = MagicMock()
-        ascend_config._ASCEND_CONFIG.scheduler_config.recompute_scheduler_enable = False
-        ascend_config._ASCEND_CONFIG.finegrained_tp_config.oproj_tensor_parallel_size = 2
-        ascend_config._ASCEND_CONFIG.ascend_scheduler_config.enabled = False
+    def test_oproj_tp(self, mock_get_current_vllm_config, mock_ascend_config):
+        mock_ascend_config.scheduler_config.recompute_scheduler_enable = False
+        mock_ascend_config.finegrained_tp_config.oproj_tensor_parallel_size = 2
+        mock_ascend_config.ascend_scheduler_config.enabled = False
 
         linear = AscendRowParallelLinear(
             input_size=16,
@@ -227,11 +231,11 @@ class TestAscendRowParallelLinear(BaseLinearTest):
 
 
 class TestAscendMergedColumnParallelLinear(BaseLinearTest):
-    def test_merged_mlp_tp_init(self):
-        ascend_config._ASCEND_CONFIG = MagicMock()
-        ascend_config._ASCEND_CONFIG.scheduler_config.recompute_scheduler_enable = False
-        ascend_config._ASCEND_CONFIG.finegrained_tp_config.mlp_tensor_parallel_size = 2
-        ascend_config._ASCEND_CONFIG.ascend_scheduler_config.enabled = False
+    @patch.object(ascend_config, "_ASCEND_CONFIG", MagicMock())
+    def test_merged_mlp_tp_init(self, mock_ascend_config):
+        mock_ascend_config.scheduler_config.recompute_scheduler_enable = False
+        mock_ascend_config.finegrained_tp_config.mlp_tensor_parallel_size = 2
+        mock_ascend_config.ascend_scheduler_config.enabled = False
 
         linear = AscendMergedColumnParallelLinear(
             input_size=16,

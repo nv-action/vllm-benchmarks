@@ -123,6 +123,14 @@ def test_v41_draft_routes_to_v41():
         # implementation; a plain VllmConfig has PCP=1, so the draft routes to
         # the non-PCP AscendDSAV41Impl.
         set_current_vllm_config(VllmConfig()),
+        # AscendDSAV41Impl.__init__ reads the process-global Ascend config,
+        # which is not initialized in this unit-test context (and its state
+        # depends on test order in the same xdist worker). Stub it so the
+        # draft construction is hermetic.
+        patch(
+            "vllm_ascend.attention.dsa_v41.get_ascend_config",
+            return_value=SimpleNamespace(multistream_dsv4_dsa_overlap=False),
+        ),
         patch.object(DeepseekV41SWAAttention, "__init__", initialize_base),
         patch.object(
             deepseek_v41_dspark_module.DeviceOperator,
