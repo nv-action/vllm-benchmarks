@@ -144,13 +144,16 @@ jobs:
       build_type: ${{ inputs.build_type }}
       should_push: ${{ github.repository == 'nv-action/vllm-benchmarks' }}
       skip_base: ${{ inputs.skip_base || false }}
-      swr_registry: 'swr.cn-north-12.myhuaweicloud.com'
+      swr_registry: 'swr.cn-southwest-2.myhuaweicloud.com'
+      swr_temp_repo: 'swr.cn-southwest-2.myhuaweicloud.com/ascend/vllm-atlas-temp'
+      nightly_release_repo: 'swr.cn-southwest-2.myhuaweicloud.com/ascend/vllm-ascend-openeuler'
+      cann_swr_url: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann'
       tag_suffix: ${{ inputs.tag_suffix }}
       image_repo_suffix: ${{ inputs.image_repo_suffix }}
       skip_sync: ${{ inputs.skip_sync }}
     secrets:
-      SWR_USERNAME: ${{ secrets.SWR_USERNAME }}
-      SWR_PASSWORD: ${{ secrets.SWR_PASSWORD }}
+      SWR_USERNAME: ${{ secrets.SWR_SW2_USERNAME }}
+      SWR_PASSWORD: ${{ secrets.SWR_SW2_PASSWORD }}
       SYNC_TOOLS_TOKEN: ${{ secrets.SYNC_TOOLS_TOKEN }}
 
   collect-build-info:
