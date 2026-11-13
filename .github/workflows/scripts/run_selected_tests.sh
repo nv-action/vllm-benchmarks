@@ -193,7 +193,7 @@ run_pytest_target() {
       # workers than CPUs oversubscribe the pod and the cgroup OOM killer
       # crashes workers on the heaviest tests. Match the worker count to
       # the pod's CPUs.
-      run_logged_command "${log_file}" python -m slipcover --source="${project_root}/vllm_ascend" --omit="*/tests/*,*/ops/triton/*" --json --out "${project_root}/tests/coverage.json" -m pytest -n "$(nproc)" -sv --color=yes "${target}"
+      run_logged_command "${log_file}" python -m slipcover --source="${project_root}/vllm_ascend" --omit="*/tests/*,*/ops/triton/*" --json --out "${project_root}/tests/coverage.json" -m pytest -n 4 -sv --color=yes "${target}"
     else
       run_logged_command "${log_file}" pytest -sv --color=yes "${target}"
     fi
@@ -249,7 +249,7 @@ run_pytest_batch() {
     if [ "${npu_type}" = "cpu" ]; then
       # Match slipcover workers to the pod's CPUs: see run_pytest_target for
       # the cpu-4-hk OOM rationale.
-      run_logged_command "${log_file}" python -m slipcover --source="${project_root}/vllm_ascend" --omit="*/tests/*,*/ops/triton/*" --json --out "${project_root}/tests/coverage.json" -m pytest -n "$(nproc)" -sv --color=yes "${batch_targets[@]}"
+      run_logged_command "${log_file}" python -m slipcover --source="${project_root}/vllm_ascend" --omit="*/tests/*,*/ops/triton/*" --json --out "${project_root}/tests/coverage.json" -m pytest -n 4 -sv --color=yes "${batch_targets[@]}"
     else
       run_logged_command "${log_file}" pytest -sv --color=yes "${batch_targets[@]}"
     fi
