@@ -65,6 +65,21 @@ on:
         type: string
         default: 'swr.cn-north-12.myhuaweicloud.com'
         description: 'SWR registry domain'
+      swr_base_repo:
+        required: false
+        type: string
+        default: 'swr.cn-north-12.myhuaweicloud.com/ascend/vllm-ascend'
+        description: "SWR repository of the runtime base image this build consumes as FROM."
+      swr_temp_repo:
+        required: false
+        type: string
+        default: 'swr.cn-north-12.myhuaweicloud.com/atlas_ci/vllm-atlas-temp'
+        description: "SWR repository holding the single-arch temp images (one per arch) before they are merged into multi-arch manifests."
+      nightly_release_repo:
+        required: false
+        type: string
+        default: 'swr.cn-north-12.myhuaweicloud.com/atlas_inference/vllm-ascend'
+        description: "SWR repository for the release-shaped nightly images (openEuler variants, and the north-4 mirror)."
       should_push:
         required: false
         type: boolean
@@ -268,7 +283,7 @@ jobs:
           # The runtime image it consumes is published by the runtime build workflow
           # under the same 'nightly-<branch>[-<target>][-openeuler]' tag, in the
           # matching repository.
-          BASE_IMAGE="${{ inputs.swr_registry }}/ascend/vllm-ascend${ISOLATED_REPO_SUFFIX}"
+          BASE_IMAGE="${{ inputs.swr_base_repo }}${ISOLATED_REPO_SUFFIX}"
           OS_MARK=""
           if [ "${{ matrix.os }}" = "openeuler" ]; then
             OS_MARK="-openeuler"
@@ -301,11 +316,11 @@ jobs:
             if [ "${{ inputs.isolated_build }}" = "true" ]; then
               FINAL_IMAGE="${{ inputs.swr_registry }}/base_image/ascend-ci/vllm-ascend${ISOLATED_REPO_SUFFIX}:${FULL_TAG}"
             elif [ -n "$OS_MARK" ]; then
-              FINAL_IMAGE="${{ inputs.swr_registry }}/atlas_inference/vllm-ascend:${FULL_TAG}"
+              FINAL_IMAGE="${{ inputs.nightly_release_repo }}:${FULL_TAG}"
             else
-              FINAL_IMAGE="${{ inputs.swr_registry }}/base_image/ascend-ci/vllm-ascend:${FULL_TAG}, ${{ inputs.swr_registry }}/atlas_inference/vllm-ascend:${FULL_TAG}"
+              FINAL_IMAGE="${{ inputs.swr_registry }}/base_image/ascend-ci/vllm-ascend:${FULL_TAG}, ${{ inputs.nightly_release_repo }}:${FULL_TAG}"
             fi
-            PUSH_IMAGE="${{ inputs.swr_registry }}/atlas_ci/vllm-atlas-temp:${UNIQUE_TAG}-${{ matrix.arch_name }}"
+            PUSH_IMAGE="${{ inputs.swr_temp_repo }}:${UNIQUE_TAG}-${{ matrix.arch_name }}"
           else
             FINAL_IMAGE="${{ inputs.swr_registry }}/base_image/ascend-ci/vllm-ascend${ISOLATED_REPO_SUFFIX}:${FULL_TAG}"
             PUSH_IMAGE="${FINAL_IMAGE}"
@@ -356,6 +371,8 @@ jobs:
         id: merge
         env:
           SWR_REGISTRY: ${{ inputs.swr_registry }}
+          SWR_TEMP_REPO: ${{ inputs.swr_temp_repo }}
+          NIGHTLY_RELEASE_REPO: ${{ inputs.nightly_release_repo }}
           TARGET: ${{ inputs.target }}
           VLLM_ASCEND_BRANCH: ${{ inputs.vllm_ascend_branch }}
           OS_FILTER: ${{ inputs.os_filter }}
@@ -369,7 +386,7 @@ jobs:
           # a standard build keeps the ubuntu -> CI + atlas_inference and
           # openeuler -> atlas_inference destinations.
           CI_REPO="${SWR_REGISTRY}/base_image/ascend-ci/vllm-ascend${ISOLATED_REPO_SUFFIX}"
-          ATLAS_REPO="${SWR_REGISTRY}/atlas_inference/vllm-ascend"
+          ATLAS_REPO="${NIGHTLY_RELEASE_REPO}"
 
           # Restrict to the requested OS variant so ubuntu and openeuler
           # pipelines merge independently of each other.
@@ -411,7 +428,7 @@ jobs:
             TAG="nightly-ci-${BRANCH_TAG}-${TARGET}${OS_MARK}"
             # The build step pushed the per-arch images under the unique tag.
             UNIQUE_TAG="${TAG}${TAG_SUFFIX}"
-            TEMP="${SWR_REGISTRY}/atlas_ci/vllm-atlas-temp:${UNIQUE_TAG}"
+            TEMP="${SWR_TEMP_REPO}:${UNIQUE_TAG}"
 
             # A variant merges only when BOTH arch images exist.
             MISSING_ARCH=0
