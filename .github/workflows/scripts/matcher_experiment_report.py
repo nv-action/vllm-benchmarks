@@ -20,7 +20,7 @@ EXPENSIVE_STEPS = (
     "Run mypy for Python 3.10, 3.11 and 3.12 in parallel",
 )
 UPSTREAM_SHA = "d476b009777343b1b5e4a3550e4a34f43108ed8e"
-IMAGE_DIGEST = "sha256:559870333e19782814b9fe4af5b317a363997d7870ba305f544cbc0f958cadee"
+IMAGE_REFERENCE = "quay.io/ascend-ci/vllm-ascend:lint"
 MAX_REQUEST_ATTEMPTS = 3
 REQUEST_TIMEOUT_SECONDS = 60
 
@@ -133,7 +133,7 @@ def render_report(records, run_url):
         "",
         f"Run: {run_url}",
         f"Upstream baseline: `{UPSTREAM_SHA}`",
-        f"Container digest: `{IMAGE_DIGEST}`",
+        f"Container image: `{IMAGE_REFERENCE}`",
         "",
         "Each group has 10 independent jobs, with max-parallel=1 and fail-fast=false.",
         "The groups run concurrently; pre-commit and mypy execution are skipped.",
