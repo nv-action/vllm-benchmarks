@@ -186,8 +186,11 @@ class TestAscendRowParallelLinear(BaseLinearTest):
     # The platform config is a process-global singleton: replacing it with a
     # scoped mock (instead of assigning the module attribute directly) keeps
     # the previous value restored afterwards, so the mock cannot leak into
-    # other tests running later in the same xdist worker.
-    @patch.object(ascend_config, "_ASCEND_CONFIG", MagicMock())
+    # other tests running later in the same xdist worker. Note: ``new`` is
+    # deliberately omitted so patch.object injects the created mock into the
+    # test as ``mock_ascend_config`` (with ``new=MagicMock()`` it patches but
+    # injects nothing).
+    @patch.object(ascend_config, "_ASCEND_CONFIG")
     @patch("vllm_ascend.ops.linear.get_current_vllm_config", return_value=MagicMock())
     @patch(
         "vllm_ascend.ops.linear.AscendUnquantizedLinearMethod.apply",
@@ -208,7 +211,7 @@ class TestAscendRowParallelLinear(BaseLinearTest):
         input_tensor = torch.randn(16, 8)
         linear(input_tensor)
 
-    @patch.object(ascend_config, "_ASCEND_CONFIG", MagicMock())
+    @patch.object(ascend_config, "_ASCEND_CONFIG")
     @patch("vllm_ascend.ops.linear.get_current_vllm_config", return_value=MagicMock())
     @patch(
         "vllm_ascend.ops.linear.AscendUnquantizedLinearMethod.apply",
@@ -231,7 +234,7 @@ class TestAscendRowParallelLinear(BaseLinearTest):
 
 
 class TestAscendMergedColumnParallelLinear(BaseLinearTest):
-    @patch.object(ascend_config, "_ASCEND_CONFIG", MagicMock())
+    @patch.object(ascend_config, "_ASCEND_CONFIG")
     def test_merged_mlp_tp_init(self, mock_ascend_config):
         mock_ascend_config.scheduler_config.recompute_scheduler_enable = False
         mock_ascend_config.finegrained_tp_config.mlp_tensor_parallel_size = 2
