@@ -145,8 +145,9 @@ jobs:
       should_push: ${{ github.repository == 'nv-action/vllm-benchmarks' }}
       skip_base: ${{ inputs.skip_base || false }}
       swr_registry: 'swr.cn-southwest-2.myhuaweicloud.com'
-      swr_temp_repo: 'swr.cn-southwest-2.myhuaweicloud.com/ascend/vllm-atlas-temp'
-      nightly_release_repo: 'swr.cn-southwest-2.myhuaweicloud.com/ascend/vllm-ascend-openeuler'
+      swr_base_repo: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend-base'
+      swr_temp_repo: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-atlas-temp'
+      nightly_release_repo: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend-openeuler'
       cann_swr_url: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann'
       tag_suffix: ${{ inputs.tag_suffix }}
       image_repo_suffix: ${{ inputs.image_repo_suffix }}
