@@ -216,25 +216,52 @@ jobs:
         echo "pattern=${PATTERN}" >> "$GITHUB_OUTPUT"
 
     - name: Build and push
-      uses: docker/build-push-action@v7
       id: build
-      with:
-        # use the current repo path as the build context, ensure .git is contained
-        context: .
-        file: ${{ inputs.dockerfile || 'Dockerfile' }}
-        # only trigger when tag, branch/main push
-        push: ${{ inputs.should_push }}
-        outputs: type=image,name=${{ inputs.swr_temp_repo }},push-by-digest=true,name-canonical=true,push=${{ inputs.should_push }},oci-mediatypes=false
-        # Image builds can compile inside Docker and therefore keep a fallback;
-        # NPU test jobs use fail-on-cache-miss instead.
-        build-args: |
-          COMPILE_CUSTOM_KERNELS=${{ steps.cache-csrc.outputs.cache-hit == 'true' && '0' || '1' }}
-        provenance: false
-        # To speed up the build, we use registry cache. The cache tag is determined by the suffix and architecture, and shared across different workflow runs.
-        # For example, the cache tag for arm64 image with suffix "openeuler" will be "buildcache-openeuler-arm64".
-        # When a new image is built and pushed, the cache will also be updated in the registry, so that next build can benefit from it.
-        cache-from: type=registry,ref=${{ inputs.swr_temp_repo }}:${{ steps.cache-tag.outputs.value }}
-        cache-to: ${{ inputs.should_push && format('type=registry,ref={0}:{1},mode=max', inputs.swr_temp_repo, steps.cache-tag.outputs.value) || '' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        # SWR and upstream registries intermittently fail mid-transfer (timeouts,
+        # 5xx, short reads). Retry the build so transient network errors do not
+        # fail the whole pipeline; the registry cache keeps retries fast.
+        CACHE_TAG="${{ steps.cache-tag.outputs.value }}"
+        TEMP_REPO="${{ inputs.swr_temp_repo }}"
+        PUSH_IMAGE="${{ inputs.should_push }}"
+        DOCKERFILE="${{ inputs.dockerfile || 'Dockerfile' }}"
+        COMPILE_CUSTOM_KERNELS="${{ steps.cache-csrc.outputs.cache-hit == 'true' && '0' || '1' }}"
+        export BUILDKIT_PROGRESS=plain
+        METADATA_FILE="$RUNNER_TEMP/build-metadata.json"
+        MAX_ATTEMPTS=4
+        for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
+          echo "::group::docker buildx build (attempt $attempt/$MAX_ATTEMPTS)"
+          CACHE_TO=""
+          if [ "$PUSH_IMAGE" = "true" ]; then
+            CACHE_TO="--cache-to type=registry,ref=${TEMP_REPO}:${CACHE_TAG},mode=max"
+          fi
+          # shellcheck disable=SC2086
+          if docker buildx build \
+            --build-arg COMPILE_CUSTOM_KERNELS="$COMPILE_CUSTOM_KERNELS" \
+            --cache-from "type=registry,ref=${TEMP_REPO}:${CACHE_TAG}" \
+            $CACHE_TO \
+            --file "$DOCKERFILE" \
+            --output "type=image,name=${TEMP_REPO},push-by-digest=true,name-canonical=true,push=${PUSH_IMAGE},oci-mediatypes=false" \
+            --attest type=provenance,disabled=true \
+            --metadata-file "$METADATA_FILE" \
+            .; then
+            echo "::endgroup::"
+            break
+          fi
+          echo "::endgroup::"
+          if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+            echo "::warning::buildx attempt $attempt failed (likely transient network error); retrying in 60s"
+            sleep 60
+          else
+            echo "::error::buildx failed after $MAX_ATTEMPTS attempts"
+            exit 1
+          fi
+        done
+        DIGEST="$(jq -r '."containerimage.digest"' "$METADATA_FILE")"
+        echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+        echo "Built and pushed ${TEMP_REPO}@${DIGEST}"
 
     # Quay.io/swr automatically cleans up untagged digests on a regular basis, with a cycle of approximately one hour. 
     # Add temporary tags to digests to prevent them from being removed.
