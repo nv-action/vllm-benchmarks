@@ -20,7 +20,7 @@ EXPENSIVE_STEPS = (
     "Run mypy for Python 3.10, 3.11 and 3.12 in parallel",
 )
 UPSTREAM_SHA = "d476b009777343b1b5e4a3550e4a34f43108ed8e"
-IMAGE_REFERENCE = "quay.io/ascend-ci/vllm-ascend:lint"
+IMAGE_REFERENCE = "quay.nju.edu.cn/ascend-ci/vllm-ascend:lint"
 MAX_REQUEST_ATTEMPTS = 3
 REQUEST_TIMEOUT_SECONDS = 60
 

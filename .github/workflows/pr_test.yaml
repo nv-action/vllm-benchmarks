@@ -52,7 +52,7 @@ jobs:
         trial: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     runs-on: linux-amd64-cpu-8-hk
     container:
-      image: quay.io/ascend-ci/vllm-ascend:lint
+      image: quay.nju.edu.cn/ascend-ci/vllm-ascend:lint
     outputs:
       # Primary vLLM ref for this branch: main / *-dev use the verified vLLM
       # main commit, releases/v* use the pinned release tag.
@@ -322,7 +322,7 @@ jobs:
         trial: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     runs-on: linux-amd64-cpu-8-hk
     container:
-      image: quay.io/ascend-ci/vllm-ascend:lint
+      image: quay.nju.edu.cn/ascend-ci/vllm-ascend:lint
     outputs:
       # Primary vLLM ref for this branch: main / *-dev use the verified vLLM
       # main commit, releases/v* use the pinned release tag.
@@ -597,7 +597,7 @@ jobs:
         trial: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     runs-on: linux-amd64-cpu-8-hk
     container:
-      image: quay.io/ascend-ci/vllm-ascend:lint
+      image: quay.nju.edu.cn/ascend-ci/vllm-ascend:lint
     outputs:
       # Primary vLLM ref for this branch: main / *-dev use the verified vLLM
       # main commit, releases/v* use the pinned release tag.
@@ -869,7 +869,7 @@ jobs:
     runs-on: linux-amd64-cpu-8-hk
     timeout-minutes: 10
     container:
-      image: quay.io/ascend-ci/vllm-ascend:lint
+      image: quay.nju.edu.cn/ascend-ci/vllm-ascend:lint
     steps:
       - uses: actions/checkout@v7
       - name: Collect job results and original logs
