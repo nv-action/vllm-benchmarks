@@ -35,7 +35,10 @@ on:
 defaults:
   run:
     shell: bash -el {0}
-
+permissions:
+  contents: read
+  pull-requests: write
+  
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -285,10 +288,26 @@ jobs:
           GONOSUMDB: '*'
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          # The swr act-environments image is a generic base; install the lint
+          # tools that the quay.io/...:lint image pre-ship. pre-commit is a
+          # Python wheel; shellcheck is a system binary used by the shellcheck
+          # and actionlint hooks (pre-commit invokes it from PATH).
+          pip3 install -q pre-commit
+          if command -v shellcheck &> /dev/null; then
+            echo "shellcheck already present"
+          else
+            curl -fsSL https://github.com/koalaman/shellcheck/releases/download/v0.10.0/shellcheck-v0.10.0.linux.x86_64.tar.xz \
+              | tar -xJ -C /usr/local/bin --strip-components=3 \
+              shellcheck-v0.10.0.linux.x86_64/shellcheck && chmod +x /usr/local/bin/shellcheck
+          fi
           pre-commit run --all-files --hook-stage manual --show-diff-on-failure
 
       - name: Run mypy for Python 3.10, 3.11 and 3.12 in parallel
         run: |
+          # The swr act-environments image is a generic base; install mypy that
+          # the quay.io/...:lint image pre-ship. run_mypy_parallel.py invokes
+          # `mypy` directly via tools/mypy.sh.
+          pip3 install -q mypy
           PYTHONPATH="$PYTHONPATH:$(pwd)/vllm-empty"
           export PYTHONPATH
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -312,7 +331,7 @@ jobs:
       ref: ${{ github.event.pull_request.head.sha }}
       base_ref: ${{ github.base_ref }}
       test_groups: >-
-        [{"partition_name":"cpu-ut","runner":"linux-amd64-cpu-8-hk","image_tag":"9.2.1-910b-ubuntu22.04-py3.12","npu_type":"cpu","num_npus":0,"tests":"tests/ut"}]
+        [{"partition_name":"cpu-ut","runner":"linux-amd64-cpu-4-hk","image_tag":"9.2.1-910b-ubuntu22.04-py3.12","npu_type":"cpu","num_npus":0,"tests":"tests/ut"}]
       enable-coverage: false
 
   recommend-tests:
@@ -814,6 +833,8 @@ jobs:
     needs: [pre-commit, cpu-ut, select-tests, run-selected-tests, run-selected-tests-a5]
     if: ${{ !cancelled() }}
     runs-on: linux-amd64-cpu-2-hk
+    container:
+      image: quay.io/ascend-ci/vllm-ascend:lint
     steps:
       - name: Check all required jobs
         env:
