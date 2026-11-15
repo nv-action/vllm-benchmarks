@@ -67,7 +67,10 @@ concurrency:
 
 jobs:
   select-all-tests:
-    runs-on: linux-amd64-cpu-8-hk
+    # TEMP: cpu-8-hk routes to the broken 2t7n6 node whose container init
+    # stalls indefinitely (two rounds stuck on 2t7n6-* pods on Nov 15).
+    # cpu-2-hk is healthy all day - revert with the verification series.
+    runs-on: linux-amd64-cpu-2-hk
     container:
       image: quay.io/ascend-ci/vllm-ascend:lint
     outputs:
