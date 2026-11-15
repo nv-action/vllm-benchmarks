@@ -248,7 +248,7 @@ jobs:
 
       - name: Restore incremental cache for source checkout
         id: source-l1
-        if: ${{ inputs.request_id != '' }}
+        if: ${{ inputs.request_id != '' && inputs.name != 'ForceFail-e2e-Daily' }}
         uses: ./../../_temp/ci-workflow/.github/actions/csrc-l1-restore
         with:
           cache-dir: csrc/build_cache
@@ -267,7 +267,7 @@ jobs:
           echo "MAX_JOBS=$((CARDS * 23))" >> $GITHUB_ENV
 
       - name: Install vllm-project/vllm-ascend
-        if: ${{ inputs.request_id != '' }}
+        if: ${{ inputs.request_id != '' && inputs.name != 'ForceFail-e2e-Daily' }}
         working-directory: /vllm-workspace/vllm-ascend
         env:
           MAX_JOBS: ${{ env.MAX_JOBS }}
@@ -287,7 +287,7 @@ jobs:
           uv pip install -e . --no-deps
 
       - name: Install aisbench
-        if: ${{ inputs.request_id != '' }}
+        if: ${{ inputs.request_id != '' && inputs.name != 'ForceFail-e2e-Daily' }}
         shell: bash -l {0}
         run: |
           cp -r /tmp/aisbench-backup /vllm-workspace/vllm-ascend/benchmark

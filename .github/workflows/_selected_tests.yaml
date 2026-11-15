@@ -141,6 +141,9 @@ jobs:
           path: ./vllm-empty
 
       - name: Install vllm-project/vllm from source
+        # TEMP: force-fail UT verification needs no vllm install (revert with
+        # the verification commit)
+        if: ${{ !contains(matrix.group.tests, 'force_fail') }}
         working-directory: ./vllm-empty
         run: |
           VLLM_TARGET_DEVICE=empty uv pip install .
@@ -295,7 +298,9 @@ jobs:
           PY
 
       - name: Install vllm-project/vllm-ascend no device
-        if: ${{ matrix.group.npu_type == 'cpu' }}
+        # TEMP: force-fail UT verification needs no vllm-ascend install
+        # (revert with the verification commit)
+        if: ${{ matrix.group.npu_type == 'cpu' && !contains(matrix.group.tests, 'force_fail') }}
         env:
           SOC_VERSION: ascend910b1
           COMPILE_CUSTOM_KERNELS: 0
