@@ -243,7 +243,7 @@ jobs:
             -f vllm_ascend_branch='main' \
             -f skip_build_image='true' \
             -f request_id='daily-${{ github.run_id }}-${{ github.run_attempt }}' \
-            -f vllm_ascend_ref='main'
+            -f vllm_ascend_ref='${{ github.ref_name }}'
 
   daily-dispatch-a3:
     name: Dispatch Nightly-A3 daily subset
@@ -273,7 +273,7 @@ jobs:
             -f vllm_ascend_branch='main' \
             -f skip_build_image='true' \
             -f request_id='daily-${{ github.run_id }}-${{ github.run_attempt }}' \
-            -f vllm_ascend_ref='main'
+            -f vllm_ascend_ref='${{ github.ref_name }}'
 
   daily-dispatch-a3-560t:
     name: Dispatch Nightly-A3-560T daily subset
@@ -303,7 +303,7 @@ jobs:
             -f vllm_ascend_branch='main' \
             -f skip_build_image='true' \
             -f request_id='daily-${{ github.run_id }}-${{ github.run_attempt }}' \
-            -f vllm_ascend_ref='main'
+            -f vllm_ascend_ref='${{ github.ref_name }}'
 
   daily-dispatch-a5:
     name: Dispatch Nightly-A5 daily subset
@@ -333,7 +333,7 @@ jobs:
             -f vllm_ascend_branch='main' \
             -f skip_build_image='true' \
             -f request_id='daily-${{ github.run_id }}-${{ github.run_attempt }}' \
-            -f vllm_ascend_ref='main'
+            -f vllm_ascend_ref='${{ github.ref_name }}'
 
   update-estimated-times:
     needs: [run-all-tests]
