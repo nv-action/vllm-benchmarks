@@ -1,0 +1,5 @@
+# Temporary broken case config for Daily Issue chain verification (revert after).
+# Invalid YAML on purpose: tests/e2e/common/single_node/test_single_node.py
+# loads this at module import (SingleNodeConfigLoader.from_yaml_cases) and
+# fails within seconds - no model server is ever started.
+test_cases: [unclosed
