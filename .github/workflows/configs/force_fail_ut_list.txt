@@ -1,0 +1,2 @@
+# Temporary selection for Daily Issue chain verification (revert after).
+tests/ut/force_fail_daily_test.py

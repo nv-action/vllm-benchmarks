@@ -21,11 +21,11 @@
 # resolve_daily_tests.py supports the a2/a3/a3-560t/a5 SOCs; 310p is not
 # dispatched by the daily workflow.
 
+# TEMP: daily subset restricted to the force-fail case for Daily Issue
+# chain verification on the nv-action test branch. Restore the original
+# four a3-560t cases when reverting the verification commit.
+
 a3-560t:
   single_node:
-    - name: Kimi-K2.6-w4a8-A3
-    - name: MiniMax-M3-BF16-A3
-    - name: DeepSeek-V4-Flash-W8A8-A3
-    - name: glm-5.2-w4a8-dspark
-  multi_card:
-    - name: Qwen3-32B-QuaRot
+    - name: ForceFail-e2e-Daily
+  multi_card: []

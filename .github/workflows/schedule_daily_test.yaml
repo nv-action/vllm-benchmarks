@@ -124,7 +124,11 @@ jobs:
         run: |
           pip install regex pyyaml
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          python3 .github/workflows/scripts/select_tests.py --all-tests
+          # TEMP: select_tests.py's built-in --test-list-file used to pin the
+          # sweep to the single force-fail UT for Daily Issue chain
+          # verification (revert to --all-tests with the injecting commit)
+          python3 .github/workflows/scripts/select_tests.py \
+            --test-list-file .github/workflows/configs/force_fail_ut_list.txt
 
   ensure-csrc-cache:
     needs: select-all-tests
