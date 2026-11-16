@@ -373,6 +373,13 @@ jobs:
             --markdown-report ./tests/diff_coverage.md
           cat ./tests/diff_coverage.md >> "${GITHUB_STEP_SUMMARY}"
 
+      - name: Generate PR coverage comment
+        if: ${{ matrix.group.npu_type == 'cpu' && inputs.enable-coverage != true }}
+        run: |
+          python3 .github/workflows/scripts/coverage_comment.py \
+            --input ./tests/diff_coverage.md \
+            --output ./tests/coverage_comment.md
+
       - name: Upload diff coverage report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
