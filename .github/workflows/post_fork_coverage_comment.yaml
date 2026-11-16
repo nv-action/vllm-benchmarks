@@ -158,20 +158,20 @@ jobs:
           run-id: ${{ steps.resolve-run.outputs.run_id }}
           path: ./coverage-report
 
-      - name: Locate diff coverage markdown
+      - name: Locate coverage comment
         if: ${{ steps.resolve-run.outputs.run_id != '' }}
         run: |
-          f=$(find ./coverage-report -type f -name diff_coverage.md | head -1)
+          f=$(find ./coverage-report -type f -name coverage_comment.md | head -1)
           if [ -z "$f" ]; then
-            echo "::warning::diff_coverage.md not found in downloaded artifacts"
-            exit 0
+            echo "::warning::coverage_comment.md not found in downloaded artifacts"
+            exit 1
           fi
-          cp "$f" ./diff_coverage.md
+          cp "$f" ./coverage_comment.md
 
-      - name: Post diff coverage as PR comment
-        if: ${{ steps.resolve-run.outputs.run_id != '' && steps.resolve-pr-number.outputs.pr_number != '' && hashFiles('./diff_coverage.md') != '' }}
+      - name: Post coverage comment to PR
+        if: ${{ steps.resolve-run.outputs.run_id != '' && steps.resolve-pr-number.outputs.pr_number != '' && hashFiles('./coverage_comment.md') != '' }}
         uses: thollander/actions-comment-pull-request@v2.5.0
         with:
-          filePath: ./diff_coverage.md
+          filePath: ./coverage_comment.md
           pr_number: ${{ steps.resolve-pr-number.outputs.pr_number }}
-          comment_tag: ./tests/diff-coverage # 用于后续更新同一条评论
+          comment_tag: ./tests/diff-coverage
