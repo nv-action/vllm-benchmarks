@@ -385,7 +385,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
-          path: ./tests/diff_coverage.md
+          path: |
+            ./tests/diff_coverage.md
+            ./tests/coverage_comment.md
+          if-no-files-found: ignore
 
       - name: Upload coverage data
         if: ${{ !cancelled() && inputs.enable-coverage }}
