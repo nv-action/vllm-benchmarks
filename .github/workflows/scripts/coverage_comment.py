@@ -82,11 +82,14 @@ def extract_lines(markdown: str) -> list[str]:
     return [l for l in (title,) + tuple(summary_bullets) if l is not None]
 
 
-def build_comment(lines: list[str]) -> str:
+def build_comment(lines: list[str], summary_url: str = "") -> str:
     """Render the extracted lines as a markdown PR comment."""
     if not lines:
         return "## Diff Coverage\n\nNo coverage data found.\n"
-    return "\n".join(lines) + "\n"
+    out = "\n".join(lines) + "\n"
+    if summary_url:
+        out += f"- [View full job logs]({summary_url})\n"
+    return out
 
 
 def main() -> int:
@@ -95,6 +98,8 @@ def main() -> int:
                         help="Path to diff_coverage.md")
     parser.add_argument("--output", required=True,
                         help="Path to write coverage_comment.md")
+    parser.add_argument("--summary-url", default="",
+                        help="URL to the cpu-ut job execution page")
     args = parser.parse_args()
 
     in_path = Path(args.input)
@@ -105,7 +110,7 @@ def main() -> int:
 
     markdown = in_path.read_text(encoding="utf-8")
     lines = extract_lines(markdown)
-    comment = build_comment(lines)
+    comment = build_comment(lines, args.summary_url)
 
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
