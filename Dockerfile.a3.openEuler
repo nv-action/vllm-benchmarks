@@ -48,7 +48,7 @@ ARG PYTORCH_INDEX_URL="https://download.pytorch.org/whl/cpu/"
 ENV PIP_INDEX_URL="https://repo.huaweicloud.com/repository/pypi/simple" \
     PIP_RETRIES=10 \
     PIP_TIMEOUT=60
-RUN if [ -n "$GH_PROXY_URL" ]; then git config --global url."${GH_PROXY_URL}".insteadOf "https://github.com/"; fi && \
+RUN if [ -n "$GH_PROXY_URL" ]; then git config --global url."${GH_PROXY_URL%/}/".insteadOf "https://github.com/"; fi && \
     if [ -n "$GITCODE_PROXY" ]; then git config --global url."${GITCODE_PROXY%/}/".insteadOf "https://gitcode.com/"; fi && \
     if [ -n "$VLLM_COMMIT" ]; then \
       git init /vllm-workspace/vllm && \
