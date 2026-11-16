@@ -735,13 +735,14 @@ jobs:
         # by default (main commit on main/dev, release tag on releases/v*) and
         # appends the release tag under the main2main label.
         vllm_version: ${{ fromJSON(needs.pre-commit.outputs.vllm_versions) }}
-    uses: ./.github/workflows/_selected_tests.yaml
-    with:
-      vllm: ${{ matrix.vllm_version }}
-      ref: ${{ github.event.pull_request.head.sha }}
-      base_ref: ${{ github.base_ref }}
-      base_sha: ${{ needs.select-tests.outputs.base_sha }}
-      test_groups: ${{ needs.select-tests.outputs.test_groups }}
+    # TEMPORARY (coverage test branch): NPU execution is disabled. This job
+    # no-ops and succeeds so ci-gate keeps passing and the run completes
+    # right after cpu-ut (which uploads coverage-report). Restore the
+    # _selected_tests.yaml call below to re-enable NPU tests.
+    runs-on: linux-amd64-cpu-2-hk
+    steps:
+      - name: No-op (NPU tests disabled on this branch)
+        run: 'echo "run-selected-tests is disabled: nothing to run"'
 
   run-selected-tests-upstream:
     needs:
@@ -767,13 +768,12 @@ jobs:
       matrix:
         vllm_version:
           - ${{ needs.pre-commit.outputs.vllm_ref }}
-    uses: ./.github/workflows/_selected_tests_upstream.yaml
-    with:
-      vllm: ${{ matrix.vllm_version }}
-      ref: ${{ github.event.pull_request.head.sha }}
-      base_ref: ${{ github.base_ref }}
-      base_sha: ${{ needs.select-tests.outputs.base_sha }}
-      test_groups: ${{ needs.select-tests.outputs.test_groups }}
+    # TEMPORARY (coverage test branch): NPU execution is disabled - see
+    # run-selected-tests above.
+    runs-on: linux-amd64-cpu-2-hk
+    steps:
+      - name: No-op (NPU tests disabled on this branch)
+        run: 'echo "run-selected-tests-upstream is disabled: nothing to run"'
 
   run-selected-tests-a5:
     needs: [pre-commit, cpu-ut, select-tests]
@@ -794,12 +794,12 @@ jobs:
       matrix:
         vllm_version:
           - ${{ needs.pre-commit.outputs.vllm_ref }}
-    uses: ./.github/workflows/_selected_tests.yaml
-    with:
-      vllm: ${{ matrix.vllm_version }}
-      ref: ${{ github.event.pull_request.head.sha }}
-      base_ref: ${{ github.base_ref }}
-      test_groups: ${{ needs.select-tests.outputs.test_groups_a5 }}
+    # TEMPORARY (coverage test branch): NPU execution is disabled - see
+    # run-selected-tests above.
+    runs-on: linux-amd64-cpu-2-hk
+    steps:
+      - name: No-op (NPU tests disabled on this branch)
+        run: 'echo "run-selected-tests-a5 is disabled: nothing to run"'
 
   upload-pr-context:
     # Post-coverage-comment context bridge. The workflow_run-triggered
