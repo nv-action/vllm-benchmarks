@@ -384,9 +384,10 @@ jobs:
       - name: Generate PR coverage comment
         if: ${{ matrix.group.npu_type == 'cpu' && inputs.enable-coverage != true }}
         run: |
-          python3 .github/workflows/scripts/coverage_comment.py \
+           python3 .github/workflows/scripts/coverage_comment.py \
             --input ./tests/diff_coverage.md \
-            --output ./tests/coverage_comment.md
+            --output ./tests/coverage_comment.md \
+            --summary-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/job/${{ github.job }}"
 
       - name: Upload diff coverage report
         if: ${{ !cancelled() }}
