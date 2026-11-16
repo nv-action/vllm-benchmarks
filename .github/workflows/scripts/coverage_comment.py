@@ -88,7 +88,7 @@ def build_comment(lines: list[str], summary_url: str = "") -> str:
         return "## Diff Coverage\n\nNo coverage data found.\n"
     out = "\n".join(lines) + "\n"
     if summary_url:
-        out += f"- [View full job logs]({summary_url})\n"
+        out += f"\nMore info see: [Summary]({summary_url})\n"
     return out
 
 
