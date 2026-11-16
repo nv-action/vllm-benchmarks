@@ -118,6 +118,9 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@v8
         with:
+          # Cross-run download: without github-token, download-artifact@v8
+          # silently ignores run-id and only looks in its own run.
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           pattern: pr-context*
           merge-multiple: true
           run-id: ${{ steps.resolve-run.outputs.run_id }}
@@ -147,6 +150,9 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@v8
         with:
+          # Cross-run download: without github-token, download-artifact@v8
+          # silently ignores run-id and only looks in its own run.
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           pattern: coverage-report*
           merge-multiple: true
           run-id: ${{ steps.resolve-run.outputs.run_id }}
