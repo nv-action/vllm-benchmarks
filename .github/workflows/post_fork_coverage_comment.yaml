@@ -164,7 +164,7 @@ jobs:
           f=$(find ./coverage-report -type f -name coverage_comment.md | head -1)
           if [ -z "$f" ]; then
             echo "::warning::coverage_comment.md not found in downloaded artifacts"
-            exit 1
+            exit 0
           fi
           cp "$f" ./coverage_comment.md
 
