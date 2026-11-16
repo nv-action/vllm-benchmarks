@@ -79,7 +79,7 @@ def extract_lines(markdown: str) -> list[str]:
             if stripped.startswith("- **"):
                 summary_bullets.append(stripped)
 
-    return [l for l in (title,) + tuple(summary_bullets) if l is not None]
+    return [line for line in (title,) + tuple(summary_bullets) if line is not None]
 
 
 def build_comment(lines: list[str], summary_url: str = "") -> str:
@@ -94,18 +94,14 @@ def build_comment(lines: list[str], summary_url: str = "") -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", required=True,
-                        help="Path to diff_coverage.md")
-    parser.add_argument("--output", required=True,
-                        help="Path to write coverage_comment.md")
-    parser.add_argument("--summary-url", default="",
-                        help="URL to the cpu-ut job execution page")
+    parser.add_argument("--input", required=True, help="Path to diff_coverage.md")
+    parser.add_argument("--output", required=True, help="Path to write coverage_comment.md")
+    parser.add_argument("--summary-url", default="", help="URL to the cpu-ut job execution page")
     args = parser.parse_args()
 
     in_path = Path(args.input)
     if not in_path.exists():
-        print(f"::warning::input file {in_path} not found; "
-              "no coverage comment generated", file=sys.stderr)
+        print(f"::warning::input file {in_path} not found; no coverage comment generated", file=sys.stderr)
         return 0
 
     markdown = in_path.read_text(encoding="utf-8")
