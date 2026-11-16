@@ -228,6 +228,19 @@ jobs:
         PUSH_IMAGE="${{ inputs.should_push }}"
         DOCKERFILE="${{ inputs.dockerfile || 'Dockerfile' }}"
         COMPILE_CUSTOM_KERNELS="${{ steps.cache-csrc.outputs.cache-hit == 'true' && '0' || '1' }}"
+        # Pull the CANN base image from the in-cluster SWR mirror (cann_swr_url)
+        # instead of the external quay.io registry: the mirror is on the same
+        # VPC as the buildkitd nodes, so large base layers (multi-GB) transfer
+        # reliably instead of stalling over squid and OOMing the buildkitd pod.
+        # The mirror carries the same digests (verified), so the built image is
+        # unchanged. Default cann_swr_url keeps the existing behaviour for
+        # environments that already pull from their regional SWR.
+        if [ -n "${{ inputs.cann_swr_url }}" ] && grep -q '^FROM quay.io/ascend/cann' "$DOCKERFILE"; then
+          BUILD_DOCKERFILE="$RUNNER_TEMP/$(basename "$DOCKERFILE")"
+          sed "s|^FROM quay.io/ascend/cann|FROM ${{ inputs.cann_swr_url }}|" "$DOCKERFILE" > "$BUILD_DOCKERFILE"
+          DOCKERFILE="$BUILD_DOCKERFILE"
+          echo "::notice::Rewrote FROM to use in-cluster CANN mirror: $(grep -m1 '^FROM' "$BUILD_DOCKERFILE")"
+        fi
         export BUILDKIT_PROGRESS=plain
         METADATA_FILE="$RUNNER_TEMP/build-metadata.json"
         MAX_ATTEMPTS=4
