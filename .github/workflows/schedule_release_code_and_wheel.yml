@@ -39,57 +39,57 @@ on:
           - v0.20.2rc1
 
 jobs:
-  build_and_release_code:
-    name: release code
-    runs-on: linux-amd64-cpu-8-hk
-    strategy:
-      matrix:
-        python-version: ["3.12"]
-    steps:
-      - name: checkout vllm-ascend
-        if: ${{ github.event_name != 'workflow_dispatch' }}
-        uses: actions/checkout@v7
-        with:
-          submodules: recursive
+  # build_and_release_code:
+  #   name: release code
+  #   runs-on: linux-amd64-cpu-8-hk
+  #   strategy:
+  #     matrix:
+  #       python-version: ["3.12"]
+  #   steps:
+  #     - name: checkout vllm-ascend
+  #       if: ${{ github.event_name != 'workflow_dispatch' }}
+  #       uses: actions/checkout@v7
+  #       with:
+  #         submodules: recursive
 
-      - name: checkout vllm-ascend ${{ inputs.tag }}
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        uses: actions/checkout@v7
-        with:
-          repository: vllm-project/vllm-ascend
-          submodules: recursive
-          ref: ${{ inputs.tag }}
+  #     - name: checkout vllm-ascend ${{ inputs.tag }}
+  #       if: ${{ github.event_name == 'workflow_dispatch' }}
+  #       uses: actions/checkout@v7
+  #       with:
+  #         repository: vllm-project/vllm-ascend
+  #         submodules: recursive
+  #         ref: ${{ inputs.tag }}
 
-      - name: Print
-        run: |
-          lscpu
+  #     - name: Print
+  #       run: |
+  #         lscpu
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: ${{ matrix.python-version }}
+  #     - name: Set up Python ${{ matrix.python-version }}
+  #       uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+  #       with:
+  #         python-version: ${{ matrix.python-version }}
 
-      - name: Install dependencies
-        run: |
-          python3 -m pip install twine setuptools_scm
+  #     - name: Install dependencies
+  #       run: |
+  #         python3 -m pip install twine setuptools_scm
 
-      - name: Generate tar.gz
-        env:
-          SOC_VERSION: ascend910b1
-        run: |
-          python3 setup.py sdist
-          ls dist
+  #     - name: Generate tar.gz
+  #       env:
+  #         SOC_VERSION: ascend910b1
+  #       run: |
+  #         python3 setup.py sdist
+  #         ls dist
 
-      - name: Archive tar.gz
-        uses: actions/upload-artifact@v7
-        with:
-          name: vllm-ascend-src
-          path: dist/*
+  #     - name: Archive tar.gz
+  #       uses: actions/upload-artifact@v7
+  #       with:
+  #         name: vllm-ascend-src
+  #         path: dist/*
 
-      - name: Release
-        if: ${{ github.event_name == 'push' }}
-        run: |
-          python3 -m twine upload dist/* -u __token__ -p ${{ secrets.PYPI_TOKEN }}
+  #     - name: Release
+  #       if: ${{ github.event_name == 'push' }}
+  #       run: |
+  #         python3 -m twine upload dist/* -u __token__ -p ${{ secrets.PYPI_TOKEN }}
 
   build_and_release_wheel:
     name: build and release wheel
@@ -155,19 +155,33 @@ jobs:
             auditwheel show "$wheel"
           done
 
-      - name: Generate variant wheels
+      # Variant (WheelNext) wheels are already published by wheelnext, so this run
+      # only produces and uploads the plain per-platform wheels below.
+      # - name: Generate variant wheels
+      #   env:
+      #     WHEEL_FILE: dist
+      #     PROJECT_TOML: .github/workflows/scripts/wheel/pyproject.toml
+      #     OUTPUT_DIR: dist/variants
+      #     VARIANT_LABEL: 910b
+      #   run: |
+      #     pip install build git+https://github.com/wheelnext/variantlib.git@67a62d53fb8b5a91334d9632bc7d1546ee67349e --quiet
+      #     mkdir -p dist/variants
+      #     python3 .github/workflows/scripts/wheel/make_variant.py \
+      #       -c .github/workflows/scripts/wheel/config.json \
+      #       -l "${VARIANT_LABEL}"
+      #     echo "Generated variant wheels:"
+      #     ls dist/variants/
+
+      - name: Stage per-platform wheels
         env:
-          WHEEL_FILE: dist
-          PROJECT_TOML: .github/workflows/scripts/wheel/pyproject.toml
-          OUTPUT_DIR: dist/variants
+          PLATFORM: a2
         run: |
-          pip install build git+https://github.com/wheelnext/variantlib.git@67a62d53fb8b5a91334d9632bc7d1546ee67349e --quiet
-          mkdir -p dist/variants
-          python3 .github/workflows/scripts/wheel/make_variant.py \
-            -c .github/workflows/scripts/wheel/config.json \
-            -l 910b
-          echo "Generated variant wheels:"
-          ls dist/variants/
+          # Reuse the non-variant wheel built for this platform as the plain wheel
+          # published to the per-platform pip directory (platforms/ on the mirror).
+          mkdir -p "dist/platforms/${PLATFORM}"
+          cp dist/*.whl "dist/platforms/${PLATFORM}/"
+          echo "Staged plain wheels for platform ${PLATFORM}:"
+          ls "dist/platforms/${PLATFORM}/"
 
       - name: Archive wheel
         uses: actions/upload-artifact@v7
@@ -246,19 +260,33 @@ jobs:
             auditwheel show "$wheel"
           done
 
-      - name: Generate variant wheels
+      # Variant (WheelNext) wheels are already published by wheelnext, so this run
+      # only produces and uploads the plain per-platform wheels below.
+      # - name: Generate variant wheels
+      #   env:
+      #     WHEEL_FILE: dist
+      #     PROJECT_TOML: .github/workflows/scripts/wheel/pyproject.toml
+      #     OUTPUT_DIR: dist/variants
+      #     VARIANT_LABEL: a3
+      #   run: |
+      #     pip install build git+https://github.com/wheelnext/variantlib.git@67a62d53fb8b5a91334d9632bc7d1546ee67349e --quiet
+      #     mkdir -p dist/variants
+      #     python3 .github/workflows/scripts/wheel/make_variant.py \
+      #       -c .github/workflows/scripts/wheel/config.json \
+      #       -l "${VARIANT_LABEL}"
+      #     echo "Generated variant wheels:"
+      #     ls dist/variants/
+
+      - name: Stage per-platform wheels
         env:
-          WHEEL_FILE: dist
-          PROJECT_TOML: .github/workflows/scripts/wheel/pyproject.toml
-          OUTPUT_DIR: dist/variants
+          PLATFORM: a3
         run: |
-          pip install build git+https://github.com/wheelnext/variantlib.git@67a62d53fb8b5a91334d9632bc7d1546ee67349e --quiet
-          mkdir -p dist/variants
-          python3 .github/workflows/scripts/wheel/make_variant.py \
-            -c .github/workflows/scripts/wheel/config.json \
-            -l a3
-          echo "Generated variant wheels:"
-          ls dist/variants/
+          # Reuse the non-variant wheel built for this platform as the plain wheel
+          # published to the per-platform pip directory (platforms/ on the mirror).
+          mkdir -p "dist/platforms/${PLATFORM}"
+          cp dist/*.whl "dist/platforms/${PLATFORM}/"
+          echo "Staged plain wheels for platform ${PLATFORM}:"
+          ls "dist/platforms/${PLATFORM}/"
 
       - name: Archive wheel
         uses: actions/upload-artifact@v7
@@ -331,19 +359,33 @@ jobs:
             auditwheel show "$wheel"
           done
 
-      - name: Generate variant wheels
+      # Variant (WheelNext) wheels are already published by wheelnext, so this run
+      # only produces and uploads the plain per-platform wheels below.
+      # - name: Generate variant wheels
+      #   env:
+      #     WHEEL_FILE: dist
+      #     PROJECT_TOML: .github/workflows/scripts/wheel/pyproject.toml
+      #     OUTPUT_DIR: dist/variants
+      #     VARIANT_LABEL: 310p
+      #   run: |
+      #     pip install build git+https://github.com/wheelnext/variantlib.git@67a62d53fb8b5a91334d9632bc7d1546ee67349e --quiet
+      #     mkdir -p dist/variants
+      #     python3 .github/workflows/scripts/wheel/make_variant.py \
+      #       -c .github/workflows/scripts/wheel/config.json \
+      #       -l "${VARIANT_LABEL}"
+      #     echo "Generated variant wheels:"
+      #     ls dist/variants/
+
+      - name: Stage per-platform wheels
         env:
-          WHEEL_FILE: dist
-          PROJECT_TOML: .github/workflows/scripts/wheel/pyproject.toml
-          OUTPUT_DIR: dist/variants
+          PLATFORM: 310p
         run: |
-          pip install build git+https://github.com/wheelnext/variantlib.git@67a62d53fb8b5a91334d9632bc7d1546ee67349e --quiet
-          mkdir -p dist/variants
-          python3 .github/workflows/scripts/wheel/make_variant.py \
-            -c .github/workflows/scripts/wheel/config.json \
-            -l 310p
-          echo "Generated variant wheels:"
-          ls dist/variants/
+          # Reuse the non-variant wheel built for this platform as the plain wheel
+          # published to the per-platform pip directory (platforms/ on the mirror).
+          mkdir -p "dist/platforms/${PLATFORM}"
+          cp dist/*.whl "dist/platforms/${PLATFORM}/"
+          echo "Staged plain wheels for platform ${PLATFORM}:"
+          ls "dist/platforms/${PLATFORM}/"
 
       - name: Archive wheel
         uses: actions/upload-artifact@v7
@@ -422,19 +464,33 @@ jobs:
             auditwheel show "$wheel"
           done
 
-      - name: Generate variant wheels
+      # Variant (WheelNext) wheels are already published by wheelnext, so this run
+      # only produces and uploads the plain per-platform wheels below.
+      # - name: Generate variant wheels
+      #   env:
+      #     WHEEL_FILE: dist
+      #     PROJECT_TOML: .github/workflows/scripts/wheel/pyproject.toml
+      #     OUTPUT_DIR: dist/variants
+      #     VARIANT_LABEL: "950"
+      #   run: |
+      #     pip install build git+https://github.com/wheelnext/variantlib.git@67a62d53fb8b5a91334d9632bc7d1546ee67349e --quiet
+      #     mkdir -p dist/variants
+      #     python3 .github/workflows/scripts/wheel/make_variant.py \
+      #       -c .github/workflows/scripts/wheel/config.json \
+      #       -l "${VARIANT_LABEL}"
+      #     echo "Generated variant wheels:"
+      #     ls dist/variants/
+
+      - name: Stage per-platform wheels
         env:
-          WHEEL_FILE: dist
-          PROJECT_TOML: .github/workflows/scripts/wheel/pyproject.toml
-          OUTPUT_DIR: dist/variants
+          PLATFORM: "950"
         run: |
-          pip install build git+https://github.com/wheelnext/variantlib.git@67a62d53fb8b5a91334d9632bc7d1546ee67349e --quiet
-          mkdir -p dist/variants
-          python3 .github/workflows/scripts/wheel/make_variant.py \
-            -c .github/workflows/scripts/wheel/config.json \
-            -l 950
-          echo "Generated variant wheels:"
-          ls dist/variants/
+          # Reuse the non-variant wheel built for this platform as the plain wheel
+          # published to the per-platform pip directory (platforms/ on the mirror).
+          mkdir -p "dist/platforms/${PLATFORM}"
+          cp dist/*.whl "dist/platforms/${PLATFORM}/"
+          echo "Staged plain wheels for platform ${PLATFORM}:"
+          ls "dist/platforms/${PLATFORM}/"
 
       - name: Archive wheel
         uses: actions/upload-artifact@v7
@@ -442,70 +498,112 @@ jobs:
           name: vllm-ascend-a5-${{ matrix.os }}-py${{ matrix.python-version }}-wheel
           path: dist/
 
+  # Variant (WheelNext) wheels and their index are published by wheelnext, so this
+  # job only uploads the plain per-platform wheels for `pip --find-links`.
   generate_and_upload_variant_index:
     name: generate and upload variant index
     needs: [build_and_release_wheel, build_and_release_wheel_a3, build_and_release_wheel_310p, build_and_release_wheel_a5]
     if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-24.04
     steps:
-      - name: Download all variant wheels
+      - name: Download all wheel artifacts
         uses: actions/download-artifact@v8
         with:
           pattern: '*-wheel'
           path: all-wheels/
           merge-multiple: true
 
-      - name: Collect variant wheels
+      - name: List per-platform wheels
         run: |
-          mkdir -p combined-variants
-          find all-wheels/ -path '*/variants/*.whl' -exec cp {} combined-variants/ \;
-          echo "Combined variant wheels:"
-          ls combined-variants/
-          # Every variant must come from the same source version. A dirty work tree (see
-          # the A5 "Build wheel" step) silently produces a different version, which splits
-          # the variants into several `*-variants.json` files and breaks variant resolution
-          # for users pinned to the released version.
-          mapfile -t versions < <(find combined-variants -name '*.whl' -printf '%f\n' | cut -d- -f1-2 | sort -u)
-          printf 'Detected name-version(s): %s\n' "${versions[*]}"
-          if [[ ${#versions[@]} -ne 1 ]]; then
-              echo "::error::Variant wheels have inconsistent versions: ${versions[*]}" >&2
-              exit 1
-          fi
+          echo "Per-platform plain wheels:"
+          find all-wheels/platforms -name '*.whl' | sort
+          # Variant wheels are not built in this workflow anymore. The collection and
+          # version-consistency checks are kept for reference:
+          #
+          #   mkdir -p combined-variants
+          #   find all-wheels/ -path '*/variants/*.whl' -exec cp {} combined-variants/ \;
+          #   echo "Combined variant wheels:"
+          #   ls combined-variants/
+          #   # Every variant must come from the same source version. A dirty work tree (see
+          #   # the A5 "Build wheel" step) silently produces a different version, which splits
+          #   # the variants into several `*-variants.json` files and breaks variant resolution
+          #   # for users pinned to the released version.
+          #   mapfile -t versions < <(find combined-variants -name '*.whl' -printf '%f\n' | cut -d- -f1-2 | sort -u)
+          #   printf 'Detected name-version(s): %s\n' "${versions[*]}"
+          #   if [[ ${#versions[@]} -ne 1 ]]; then
+          #       echo "::error::Variant wheels have inconsistent versions: ${versions[*]}" >&2
+          #       exit 1
+          #   fi
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
-      - name: Generate combined variant index
-        run: |
-          pip install git+https://github.com/wheelnext/variantlib.git@67a62d53fb8b5a91334d9632bc7d1546ee67349e --quiet
-          variantlib generate-index-json -d combined-variants/
-          echo "Generated index files:"
-          ls combined-variants/
+      # Variant index generation is handled by wheelnext.
+      # - name: Generate combined variant index
+      #   run: |
+      #     pip install git+https://github.com/wheelnext/variantlib.git@67a62d53fb8b5a91334d9632bc7d1546ee67349e --quiet
+      #     variantlib generate-index-json -d combined-variants/
+      #     echo "Generated index files:"
+      #     ls combined-variants/
 
-      - name: Upload wheels and variant index to OBS
+      - name: Install OBS SDK
+        run: |
+          pip install esdk-obs-python --quiet
+
+      # Variant wheels and their index are published by wheelnext.
+      # - name: Upload variant wheels and index to OBS
+      #   env:
+      #     OBS_ACCESS_KEY: ${{ secrets.OBS_ACCESS_KEY_ID }}
+      #     OBS_SECRET_KEY: ${{ secrets.OBS_SECRET_ACCESS_KEY }}
+      #   run: |
+      #     python3 - <<'EOF'
+      #     import os, glob
+      #     from obs import ObsClient
+      #     OBS_BUCKET = 'ascend-artifcat-packages'
+      #     OBS_PATH = 'pypi/packages/ascend/repos/pypi/variant/vllm-ascend'
+      #     client = ObsClient(
+      #         access_key_id=os.environ['OBS_ACCESS_KEY'],
+      #         secret_access_key=os.environ['OBS_SECRET_KEY'],
+      #         server='https://obs.cn-north-4.myhuaweicloud.com'
+      #     )
+      #     files = glob.glob('combined-variants/*.whl') + glob.glob('combined-variants/*.json')
+      #     for file in files:
+      #         object_key = f'{OBS_PATH}/{os.path.basename(file)}'
+      #         resp = client.putFile(OBS_BUCKET, object_key, file)
+      #         if resp.status < 300:
+      #             print(f'Uploaded: {object_key}')
+      #         else:
+      #             raise Exception(f'Failed to upload {object_key}: {resp.errorMessage}')
+      #     EOF
+
+      - name: Upload per-platform wheels to OBS
         env:
           OBS_ACCESS_KEY: ${{ secrets.OBS_ACCESS_KEY_ID }}
           OBS_SECRET_KEY: ${{ secrets.OBS_SECRET_ACCESS_KEY }}
         run: |
-          pip install esdk-obs-python --quiet
           python3 - <<'EOF'
           import os, glob
           from obs import ObsClient
           OBS_BUCKET = 'ascend-artifcat-packages'
-          OBS_PATH = 'pypi/packages/ascend/repos/pypi/variant/vllm-ascend'
+          # Plain (non-variant) wheels consumed by plain pip with --find-links,
+          # e.g. https://mirrors.huaweicloud.com/ascend/repos/pypi/platforms/a3/
+          OBS_PLATFORM_ROOT = 'pypi/packages/ascend/repos/pypi/platforms'
+          platform_wheels = sorted(glob.glob('all-wheels/platforms/*/*.whl'))
+          if not platform_wheels:
+              raise Exception('No per-platform wheels found; expected all-wheels/platforms/*/*.whl')
           client = ObsClient(
               access_key_id=os.environ['OBS_ACCESS_KEY'],
               secret_access_key=os.environ['OBS_SECRET_KEY'],
               server='https://obs.cn-north-4.myhuaweicloud.com'
           )
-          files = glob.glob('combined-variants/*.whl') + glob.glob('combined-variants/*.json')
-          for file in files:
-              filename = os.path.basename(file)
-              resp = client.putFile(OBS_BUCKET, f'{OBS_PATH}/{filename}', file)
+          for file in platform_wheels:
+              platform = os.path.basename(os.path.dirname(file))
+              object_key = f'{OBS_PLATFORM_ROOT}/{platform}/{os.path.basename(file)}'
+              resp = client.putFile(OBS_BUCKET, object_key, file)
               if resp.status < 300:
-                  print(f'Uploaded: {filename}')
+                  print(f'Uploaded: {object_key}')
               else:
-                  raise Exception(f'Failed to upload {filename}: {resp.errorMessage}')
+                  raise Exception(f'Failed to upload {object_key}: {resp.errorMessage}')
           EOF
