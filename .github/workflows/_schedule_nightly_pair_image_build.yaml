@@ -115,6 +115,10 @@ on:
         required: false
       SYNC_TOOLS_TOKEN:
         required: false
+      GH_PROXY_URL:
+        required: false
+      GITCODE_PROXY:
+        required: false
 
 jobs:
   build-base:
@@ -140,6 +144,8 @@ jobs:
       SWR_USERNAME: ${{ secrets.SWR_USERNAME }}
       SWR_PASSWORD: ${{ secrets.SWR_PASSWORD }}
       SYNC_TOOLS_TOKEN: ${{ secrets.SYNC_TOOLS_TOKEN }}
+      GH_PROXY_URL: ${{ secrets.GH_PROXY_URL }}
+      GITCODE_PROXY: ${{ secrets.GITCODE_PROXY }}
 
   build-nightly:
     name: Build nightly-${{ inputs.target }} (${{ inputs.os }})

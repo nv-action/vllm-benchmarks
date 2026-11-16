@@ -138,6 +138,8 @@ jobs:
       SWR_USERNAME: ${{ secrets.SWR_SW2_USERNAME }}
       SWR_PASSWORD: ${{ secrets.SWR_SW2_PASSWORD }}
       SYNC_TOOLS_TOKEN: ${{ secrets.SYNC_TOOLS_TOKEN }}
+      GH_PROXY_URL: ${{ secrets.GH_PROXY_URL }}
+      GITCODE_PROXY: ${{ secrets.GITCODE_PROXY }}
 
   collect-build-info:
     needs: [setup-matrix, build-image]
