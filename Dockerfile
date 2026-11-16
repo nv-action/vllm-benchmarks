@@ -61,12 +61,19 @@ RUN if [ -n "$VLLM_COMMIT" ]; then \
     python3 -m pip cache purge
 
 # Install vllm-ascend
+# Cap opc/c++/rust build parallelism to bound memory on shared buildkitd nodes:
+# the heavy vllm-ascend compile otherwise spawns unbounded jobs and can exhaust
+# a 128Gi node (OOM-killing kubelet). Overridable via --build-arg MAX_JOBS=N.
+ARG MAX_JOBS=32
+ARG CARGO_BUILD_JOBS=32
 # Dependency versions used by the vllm-ascend build.
 ARG SOC_VERSION="ascend910b1"
 ENV DEBIAN_FRONTEND=noninteractive
 ENV SOC_VERSION=$SOC_VERSION \
     TASK_QUEUE_ENABLE=1 \
-    OMP_NUM_THREADS=1
+    OMP_NUM_THREADS=1 \
+    CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS \
+    MAX_JOBS=$MAX_JOBS
 COPY . /vllm-workspace/vllm-ascend/
 ARG ASCEND_INDEX_URL="https://mirrors.huaweicloud.com/ascend/repos/pypi \
     https://mirrors.huaweicloud.com/ascend/repos/pypi/nightly"
