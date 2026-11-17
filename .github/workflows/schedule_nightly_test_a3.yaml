@@ -225,7 +225,9 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
-          sparse-checkout: .github/workflows/configs/
+          sparse-checkout: |
+            .github/workflows/configs/
+            .github/workflows/scripts/
           path: ./wf
 
       - name: Checkout PR code
@@ -278,7 +280,17 @@ jobs:
             fi
           done
           echo "MATRIX_FILE=$MATRIX_FILE"
-          python3 .github/workflows/scripts/resolve_nightly_tests.py --mode=matrix
+          # The resolver must come from the same ref as the matrix, otherwise a
+          # branch-specific transformation (e.g. docker_args -> host_ipc) is
+          # silently skipped and the run looks like it used the wrong settings.
+          ROOT="${MATRIX_FILE%/.github/workflows/configs/nightly_config.yaml}"
+          [ "$ROOT" = "$MATRIX_FILE" ] && ROOT="."
+          RESOLVER="$ROOT/.github/workflows/scripts/resolve_nightly_tests.py"
+          if [ ! -f "$RESOLVER" ]; then
+            RESOLVER=.github/workflows/scripts/resolve_nightly_tests.py
+          fi
+          echo "RESOLVER=$RESOLVER"
+          python3 "$RESOLVER" --mode=matrix
 
   build-image:
     name: Build nightly-a3 image
