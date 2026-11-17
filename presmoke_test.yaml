@@ -1,4 +1,4 @@
-name: CANN SMOKE TEST
+name: Functional test -2
 
 on:
   workflow_call:
