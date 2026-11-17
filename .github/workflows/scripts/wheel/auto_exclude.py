@@ -31,6 +31,14 @@ BASE_EXCLUDES = [
     "libunified_dlog.so",
     "libstdc++.so",
     "libgcc_s.so",
+    # The OpenMP runtime must be provided by the target system. When auditwheel
+    # repairs the A3 wheel it bundles libgomp from the GitHub runner
+    # (ubuntu-24.04, glibc 2.39), and that libgomp references GLIBC_2.38
+    # symbols (__isoc23_strtol/__isoc23_strtoul). auditwheel then promotes the
+    # whole wheel to manylinux_2_38 even though it is built inside a
+    # manylinux_2_34 image. Excluding it keeps the wheel installable on
+    # glibc >= 2.34, same as the A2/310P/950 wheels.
+    "libgomp*",
     "libc.so",
     "libm.so",
     "libdl.so",
