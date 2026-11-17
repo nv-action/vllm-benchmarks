@@ -12,7 +12,7 @@ jobs:
 
   run_smoke:
     name: cann_smoke
-    runs-on: linux-aarch64-a3-2
+    runs-on: linux-aarch64-a3-2-sh-001
     container: quay.io/canuunac/cann:9.2.1-a3-ubuntu24.04-py3.12
 
     steps:
