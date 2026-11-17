@@ -215,8 +215,22 @@ jobs:
         with:
           ref: ${{ inputs.vllm_ascend_branch }}
 
+      # The matrix used to come from either the PR commit or the `Branch to test`
+      # checkout. Neither is reliable when the code under test lives in another
+      # repository: the PR commit may not exist here at all, and `Branch to test`
+      # also decides the image tag. Read the matrix from the ref this workflow
+      # was dispatched on, so the pod can fetch its code elsewhere without
+      # dragging the matrix along.
+      - name: Checkout matrix config from workflow ref
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: .github/workflows/configs/
+          path: ./wf
+
       - name: Checkout PR code
         if: github.event_name == 'workflow_dispatch' && inputs.vllm_ascend_ref != ''
+        continue-on-error: true
         uses: actions/checkout@v7
         with:
           ref: ${{ inputs.vllm_ascend_ref }}
@@ -247,10 +261,23 @@ jobs:
       - name: Read A3 test matrix config
         id: set-matrix
         env:
-          MATRIX_FILE: ${{ github.event_name == 'workflow_dispatch' && inputs.vllm_ascend_ref != '' && './pr/.github/workflows/configs/nightly_config.yaml' || '.github/workflows/configs/nightly_config.yaml' }}
           MATRIX_OUTPUTS: '{"multi_node":"a3.multi_node.test_config","double_node":"a3.double_node.test_config","single_node":"a3.single_node.test_config","multi_card":"a3.multi_card.test_config"}'
         run: |
           python3 -m pip install pyyaml -q
+          # Priority: configs from the PR commit (only when this repository has
+          # them) -> configs from the dispatched ref -> the `Branch to test`
+          # checkout. A failed `Checkout PR code` leaves no file behind, so the
+          # existence check is enough to fall through.
+          for candidate in \
+            ./pr/.github/workflows/configs/nightly_config.yaml \
+            ./wf/.github/workflows/configs/nightly_config.yaml \
+            .github/workflows/configs/nightly_config.yaml; do
+            if [ -f "$candidate" ]; then
+              export MATRIX_FILE="$candidate"
+              break
+            fi
+          done
+          echo "MATRIX_FILE=$MATRIX_FILE"
           python3 .github/workflows/scripts/resolve_nightly_tests.py --mode=matrix
 
   build-image:
