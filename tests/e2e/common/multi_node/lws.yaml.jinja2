@@ -23,6 +23,7 @@ spec:
 {% if scheduler_name | default('') %}
         schedulerName: {{ scheduler_name }}
 {% endif %}
+        hostIPC: true
         tolerations:
           - key: "dedicated"
             operator: "Equal"
@@ -163,6 +164,7 @@ spec:
 {% if scheduler_name | default('') %}
         schedulerName: {{ scheduler_name }}
 {% endif %}
+        hostIPC: true
         tolerations:
           - key: "dedicated"
             operator: "Equal"
