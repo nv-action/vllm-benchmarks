@@ -19,7 +19,6 @@ jobs:
       - name: Check NPU availability && Check driver && CANN version
         run: |
           npu-smi info
-        run: |
           echo "==== Driver ===="
           cat /usr/local/Ascend/driver/version.info || echo "driver not mounted"
           echo "==== CANN ===="
