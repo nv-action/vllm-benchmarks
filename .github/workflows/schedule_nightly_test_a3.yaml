@@ -292,6 +292,10 @@ jobs:
       vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
       replicas: 1
       size: ${{ matrix.test_config.size }}
+      # Translated from the case-level `docker_args` in nightly_config.yaml.
+      host_ipc: ${{ matrix.test_config.host_ipc || 'false' }}
+      shm_size: ${{ matrix.test_config.shm_size || '' }}
+      privileged: ${{ matrix.test_config.privileged || 'false' }}
       config_file_path: ${{ matrix.test_config.config_file_path }}
       config_base_path: ${{ matrix.test_config.config_base_path }}
       name: ${{ matrix.test_config.name }}
@@ -346,6 +350,10 @@ jobs:
       vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
       replicas: 1
       size: ${{ matrix.test_config.size }}
+      # Translated from the case-level `docker_args` in nightly_config.yaml.
+      host_ipc: ${{ matrix.test_config.host_ipc || 'false' }}
+      shm_size: ${{ matrix.test_config.shm_size || '' }}
+      privileged: ${{ matrix.test_config.privileged || 'false' }}
       config_file_path: ${{ matrix.test_config.config_file_path }}
       config_base_path: ${{ matrix.test_config.config_base_path }}
       name: ${{ matrix.test_config.name }}

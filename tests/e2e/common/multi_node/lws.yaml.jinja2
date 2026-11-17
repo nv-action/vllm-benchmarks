@@ -23,7 +23,9 @@ spec:
 {% if scheduler_name | default('') %}
         schedulerName: {{ scheduler_name }}
 {% endif %}
+{% if (host_ipc | default('false')) | string | lower == 'true' %}
         hostIPC: true
+{% endif %}
         tolerations:
           - key: "dedicated"
             operator: "Equal"
@@ -32,6 +34,10 @@ spec:
         containers:
           - name: vllm-leader
             imagePullPolicy: Always
+{% if (privileged | default('false')) | string | lower == 'true' %}
+            securityContext:
+              privileged: true
+{% endif %}
             image: {{ image | default("swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-a3") }}
             env:
               - name: CONFIG_YAML_PATH
@@ -136,7 +142,7 @@ spec:
         - name: dshm
           emptyDir:
             medium: Memory
-            sizeLimit: 512Gi
+            sizeLimit: {{ shm_size | default('') or '512Gi' }}
 {% if shared_volume_path %}
         - name: shared-volume
           hostPath:
@@ -164,7 +170,9 @@ spec:
 {% if scheduler_name | default('') %}
         schedulerName: {{ scheduler_name }}
 {% endif %}
+{% if (host_ipc | default('false')) | string | lower == 'true' %}
         hostIPC: true
+{% endif %}
         tolerations:
           - key: "dedicated"
             operator: "Equal"
@@ -173,6 +181,10 @@ spec:
         containers:
           - name: vllm-worker
             imagePullPolicy: Always
+{% if (privileged | default('false')) | string | lower == 'true' %}
+            securityContext:
+              privileged: true
+{% endif %}
             image: {{ image | default("swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-a3") }}
             env:
               - name: CONFIG_YAML_PATH
@@ -269,7 +281,7 @@ spec:
         - name: dshm
           emptyDir:
             medium: Memory
-            sizeLimit: 512Gi
+            sizeLimit: {{ shm_size | default('') or '512Gi' }}
 {% if shared_volume_path %}
         - name: shared-volume
           hostPath:

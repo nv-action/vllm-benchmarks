@@ -2,6 +2,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import subprocess
 
 try:
@@ -111,12 +112,58 @@ def cmd_dispatch(_args):
         f.write(f"dispatch_a5={str(da5).lower()}\n")
 
 
+_SUPPORTED_DOCKER_ARGS = "--ipc=host, --shm-size=<n>[g|m], --privileged"
+
+
+def _normalize_docker_args(entry):
+    """Translate a case-level `docker_args` list into pod-spec flags.
+
+    nightly_config.yaml is written in docker-run spelling; the LWS template
+    speaks Kubernetes. Only a small, explicit subset is supported so that an
+    unknown flag fails the run instead of being silently dropped (an extra
+    matrix key never reaches the template, which used to be a silent no-op).
+    """
+    if not isinstance(entry, dict) or "docker_args" not in entry:
+        return entry
+
+    args = entry.get("docker_args") or []
+    if not isinstance(args, list):
+        raise SystemExit(f"docker_args of '{entry.get('name')}' must be a list")
+
+    host_ipc, privileged, shm_size = False, False, ""
+    for raw in args:
+        arg = str(raw).strip()
+        if arg == "--ipc=host":
+            host_ipc = True
+        elif arg == "--privileged":
+            privileged = True
+        elif arg.startswith("--shm-size="):
+            value = arg.split("=", 1)[1]
+            match = re.fullmatch(r"(\d+)([gGmM])", value)
+            if not match:
+                raise SystemExit(
+                    f"invalid --shm-size '{value}' for '{entry.get('name')}': "
+                    f"expected <n>[g|m], supported flags are {_SUPPORTED_DOCKER_ARGS}"
+                )
+            shm_size = match.group(1) + ("Gi" if match.group(2) in "gG" else "Mi")
+        else:
+            raise SystemExit(
+                f"unsupported docker_args entry '{arg}' for '{entry.get('name')}': "
+                f"supported flags are {_SUPPORTED_DOCKER_ARGS}"
+            )
+
+    return {**entry, "host_ipc": host_ipc, "privileged": privileged, "shm_size": shm_size}
+
+
 def cmd_matrix(_args):
     """Extract matrix sections per MATRIX_OUTPUTS spec.
 
     Reads MATRIX_FILE (path to nightly_config.yaml) and MATRIX_OUTPUTS
     (JSON object {output_name: "dot.path.in.yaml"}). Writes to GITHUB_OUTPUT:
       - <output_name>=<json array>  (one entry per spec item)
+
+    Each entry's optional `docker_args` is translated into host_ipc / shm_size /
+    privileged so the caller can forward them to the LWS template.
     """
     matrix_file = os.environ.get("MATRIX_FILE", "")
     if not matrix_file:
@@ -130,6 +177,7 @@ def cmd_matrix(_args):
         for name, path in spec.items():
             node = _walk(matrix, path)
             cfg = node if isinstance(node, list) else []
+            cfg = [_normalize_docker_args(item) for item in cfg]
             f.write(f"{name}={json.dumps(cfg)}\n")
 
 

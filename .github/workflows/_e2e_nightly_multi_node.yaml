@@ -40,6 +40,21 @@ on:
         default: "2"
         type: string
         description: how many pods will be pulled up via lws.yaml, indicates number of nodes we need
+      host_ipc:
+        required: false
+        default: "false"
+        type: string
+        description: from nightly_config docker_args --ipc=host, renders hostIPC true on both pod templates
+      shm_size:
+        required: false
+        default: ''
+        type: string
+        description: from nightly_config docker_args --shm-size=<n>[g|m], overrides the /dev/shm emptyDir sizeLimit
+      privileged:
+        required: false
+        default: "false"
+        type: string
+        description: from nightly_config docker_args --privileged, renders securityContext.privileged on both containers
       vllm_ascend_remote_url:
         required: false
         default: https://github.com/vllm-project/vllm-ascend.git
@@ -299,6 +314,9 @@ jobs:
             -D npu_per_node="$npu_per_node" \
             -D fail_tag="$fail_tag" \
             -D is_pr_test="$is_pr_test" \
+            -D host_ipc="${{ inputs.host_ipc }}" \
+            -D shm_size="${{ inputs.shm_size }}" \
+            -D privileged="${{ inputs.privileged }}" \
             -D scheduler_name="$scheduler_name" \
             -D vllm_ascend_ref="$vllm_ascend_ref" \
             -D vllm_ascend_remote_url="$vllm_ascend_remote_url" \
