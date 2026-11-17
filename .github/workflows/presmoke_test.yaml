@@ -1,4 +1,4 @@
-name: Functional test -2
+name: CANN SMOKE TEST
 
 on:
   workflow_dispatch:
@@ -22,7 +22,7 @@ jobs:
           echo "==== Driver ===="
           cat /usr/local/Ascend/driver/version.info || echo "driver not mounted"
           echo "==== CANN ===="
-          cat /usr/local/Ascend/ascend-toolkit/latest/version.cfg      - name: Check driver & CANN version
+          cat /usr/local/Ascend/ascend-toolkit/latest/version.cfg      
       - name: smoke
         run: |
           python3 -c "import acl;print(acl.get_soc_name())"
