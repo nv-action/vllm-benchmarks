@@ -126,3 +126,5 @@ We welcome and value any contributions and collaborations:
 Apache License 2.0, as found in the [LICENSE](./LICENSE) file.
 
 <!-- nv-action: trivial README note for PR flow verification (2026-11-17) -->
+
+<!-- nv-action: trivial README note for PR flow verification (2026-11-18) -->
