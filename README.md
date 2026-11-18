@@ -130,3 +130,5 @@ Apache License 2.0, as found in the [LICENSE](./LICENSE) file.
 <!-- nv-action: trivial README note for PR flow verification (2026-11-18) -->
 
 <!-- nv-action: trivial README note for PR flow verification (2026-11-18, round 2) -->
+
+<!-- nv-action: trivial README note for PR flow verification (2026-11-18, round 3) -->
