@@ -295,7 +295,7 @@ jobs:
         if [ -n "${{ inputs.suffix }}" ]; then
           SUFFIX="-${{ inputs.suffix }}"
         fi
-        TAG="nightly-${{ steps.tag_pattern.outputs.pattern }}${SUFFIX}-${{ matrix.runner_info.tag }}-temp"
+        TAG="nightly-${{ github.run_id }}-${{ steps.tag_pattern.outputs.pattern }}${SUFFIX}-${{ matrix.runner_info.tag }}-temp"
         echo "Creating temp tag: ${{ inputs.swr_temp_repo }}:$TAG"
 
         # Copy the digest to a temp tag to prevent GC. The build uses
