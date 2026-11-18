@@ -124,3 +124,5 @@ We welcome and value any contributions and collaborations:
 ## License
 
 Apache License 2.0, as found in the [LICENSE](./LICENSE) file.
+
+<!-- nv-action: trivial README note merged into czy_issue_public_test (2026-11-18) -->
