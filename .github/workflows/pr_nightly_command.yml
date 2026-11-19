@@ -554,8 +554,12 @@ jobs:
           # dispatch jobs and lets post-links still report the command result.
           INCLUDE='[]'
           add_leg() {
-            INCLUDE=$(jq -c --arg target "$1" --arg chip "$2" --arg workflow "$3" --arg label "$4" \
-              '. + [{"target": $target, "chip": $chip, "workflow": $workflow, "label": $label}]' <<< "$INCLUDE")
+            # The value lands under the "label" matrix key, but the jq
+            # variable must not be called $label: jq 1.6 (Ubuntu 22.04)
+            # treats label as a reserved keyword and rejects keyword
+            # $variable names.
+            INCLUDE=$(jq -c --arg target "$1" --arg chip "$2" --arg workflow "$3" --arg text "$4" \
+              '. + [{"target": $target, "chip": $chip, "workflow": $workflow, "label": $text}]' <<< "$INCLUDE")
           }
           case "$COMMAND" in
             presmoke)
