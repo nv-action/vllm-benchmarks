@@ -111,10 +111,12 @@ jobs:
             --os "${INPUT_OS}" \
             --hardware "${INPUT_HARDWARE}")"
           echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
-          echo '### Functional matrix' >> "${GITHUB_STEP_SUMMARY}"
-          echo '```json' >> "${GITHUB_STEP_SUMMARY}"
-          echo "${matrix}" | python3 -m json.tool >> "${GITHUB_STEP_SUMMARY}"
-          echo '```' >> "${GITHUB_STEP_SUMMARY}"
+          {
+            echo '### Functional matrix'
+            echo '```json'
+            echo "${matrix}" | python3 -m json.tool
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
 
   cell:
     name: ${{ matrix.software }} ${{ matrix.version }} (${{ matrix.os }} / ${{ matrix.hardware }})
