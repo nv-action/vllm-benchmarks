@@ -555,7 +555,7 @@ jobs:
           INCLUDE='[]'
           add_leg() {
             INCLUDE=$(jq -c --arg target "$1" --arg chip "$2" --arg workflow "$3" --arg label "$4" \
-              '. + [{target: $target, chip: $chip, workflow: $workflow, label: $label}]' <<< "$INCLUDE")
+              '. + [{"target": $target, "chip": $chip, "workflow": $workflow, "label": $label}]' <<< "$INCLUDE")
           }
           case "$COMMAND" in
             presmoke)
