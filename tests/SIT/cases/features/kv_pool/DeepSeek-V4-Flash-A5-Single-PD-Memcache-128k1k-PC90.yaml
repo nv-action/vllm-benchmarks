@@ -1,0 +1,177 @@
+# DeepSeek-V4-Flash 单机 PD 分离 + MemCache 池化（集中式）
+# 拓扑：1 机 8 卡，P=0-3（dp4/tp1，9000），D=4-7（dp4/tp1，9001），proxy 9002
+# 单机 PD 必须走 service_mode: pd + pd_server_cmds，
+# 不能沿用多机用例的 num_nodes / dp_load_balancing / routing / config / templates / deployment。
+# 运行前请在当前 shell 里 source memcache 的 set_env.sh（补 memcache_hybrid 的 LD_LIBRARY_PATH）。
+_envs: &envs
+  PREFILL_PORT: "9000"
+  DECODE_PORT: "9001"
+  PROXY_PORT: "9002"
+  # RemotePDServer 按每个实例的 dp*tp 顺序切片：P 取 0-3，D 取 4-7
+  ASCEND_RT_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
+  HCCL_IF_IP: "127.0.0.1"
+  GLOO_SOCKET_IFNAME: "hiainet0"
+  TP_SOCKET_IFNAME: "hiainet0"
+  HCCL_SOCKET_IFNAME: "hiainet0"
+  HCCL_ALGO: "level0:fullmesh"
+  VLLM_RPC_TIMEOUT: "3600000"
+  VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: "30000"
+  OMP_PROC_BIND: "false"
+  OMP_NUM_THREADS: "10"
+  PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+  TASK_QUEUE_ENABLE: "1"
+  # ---- A5 + MemCache 池化 ----
+  PYTHONHASHSEED: "0"
+  ACL_OP_INIT_MODE: "1"
+  ASCEND_LOCAL_COMM_RES: '{"version":"1.3"}'
+  ASCEND_LOCAL_COMM_RES_PATH: "/etc/hixlep/"
+  # MMC_LOCAL_CONFIG_PATH 由 kv_pool 管理器生成并注入，不要在此手写
+
+test_cases:
+  - name: "DeepSeek-V4-Flash-A5-Single-PD-Memcache-128k-1k-PC90-Perf"
+    model: "/root/.cache/modelscope/hub/models/deepseek-ai/DeepSeek-V4-Flash"
+    service_mode: pd
+    envs:
+      <<: *envs
+    kv_pool:
+      type: memcache
+      meta_service_port: 5000
+      config_store_port: 6000
+      config:
+        meta:
+          ock.mmc.log_level: error
+        local:
+          ock.mmc.log_level: error
+          ock.mmc.local_service.world_size: 256
+          # 950DT（A5）Device UB 用 device_urma；UBOE 用 device_uboe
+          ock.mmc.local_service.protocol: device_urma
+          ock.mmc.local_service.dram.size: 40GB
+          ock.mmc.local_service.max.dram.size: 2048GB
+    # 只放两实例不同的 env；卡号不要写这里，会被 RemotePDServer 覆盖
+    pd_server_envs:
+      - HCCL_EXEC_TIMEOUT: "204"
+        HCCL_CONNECT_TIMEOUT: "120"
+        HCCL_BUFFSIZE: "512"
+      - HCCL_EXEC_TIMEOUT: "2040"
+        HCCL_CONNECT_TIMEOUT: "1200"
+        HCCL_BUFFSIZE: "1024"
+    pd_server_cmds:
+      # ---------------- Prefiller (kv_producer) ----------------
+      - - "/root/.cache/modelscope/hub/models/deepseek-ai/DeepSeek-V4-Flash"
+        - "--host"
+        - "127.0.0.1"
+        - "--port"
+        - "$PREFILL_PORT"
+        - "--data-parallel-size"
+        - "4"
+        - "--data-parallel-address"
+        - "127.0.0.1"
+        - "--data-parallel-rpc-port"
+        - "12321"
+        - "--tensor-parallel-size"
+        - "1"
+        - "--max_model_len"
+        - "1048576"
+        - "--max-num-batched-tokens"
+        - "3072"
+        - "--served-model-name"
+        - "dsv"
+        - "--gpu-memory-utilization"
+        - "0.85"
+        - "--enable-expert-parallel"
+        - "--async-scheduling"
+        - "--max-num-seqs"
+        - "8"
+        - "--block-size"
+        - "32"
+        - "--enable-prefix-caching"
+        - "--api_server_count"
+        - "1"
+        - "--tokenizer-mode"
+        - "deepseek_v4"
+        - "--tool-call-parser"
+        - "deepseek_v4"
+        - "--enable-auto-tool-choice"
+        - "--reasoning-parser"
+        - "deepseek_v4"
+        - "--trust-remote-code"
+        - "--enforce-eager"
+        - "--no-disable-hybrid-kv-cache-manager"
+        - "--speculative-config"
+        - '{"num_speculative_tokens": 1, "method": "mtp"}'
+        - "--kv-transfer-config"
+        - '{"kv_connector": "MultiConnector", "kv_role": "kv_producer", "kv_port": "30000", "kv_connector_extra_config": {"connectors": [{"kv_connector": "MooncakeHybridConnector", "kv_role": "kv_producer", "kv_port": "36010", "kv_connector_extra_config": {"prefill": {"dp_size": 4, "tp_size": 1}, "decode": {"dp_size": 4, "tp_size": 1}}}, {"kv_connector": "AscendStoreConnector", "kv_role": "kv_producer", "kv_connector_extra_config": {"lookup_rpc_port": "0", "backend": "memcache", "use_layerwise": false}}]}}'
+        - "--additional_config"
+        - '{"enable_cpu_binding": "True", "multistream_overlap_shared_expert": true}'
+      # ---------------- Decoder (kv_consumer) ----------------
+      - - "/root/.cache/modelscope/hub/models/deepseek-ai/DeepSeek-V4-Flash"
+        - "--host"
+        - "127.0.0.1"
+        - "--port"
+        - "$DECODE_PORT"
+        - "--data-parallel-size"
+        - "4"
+        - "--data-parallel-address"
+        - "127.0.0.1"
+        - "--data-parallel-rpc-port"
+        - "12325"
+        - "--tensor-parallel-size"
+        - "1"
+        - "--max_model_len"
+        - "1048576"
+        - "--max-num-batched-tokens"
+        - "256"
+        - "--served-model-name"
+        - "dsv"
+        - "--gpu-memory-utilization"
+        - "0.92"
+        - "--enable-expert-parallel"
+        - "--async-scheduling"
+        - "--max-num-seqs"
+        - "56"
+        - "--block-size"
+        - "32"
+        # PC90 用例不加 "--no-enable-prefix-caching"；测非 prefix 性能时再加回
+        - "--api_server_count"
+        - "1"
+        - "--tokenizer-mode"
+        - "deepseek_v4"
+        - "--tool-call-parser"
+        - "deepseek_v4"
+        - "--enable-auto-tool-choice"
+        - "--reasoning-parser"
+        - "deepseek_v4"
+        - "--trust-remote-code"
+        - "--compilation-config"
+        - '{"cudagraph_mode": "FULL_DECODE_ONLY"}'
+        - "--no-disable-hybrid-kv-cache-manager"
+        - "--speculative-config"
+        - '{"num_speculative_tokens": 1, "method": "mtp", "enforce_eager": false}'
+        - "--kv-transfer-config"
+        - '{"kv_connector": "MultiConnector", "kv_role": "kv_consumer", "kv_port": "30000", "kv_connector_extra_config": {"connectors": [{"kv_connector": "MooncakeHybridConnector", "kv_role": "kv_consumer", "kv_port": "36010", "kv_connector_extra_config": {"prefill": {"dp_size": 4, "tp_size": 1}, "decode": {"dp_size": 4, "tp_size": 1}}}, {"kv_connector": "AscendStoreConnector", "kv_role": "kv_consumer", "kv_connector_extra_config": {"lookup_rpc_port": "0", "backend": "memcache", "use_layerwise": false}}]}}'
+        - "--additional_config"
+        - '{"enable_cpu_binding": "True", "recompute_scheduler_enable": true, "multistream_overlap_shared_expert": true}'
+    benchmarks:
+      perf_128k_1k_prefix90_warmup:
+        case_type: performance
+        dataset_path: vllm-ascend/GSM8K-in128k-bs512-prefix90-ds
+        request_conf: vllm_api_stream_chat
+        dataset_conf: gsm8k/gsm8k_gen_0_shot_cot_str_perf
+        num_prompts: 128
+        max_out_len: 1024
+        batch_size: 128
+        request_rate: 2.5
+        baseline: 0
+        threshold: 0.95
+      perf_128k_1k_prefix90:
+        case_type: performance
+        dataset_path: vllm-ascend/GSM8K-in128k-bs512-prefix90-ds
+        request_conf: vllm_api_stream_chat
+        dataset_conf: gsm8k/gsm8k_gen_0_shot_cot_str_perf
+        num_prompts: 512
+        max_out_len: 1024
+        batch_size: 128
+        request_rate: 2.5
+        # 仓库里只有双机 A3 的同口径基线（1911.9192 / 2251.5954），单机 A5 不可直接复用
+        baseline: 0
+        threshold: 0.95
