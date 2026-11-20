@@ -283,7 +283,9 @@ jobs:
           grep -vE '^(torch|torch-npu|torchvision|torchaudio|triton-ascend|memfabric_hybrid|memcache_hybrid)[=<>!]' \
             requirements.txt > /tmp/requirements-runtime.txt || true
           uv pip install -r /tmp/requirements-runtime.txt
-          uv pip install -e . --no-deps
+          # 镜像里已带 torch/torch-npu 等构建依赖，关闭 build isolation 复用它们；
+          # 否则 uv 会为构建临时环境去装 torch==2.10.0，而索引里只有 2.10.0+cpu，解析失败。
+          uv pip install -e . --no-deps --no-build-isolation
 
       - name: Uninstall Triton for 310P tests
         if: ${{ inputs.soc_version == '310P' }}
