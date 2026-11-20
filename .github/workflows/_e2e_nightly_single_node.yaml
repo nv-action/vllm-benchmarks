@@ -283,7 +283,7 @@ jobs:
           grep -vE '^(torch|torch-npu|torchvision|torchaudio|triton-ascend|memfabric_hybrid|memcache_hybrid)[=<>!]' \
             requirements.txt > /tmp/requirements-runtime.txt || true
           uv pip install -r /tmp/requirements-runtime.txt
-          uv pip install -e . --no-deps
+          uv pip install -e . --no-deps --no-build-isolation
 
       - name: Uninstall Triton for 310P tests
         if: ${{ inputs.soc_version == '310P' }}
