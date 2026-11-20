@@ -34,7 +34,17 @@ if ! [ -x "$(command -v shellcheck)" ]; then
         exit 1
     fi
 
-    wget -qO- "https://github.com/koalaman/shellcheck/releases/download/${scversion?}/shellcheck-${scversion?}.linux.x86_64.tar.xz" | tar -xJv
+    # pre-commit runs one instance of this script per file in parallel, so
+    # serialize the shared download/extract to keep concurrent tars from
+    # clobbering the archive members (ETXTBSY "Text file busy") or each
+    # other's partially-extracted files.
+    lock_file="shellcheck-${scversion}.lock"
+    exec 9>"${lock_file}"
+    flock 9
+
+    if [ ! -x "shellcheck-${scversion}/shellcheck" ]; then
+        wget -qO- "https://github.com/koalaman/shellcheck/releases/download/${scversion?}/shellcheck-${scversion?}.linux.x86_64.tar.xz" | tar -xJv
+    fi
     export PATH="$PATH:$(pwd)/shellcheck-${scversion}"
 fi
 
