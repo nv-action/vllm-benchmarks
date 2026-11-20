@@ -1,0 +1,239 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Huawei Technologies Co., Ltd. All Rights Reserved.
+
+name: Build and test E2E image
+
+on:
+  workflow_call:
+    inputs:
+      source_ref:
+        type: string
+        required: true
+      vllm:
+        type: string
+        required: true
+      lane:
+        type: string
+        required: true
+        description: 'Stable cache lane: main or release.'
+      target:
+        type: string
+        required: true
+      test_groups:
+        type: string
+        required: true
+      refresh_layers:
+        type: boolean
+        default: false
+        description: 'Rebuild Docker layers while still allowing L0/L1 reuse.'
+      use_csrc_cache:
+        type: boolean
+        default: true
+        description: 'Restore L0/L1 before Docker; false uses source compilation on a layer miss.'
+    secrets:
+      SWR_E2E_USERNAME:
+        required: true
+      SWR_E2E_PASSWORD:
+        required: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash -el {0}
+
+jobs:
+  build:
+    name: Build E2E image (${{ fromJSON(inputs.target).device }}-${{ inputs.lane }})
+    runs-on: linux-aarch64-cpu-4
+    timeout-minutes: 120
+    container:
+      # Match the existing csrc producer's CANN environment for L1 snapshot keys.
+      image: ${{ fromJSON(inputs.target).image }}
+    env:
+      RUNS_ON_S3_BUCKET_CACHE: ascend-ci-cache-hk
+      RUNS_ON_S3_BUCKET_ENDPOINT: https://obs.ap-southeast-1.myhuaweicloud.com
+      RUNS_ON_S3_FORCE_PATH_STYLE: 'false'
+      AWS_S3_FORCE_PATH_STYLE: 'false'
+      AWS_REGION: ap-southeast-1
+      RUNS_ON_RUNNER_NAME: ''
+    outputs:
+      image: ${{ steps.publish.outputs.image }}
+    steps:
+      - name: Checkout workflow helpers
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Stage workflow helpers
+        run: bash .github/workflows/scripts/stage_ci_actions.sh
+
+      - name: Checkout tested source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Prepare clean image context
+        run: |
+          apt-get update -y
+          apt-get install -y git zstd
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          # Snapshot before restoring caches or checking out the upstream repo.
+          # Keep .git for setuptools-scm and the source's submodules.
+          cp -a . "$RUNNER_TEMP/vllm-ascend"
+
+      - name: Resolve vLLM commit
+        uses: actions/checkout@v7
+        with:
+          repository: vllm-project/vllm
+          ref: ${{ inputs.vllm }}
+          path: vllm
+          persist-credentials: false
+
+      - name: Record build inputs
+        id: inputs
+        env:
+          SOURCE_REF: ${{ inputs.source_ref }}
+          LANE: ${{ inputs.lane }}
+          DEVICE: ${{ fromJSON(inputs.target).device }}
+        run: |
+          set -euo pipefail
+          VLLM_SHA=$(git -C vllm rev-parse HEAD)
+          CSRC_MANIFEST=$(git ls-files -s -- csrc setup.py CMakeLists.txt cmake)
+          CSRC_HASH=$(printf '%s\n' "$CSRC_MANIFEST" | sha256sum | awk '{print $1}')
+          IMAGE_REPO=swr.cn-southwest-2.myhuaweicloud.com/base_image/test/ascend-ci
+          {
+            echo "vllm_sha=$VLLM_SHA"
+            echo "csrc_hash=$CSRC_HASH"
+            echo "image_repo=$IMAGE_REPO"
+            echo "image_tag=$IMAGE_REPO:e2e-${DEVICE}-arm64-${LANE}-${VLLM_SHA:0:12}-${SOURCE_REF:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            echo "cache_ref=$IMAGE_REPO:buildcache-e2e-${DEVICE}-arm64-${LANE}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restore exact csrc cache
+        id: l0
+        if: inputs.use_csrc_cache
+        continue-on-error: true
+        uses: runs-on/cache/restore@v5
+        with:
+          path: |
+            vllm_ascend/_cann_ops_custom
+            vllm_ascend/*.so
+            vllm_ascend/lib
+            vllm_ascend/include
+          key: vllm-ascend-build-v2-${{ fromJSON(inputs.target).cache_arch }}-${{ fromJSON(inputs.target).image_tag }}-${{ steps.inputs.outputs.csrc_hash }}
+          fail-on-cache-miss: false
+
+      - name: Restore incremental csrc cache
+        id: l1
+        if: inputs.use_csrc_cache && steps.l0.outputs.cache-hit != 'true'
+        uses: ./../../_temp/ci-workflow/.github/actions/csrc-l1-restore
+        with:
+          cache-dir: csrc/build_cache
+          architecture: ${{ fromJSON(inputs.target).cache_arch }}
+          soc-version: ${{ fromJSON(inputs.target).soc_version }}
+          csrc-hash: ${{ steps.inputs.outputs.csrc_hash }}
+
+      - name: Prepare cache input directory
+        run: mkdir -p csrc/build_cache
+
+      - name: Login to SWR
+        uses: docker/login-action@v4
+        with:
+          registry: swr.cn-southwest-2.myhuaweicloud.com
+          username: ${{ secrets.SWR_E2E_USERNAME }}
+          password: ${{ secrets.SWR_E2E_PASSWORD }}
+
+      # Use the same provisioned builder as the nightly image workflow.
+      - name: Build and push E2E image
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ runner.temp }}/vllm-ascend
+          file: ${{ runner.temp }}/ci-workflow/.github/workflows/dockerfiles/Dockerfile.e2e
+          platforms: linux/arm64
+          build-contexts: |
+            csrc_l0=./vllm_ascend
+            csrc_l1=./csrc/build_cache
+            workflow_helpers=${{ runner.temp }}/ci-workflow/.github/workflows/scripts
+          build-args: |
+            BASE_IMAGE=${{ fromJSON(inputs.target).image }}
+            VLLM_COMMIT=${{ steps.inputs.outputs.vllm_sha }}
+            SOURCE_SHA=${{ inputs.source_ref }}
+            DEVICE=${{ fromJSON(inputs.target).device }}
+            SOC_VERSION=${{ fromJSON(inputs.target).soc_version }}
+            CSRC_CACHE=${{ inputs.use_csrc_cache && 'on' || 'off' }}
+            CSRC_CACHE_HIT=${{ steps.l0.outputs.cache-hit == 'true' && 'true' || 'false' }}
+            MAX_JOBS=4
+          outputs: type=image,name=${{ steps.inputs.outputs.image_tag }},push=true,oci-mediatypes=false
+          provenance: false
+          sbom: false
+          no-cache: ${{ inputs.refresh_layers }}
+          cache-from: type=registry,ref=${{ steps.inputs.outputs.cache_ref }}
+          cache-to: type=registry,ref=${{ steps.inputs.outputs.cache_ref }},mode=max
+
+      - name: Publish immutable test input
+        id: publish
+        env:
+          IMAGE_REPO: ${{ steps.inputs.outputs.image_repo }}
+          IMAGE_TAG: ${{ steps.inputs.outputs.image_tag }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          SOURCE_SHA: ${{ inputs.source_ref }}
+          VLLM_SHA: ${{ steps.inputs.outputs.vllm_sha }}
+          L0_HIT: ${{ steps.l0.outputs.cache-hit }}
+          L1_KEY: ${{ steps.l1.outputs.cache-matched-key }}
+          CACHE_MODE: ${{ inputs.use_csrc_cache && 'on' || 'off' }}
+        run: |
+          echo "image=$IMAGE_REPO@$DIGEST" >> "$GITHUB_OUTPUT"
+          {
+            echo "### E2E image"
+            echo "- Image: $IMAGE_REPO@$DIGEST"
+            echo "- Tag: $IMAGE_TAG"
+            echo "- vllm-ascend: $SOURCE_SHA"
+            echo "- vLLM: $VLLM_SHA"
+            echo "- csrc cache mode: $CACHE_MODE"
+            echo "- L0 exact hit: ${L0_HIT:-false}"
+            echo "- L1 restored snapshot: ${L1_KEY:-none}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  test:
+    name: E2E ${{ fromJSON(inputs.target).device }}-${{ inputs.lane }} ${{ matrix.group.partition_name }}-${{ matrix.group.partition }}
+    needs: build
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        group: ${{ fromJSON(inputs.test_groups) }}
+    runs-on: ${{ matrix.group.runner }}
+    container:
+      image: ${{ needs.build.outputs.image }}
+      env:
+        VLLM_LOGGING_LEVEL: ERROR
+        VLLM_USE_MODELSCOPE: 'True'
+        HF_HUB_OFFLINE: '1'
+        MAX_JOBS: '4'
+        VLLM_WORKER_MULTIPROC_METHOD: spawn
+    steps:
+      - name: Run complete E2E partition
+        working-directory: /vllm-workspace/vllm-ascend
+        env:
+          TEST_TARGETS: ${{ matrix.group.tests }}
+        run: |
+          source /usr/local/Ascend/ascend-toolkit/set_env.sh
+          read -r -a targets <<< "$TEST_TARGETS"
+          bash .github/workflows/scripts/run_e2e_image_tests.sh "$RUNNER_TEMP/e2e-image-results" "${targets[@]}"
+
+      - name: Upload E2E results and image environment
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-image-${{ fromJSON(inputs.target).device }}-${{ inputs.lane }}-${{ matrix.group.partition_name }}-${{ matrix.group.partition }}
+          path: |
+            ${{ runner.temp }}/e2e-image-results
+            /vllm-workspace/packages.txt
+          if-no-files-found: warn
+          retention-days: 14
