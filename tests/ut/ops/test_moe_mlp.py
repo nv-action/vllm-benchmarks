@@ -448,7 +448,15 @@ class TestApplyMoeMlp(unittest.TestCase):
         mlp_compute_input = _mlp_compute_input()
         stream = MagicMock()
         stream.record_event.return_value = "evt"
-        with patch(f"{MOE_MLP}.torch.npu.current_stream", return_value=stream):
+        with (
+            # maybe_record_event() records unconditionally only when the
+            # process-global Ascend config is uninitialized; earlier tests in
+            # the same xdist worker may leave it initialized (with the
+            # overlap flag disabled), which would skip the event and make
+            # this test order-dependent. Force the uninitialized fallback.
+            patch(f"{MOE_MLP}.get_ascend_config", side_effect=RuntimeError("Ascend config is not initialized")),
+            patch(f"{MOE_MLP}.torch.npu.current_stream", return_value=stream),
+        ):
             out, evt = apply_moe_mlp(mlp_compute_input, quant_method)
 
         self.assertEqual((out, evt), ("final_out", "evt"))
@@ -494,6 +502,9 @@ class TestApplyMoeMlp(unittest.TestCase):
         stream = MagicMock()
         stream.record_event.side_effect = _record_event
         with (
+            # Force maybe_record_event() onto the uninitialized-config
+            # fallback; see test_fused_path_skips_separate_activation.
+            patch(f"{MOE_MLP}.get_ascend_config", side_effect=RuntimeError("Ascend config is not initialized")),
             patch(f"{MOE_MLP}.torch.npu.current_stream", return_value=stream),
             patch(f"{MOE_MLP}.torch_npu.npu_swiglu", return_value="x", create=True),
         ):
