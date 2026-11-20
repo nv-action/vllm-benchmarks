@@ -10,9 +10,6 @@ _envs: &envs
   # RemotePDServer 按每个实例的 dp*tp 顺序切片：P 取 0-3，D 取 4-7
   ASCEND_RT_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
   HCCL_IF_IP: "127.0.0.1"
-  GLOO_SOCKET_IFNAME: "hiainet0"
-  TP_SOCKET_IFNAME: "hiainet0"
-  HCCL_SOCKET_IFNAME: "hiainet0"
   HCCL_ALGO: "level0:fullmesh"
   VLLM_RPC_TIMEOUT: "3600000"
   VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: "30000"
