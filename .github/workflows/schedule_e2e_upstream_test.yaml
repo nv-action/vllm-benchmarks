@@ -18,6 +18,7 @@
 name: E2E-upstream
 
 on:
+  workflow_dispatch:
   #schedule:
   #  - cron: '0 8 * * 0' # every Sunday at 8:00
 # Bash shells do not use ~/.profile or ~/.bashrc so these shells need to be explicitly
