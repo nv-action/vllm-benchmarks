@@ -9,8 +9,12 @@ _envs: &envs
   PROXY_PORT: "9002"
   # RemotePDServer 按每个实例的 dp*tp 顺序切片：P 取 0-3，D 取 4-7
   ASCEND_RT_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
-  HCCL_IF_IP: "127.0.0.1"
   HCCL_ALGO: "level0:fullmesh"
+  # 一个 vllm serve 会拉起 4 个 EngineCore（DP0-DP3）进程，它们共享同一份 env，
+  # 因此无法在 YAML 里给每个 DP rank 指定不同端口段；交给 HCCL 让每个进程
+  # 各自挑空闲端口，避免同机多进程（含 P/D 两实例）HCCL socket 端口互撞。
+  HCCL_NPU_SOCKET_PORT_RANGE: "auto"
+  HCCL_HOST_SOCKET_PORT_RANGE: "auto"
   VLLM_RPC_TIMEOUT: "3600000"
   VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: "30000"
   OMP_PROC_BIND: "false"
@@ -45,23 +49,16 @@ test_cases:
           ock.mmc.local_service.dram.size: 40GB
           ock.mmc.local_service.max.dram.size: 2048GB
     # 只放两实例不同的 env；卡号不要写这里，会被 RemotePDServer 覆盖
-    # P/D 在同一台机器上，HCCL 端口必须按实例分段，否则两个实例的
-    # IF/NPU socket 端口会互相撞，首个集合通信（profile_run 的 AllGather）
-    # 会以 EI0006 Communication_Error_Get_Socket 超时退出。
-    # 取值与 docs/source/tutorials/models/Qwen3.8-Flash-Next.md 的单机 950 PD 一致。
+    # HCCL 端口统一用上面的 auto（每个进程自选空闲端口），不要再按实例写死端口段：
+    # 写死时同一实例内 4 个 DP rank 共用同一段端口，首个集合通信（profile_run 的
+    # AllGather）会以 EI0006 Communication_Error_Get_Socket 超时退出。
     pd_server_envs:
       - HCCL_EXEC_TIMEOUT: "204"
         HCCL_CONNECT_TIMEOUT: "120"
         HCCL_BUFFSIZE: "512"
-        HCCL_IF_BASE_PORT: "62000"
-        HCCL_HOST_SOCKET_PORT_RANGE: "62000-62063"
-        HCCL_NPU_SOCKET_PORT_RANGE: "61400-61499"
       - HCCL_EXEC_TIMEOUT: "2040"
         HCCL_CONNECT_TIMEOUT: "1200"
         HCCL_BUFFSIZE: "1024"
-        HCCL_IF_BASE_PORT: "63000"
-        HCCL_HOST_SOCKET_PORT_RANGE: "63000-63063"
-        HCCL_NPU_SOCKET_PORT_RANGE: "61500-61599"
     pd_server_cmds:
       # ---------------- Prefiller (kv_producer) ----------------
       - - "/root/.cache/modelscope/hub/models/deepseek-ai/DeepSeek-V4-Flash"
