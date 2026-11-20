@@ -3,7 +3,7 @@
 
 Run in an installed vLLM/Ascend environment; no model, store service, or NPU
 operation is created. Both source trees must use the same dependency stack.
-This measures CPU metadata preparation, not a full scheduler tick or E2E serving.
+This measures CPU metadata preparation, not a full scheduler tick or E2E serving..
 
 Example:
     python benchmarks/benchmark_kv_pool_metadata.py \
