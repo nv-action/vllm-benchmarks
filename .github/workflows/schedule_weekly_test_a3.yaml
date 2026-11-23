@@ -260,7 +260,8 @@ jobs:
     with:
       soc_version: a3
       test_frequency: weekly
-      runner: linux-aarch64-a3-800t-0
+      runner: linux-amd64-cpu-8-hk
+      vllm_ascend_remote_url: 'https://github.com/${{ github.repository }}.git'
       image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a3'
       ascend_log_prefix: ${{ needs.setup-vars.outputs.ascend_log_prefix }}/${{ matrix.vllm_ascend_branch }}
       vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
@@ -313,7 +314,8 @@ jobs:
     with:
       soc_version: a3
       test_frequency: weekly
-      runner: linux-aarch64-a3-800t-0
+      runner: linux-amd64-cpu-8-hk
+      vllm_ascend_remote_url: 'https://github.com/${{ github.repository }}.git'
       image: 'swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:nightly-ci-${{ matrix.vllm_ascend_branch }}-a3'
       ascend_log_prefix: ${{ needs.setup-vars.outputs.ascend_log_prefix }}/${{ matrix.vllm_ascend_branch }}
       vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
