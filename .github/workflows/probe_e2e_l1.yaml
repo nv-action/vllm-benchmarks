@@ -1,0 +1,54 @@
+name: Verify A2 L1 restore
+on:
+  push:
+    branches: [codex/e2e-image-l1-restore]
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash -el {0}
+
+jobs:
+  build:
+    name: Restore A2 L1 cache
+    runs-on: linux-aarch64-cpu-4-cn12-001
+    timeout-minutes: 120
+    container:
+      # Match the existing csrc producer's CANN environment for L1 snapshot keys.
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.2.1-910b-ubuntu22.04-py3.12
+    env:
+      RUNS_ON_S3_BUCKET_CACHE: ascend-ci-cache-hk
+      RUNS_ON_S3_BUCKET_ENDPOINT: https://obs.ap-southeast-1.myhuaweicloud.com
+      RUNS_ON_S3_FORCE_PATH_STYLE: 'false'
+      AWS_S3_FORCE_PATH_STYLE: 'false'
+      AWS_REGION: ap-southeast-1
+      RUNS_ON_RUNNER_NAME: ''
+    steps:
+      - name: Checkout workflow helpers
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Stage workflow helpers
+        run: bash .github/workflows/scripts/stage_ci_actions.sh
+
+      - name: Prepare L1 dependencies and inputs
+        id: inputs
+        run: |
+          set -euo pipefail
+          apt-get update -y
+          apt-get install -y git python3 zstd
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          CSRC_MANIFEST=$(git ls-files -s -- csrc setup.py CMakeLists.txt cmake)
+          CSRC_HASH=$(printf '%s\n' "$CSRC_MANIFEST" | sha256sum | awk '{print $1}')
+          echo "csrc_hash=$CSRC_HASH" >> "$GITHUB_OUTPUT"
+
+      - name: Restore incremental csrc cache
+        id: l1
+        uses: ./../../_temp/ci-workflow/.github/actions/csrc-l1-restore
+        with:
+          cache-dir: csrc/build_cache
+          architecture: ARM64
+          soc-version: ascend910b1
+          csrc-hash: ${{ steps.inputs.outputs.csrc_hash }}
