@@ -46,7 +46,7 @@ defaults:
 jobs:
   build:
     name: Build E2E image (${{ fromJSON(inputs.target).device }}-${{ inputs.lane }})
-    runs-on: linux-aarch64-cpu-4
+    runs-on: linux-aarch64-cpu-4-cn12-001
     timeout-minutes: 120
     container:
       # Match the existing csrc producer's CANN environment for L1 snapshot keys.
