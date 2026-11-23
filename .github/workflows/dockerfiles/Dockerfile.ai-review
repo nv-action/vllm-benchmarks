@@ -43,10 +43,13 @@ RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - && \
     rm -rf /var/cache/apt/* && \
     rm -rf /var/lib/apt/lists/*
 
-# DeepSeek Harness CLI. Builds are manual and deliberate, so this installs
-# the current release; the version used lands in the build log via the
+# DeepSeek Harness CLI. Builds are manual and deliberate. Every version
+# published so far is a prerelease (`latest` points to 0.2.2-rc.5) and npm
+# ranges like `*` never match prereleases, so a bare install fails with
+# ETARGET; install via the `next` dist-tag instead, whose resolution bypasses
+# range matching. The version used lands in the build log via the
 # `dsh --version` smoke check below.
-RUN npm install -g "@deepseek-ai/dsh" && \
+RUN npm install -g "@deepseek-ai/dsh@next" && \
     npm cache clean --force
 
 # Smoke check: fail the build early if the CLI cannot start in this image.
