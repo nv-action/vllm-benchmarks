@@ -80,7 +80,7 @@ jobs:
       - name: Prepare clean image context
         run: |
           apt-get update -y
-          apt-get install -y git zstd
+          apt-get install -y git python3 zstd
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           # Snapshot before restoring caches or checking out the upstream repo.
           # Keep .git for setuptools-scm and the source's submodules.
