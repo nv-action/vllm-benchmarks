@@ -160,7 +160,7 @@ jobs:
           build-contexts: |
             csrc_l0=./vllm_ascend
             csrc_l1=./csrc/build_cache
-            workflow_helpers=${{ runner.temp }}/ci-workflow/.github/workflows/scripts
+            workflow_helpers=../../_temp/ci-workflow/.github/workflows/scripts
           build-args: |
             BASE_IMAGE=${{ fromJSON(inputs.target).image }}
             VLLM_COMMIT=${{ steps.inputs.outputs.vllm_sha }}
