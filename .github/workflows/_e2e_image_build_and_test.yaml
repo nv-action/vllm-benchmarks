@@ -12,6 +12,9 @@ on:
       vllm:
         type: string
         required: true
+      vllm_tag:
+        type: string
+        default: ''
       lane:
         type: string
         required: true
@@ -60,7 +63,7 @@ jobs:
       AWS_REGION: ap-southeast-1
       RUNS_ON_RUNNER_NAME: ''
     outputs:
-      image: ${{ steps.publish.outputs.image }}
+      image: ${{ format('{0}@{1}', steps.inputs.outputs.image_repo, steps.build.outputs.digest) }}
     steps:
       - name: Checkout workflow helpers
         uses: actions/checkout@v7
@@ -78,37 +81,25 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
-      - name: Prepare clean image context
-        run: |
-          apt-get update -y
-          apt-get install -y git python3 zstd
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          # Snapshot before restoring caches or checking out the upstream repo.
-          # Keep .git for setuptools-scm and the source's submodules.
-          cp -a . "$RUNNER_TEMP/vllm-ascend"
-
-      - name: Resolve vLLM commit
-        uses: actions/checkout@v7
-        with:
-          repository: vllm-project/vllm
-          ref: ${{ inputs.vllm }}
-          path: vllm
-          persist-credentials: false
-
-      - name: Record build inputs
+      - name: Prepare build inputs
         id: inputs
         env:
           SOURCE_REF: ${{ inputs.source_ref }}
+          VLLM_SHA: ${{ inputs.vllm }}
           LANE: ${{ inputs.lane }}
           DEVICE: ${{ fromJSON(inputs.target).device }}
         run: |
           set -euo pipefail
-          VLLM_SHA=$(git -C vllm rev-parse HEAD)
+          apt-get update -y
+          apt-get install -y git python3 zstd
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          # Keep a clean source context, including .git for setuptools-scm.
+          cp -a . "$RUNNER_TEMP/vllm-ascend"
+          mkdir -p csrc/build_cache
           CSRC_MANIFEST=$(git ls-files -s -- csrc setup.py CMakeLists.txt cmake)
           CSRC_HASH=$(printf '%s\n' "$CSRC_MANIFEST" | sha256sum | awk '{print $1}')
           IMAGE_REPO=swr.cn-southwest-2.myhuaweicloud.com/base_image/test/ascend-ci
           {
-            echo "vllm_sha=$VLLM_SHA"
             echo "csrc_hash=$CSRC_HASH"
             echo "image_repo=$IMAGE_REPO"
             echo "image_tag=$IMAGE_REPO:e2e-${DEVICE}-arm64-${LANE}-${VLLM_SHA:0:12}-${SOURCE_REF:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
@@ -139,9 +130,6 @@ jobs:
           soc-version: ${{ fromJSON(inputs.target).soc_version }}
           csrc-hash: ${{ steps.inputs.outputs.csrc_hash }}
 
-      - name: Prepare cache input directory
-        run: mkdir -p csrc/build_cache
-
       - name: Login to SWR
         uses: docker/login-action@v4
         with:
@@ -153,9 +141,11 @@ jobs:
       - name: Build and push E2E image
         id: build
         uses: docker/build-push-action@v7
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: 'false'
         with:
           context: ${{ runner.temp }}/vllm-ascend
-          file: ${{ runner.temp }}/ci-workflow/.github/workflows/dockerfiles/Dockerfile.e2e
+          file: ${{ runner.temp }}/ci-workflow/.github/workflows/dockerfiles/Dockerfile.e2e.${{ fromJSON(inputs.target).device }}
           platforms: linux/arm64
           build-contexts: |
             csrc_l0=./vllm_ascend
@@ -163,9 +153,8 @@ jobs:
             workflow_helpers=../../_temp/ci-workflow/.github/workflows/scripts
           build-args: |
             BASE_IMAGE=${{ fromJSON(inputs.target).image }}
-            VLLM_COMMIT=${{ steps.inputs.outputs.vllm_sha }}
-            SOURCE_SHA=${{ inputs.source_ref }}
-            DEVICE=${{ fromJSON(inputs.target).device }}
+            VLLM_COMMIT=${{ inputs.vllm }}
+            VLLM_TAG=${{ inputs.vllm_tag }}
             SOC_VERSION=${{ fromJSON(inputs.target).soc_version }}
             CSRC_CACHE=${{ inputs.use_csrc_cache && 'on' || 'off' }}
             CSRC_CACHE_HIT=${{ steps.l0.outputs.cache-hit == 'true' && 'true' || 'false' }}
@@ -176,30 +165,6 @@ jobs:
           no-cache: ${{ inputs.refresh_layers }}
           cache-from: type=registry,ref=${{ steps.inputs.outputs.cache_ref }}
           cache-to: type=registry,ref=${{ steps.inputs.outputs.cache_ref }},mode=max
-
-      - name: Publish immutable test input
-        id: publish
-        env:
-          IMAGE_REPO: ${{ steps.inputs.outputs.image_repo }}
-          IMAGE_TAG: ${{ steps.inputs.outputs.image_tag }}
-          DIGEST: ${{ steps.build.outputs.digest }}
-          SOURCE_SHA: ${{ inputs.source_ref }}
-          VLLM_SHA: ${{ steps.inputs.outputs.vllm_sha }}
-          L0_HIT: ${{ steps.l0.outputs.cache-hit }}
-          L1_KEY: ${{ steps.l1.outputs.cache-matched-key }}
-          CACHE_MODE: ${{ inputs.use_csrc_cache && 'on' || 'off' }}
-        run: |
-          echo "image=$IMAGE_REPO@$DIGEST" >> "$GITHUB_OUTPUT"
-          {
-            echo "### E2E image"
-            echo "- Image: $IMAGE_REPO@$DIGEST"
-            echo "- Tag: $IMAGE_TAG"
-            echo "- vllm-ascend: $SOURCE_SHA"
-            echo "- vLLM: $VLLM_SHA"
-            echo "- csrc cache mode: $CACHE_MODE"
-            echo "- L0 exact hit: ${L0_HIT:-false}"
-            echo "- L1 restored snapshot: ${L1_KEY:-none}"
-          } >> "$GITHUB_STEP_SUMMARY"
 
   test:
     name: E2E ${{ fromJSON(inputs.target).device }}-${{ inputs.lane }} ${{ matrix.group.partition_name }}-${{ matrix.group.partition }}
@@ -223,7 +188,9 @@ jobs:
         working-directory: /vllm-workspace/vllm-ascend
         env:
           TEST_TARGETS: ${{ matrix.group.tests }}
+          E2E_IMAGE: ${{ needs.build.outputs.image }}
         run: |
+          echo "Image: $E2E_IMAGE" | tee -a "$GITHUB_STEP_SUMMARY"
           source /usr/local/Ascend/ascend-toolkit/set_env.sh
           read -r -a targets <<< "$TEST_TARGETS"
           bash .github/workflows/scripts/run_e2e_image_tests.sh "$RUNNER_TEMP/e2e-image-results" "${targets[@]}"

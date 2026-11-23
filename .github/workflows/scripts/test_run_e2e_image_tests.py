@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 Huawei Technologies Co., Ltd. All Rights Reserved.
 
-import json
+import csv
 import os
 import subprocess
 import sys
@@ -54,9 +54,12 @@ def test_runner_preserves_every_result_and_continues_after_failure(tmp_path, tar
         timeout=30,
     )
     assert result.returncode == expected_status, result.stderr
-    records = json.loads((output / "results.json").read_text())
-    assert [record["test"] for record in records] == targets
-    for index, record in enumerate(records, 1):
-        assert record["exit_code"] == int(record["test"] == "bad")
-        assert f"output for {record['test']}" in (output / f"{index}.log").read_text()
+    with (output / "results.tsv").open() as stream:
+        records = list(csv.reader(stream, delimiter="\t"))
+    assert [record[0] for record in records] == targets
+    for index, (target, code, seconds, log) in enumerate(records, 1):
+        assert int(code) == int(target == "bad")
+        assert int(seconds) >= 0
+        assert Path(log) == output / f"{index}.log"
+        assert f"output for {target}" in Path(log).read_text()
         assert (output / f"{index}.xml").is_file()

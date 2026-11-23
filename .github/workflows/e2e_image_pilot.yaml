@@ -9,7 +9,7 @@ on:
     paths:
       - .github/workflows/e2e_image_pilot.yaml
       - .github/workflows/_e2e_image_build_and_test.yaml
-      - .github/workflows/dockerfiles/Dockerfile.e2e
+      - .github/workflows/dockerfiles/Dockerfile.e2e.*
       - .github/workflows/scripts/*e2e*
   workflow_dispatch:
     inputs:
@@ -47,6 +47,7 @@ jobs:
       source_ref: ${{ steps.refs.outputs.source_ref }}
       main_commit: ${{ steps.refs.outputs.main_commit }}
       release_tag: ${{ steps.refs.outputs.release_tag }}
+      release_commit: ${{ steps.refs.outputs.release_commit }}
       image_matrix: ${{ steps.plan.outputs.image_matrix }}
     steps:
       - name: Checkout workflow helpers
@@ -72,10 +73,13 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           main_commit=$(tr -d '[:space:]' < .github/vllm-main-verified.commit)
           release_tag=$(tr -d '[:space:]' < .github/vllm-release-tag.commit)
+          release_commit=$(git ls-remote --exit-code --sort=refname https://github.com/vllm-project/vllm.git \
+            "refs/tags/$release_tag" "refs/tags/$release_tag^{}" | tail -n 1 | cut -f1)
           {
             echo "source_ref=$(git rev-parse HEAD)"
             echo "main_commit=$main_commit"
             echo "release_tag=$release_tag"
+            echo "release_commit=$release_commit"
           } >> "$GITHUB_OUTPUT"
 
       - name: Collect the complete E2E suite and hardware partitions
@@ -106,8 +110,10 @@ jobs:
         version:
           - lane: main
             ref: ${{ needs.prepare.outputs.main_commit }}
+            tag: ''
           - lane: release
-            ref: ${{ needs.prepare.outputs.release_tag }}
+            ref: ${{ needs.prepare.outputs.release_commit }}
+            tag: ${{ needs.prepare.outputs.release_tag }}
     uses: ./.github/workflows/_e2e_image_build_and_test.yaml
     secrets:
       SWR_E2E_USERNAME: ${{ secrets.SWR_E2E_USERNAME }}
@@ -115,6 +121,7 @@ jobs:
     with:
       source_ref: ${{ needs.prepare.outputs.source_ref }}
       vllm: ${{ matrix.version.ref }}
+      vllm_tag: ${{ matrix.version.tag }}
       lane: ${{ matrix.version.lane }}
       target: ${{ toJSON(matrix.device.target) }}
       test_groups: ${{ toJSON(matrix.device.groups) }}
@@ -128,6 +135,11 @@ jobs:
     steps:
       - name: Report pipeline timing
         uses: actions/github-script@v9
+        env:
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_ref }}
+          VLLM_MAIN_COMMIT: ${{ needs.prepare.outputs.main_commit }}
+          VLLM_RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          VLLM_RELEASE_COMMIT: ${{ needs.prepare.outputs.release_commit }}
         with:
           script: |
             const fs = require('fs');
@@ -142,6 +154,10 @@ jobs:
             const end = completed.map(job => job.completed_at).sort().at(-1);
             const report = {
               run_id: context.runId, attempt: run.run_attempt,
+              source_sha: process.env.SOURCE_SHA,
+              vllm_main_commit: process.env.VLLM_MAIN_COMMIT,
+              vllm_release_tag: process.env.VLLM_RELEASE_TAG,
+              vllm_release_commit: process.env.VLLM_RELEASE_COMMIT,
               attempt_started_at: run.run_started_at || run.created_at,
               elapsed_seconds: seconds(run.run_started_at || run.created_at, end),
               jobs: jobs.map(job => ({
@@ -155,13 +171,18 @@ jobs:
             };
             fs.writeFileSync('e2e-image-timing.json', JSON.stringify(report, null, 2));
             await core.summary.addHeading('A2/A3 E2E image pilot')
+              .addList([
+                `vllm-ascend: ${report.source_sha}`,
+                `vLLM main: ${report.vllm_main_commit}`,
+                `vLLM release: ${report.vllm_release_tag} (${report.vllm_release_commit})`,
+              ])
               .addRaw(`Elapsed from attempt start to the last completed job: ${report.elapsed_seconds ?? 'unavailable'} s\n\n`)
               .addRaw('Includes queueing, image/cache preparation, push, container startup and tests. Parallel durations must not be summed.\n\n')
               .addTable([
                 [{ data: 'Job / step', header: true }, { data: 'Result', header: true }, { data: 'Seconds', header: true }],
                 ...report.jobs.filter(job => job.name.includes('Image pilot (')).flatMap(job => [
                   [job.name, job.conclusion ?? 'running', String(job.elapsed_seconds ?? '')],
-                  ...job.steps.filter(step => /Initialize containers|cache|Build and push|Prepare image|Run complete/.test(step.name))
+                  ...job.steps.filter(step => /Initialize containers|cache|Build and push|Prepare build|Run complete/.test(step.name))
                     .map(step => [step.name, step.conclusion ?? 'running', String(step.elapsed_seconds ?? '')]),
                 ]),
               ]).write();

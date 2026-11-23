@@ -34,6 +34,7 @@
 /CLAUDE.md @MrZ20
 
 # Dockerfiles
+/.github/workflows/dockerfiles/Dockerfile.e2e.* @zhangxinyuehfad @czydyy
 /Dockerfile* @zhangxinyuehfad @czydyy @winson-00178005
 
 # docs

@@ -61,19 +61,4 @@ for target in "$@"; do
     echo "::endgroup::"
     if [[ "$status" -ne 0 ]]; then overall_status=1; fi
 done
-python3 - "$output_dir" <<'PY'
-import csv
-import json
-import sys
-from pathlib import Path
-
-root = Path(sys.argv[1])
-with (root / "results.tsv").open() as stream:
-    results = [
-        {"test": test, "exit_code": int(code), "seconds": int(seconds), "log": log}
-        for test, code, seconds, log in csv.reader(stream, delimiter="\t")
-    ]
-(root / "results.json").write_text(json.dumps(results, indent=2) + "\n")
-print(json.dumps(results, indent=2))
-PY
 exit "$overall_status"
