@@ -44,6 +44,19 @@ jobs:
           CSRC_HASH=$(printf '%s\n' "$CSRC_MANIFEST" | sha256sum | awk '{print $1}')
           echo "csrc_hash=$CSRC_HASH" >> "$GITHUB_OUTPUT"
 
+      - name: Restore exact csrc cache
+        id: l0
+        continue-on-error: true
+        uses: runs-on/cache/restore@v5
+        with:
+          path: |
+            vllm_ascend/_cann_ops_custom
+            vllm_ascend/*.so
+            vllm_ascend/lib
+            vllm_ascend/include
+          key: vllm-ascend-build-v2-ARM64-9.2.1-910b-ubuntu22.04-py3.12-${{ steps.inputs.outputs.csrc_hash }}
+          fail-on-cache-miss: false
+
       - name: Restore incremental csrc cache
         id: l1
         uses: ./../../_temp/ci-workflow/.github/actions/csrc-l1-restore
