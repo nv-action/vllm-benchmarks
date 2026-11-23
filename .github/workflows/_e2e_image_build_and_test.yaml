@@ -53,6 +53,7 @@ jobs:
       image: ${{ fromJSON(inputs.target).image }}
     env:
       RUNS_ON_S3_BUCKET_CACHE: ascend-ci-cache-hk
+      RUNS_ON_S3_CACHE_REPO_PREFIX: cache/vllm-project/vllm-ascend
       RUNS_ON_S3_BUCKET_ENDPOINT: https://obs.ap-southeast-1.myhuaweicloud.com
       RUNS_ON_S3_FORCE_PATH_STYLE: 'false'
       AWS_S3_FORCE_PATH_STYLE: 'false'
