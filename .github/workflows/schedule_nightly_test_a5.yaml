@@ -299,6 +299,7 @@ jobs:
     with:
       soc_version: a5
       runner: linux-aarch64-a5-0
+      vllm_ascend_remote_url: 'https://github.com/${{ github.repository }}.git'
       image: "swr.cn-north-12.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend${{ inputs.image_repo_suffix }}:nightly-ci-${{ matrix.vllm_ascend_branch }}-a5${{ inputs.image_tag_suffix }}"
       ascend_log_prefix: ${{ needs.setup-vars.outputs.ascend_log_prefix }}/${{ matrix.vllm_ascend_branch }}
       vllm_ascend_branch: ${{ matrix.vllm_ascend_branch }}
