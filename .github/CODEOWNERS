@@ -19,6 +19,18 @@
 # benchmark
 # /benchmarks
 
+# AI review
+/.github/agent-review/ @wangxiyuan
+/.github/workflows/ai_review.yml @wangxiyuan
+/.github/workflows/_schedule_ai_review_image_build.yaml @wangxiyuan
+/.github/workflows/dockerfiles/Dockerfile.ai-review @wangxiyuan
+/.github/workflows/scripts/ai_review.py @wangxiyuan
+/.github/workflows/scripts/test_ai_review.py @wangxiyuan
+/.github/agent-review/L2/release-note/ @wangxiyuan
+# AI review knowledge base: fine-grained owners (later entries win)
+/.github/agent-review/L1/ @wangxiyuan
+/.github/agent-review/L2/ci/ @zhangxinyuehfad
+
 # docs
 /docs @Yikun @LCAIZJ
 /.readthedocs.yaml @Yikun
@@ -62,11 +74,3 @@
 # /vllm_ascend/platform.py
 # /vllm_ascend/profiling_config.py
 # /vllm_ascend/utils.py
-# AI review POC (RFC #21451): later entries win over /.github above
-/.github/agent-review/ @wangxiyuan
-/.github/workflows/ai_review.yml @wangxiyuan
-/.github/workflows/_schedule_ai_review_image_build.yaml @wangxiyuan
-/.github/workflows/dockerfiles/Dockerfile.ai-review @wangxiyuan
-/.github/workflows/scripts/ai_review.py @wangxiyuan
-/.github/workflows/scripts/test_ai_review.py @wangxiyuan
-/.github/agent-review/L2/release-note/ @wangxiyuan
