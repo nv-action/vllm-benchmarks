@@ -71,10 +71,10 @@ jobs:
     container:
       image: quay.io/ascend-ci/vllm-ascend:lint
     outputs:
-      has_tests: ${{ steps.full-scope.outputs.has_tests }}
-      test_groups: ${{ steps.full-scope.outputs.test_groups }}
+      has_tests: ${{ steps.cpu-filter.outputs.has_tests }}
+      test_groups: ${{ steps.cpu-filter.outputs.test_groups }}
       matched_modules: ${{ steps.full-scope.outputs.matched_modules }}
-      csrc_cache_target_ids: ${{ steps.full-scope.outputs.csrc_cache_target_ids }}
+      csrc_cache_target_ids: ${{ steps.cpu-filter.outputs.csrc_cache_target_ids }}
       vllm_ascend_ref: ${{ steps.resolve-refs.outputs.vllm_ascend_ref }}
       base_sha: ${{ steps.resolve-refs.outputs.base_sha }}
       base_ref: ${{ steps.resolve-refs.outputs.base_ref }}
@@ -125,6 +125,26 @@ jobs:
           pip install regex pyyaml
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           python3 .github/workflows/scripts/select_tests.py --all-tests
+
+      - name: Filter test groups to CPU only
+        # TEMP: daily verification on this branch runs the CPU UT partition
+        # only; NPU card groups are dropped (revert with the verification
+        # series).
+        id: cpu-filter
+        env:
+          GROUPS: ${{ steps.full-scope.outputs.test_groups }}
+        run: |
+          python3 - <<'EOF'
+          import json, os
+          groups = json.loads(os.environ["GROUPS"])
+          cpu = [g for g in groups if g.get("npu_type") == "cpu"]
+          targets = sorted({g["csrc_cache_target"] for g in cpu if g.get("csrc_cache_target")})
+          print(f"cpu-only filter: {len(groups)} groups -> {len(cpu)} cpu groups")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write("test_groups=" + json.dumps(cpu, separators=(",", ":")) + "\n")
+              f.write("has_tests=" + ("true" if cpu else "false").lower() + "\n")
+              f.write("csrc_cache_target_ids=" + json.dumps(targets, separators=(",", ":")) + "\n")
+          EOF
 
   ensure-csrc-cache:
     needs: select-all-tests
@@ -218,7 +238,9 @@ jobs:
   daily-dispatch-a2:
     name: Dispatch Nightly-A2 daily subset
     needs: daily-select-tests
-    if: needs.daily-select-tests.outputs.has_daily_a2 == 'true'
+    # TEMP: nightly e2e dispatch disabled for CPU-only daily verification
+    # (revert with the verification series).
+    if: ${{ false }}
     runs-on: linux-amd64-cpu-2-hk
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
@@ -248,7 +270,9 @@ jobs:
   daily-dispatch-a3:
     name: Dispatch Nightly-A3 daily subset
     needs: daily-select-tests
-    if: needs.daily-select-tests.outputs.has_daily_a3 == 'true'
+    # TEMP: nightly e2e dispatch disabled for CPU-only daily verification
+    # (revert with the verification series).
+    if: ${{ false }}
     runs-on: linux-amd64-cpu-2-hk
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
@@ -278,7 +302,9 @@ jobs:
   daily-dispatch-a3-560t:
     name: Dispatch Nightly-A3-560T daily subset
     needs: daily-select-tests
-    if: needs.daily-select-tests.outputs.has_daily_a3_560t == 'true'
+    # TEMP: nightly e2e dispatch disabled for CPU-only daily verification
+    # (revert with the verification series).
+    if: ${{ false }}
     runs-on: linux-amd64-cpu-2-hk
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
@@ -308,7 +334,9 @@ jobs:
   daily-dispatch-a5:
     name: Dispatch Nightly-A5 daily subset
     needs: daily-select-tests
-    if: needs.daily-select-tests.outputs.has_daily_a5 == 'true'
+    # TEMP: nightly e2e dispatch disabled for CPU-only daily verification
+    # (revert with the verification series).
+    if: ${{ false }}
     runs-on: linux-amd64-cpu-2-hk
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend/act-environments-ubuntu:act-22.04
