@@ -67,7 +67,7 @@ concurrency:
 
 jobs:
   select-all-tests:
-    runs-on: linux-amd64-cpu-8-hk
+    runs-on: linux-amd64-cpu-2-hk
     container:
       image: quay.io/ascend-ci/vllm-ascend:lint
     outputs:
@@ -238,12 +238,12 @@ jobs:
         run: |
           gh workflow run schedule_nightly_test_a2.yaml \
             --repo "${{ github.repository }}" \
-            --ref main \
+            --ref "${{ github.ref_name }}" \
             -f test_cases='${{ needs.daily-select-tests.outputs.daily_a2_tests }}' \
             -f vllm_ascend_branch='main' \
             -f skip_build_image='true' \
             -f request_id='daily-${{ github.run_id }}-${{ github.run_attempt }}' \
-            -f vllm_ascend_ref='main'
+            -f vllm_ascend_ref='${{ github.ref_name }}'
 
   daily-dispatch-a3:
     name: Dispatch Nightly-A3 daily subset
@@ -268,12 +268,12 @@ jobs:
         run: |
           gh workflow run schedule_nightly_test_a3.yaml \
             --repo "${{ github.repository }}" \
-            --ref main \
+            --ref "${{ github.ref_name }}" \
             -f test_cases='${{ needs.daily-select-tests.outputs.daily_a3_tests }}' \
             -f vllm_ascend_branch='main' \
             -f skip_build_image='true' \
             -f request_id='daily-${{ github.run_id }}-${{ github.run_attempt }}' \
-            -f vllm_ascend_ref='main'
+            -f vllm_ascend_ref='${{ github.ref_name }}'
 
   daily-dispatch-a3-560t:
     name: Dispatch Nightly-A3-560T daily subset
@@ -298,12 +298,12 @@ jobs:
         run: |
           gh workflow run schedule_nightly_test_a3_560t.yaml \
             --repo "${{ github.repository }}" \
-            --ref main \
+            --ref "${{ github.ref_name }}" \
             -f test_cases='${{ needs.daily-select-tests.outputs.daily_a3_560t_tests }}' \
             -f vllm_ascend_branch='main' \
             -f skip_build_image='true' \
             -f request_id='daily-${{ github.run_id }}-${{ github.run_attempt }}' \
-            -f vllm_ascend_ref='main'
+            -f vllm_ascend_ref='${{ github.ref_name }}'
 
   daily-dispatch-a5:
     name: Dispatch Nightly-A5 daily subset
@@ -328,12 +328,12 @@ jobs:
         run: |
           gh workflow run schedule_nightly_test_a5.yaml \
             --repo "${{ github.repository }}" \
-            --ref main \
+            --ref "${{ github.ref_name }}" \
             -f test_cases='${{ needs.daily-select-tests.outputs.daily_a5_tests }}' \
             -f vllm_ascend_branch='main' \
             -f skip_build_image='true' \
             -f request_id='daily-${{ github.run_id }}-${{ github.run_attempt }}' \
-            -f vllm_ascend_ref='main'
+            -f vllm_ascend_ref='${{ github.ref_name }}'
 
   update-estimated-times:
     needs: [run-all-tests]
