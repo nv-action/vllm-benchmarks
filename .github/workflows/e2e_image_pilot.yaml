@@ -40,7 +40,7 @@ jobs:
   prepare:
     # The new timer is opt-in until its SWR repo and secrets are ready.
     if: github.event_name != 'schedule' || vars.E2E_IMAGE_PILOT_ENABLED == 'true'
-    runs-on: linux-aarch64-cpu-4-cn12-001
+    runs-on: linux-amd64-cpu-4-hk
     container:
       image: quay.io/ascend-ci/vllm-ascend:lint
     outputs:
