@@ -9,23 +9,22 @@ _envs: &envs
   PROXY_PORT: "9002"
   # RemotePDServer 按每个实例的 dp*tp 顺序切片：P 取 0-3，D 取 4-7
   ASCEND_RT_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
-  HCCL_ALGO: "level0:fullmesh"
-  # 一个 vllm serve 会拉起 4 个 EngineCore（DP0-DP3）进程，它们共享同一份 env，
-  # 因此无法在 YAML 里给每个 DP rank 指定不同端口段；交给 HCCL 让每个进程
-  # 各自挑空闲端口，避免同机多进程（含 P/D 两实例）HCCL socket 端口互撞。
+  # 同机两个 vllm 实例靠 pd_server_envs 里的 HCCL_IF_BASE_PORT / HCCL_HOST_SOCKET_PORT_RANGE
+  # 错开端口；NPU 侧端口统一交给 HCCL 自选（与单机 A5 基线、Kimi 同机 PD 用例一致）。
   HCCL_NPU_SOCKET_PORT_RANGE: "auto"
-  HCCL_HOST_SOCKET_PORT_RANGE: "auto"
   VLLM_RPC_TIMEOUT: "3600000"
   VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: "30000"
   OMP_PROC_BIND: "false"
   OMP_NUM_THREADS: "10"
   PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
   TASK_QUEUE_ENABLE: "1"
-  # ---- A5 + MemCache 池化 ----
   PYTHONHASHSEED: "0"
-  ACL_OP_INIT_MODE: "1"
+  # A5(950) HCCL 本机通信资源：仓库里 A5 的 DeepSeek PD 用例与 e2e harness 都会设。
+  # 只设 ASCEND_LOCAL_COMM_RES，不要设 ASCEND_LOCAL_COMM_RES_PATH（指向 /etc/hixlep 会破坏 UB 建链）。
   ASCEND_LOCAL_COMM_RES: '{"version":"1.3"}'
-  ASCEND_LOCAL_COMM_RES_PATH: "/etc/hixlep/"
+  HCCL_OP_EXPANSION_MODE: "CCU_SCHED"
+  # 临时打开 HCCL 建链日志，EI0006 / hcclCommInitRootInfoConfig 失败时可从 plog 定位
+  HCCL_ENTRY_LOG_ENABLE: "1"
   # MMC_LOCAL_CONFIG_PATH 由 kv_pool 管理器生成并注入，不要在此手写
 
 test_cases:
@@ -49,14 +48,19 @@ test_cases:
           ock.mmc.local_service.dram.size: 40GB
           ock.mmc.local_service.max.dram.size: 2048GB
     # 只放两实例不同的 env；卡号不要写这里，会被 RemotePDServer 覆盖
-    # HCCL 端口统一用上面的 auto（每个进程自选空闲端口），不要再按实例写死端口段：
-    # 写死时同一实例内 4 个 DP rank 共用同一段端口，首个集合通信（profile_run 的
-    # AllGather）会以 EI0006 Communication_Error_Get_Socket 超时退出。
+    # 同机双实例必须给 P/D 分配不同的 HCCL_IF_BASE_PORT + HCCL_HOST_SOCKET_PORT_RANGE，
+    # 否则两实例默认端口相同，首个集合通信（profile_run 的 AllGather）会以
+    # EI0006 Communication_Error_Get_Socket 建链超时退出。
+    # 该写法与 Kimi-K3.1-Pro-W4A8-A3-1M-PD 同机 PD 用例一致。
     pd_server_envs:
-      - HCCL_EXEC_TIMEOUT: "204"
+      - HCCL_IF_BASE_PORT: "51000"
+        HCCL_HOST_SOCKET_PORT_RANGE: "51000-51063"
+        HCCL_EXEC_TIMEOUT: "204"
         HCCL_CONNECT_TIMEOUT: "120"
         HCCL_BUFFSIZE: "512"
-      - HCCL_EXEC_TIMEOUT: "2040"
+      - HCCL_IF_BASE_PORT: "50000"
+        HCCL_HOST_SOCKET_PORT_RANGE: "50000-50063"
+        HCCL_EXEC_TIMEOUT: "2040"
         HCCL_CONNECT_TIMEOUT: "1200"
         HCCL_BUFFSIZE: "1024"
     pd_server_cmds:
