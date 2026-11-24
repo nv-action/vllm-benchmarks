@@ -36,7 +36,7 @@ jobs:
             rerun
             cancel
             nightly
-            presmoke
+            download
             cherry-pick
             revert
             weekly
@@ -67,8 +67,8 @@ jobs:
                 "issue_type": "pull-request"
               },
               {
-                "command": "presmoke",
-                "permission": "none",
+                "command": "download",
+                "permission": "triage",
                 "issue_type": "pull-request"
               },
               {
