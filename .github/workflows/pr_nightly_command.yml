@@ -638,7 +638,7 @@ jobs:
               # makes the build full-scale (ubuntu+openEuler on amd64+arm64), keeps
               # the images in the isolated '-presmoke' CI repositories (never
               # atlas_inference) and skips the quay.io and cn-north-4 syncs.
-              # source_ref makes both layers build from the triggering PR head
+              # PR_ref makes both layers build from the triggering PR head
               # ('pre-merge'), so the code and Dockerfiles under review are the ones
               # built.
               CHIPS='[]'
@@ -657,12 +657,12 @@ jobs:
                 echo "::error::No chip selected for /presmoke"
                 exit 1
               fi
-              # Only forward source_ref when set: gh would turn an empty -f value
+              # Only forward PR_ref when set: gh would turn an empty -f value
               # into 'true', which is not a valid ref.
               SOURCE_REF='${{ needs.authorize.outputs.source_ref }}'
               ARGS=(-f vllm_ascend_branch='${{ needs.authorize.outputs.branch }}' -f chips="$CHIPS" -f isolated_build='true')
               if [ -n "$SOURCE_REF" ]; then
-                ARGS+=(-f "source_ref=$SOURCE_REF")
+                ARGS+=(-f "PR_ref=$SOURCE_REF")
               fi
               ;;
             a2|a3|a3-560t|a5)
