@@ -167,6 +167,31 @@ This triggers `workflow_dispatch` on both `schedule_nightly_test_a2.yaml` and `s
 
 > **Note**: These `schedule_*` workflows do not declare a GitHub Actions `schedule:` (cron) trigger; they are dispatched externally via `workflow_dispatch`. See [CI workflow triggers and the schedule_ prefix](../developer_guide/contribution/testing.md#ci-workflow-triggers-and-the-schedule_-prefix).
 
+### `/presmoke`
+
+Build a pre-merge nightly image from the pull request head so the code, Dockerfiles and dependency versions under review are the ones built. Both image layers are built from `refs/pull/<number>/head`, the images are published to the isolated `-presmoke` CI repositories (never `atlas_inference`), and the quay.io and `cn-north-4` syncs are skipped.
+
+**Usage:**
+
+| Syntax | Scope |
+|---|---|
+| `/presmoke all` | Build the pre-merge image for a2, a3, 310p and a5 |
+| `/presmoke <chips>` | Build only the listed chips |
+
+Only chip names (`a2`, `a3`, `310p`, `a5`) are accepted, separated by commas or spaces. Test names are not accepted.
+
+**Examples:**
+
+```text
+# Build the pre-merge image for every chip
+/presmoke all
+
+# Build only the A2 and A3 pre-merge images
+/presmoke a2 a3
+```
+
+The published tag matches the standard nightly image tag, so `/nightly <test_cases> --presmoke` runs the nightly tests against the images built here.
+
 ### `/cherry-pick`
 
 Cherry-pick a PR's commits onto a specified target branch and create a new PR. This is useful for backporting fixes to release branches.
@@ -273,6 +298,7 @@ Trigger and manage the AI review agent on a pull request (requires the `ai-revie
 | `/cherry-pick` | ✅ | ❌ |
 | `/revert` | ✅ | ❌ |
 | `/nightly` | ✅ | ❌ |
+| `/presmoke` | ✅ | ❌ |
 | `/ai-review` | ✅ | ❌ |
 | `/ai-review-waive` | ✅ | ❌ |
 | `/ai-review-stop` | ✅ | ❌ |
@@ -287,6 +313,7 @@ Trigger and manage the AI review agent on a pull request (requires the `ai-revie
 | `/cherry-pick` | PR author, or users with triage+ permission on the repository |
 | `/revert` | PR author, or users with triage+ permission on the repository |
 | `/nightly` | Users with triage+ permission on the repository only |
+| `/presmoke` | Users with triage+ permission on the repository only |
 | `/ai-review` | PR author (once the PR is allowlisted and labeled) |
 | `/ai-review-waive` | Users with write permission on the repository |
 | `/ai-review-stop` | Users with write permission on the repository |
