@@ -36,6 +36,7 @@ jobs:
             rerun
             cancel
             nightly
+            presmoke
             download
             cherry-pick
             revert
@@ -63,6 +64,11 @@ jobs:
               },
               {
                 "command": "nightly",
+                "permission": "none",
+                "issue_type": "pull-request"
+              },
+              {
+                "command": "presmoke",
                 "permission": "none",
                 "issue_type": "pull-request"
               },
