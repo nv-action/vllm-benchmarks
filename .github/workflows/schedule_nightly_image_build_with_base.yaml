@@ -51,6 +51,7 @@ on:
           - releases/v0.21.0rc
           - releases/v0.20.2rc
           - releases/v0.18.0
+          - czy_daily_verify
       chips:
         description: 'Chips to build (JSON array: ["a2","a3","310p","a5"]). Default builds all.'
         required: false
