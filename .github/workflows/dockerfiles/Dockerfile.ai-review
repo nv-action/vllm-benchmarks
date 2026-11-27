@@ -53,10 +53,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - && \
     rm -rf /var/cache/apt/* && \
     rm -rf /var/lib/apt/lists/*
 
-# DeepSeek Harness CLI. Builds are manual and deliberate, so this installs
-# the current release; the version used lands in the build log via the
-# `dsh --version` smoke check below.
-RUN npm install -g "@deepseek-ai/dsh@next" && \
+# Keep the installed CLI in sync with the plugin configuration in ai_review.py.
+RUN npm install -g "@deepseek-ai/dsh@0.2.2-rc.5" && \
     npm cache clean --force
 
 # Smoke check: fail the build early if the CLIs cannot start in this image.

@@ -72,8 +72,8 @@ STATE_MARKER = "<!-- ai-review-orchestrator:v2 -->"
 STATE_DATA_MARKER = "\n<!-- ai-review-state\n"
 MAX_ROUNDS_PER_HEAD = 5
 MAX_TOTAL_ROUNDS = 15
-MAX_DIFF_CHARS = 80_000
-ROUND_TIMEOUT_SECONDS = 600
+REVIEW_CLOCK_INTERVAL_MS = 10 * 60 * 1000
+ROUND_TIMEOUT_SECONDS = 12 * 60
 GIT_FETCH_MAX_ATTEMPTS = 3
 GIT_FETCH_RETRY_DELAY_SECONDS = 5
 SEVERITIES = ("MUST-FIX", "SHOULD-FIX", "NIT")
@@ -162,12 +162,22 @@ class State:
     coverage_complete: bool = False
     requires_human: bool = False
     message: str = ""
+    incomplete_review_summary: str = ""
     findings: list[Finding] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict) -> State:
         """Restore the saved review state and its finding records."""
-        return cls(**{**data, "findings": [Finding(**f) for f in data["findings"]]})
+        state = cls(**{**data, "findings": [Finding(**f) for f in data["findings"]]})
+        # Older summaries kept the model's text and waiver notices in the same field.
+        if (
+            "incomplete_review_summary" not in data
+            and state.status in ("reviewing", "waiting-human")
+            and not state.coverage_complete
+            and not re.fullmatch(r"@\S+ waived \d+ finding\(s\) for this commit\.", state.message)
+        ):
+            state.incomplete_review_summary = state.message
+        return state
 
     def decide(self):
         """Choose passed, reviewing or waiting-human from the current review state."""
@@ -311,16 +321,16 @@ class Orchestrator:
                 self.feedback(event, "🔴 This PR is closed.")
             return False
 
-        if command == "/ai-review":
-            if actor != pull["user"]["login"] and not self.can_write(actor):
-                self.feedback(
-                    event,
-                    "🔴 Permission denied. Only the PR author or a maintainer with write access can request a review.",
-                )
+        # Pushes and label removals sync changes that already happened on GitHub.
+        if command == "start" or event_name == "issue_comment":
+            allowlist = (self.workspace / ".github/agent-review/allowlist.txt").read_text()
+            if actor not in parse_allowlist(allowlist):
+                message = "🔴 Permission denied. You are not on the AI review pilot allowlist."
+                if command == "start":
+                    self.remove_labels(pull, AI_REVIEW_LABEL)
+                    message += " The label was removed."
+                self.feedback(event, message + " See `.github/agent-review/allowlist.txt` or comment on RFC #21451.")
                 return False
-        elif command in ("/ai-review-stop", "/ai-review-waive") and not self.can_write(actor):
-            self.feedback(event, "🔴 Permission denied. This action requires repository write access.")
-            return False
 
         enabled = AI_REVIEW_LABEL in {label["name"] for label in pull["labels"]}
         if command == "stop" and enabled:
@@ -331,17 +341,6 @@ class Orchestrator:
                     event, "🔴 AI review is not enabled. Ask an allowlisted reviewer to add the `ai-review` label."
                 )
             return False
-
-        if command == "start":
-            allowlist = (self.workspace / ".github/agent-review/allowlist.txt").read_text()
-            if actor not in parse_allowlist(allowlist):
-                self.remove_labels(pull, AI_REVIEW_LABEL)
-                self.feedback(
-                    event,
-                    "🔴 You are not on the pilot allowlist. The label was removed. "
-                    "See `.github/agent-review/allowlist.txt` or comment on RFC #21451 to join the pilot.",
-                )
-                return False
 
         if command == "push":
             if event["pull_request"]["head"]["sha"] == pull["head"]["sha"]:
@@ -378,10 +377,6 @@ class Orchestrator:
         if command not in ("/ai-review", "/ai-review-stop", "/ai-review-waive"):
             return "", ""
         return command, parts[1] if len(parts) == 2 else ""
-
-    def can_write(self, actor: str) -> bool:
-        """Check whether the actor has write, maintain or admin permission."""
-        return gh(f"{self.repo}/collaborators/{actor}/permission")["permission"] in ("write", "maintain", "admin")
 
     # --- Prepare the review ---
 
@@ -482,21 +477,21 @@ class Orchestrator:
                 time.sleep(GIT_FETCH_RETRY_DELAY_SECONDS)
 
         merge_base = git(self.workspace, "merge-base", self.state.base, self.state.head).strip()
-        diff = git(self.workspace, "diff", "--no-ext-diff", "--no-textconv", merge_base, self.state.head)
-        files = (
-            git(self.workspace, "diff", "--name-only", "-z", merge_base, self.state.head).rstrip("\0").split("\0")
-            if diff
-            else []
-        )
+        diff_stat = git(self.workspace, "diff", "--stat", "--no-ext-diff", "--no-textconv", merge_base, self.state.head)
+        files = git(self.workspace, "diff", "--name-only", "-z", merge_base, self.state.head).split("\0")[:-1]
+        registry = self.workspace / ".github/agent-review/domains.yaml"
+        is_release = pull["base"]["ref"].startswith("releases/")
 
         return {
             "pr": self.pr,
+            "title": pull["title"],
+            "body": pull["body"] or "",
             "comment_id": self.summary_comment_id,
             "state": asdict(self.state),
             "merge_base": merge_base,
-            "files": files,
-            "diff": diff[:MAX_DIFF_CHARS],
-            "truncated": len(diff) > MAX_DIFF_CHARS,
+            "vllm_pin_file": "vllm-release-tag.commit" if is_release else "vllm-main-verified.commit",
+            "domains": [domain["name"] for domain in resolve_domains(registry.read_text(), files)],
+            "diff_stat": diff_stat.rstrip("\n"),
             "reply": event["comment"]["body"] if event_name == "issue_comment" else "",
         }
 
@@ -556,11 +551,10 @@ class Orchestrator:
         else:
             result = parse_result(output, self.state.findings)
             created = merge_findings(self.state, result)
-            self.state.coverage_complete = result["coverage_complete"] and not request["truncated"]
+            self.state.coverage_complete = result["coverage_complete"]
             self.state.requires_human = result["requires_human"]
             self.state.message = result["summary"]
-            if request["truncated"]:
-                self.state.message += "\nThe diff was truncated; this review cannot pass."
+            self.state.incomplete_review_summary = "" if self.state.coverage_complete else self.state.message
 
             self.state.decide()
             self.publish_inline(created)
@@ -678,22 +672,25 @@ def build_prompt(workspace: Path, request: dict) -> str:
         if path.name in ("instructions.md", "README.md", "prompt_template.md"):
             continue
         ids = re.findall(r"^-\s+`([\w-]+#\w[\w-]*)`", path.read_text(), re.M)
-        mapping.append(f"- {path.relative_to(workspace)}: {', '.join(ids)}")
-    domains = resolve_domains((kb / "domains.yaml").read_text(), request["files"])
+        mapping.append(f"- {path.relative_to(kb)}: {', '.join(ids)}")
 
     return render_template(
         (kb / "prompt_template.md").read_text(),
         {
             "INSTRUCTIONS": (kb / "instructions.md").read_text(),
+            "TRUSTED_ROOT": workspace,
             "KB_MAP": "\n".join(mapping),
-            "DOMAINS": "\n".join(d["name"] for d in domains) or "L1 only",
+            "DOMAINS": ", ".join(request["domains"]) or "L1 only",
+            "PR_TITLE": request["title"],
+            "PR_BODY": quote_reference(request["body"]),
+            "BASE_SHA": request["state"]["base"],
+            "MERGE_BASE_SHA": request["merge_base"],
             "HEAD_SHA": request["state"]["head"],
-            "BASE_SHA": request["merge_base"],
-            "FILES": json.dumps(request["files"]),
-            "DIFF": request["diff"],
-            "TRUNCATED": request["truncated"],
+            "VLLM_SHA": git(workspace / "vllm", "rev-parse", "HEAD").strip(),
+            "DIFF_STAT": request["diff_stat"],
+            "INCOMPLETE_REVIEW_SUMMARY": quote_reference(request["state"].get("incomplete_review_summary") or "None."),
             "FINDINGS": json.dumps(request["state"]["findings"]),
-            "REPLY": request["reply"],
+            "REPLY": quote_reference(request["reply"]),
         },
     )
 
@@ -708,18 +705,41 @@ def resolve_domains(domains_yaml: str, files: list[str]) -> list[dict]:
     ]
 
 
+def quote_reference(text: str) -> str:
+    """Keep headings and blank lines in supplied text inside a Markdown block quote."""
+    return "\n".join(f"> {line}" if line else ">" for line in text.splitlines())
+
+
 def render_template(template: str, values: dict) -> str:
     """Fill template placeholders once, treating inserted content as data."""
     return re.sub(r"\{\{(\w+)\}\}", lambda match: str(values[match.group(1)]), template)
 
 
-def agent_patch() -> list[dict]:
-    """Build the agent's provider and model settings from the environment."""
+def agent_patch(workspace: Path) -> list[dict]:
+    """Configure the review model and its trusted project context."""
     provider = "ai-review-gateway"
     model = os.environ["AI_REVIEW_MODEL"]
 
     return [
-        {"id": "agent-default-model", "config": {"provider": provider, "model": model}},
+        {"id": "fs-sandbox", "config": {"cwd": str(workspace / "head")}},
+        {"id": "agent-instructions", "disabled": True},
+        {
+            "id": "skill-filesystem",
+            "config": {"includeDefaultRoots": False, "customSkillDirs": [str(workspace / ".agents/skills")]},
+        },
+        {"id": "tool-executor-native", "disabled": True},
+        {"id": "tool-executor-ptc", "disabled": False},
+        {"id": "tool-web", "disabled": True},
+        {
+            "insert": [
+                {
+                    "id": "time-context",
+                    "name": "@deepseek-ai/dsh-time-context",
+                    "config": {"timeZone": "UTC", "refreshIntervalMs": REVIEW_CLOCK_INTERVAL_MS},
+                }
+            ]
+        },
+        {"id": "agent-default-model", "config": {"provider": provider, "model": model, "reasoningEffort": "high"}},
         {
             "id": "llm-pi-ai",
             "config": {
@@ -728,7 +748,8 @@ def agent_patch() -> list[dict]:
                         "apiKeyEnv": "AI_REVIEW_KEY",
                         "api": "openai-completions",
                         "baseURL": os.environ["AI_REVIEW_API"],
-                        "models": [{"id": model}],
+                        "compat": {"thinkingFormat": "deepseek", "supportsReasoningEffort": True},
+                        "models": [{"id": model, "reasoningEfforts": {"high": "high"}}],
                     }
                 }
             },
@@ -743,7 +764,7 @@ def run_agent(workspace: Path, request: dict) -> str:
     with tempfile.TemporaryDirectory(prefix="ai-review-") as temporary:
         home = Path(temporary)
         patch_path = home / "patch.yml"
-        patch_path.write_text(yaml.safe_dump(agent_patch()))
+        patch_path.write_text(yaml.safe_dump(agent_patch(workspace)))
 
         command = shlex.split(os.environ["AI_REVIEW_DSH_CMD"])
         command += ["--patch", str(patch_path), "-"]
@@ -758,6 +779,7 @@ def run_agent(workspace: Path, request: dict) -> str:
 
         with subprocess.Popen(
             command,
+            # Start the CLI from trusted files. Its session uses the PR worktree.
             cwd=workspace,
             env=env,
             stdin=subprocess.PIPE,
@@ -824,7 +846,10 @@ def main() -> int:
             args.request.write_text(json.dumps(request))
 
             with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-                output.write(f"review=true\nhead={request['state']['head']}\nbase={request['merge_base']}\n")
+                output.write(f"review=true\nhead={request['state']['head']}\n")
+                output.write(f"vllm_pin_file={request['vllm_pin_file']}\n")
+                if "doc-quality" in request["domains"]:
+                    output.write("doc_quality=true\n")
 
     return 0
 

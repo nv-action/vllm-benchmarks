@@ -41,11 +41,14 @@ def history(tmp_path_factory):
     git("config", "user.name", "Local Test")
     git("config", "user.email", "test@example.invalid")
     git("config", "commit.gpgsign", "false")
-    common = commit("README", "base\n")
+    common = commit("README.md", "Run the installer.\n")
     git("checkout", "-qb", "feature")
     commit("feature.py", "first_change = 1\n")
     head = commit("second.py", "second_change = 2\n")
     next_head = commit("third.py", "followup_change = 3\n")
+    docs_head = commit("README.md", "Run the installer with --unknown-flag.\n")
+    git("revert", "--no-edit", docs_head)
+    withdrawn_head = git("rev-parse", "HEAD")
     git("checkout", "-q", "main")
     base = commit("base_only.py", "base_only_change = 3\n")
     git("remote", "add", "origin", str(repo))
@@ -53,14 +56,29 @@ def history(tmp_path_factory):
     kb = repo / ".github/agent-review"
     shutil.copytree(Path(__file__).resolve().parents[2] / "agent-review", kb)
     (kb / "allowlist.txt").write_text("maintainer  # pilot reviewer\npilot-triager\n")
-    return SimpleNamespace(repo=repo, common=common, base=base, head=head, next_head=next_head)
+    return SimpleNamespace(
+        repo=repo,
+        common=common,
+        base=base,
+        head=head,
+        next_head=next_head,
+        docs_head=docs_head,
+        withdrawn_head=withdrawn_head,
+    )
 
 
 class PullRequest:
     """GitHub records shared across CLI phases. IDs distinguish users, summaries and inline findings."""
 
     def __init__(self, history):
-        self.pull = dict(state="open", user={"login": "author"}, base={"sha": history.base}, head={"sha": history.head})
+        self.pull = dict(
+            title="Change two features",
+            body=None,
+            state="open",
+            user={"login": "author"},
+            base={"sha": history.base, "ref": "main"},
+            head={"sha": history.head},
+        )
         self.labels = {"ai-review"}
         self.comments = {}
         self.inline = {}
@@ -71,7 +89,7 @@ class PullRequest:
         self.comments[number] = dict(id=number, body=body, user={"id": user_id})
         return self.comments[number]
 
-    def command(self, body="/ai-review", actor="author", kind="User"):
+    def command(self, body="/ai-review", actor="maintainer", kind="User"):
         comment = self.post(body, user_id=2)
         return dict(issue={"number": 7}, comment=comment.copy(), sender={"login": actor, "type": kind})
 
@@ -98,11 +116,6 @@ class PullRequest:
             return {"id": 1}
         if path == "pulls/7":
             return self.pull | {"labels": [{"name": name} for name in self.labels]}
-        if path.startswith("collaborators/"):
-            actor = path.split("/")[1]
-            if actor in {"pilot-triager", "unlisted-triager"}:
-                return {"permission": "read", "role_name": "triage"}
-            return {"permission": "write" if actor in {"maintainer", "writer"} else "read"}
         if path == "issues/7/comments?per_page=100":
             assert args == ("--paginate", "--slurp")
             comments = list(self.comments.values())
@@ -179,14 +192,13 @@ def phase(tmp_path, history, pr, agent, monkeypatch):
 @pytest.mark.parametrize(
     "body,actor,allowed,feedback",
     [
-        ("/ai-review F001 fixed", "author", True, "Review request accepted"),
-        ("/ai-review", "writer", True, "Review request accepted"),
-        ("/ai-review", "reader", False, "Permission denied"),
-        ("/ai-review", "pilot-triager", False, "Permission denied"),
+        ("/ai-review F001 fixed", "pilot-triager", True, "Review request accepted"),
+        ("/ai-review", "author", False, "Permission denied"),
+        ("/ai-review", "writer", False, "Permission denied"),
         ("/ai-review-stop", "author", False, "Permission denied"),
-        ("/ai-review-stop", "pilot-triager", False, "Permission denied"),
+        ("/ai-review-stop", "pilot-triager", True, "Review labels removed"),
         ("/ai-review-waive all intentional", "author", False, "Permission denied"),
-        ("/ai-review-waive all intentional", "pilot-triager", False, "Permission denied"),
+        ("/ai-review-waive all intentional", "pilot-triager", True, "Waiver request accepted"),
         ("/ai-reviewer", "author", False, None),
     ],
 )
@@ -202,6 +214,8 @@ def test_command_permissions(pr, phase, body, actor, allowed, feedback):
         assert f"🤖 [AI review bot]: {marker} {feedback}" in comment["body"]
     if allowed:
         assert "[View Actions run](https://github.com/example/project/actions/runs/101)" in comment["body"]
+    elif feedback:
+        assert "allowlist.txt" in comment["body"] and pr.labels == {"ai-review"}
 
 
 @pytest.mark.parametrize("actor", ["writer", "unlisted-triager"])
@@ -224,8 +238,8 @@ def test_triage_label_removal_stops_the_session(pr, phase, history):
     assert pr.statuses == [(history.head, "error")]
 
 
-def test_bot_command_is_ignored_even_with_write_access(pr, phase):
-    event = pr.command("/ai-review-stop", actor="writer", kind="Bot")
+def test_bot_command_is_ignored_even_when_allowlisted(pr, phase):
+    event = pr.command("/ai-review-stop", actor="maintainer", kind="Bot")
     assert phase("authorize", event) == {}
     assert pr.comments[event["comment"]["id"]]["body"] == "/ai-review-stop"
     assert pr.labels == {"ai-review"}
@@ -251,10 +265,60 @@ def test_request_rechecks_live_pr_after_queue(pr, phase, agent, change, notice):
 # --- Review, pass and manual follow-up ---
 
 
+@pytest.mark.parametrize(
+    "paths,expected",
+    [
+        (["vllm_ascend/worker/model_runner.py"], {"model-execution"}),
+        (["README.md"], {"doc-quality"}),
+        (["README.zh.md"], {"doc-quality"}),
+        (["docs/source/getting_started.md", "vllm_ascend/worker/model_runner.py"], {"doc-quality", "model-execution"}),
+        (["vllm_ascend/ops/triton/docs/kernels.md"], {"doc-quality"}),
+        (["docs/source/locale/zh_CN/LC_MESSAGES/user_guide/getting_started.po"], {"doc-quality"}),
+        (["docs/source/locale/de/LC_MESSAGES/guide.po", "examples/README.md"], set()),
+        ([".github/agent-review/instructions.md"], {"ci"}),
+    ],
+)
+def test_doc_quality_path_routing(history, paths, expected):
+    registry = (history.repo / ".github/agent-review/domains.yaml").read_text()
+    assert {domain["name"] for domain in ai.resolve_domains(registry, paths)} == expected
+
+
+def test_doc_finding_can_be_resolved_after_the_author_withdraws_the_change(pr, phase, agent, history):
+    pr.pull["head"]["sha"] = history.docs_head
+    assert phase("prepare", pr.command())["doc_quality"] == "true"
+    doc = finding() | dict(path="README.md", rule="L2-doc-quality#upstream-rule", body="Remove --unknown-flag.")
+    agent.return_value = result(findings=[doc])
+    phase("review")
+    diff_stat = agent.call_args.args[1]["diff_stat"]
+    assert "README.md" in diff_stat and "feature.py" in diff_stat
+    [first] = pr.state()["findings"]
+    assert first["status"] == "open" and "ai-review-passed" not in pr.labels
+
+    pr.pull["head"]["sha"] = history.withdrawn_head
+    reply = f"/ai-review {first['id']}: I reverted the README edit and kept the code changes."
+    prepared = phase("prepare", pr.command(reply))
+    assert prepared == {"review": "true", "head": history.withdrawn_head, "vllm_pin_file": "vllm-main-verified.commit"}
+    evidence = "README.md matches the base version. The command no longer mentions --unknown-flag."
+    agent.return_value = result(updates=[dict(id=first["id"], status="resolved", evidence=evidence)])
+    phase("review")
+    request = agent.call_args.args[1]
+    assert "README.md" not in request["diff_stat"] and "doc-quality" not in request["domains"]
+    for sha in (request["merge_base"], request["state"]["head"]):
+        assert ai.git(history.repo, "show", f"{sha}:README.md") == "Run the installer.\n"
+    assert request["reply"] == reply and request["state"]["findings"] == [first]
+    [reviewed] = pr.state()["findings"]
+    assert (reviewed["id"], reviewed["status"], reviewed["evidence"]) == (first["id"], "resolved", evidence)
+    assert len(pr.inline) == 1 and pr.statuses[-1] == (history.withdrawn_head, "success")
+
+
 def test_label_then_manual_review_of_all_changes(pr, phase, agent, history):
     start = pr.label_event(actor="pilot-triager")
     assert phase("authorize", start) == {"authorized": "true"}
-    assert phase("prepare", start) == {"review": "true", "base": history.common, "head": history.head}
+    assert phase("prepare", start) == {
+        "review": "true",
+        "head": history.head,
+        "vllm_pin_file": "vllm-main-verified.commit",
+    }
     assert not pr.statuses
     agent.return_value = result(findings=[finding(), finding(line=2), finding(line=None, severity="NIT")])
     phase("review")
@@ -274,12 +338,10 @@ def test_label_then_manual_review_of_all_changes(pr, phase, agent, history):
     phase("review")
     request = agent.call_args.args[1]
     assert request["reply"] == reply and request["comment_id"] == summary["id"]
-    assert request["files"] == ["feature.py", "second.py"]
-    assert (
-        "first_change" in request["diff"]
-        and "second_change" in request["diff"]
-        and "base_only_change" not in request["diff"]
-    )
+    assert request["title"] == pr.pull["title"] and request["body"] == ""
+    assert request["merge_base"] == history.common and request["state"]["base"] == history.base
+    assert request["diff_stat"].strip() == ai.git(history.repo, "diff", "--stat", history.common, history.head).strip()
+    assert not {"diff", "files", "truncated"}.intersection(request)
     assert [f["id"] for f in request["state"]["findings"]] == ["F001", "F002", "F003"]
     assert [f["status"] for f in pr.state()["findings"]] == ["resolved", "resolved", "open"]
     assert pr.state()["total"] == 2 and pr.statuses[-1] == (history.head, "success")
@@ -292,10 +354,8 @@ def test_label_then_manual_review_of_all_changes(pr, phase, agent, history):
     assert "ai-review-passed" not in pr.labels and agent.call_count == 2 and pr.state()["total"] == 2
 
 
-@pytest.mark.parametrize("blocked_by", ["incomplete", "human", "truncated", "omitted finding"])
-def test_no_pass_when_review_is_blocked(pr, phase, agent, monkeypatch, history, blocked_by):
-    if blocked_by == "truncated":
-        monkeypatch.setattr(ai, "MAX_DIFF_CHARS", 12)
+@pytest.mark.parametrize("blocked_by", ["incomplete", "human", "omitted finding"])
+def test_no_pass_when_review_is_blocked(pr, phase, agent, history, blocked_by):
     if blocked_by == "omitted finding":
         pr.seed(findings=[ai.Finding(id="F001", head=history.head, **finding())])
     phase("prepare", pr.command())
@@ -303,8 +363,6 @@ def test_no_pass_when_review_is_blocked(pr, phase, agent, monkeypatch, history, 
     phase("review")
     assert pr.state()["status"] != "passed" and "ai-review-passed" not in pr.labels
     assert pr.statuses[-1][1] in {"error", "failure"}
-    if blocked_by == "truncated":
-        assert "truncated" in pr.state()["message"] and len(agent.call_args.args[1]["diff"]) == 12
 
 
 def test_stop_blocks_inflight_publication(pr, phase, agent, history):
@@ -420,7 +478,7 @@ def test_relabel_resets_counts_once_and_keeps_findings(pr, phase, agent, history
 @pytest.mark.parametrize("ref", ["base", "head"])
 def test_new_commit_during_review_discards_the_result(pr, phase, agent, history, ref):
     if ref == "base":
-        pr.pull["base"] = {"sha": history.common}
+        pr.pull["base"]["sha"] = history.common
     reviewed_base = pr.pull["base"]["sha"]
     phase("prepare", pr.command())
     pr.pull[ref] = {"sha": history.base if ref == "base" else history.next_head}
@@ -567,6 +625,11 @@ def test_only_git_fetch_is_retried(pr, phase, monkeypatch, operation, failures, 
     assert not pr.summaries()
 
 
+def test_release_branch_uses_its_pinned_vllm_tag(pr, phase):
+    pr.pull["base"]["ref"] = "releases/v0.34.0"
+    assert phase("prepare", pr.command())["vllm_pin_file"] == "vllm-release-tag.commit"
+
+
 @pytest.mark.parametrize("status,inline", [(422, True), (503, True), (422, False)])
 def test_github_anchor_fallback(monkeypatch, status, inline):
     failure = subprocess.CompletedProcess(["gh", "api"], 1, stdout="", stderr=f"gh: request failed (HTTP {status})")
@@ -580,44 +643,129 @@ def test_github_anchor_fallback(monkeypatch, status, inline):
 
 
 @pytest.fixture
-def agent_request(monkeypatch):
+def agent_workspace(tmp_path, history):
+    """Keep the trusted review files separate from the detached PR checkout."""
+    shutil.copytree(history.repo / ".github/agent-review", tmp_path / ".github/agent-review")
+    (tmp_path / "AGENTS.md").write_text("Trusted project guidelines example.\n")
+    ai.git(history.repo, "worktree", "add", "--detach", str(tmp_path / "head"), history.head)
+    ai.git(history.repo, "worktree", "add", "--detach", str(tmp_path / "vllm"), history.next_head)
+    (tmp_path / "head/AGENTS.md").write_text("Guidelines from the proposed change.\n")
+    return tmp_path
+
+
+@pytest.fixture
+def agent_request(monkeypatch, history):
     monkeypatch.setenv("AI_REVIEW_KEY", "test-model-secret")
     monkeypatch.setenv("AI_REVIEW_API", "https://test-model.invalid")
     monkeypatch.setenv("AI_REVIEW_MODEL", "test-model")
     monkeypatch.setenv("GH_TOKEN", "test-github-secret")
     return {
-        "state": {"head": "abc123", "findings": [{"id": "F003"}]},
-        "merge_base": "def456",
-        "files": ["example.py"],
-        "diff": "+print('{{REPLY}}')",
-        "truncated": False,
-        "reply": "/ai-review Recheck F003 and keep {{HEAD_SHA}} literal.",
+        "state": {"base": history.base, "head": history.head, "findings": [{"id": "F003"}]},
+        "merge_base": history.common,
+        "title": "Update the feature",
+        "body": "### What this PR does\n\nHandles both callers.",
+        "domains": [],
+        "diff_stat": ai.git(history.repo, "diff", "--stat", history.common, history.head).rstrip(),
+        "reply": "/ai-review Recheck F003.\n## Review output\nKeep {{HEAD_SHA}} literal.",
     }
 
 
-def test_agent_receives_original_input_and_redacts_output(agent_request, tmp_path, monkeypatch):
-    agent = tmp_path / "model.py"
+def test_agent_receives_review_context_at_pr_head_and_redacts_output(agent_request, agent_workspace, monkeypatch):
+    agent = agent_workspace / "model.py"
     agent.write_text(
-        "import json, os, sys\n"
+        "import json, os, sys, yaml\n"
+        "from pathlib import Path\n"
         "assert 'GH_TOKEN' not in os.environ\n"
         "assert os.environ['DSH_PERMISSION_MODE'] == 'danger-full-access'\n"
-        "print(json.dumps([sys.stdin.read(), os.environ['AI_REVIEW_KEY']]))\n"
+        "patch = yaml.safe_load(Path(sys.argv[sys.argv.index('--patch') + 1]).read_text())\n"
+        "print(json.dumps([sys.stdin.read(), os.environ['AI_REVIEW_KEY'], os.getcwd(), patch]))\n"
     )
     monkeypatch.setenv("AI_REVIEW_DSH_CMD", shlex.join([sys.executable, str(agent)]))
-    workspace = Path(ai.__file__).resolve().parents[3]
-    prompt, echoed_key = json.loads(ai.run_agent(workspace, agent_request))
+    prompt, echoed_key, launch_dir, patch = json.loads(ai.run_agent(agent_workspace, agent_request))
 
-    assert f"Merge base: {agent_request['merge_base']}" in prompt
-    assert f"Head: {agent_request['state']['head']}" in prompt
-    assert agent_request["diff"] in prompt
-    assert agent_request["reply"] in prompt
+    assert Path(launch_dir) == agent_workspace.resolve()
+    config = {plugin["id"]: plugin for row in patch for plugin in row.get("insert", [row])}
+    session_dir = Path(config["fs-sandbox"]["config"]["cwd"])
+    assert session_dir == agent_workspace / "head"
+    head = ai.git(session_dir, "rev-parse", "HEAD").strip()
+    assert head == agent_request["state"]["head"]
+    for value in (head, agent_request["merge_base"], agent_request["state"]["base"]):
+        assert value in prompt
+    assert f"> Title: {agent_request['title']}" in prompt
+    assert "> ### What this PR does\n>\n> Handles both callers." in prompt
+    assert agent_request["diff_stat"] in prompt and "first_change = 1" not in prompt
+    assert "> /ai-review Recheck F003.\n> ## Review output\n> Keep {{HEAD_SHA}} literal." in prompt
     assert '"id": "F003"' in prompt
+    assert str(agent_workspace / ".github/agent-review") in prompt
+    upstream = ai.git(agent_workspace / "vllm", "rev-parse", "HEAD").strip()
+    assert f"Pinned upstream vLLM: `../vllm` at `{upstream}`." in prompt
+    assert str(agent_workspace / "AGENTS.md") in prompt
+    assert "Trusted project guidelines example." not in prompt and "Guidelines from the proposed change." not in prompt
+    assert config["agent-instructions"]["disabled"] is True
+    assert config["skill-filesystem"]["config"] == {
+        "includeDefaultRoots": False,
+        "customSkillDirs": [str(agent_workspace / ".agents/skills")],
+    }
+    assert config["tool-executor-native"]["disabled"] is True
+    assert config["tool-executor-ptc"]["disabled"] is False
+    assert config["tool-web"]["disabled"] is True
+    assert config["time-context"] == {
+        "id": "time-context",
+        "name": "@deepseek-ai/dsh-time-context",
+        "config": {"timeZone": "UTC", "refreshIntervalMs": 600_000},
+    }
+    selection = config["agent-default-model"]["config"]
+    provider = config["llm-pi-ai"]["config"]["providers"][selection["provider"]]
+    assert selection["reasoningEffort"] == "high"
+    assert provider["compat"] == {"thinkingFormat": "deepseek", "supportsReasoningEffort": True}
+    assert provider["models"] == [{"id": selection["model"], "reasoningEfforts": {"high": "high"}}]
     assert echoed_key == "***REDACTED***"
 
 
-def test_agent_timeout_is_reported(agent_request, monkeypatch):
+def test_agent_timeout_is_reported(agent_request, agent_workspace, monkeypatch):
     command = [sys.executable, "-c", "import time; time.sleep(1)"]
     monkeypatch.setenv("AI_REVIEW_DSH_CMD", shlex.join(command))
     monkeypatch.setattr(ai, "ROUND_TIMEOUT_SECONDS", 0)
     with pytest.raises(subprocess.TimeoutExpired):
-        ai.run_agent(Path(ai.__file__).resolve().parents[3], agent_request)
+        ai.run_agent(agent_workspace, agent_request)
+
+
+@pytest.mark.parametrize("push", [False, True])
+def test_manual_review_continues_unfinished_coverage(pr, phase, agent, history, agent_workspace, push):
+    summary = "Checked feature.py. Still need to trace the callers in second.py."
+    phase("prepare", pr.label_event())
+    agent.return_value = result(summary=summary, coverage_complete=False, findings=[finding()])
+    phase("review")
+    assert not agent.call_args.args[1]["state"]["incomplete_review_summary"]
+
+    phase("prepare", pr.command("/ai-review-waive F001 accepted", "maintainer"))
+    assert "waived" in pr.state()["message"]
+    if push:
+        pr.pull["head"]["sha"] = history.next_head
+
+    phase("prepare", pr.command())
+    assert agent.call_count == 1
+    agent.return_value = result()
+    phase("review")
+    request = agent.call_args.args[1]
+    assert request["state"]["incomplete_review_summary"] == summary
+    assert summary in ai.build_prompt(agent_workspace, request)
+    assert request["state"]["findings"][0]["status"] == ("open" if push else "waived")
+    assert not pr.state()["incomplete_review_summary"]
+    assert pr.state()["total"] == 2
+
+
+@pytest.mark.parametrize(
+    "status,message,complete,expected",
+    [
+        ("reviewing", "Still need to check dispatch.", False, "Still need to check dispatch."),
+        ("waiting-human", "Remaining work: allocator.", False, "Remaining work: allocator."),
+        ("reviewing", "@reviewer waived 1 finding(s) for this commit.", False, ""),
+        ("discarded", "The PR changed during review.", False, ""),
+        ("stopped", "Review stopped.", False, ""),
+        ("reviewing", "Reviewed all code.", True, ""),
+    ],
+)
+def test_restore_previous_coverage_from_older_summary(status, message, complete, expected):
+    state = ai.State.from_dict({"status": status, "message": message, "coverage_complete": complete, "findings": []})
+    assert state.incomplete_review_summary == expected
