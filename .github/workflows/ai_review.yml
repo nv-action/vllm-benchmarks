@@ -10,8 +10,11 @@ permissions:
 jobs:
   authorize:
     if: >-
+      github.repository == 'nv-action/vllm-benchmarks' &&
+      github.event.pull_request.number == 431 &&
       github.event.label.name == 'ai-review' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.sha == '852695b9afac1b1098e2f4d0b8857fe09d194064' &&
       github.event.pull_request.head.ref == 'ai-review-debug/sandbox'
     runs-on: linux-amd64-cpu-4-hk
     timeout-minutes: 20
@@ -40,7 +43,7 @@ jobs:
     needs: authorize
     if: needs.authorize.outputs.authorized == 'true'
     runs-on: linux-amd64-cpu-4-hk
-    timeout-minutes: 120
+    timeout-minutes: 20
     container:
       image: quay.io/ascend-ci/vllm-ascend:ai-review
     concurrency:
@@ -77,12 +80,11 @@ jobs:
           path: base
           persist-credentials: false
 
-      - name: Hold for debugging
+      - name: Verify the model can run Git through Bash
         if: steps.prepare.outputs.review == 'true'
-        run: |
-          pwd
-          for checkout in . head base; do
-            printf '%s ' "$checkout"
-            git -c safe.directory="$(realpath "$checkout")" -C "$checkout" rev-parse HEAD
-          done
-          exec sleep infinity
+        env:
+          AI_REVIEW_KEY: ${{ secrets.AI_REVIEW_KEY }}
+          AI_REVIEW_API: ${{ secrets.AI_REVIEW_API }}
+          AI_REVIEW_MODEL: deepseek-v4.1-flash
+          AI_REVIEW_DSH_CMD: dsh --profile headless
+        run: python3 .github/workflows/scripts/probe_model_git_access.py

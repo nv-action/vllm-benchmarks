@@ -600,6 +600,7 @@ def test_agent_receives_original_input_and_redacts_output(agent_request, tmp_pat
     agent.write_text(
         "import json, os, sys\n"
         "assert 'GH_TOKEN' not in os.environ\n"
+        "assert os.environ['DSH_PERMISSION_MODE'] == 'danger-full-access'\n"
         "print(json.dumps([sys.stdin.read(), os.environ['AI_REVIEW_KEY']]))\n"
     )
     monkeypatch.setenv("AI_REVIEW_DSH_CMD", shlex.join([sys.executable, str(agent)]))

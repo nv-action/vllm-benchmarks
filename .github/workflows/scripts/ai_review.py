@@ -750,6 +750,8 @@ def run_agent(workspace: Path, request: dict) -> str:
         env = {
             "PATH": os.environ["PATH"],
             "HOME": os.environ.get("HOME", "/tmp"),
+            # The Actions job container provides isolation for this process.
+            "DSH_PERMISSION_MODE": "danger-full-access",
             "AI_REVIEW_KEY": os.environ["AI_REVIEW_KEY"],
             "DEEPSEEK_API_KEY": "boot-gate-placeholder",
         }
