@@ -2837,7 +2837,7 @@ reasoning effort to an integer from 1 to 100, pass it through
 `chat_template_kwargs.reasoning_effort`. The following example uses `50`.
 
 ```shell
-curl -sS -w '\nHTTP {http_code}\n' "$SERVICE_URL/v1/chat/completions" \
+curl -sS -w '\nHTTP %{http_code}\n' "$SERVICE_URL/v1/chat/completions" \
   -H 'Content-Type: application/json' \
   -d '{
     "model": "dsv41",
