@@ -21,20 +21,15 @@ Pay particular attention to:
 Use the available tools to inspect related code, trace callers, and check Git
 history when useful. Once the evidence settles a question, move on.
 
+The first UTC clock reading marks the start of your review. The next reading
+arrives after eight minutes. When it appears, stop calling tools and return
+the review JSON with the evidence you have. If work remains, set
+`coverage_complete` to `false` and name the files or changes still to review
+in `summary`. Return earlier when the review is complete.
+
 Apply the L1 checklist and the L2 checklists for the touched domains, including
 their exceptions. Use the knowledge-base map to find supporting material when
 useful. Report clear bugs outside the checklists too.
-
-<!-- CODEGRAPH_START -->
-## CodeGraph
-
-In repositories indexed by CodeGraph (a `.codegraph/` directory exists at the repo root), reach for it BEFORE grep/find or reading files when you need to understand or locate code:
-
-- **MCP tools** (when available): `codegraph_explore` answers most code questions in one call — the relevant symbols' verbatim source plus the call paths between them. `codegraph_node` returns one symbol's source + callers, or reads a whole file with line numbers. If the tools are listed but deferred, load them by name via tool search.
-- **Shell** (always works): `codegraph explore "<symbol names or question>"` and `codegraph node <symbol-or-file>` print the same output.
-
-If there is no `.codegraph/` directory, skip CodeGraph entirely — indexing is the user's decision.
-<!-- CODEGRAPH_END -->
 
 ## What to report
 
@@ -48,6 +43,9 @@ and concerns based only on speculation. If a conclusion depends on runtime
 data, say what evidence is missing in the summary.
 
 ## Previous findings
+
+If the previous summary lists unfinished work, pick up there against the
+current diff. Include any changes made since that review.
 
 Recheck each open finding against the current code. Consider all findings
 discussed in the author's reply and verify any claimed fixes. Keep the

@@ -72,7 +72,8 @@ STATE_MARKER = "<!-- ai-review-orchestrator:v2 -->"
 STATE_DATA_MARKER = "\n<!-- ai-review-state\n"
 MAX_ROUNDS_PER_HEAD = 5
 MAX_TOTAL_ROUNDS = 15
-ROUND_TIMEOUT_SECONDS = 600
+REVIEW_CLOCK_INTERVAL_MS = 8 * 60 * 1000
+ROUND_TIMEOUT_SECONDS = 13 * 60
 GIT_FETCH_MAX_ATTEMPTS = 3
 GIT_FETCH_RETRY_DELAY_SECONDS = 5
 SEVERITIES = ("MUST-FIX", "SHOULD-FIX", "NIT")
@@ -161,12 +162,22 @@ class State:
     coverage_complete: bool = False
     requires_human: bool = False
     message: str = ""
+    incomplete_review_summary: str = ""
     findings: list[Finding] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict) -> State:
         """Restore the saved review state and its finding records."""
-        return cls(**{**data, "findings": [Finding(**f) for f in data["findings"]]})
+        state = cls(**{**data, "findings": [Finding(**f) for f in data["findings"]]})
+        # Older summaries kept the model's text and waiver notices in the same field.
+        if (
+            "incomplete_review_summary" not in data
+            and state.status in ("reviewing", "waiting-human")
+            and not state.coverage_complete
+            and not re.fullmatch(r"@\S+ waived \d+ finding\(s\) for this commit\.", state.message)
+        ):
+            state.incomplete_review_summary = state.message
+        return state
 
     def decide(self):
         """Choose passed, reviewing or waiting-human from the current review state."""
@@ -558,6 +569,7 @@ class Orchestrator:
             self.state.coverage_complete = result["coverage_complete"]
             self.state.requires_human = result["requires_human"]
             self.state.message = result["summary"]
+            self.state.incomplete_review_summary = "" if self.state.coverage_complete else self.state.message
 
             self.state.decide()
             self.publish_inline(created)
@@ -692,6 +704,7 @@ def build_prompt(workspace: Path, request: dict) -> str:
             "HEAD_SHA": request["state"]["head"],
             "VLLM_SHA": git(workspace / "vllm", "rev-parse", "HEAD").strip(),
             "DIFF_STAT": request["diff_stat"],
+            "INCOMPLETE_REVIEW_SUMMARY": request["state"].get("incomplete_review_summary") or "None.",
             "FINDINGS": json.dumps(request["state"]["findings"]),
             "REPLY": request["reply"],
         },
@@ -727,6 +740,16 @@ def agent_patch(workspace: Path) -> list[dict]:
         },
         {"id": "tool-executor-native", "disabled": True},
         {"id": "tool-executor-ptc", "disabled": False},
+        {"id": "tool-web", "disabled": True},
+        {
+            "insert": [
+                {
+                    "id": "time-context",
+                    "name": "@deepseek-ai/dsh-time-context",
+                    "config": {"timeZone": "UTC", "refreshIntervalMs": REVIEW_CLOCK_INTERVAL_MS},
+                }
+            ]
+        },
         {"id": "agent-default-model", "config": {"provider": provider, "model": model, "reasoningEffort": "high"}},
         {
             "id": "llm-pi-ai",

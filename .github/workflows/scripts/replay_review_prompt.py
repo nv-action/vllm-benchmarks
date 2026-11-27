@@ -9,7 +9,6 @@ import tempfile
 import time
 from pathlib import Path
 
-from replay_codegraph import enable_codegraph
 from vllm_access import PublicTreeReads
 
 def load_review(workspace):
@@ -52,8 +51,12 @@ def git_diagnostics(trace):
 
 def replay(workspace):
     review = load_review(workspace)
-    if os.environ["VARIANT"] == "BC":
-        enable_codegraph(review)
+    if os.environ["VARIANT"] == "clock":
+        # Keep the previous web tool settings for the large-PR clock comparison.
+        production_patch = review.agent_patch
+        def patch_with_web(workspace):
+            return [item for item in production_patch(workspace) if item.get("id") != "tool-web"]
+        review.agent_patch = patch_with_web
     kb = workspace / ".github/agent-review"
     base, head = os.environ["BASE_SHA"], os.environ["HEAD_SHA"]
     merge_base = review.git(workspace, "merge-base", base, head).strip()
@@ -66,7 +69,7 @@ def replay(workspace):
         "title": pr["title"],
         "body": pr["body"] or "",
         "merge_base": merge_base,
-        "state": {"base": base, "head": head, "findings": []},
+        "state": {**vars(review.State()), "base": base, "head": head},
         "domains": [domain["name"] for domain in review.resolve_domains(registry, files)],
         "diff_stat": review.git(workspace, "diff", "--stat", "--no-ext-diff", "--no-textconv", merge_base, head).rstrip("\n"),
         "reply": "",

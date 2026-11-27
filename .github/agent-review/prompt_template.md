@@ -34,6 +34,10 @@ You can add `-- <path>` to focus on a file or use Git history to check earlier b
 {{DIFF_STAT}}
 ```
 
+## Previous review coverage
+
+{{INCOMPLETE_REVIEW_SUMMARY}}
+
 ## Previous findings
 
 {{FINDINGS}}

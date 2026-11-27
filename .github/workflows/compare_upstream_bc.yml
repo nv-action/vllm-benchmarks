@@ -1,29 +1,47 @@
-name: Review two PRs with CodeGraph guidance
+name: Review with a soft deadline and optional web tools
 on:
   push:
-    branches: [ai-review-test/codegraph-guidance-20261127]
+    branches: [ai-review-test/clock-web-20261127]
 permissions:
   contents: read
 jobs:
+  large:
+    uses: ./.github/workflows/_bc_review_one.yml
+    with:
+      pr: 23435
+      base: 83965d79110c84ec07cda5ae0701479d98d7b191
+      head: 0122ab2bc5f2a5a883e512d242a9878a8da648bf
+      merge_base: 5da436cf72c171571464f3028649b359fde64fc4
+      docs: false
+      variant: clock
+    secrets:
+      AI_REVIEW_API: ${{ secrets.AI_REVIEW_API }}
+      AI_REVIEW_KEY: ${{ secrets.AI_REVIEW_KEY }}
   code:
+    needs: large
+    if: ${{ !cancelled() }}
     uses: ./.github/workflows/_bc_review_one.yml
     with:
       pr: 23195
+      base: e953b96e1cd3224bbacd952e99d39db315a2db23
       head: 2b9ef26e98a7229a4d18fe5c8ca632b30354dbd9
       merge_base: e953b96e1cd3224bbacd952e99d39db315a2db23
       docs: false
-      variant: BC
+      variant: no-web
     secrets:
       AI_REVIEW_API: ${{ secrets.AI_REVIEW_API }}
       AI_REVIEW_KEY: ${{ secrets.AI_REVIEW_KEY }}
   docs:
+    needs: large
+    if: ${{ !cancelled() }}
     uses: ./.github/workflows/_bc_review_one.yml
     with:
       pr: 23393
+      base: e953b96e1cd3224bbacd952e99d39db315a2db23
       head: ec895df138ef89845b4f1156cbd12196a78e183b
       merge_base: 5e4e3a22f1a95bcd6d61d0389bb390067899076a
       docs: true
-      variant: BC
+      variant: no-web
     secrets:
       AI_REVIEW_API: ${{ secrets.AI_REVIEW_API }}
       AI_REVIEW_KEY: ${{ secrets.AI_REVIEW_KEY }}

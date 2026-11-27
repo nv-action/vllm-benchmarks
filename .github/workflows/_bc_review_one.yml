@@ -1,10 +1,13 @@
-name: Run one upstream review comparison
+name: Run one timed upstream review
 on:
   workflow_call:
     inputs:
       pr:
         required: true
         type: number
+      base:
+        required: true
+        type: string
       head:
         required: true
         type: string
@@ -37,7 +40,7 @@ jobs:
     env:
       VARIANT: ${{ inputs.variant }}
       PR_NUMBER: ${{ inputs.pr }}
-      BASE_SHA: e953b96e1cd3224bbacd952e99d39db315a2db23
+      BASE_SHA: ${{ inputs.base }}
       HEAD_SHA: ${{ inputs.head }}
       MERGE_BASE: ${{ inputs.merge_base }}
       EXPECT_DOCS: ${{ inputs.docs }}
@@ -50,9 +53,6 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /.github/workflows/scripts/replay_review_prompt.py
-            /.github/workflows/scripts/replay_codegraph.py
-            /.github/workflows/scripts/codegraph_stdio.cjs
-            /.github/workflows/scripts/codegraph_cli.sh
             /.github/workflows/scripts/vllm_access.py
             /.github/workflows/scripts/print_doc_trace.py
             /.github/workflows/scripts/observed_dsh.sh
@@ -97,22 +97,6 @@ jobs:
           git -C vllm checkout -q --detach FETCH_HEAD
           test "$(git -C vllm rev-parse HEAD)" = "$sha"
           echo "upstream_checkout_seconds=$SECONDS head=$sha"
-      - name: Prepare CodeGraph for the PR head
-        if: inputs.variant == 'BC'
-        working-directory: source/head
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm install --global --include=optional --no-fund --no-audit @colbymchenry/codegraph@1.6.1
-          echo "graph_install_seconds=$SECONDS"
-          codegraph --version
-          start=$SECONDS
-          printf '\n/.codegraph/\n' >> "$(git rev-parse --git-path info/exclude)"
-          codegraph init --yes "$PWD"
-          git diff --exit-code
-          echo "head_index_seconds=$((SECONDS - start))"
-          du -sh .codegraph
-          codegraph status --json | jq '{fileCount,nodeCount,edgeCount,dbSizeBytes}'
       - name: Fetch the pinned private documentation rules
         if: inputs.docs
         env:
@@ -145,12 +129,6 @@ jobs:
           set -euo pipefail
           umask 077
           export AI_REVIEW_DSH_CMD="sh $GITHUB_WORKSPACE/candidate/.github/workflows/scripts/observed_dsh.sh --profile headless"
-          probe=/tmp/review-codegraph-bin
-          mkdir -m 700 "$probe"
-          ln -s "$(command -v codegraph)" "$probe/real-codegraph"
-          install -m 755 "$GITHUB_WORKSPACE/candidate/.github/workflows/scripts/codegraph_cli.sh" "$probe/codegraph"
-          : > "$probe/cli-commands.txt"
-          export PATH="$probe:$PATH"
           dsh --version
           if [[ "$EXPECT_DOCS" == true ]]; then
             log=$(mktemp)
@@ -166,28 +144,19 @@ jobs:
             exit "$status"
           fi
           python3 -u candidate/.github/workflows/scripts/replay_review_prompt.py source
-      - name: Verify outbound model options and actual PTC use
+      - name: Verify clock delivery and available web tools
         if: ${{ !cancelled() && (steps.model.outcome == 'success' || steps.model.outcome == 'failure') }}
         shell: bash
         run: |
           set -eu
           cat /tmp/ai-review-wire-proof.json
-          jq -e '.model_requests > 0 and .explicit_thinking_enabled == .model_requests and .explicit_reasoning_high == .model_requests and .only_run_code_offered == .model_requests and .distinct_run_code_results_returned > 0' /tmp/ai-review-wire-proof.json >/dev/null
-      - name: CodeGraph discovery and tool use
-        if: ${{ !cancelled() && inputs.variant == 'BC' && (steps.model.outcome == 'success' || steps.model.outcome == 'failure') }}
-        shell: bash
-        run: |
-          set -eu
-          jq -Rsc 'split("\n") | map(select(length > 0)) | {cli_calls:length, cli_by_command:(group_by(.) | map({(.[0]):length}) | add // {})}' /tmp/review-codegraph-bin/cli-commands.txt
-          jq -cs --slurpfile wire /tmp/ai-review-wire-proof.json '
-            {
-              before_model: (any(.[]; .event == "tools-listed" and (.tools | length) > 0 and .time_ms <= $wire[0].first_provider_ms)),
-              tools: ([.[] | select(.event == "tools-listed") | .tools[]] | unique),
-              calls: ([.[] | select(.event == "call")] | length),
-              success: ([.[] | select(.event == "result" and .success)] | length),
-              by_tool: ([.[] | select(.event == "call") | .tool] | group_by(.) | map({(.[0]): length}) | add)
-            }' /tmp/replay-codegraph-events.jsonl | tee /tmp/replay-graph-summary.json
-          jq -e '.before_model and (.tools|length)==3' /tmp/replay-graph-summary.json >/dev/null
+          jq -e --arg variant "$VARIANT" '
+            .model_requests as $n | .requests_with_tool_declaration as $tools |
+            $n > 0 and .explicit_thinking_enabled == $n and .explicit_reasoning_high == $n
+            and .requests_with_ptc_args_map == $n and $tools.read == $n and $tools.bash == $n
+            and $tools.web_search == (if $variant == "clock" then $n else 0 end)
+            and $tools.web_fetch == (if $variant == "clock" then $n else 0 end)
+            and .distinct_clock_readings >= 1' /tmp/ai-review-wire-proof.json >/dev/null
       - name: Save the review result for the operator
         if: ${{ !cancelled() && steps.model.outcome == 'success' }}
         run: openssl cms -encrypt -binary -aes-256-cbc -outform DER -in /tmp/paired-review-result.json -out "$GITHUB_WORKSPACE/review-result.cms" candidate/.github/workflows/scripts/replay_recipient.pem
