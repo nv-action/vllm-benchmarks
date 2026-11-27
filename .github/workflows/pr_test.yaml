@@ -35,6 +35,10 @@ on:
       - 'main'
       - '*-dev'
       - 'releases/v*'
+      # Test rig: allow pr_test to run on PRs targeting this branch so the
+      # skip_ci revert flow (PR #23537) can be exercised against this
+      # branch's own workflow code.
+      - 'czy_easy_revert'
   # NOTE: this workflow must NOT also trigger on `pull_request_review`. A
   # review-event run would create a skipped `ci-gate` check-run under the
   # same context name on the head SHA, and GitHub treats the latest check by
