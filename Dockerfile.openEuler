@@ -17,6 +17,9 @@
 
 FROM quay.io/ascend/cann:9.2.1-910b-openeuler24.03-py3.12
 
+# TODO: temporary /presmoke verification marker, drop before merge
+LABEL org.vllm-ascend.presmoke-verify="pr-presmoke-test"
+
 WORKDIR /workspace
 
 SHELL ["/bin/bash", "-c"]
