@@ -3,10 +3,14 @@
 const fs = require('node:fs');
 
 const filename = process.env.AI_REVIEW_PROOF_FILE || '/tmp/ai-review-wire-proof.json';
+const graphNames = ['explore', 'node', 'callers'].map(name => 'mcp__codegraph__codegraph_' + name);
 const knownCalls = new Set();
 const repliedCalls = new Set();
 const summary = {
   model_requests: 0,
+  requests_with_graph_declarations: Object.fromEntries(graphNames.map(name => [name, 0])),
+  requests_with_all_graph_declarations: 0,
+  requests_with_graph_server_hint: 0,
   explicit_thinking_enabled: 0,
   explicit_reasoning_high: 0,
   only_run_code_offered: 0,
@@ -30,6 +34,21 @@ function observe(body) {
   if (request.reasoning_effort === 'high') summary.explicit_reasoning_high++;
   if (request.tools?.length === 1 && request.tools[0].function?.name === 'run_code') {
     summary.only_run_code_offered++;
+  }
+  const context = request.messages
+    .filter(m => m.role === 'system' || m.role === 'developer')
+    .map(m => typeof m.content === 'string' ? m.content : (m.content || []).map(c => c.text || '').join(''))
+    .join('\n');
+  const start = context.indexOf('interface ToolArgsMap {');
+  const end = context.indexOf('interface ToolOutputMap {', start);
+  const hasArgsMap = start >= 0 && end > start;
+  const argsMap = hasArgsMap ? context.slice(start, end) : '';
+  const outsideArgs = hasArgsMap ? context.slice(0, start) + context.slice(end) : context;
+  const declared = graphNames.filter(name => argsMap.includes(name + ':'));
+  for (const name of declared) summary.requests_with_graph_declarations[name]++;
+  if (declared.length === graphNames.length) summary.requests_with_all_graph_declarations++;
+  if (outsideArgs.includes('Codegraph is a SQLite knowledge graph') && outsideArgs.includes('PRIMARY TOOL')) {
+    summary.requests_with_graph_server_hint++;
   }
   for (const message of request.messages) {
     if (message.role === 'assistant') {

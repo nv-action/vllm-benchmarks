@@ -52,6 +52,7 @@ jobs:
             /.github/workflows/scripts/replay_review_prompt.py
             /.github/workflows/scripts/replay_codegraph.py
             /.github/workflows/scripts/codegraph_stdio.cjs
+            /.github/workflows/scripts/codegraph_cli.sh
             /.github/workflows/scripts/vllm_access.py
             /.github/workflows/scripts/print_doc_trace.py
             /.github/workflows/scripts/observed_dsh.sh
@@ -144,6 +145,12 @@ jobs:
           set -euo pipefail
           umask 077
           export AI_REVIEW_DSH_CMD="sh $GITHUB_WORKSPACE/candidate/.github/workflows/scripts/observed_dsh.sh --profile headless"
+          probe=/tmp/review-codegraph-bin
+          mkdir -m 700 "$probe"
+          ln -s "$(command -v codegraph)" "$probe/real-codegraph"
+          install -m 755 "$GITHUB_WORKSPACE/candidate/.github/workflows/scripts/codegraph_cli.sh" "$probe/codegraph"
+          : > "$probe/cli-commands.txt"
+          export PATH="$probe:$PATH"
           dsh --version
           if [[ "$EXPECT_DOCS" == true ]]; then
             log=$(mktemp)
@@ -171,6 +178,7 @@ jobs:
         shell: bash
         run: |
           set -eu
+          jq -Rsc 'split("\n") | map(select(length > 0)) | {cli_calls:length, cli_by_command:(group_by(.) | map({(.[0]):length}) | add // {})}' /tmp/review-codegraph-bin/cli-commands.txt
           jq -cs --slurpfile wire /tmp/ai-review-wire-proof.json '
             {
               before_model: (any(.[]; .event == "tools-listed" and (.tools | length) > 0 and .time_ms <= $wire[0].first_provider_ms)),
@@ -198,15 +206,3 @@ jobs:
           path: deepseek-log.cms
           retention-days: 1
           if-no-files-found: error
-      - name: Measure a separate upstream index after the final review
-        if: ${{ !cancelled() && steps.model.outcome == 'success' && inputs.docs && inputs.variant == 'BC' }}
-        working-directory: source/vllm
-        shell: bash
-        run: |
-          set -euo pipefail
-          start=$SECONDS
-          codegraph init --yes "$PWD"
-          echo "upstream_index_seconds=$((SECONDS - start))"
-          du -sh .codegraph
-          codegraph node -p "$PWD" -f vllm/benchmarks/throughput.py add_cli_args --limit 8
-          codegraph status --json | jq '{fileCount,nodeCount,edgeCount,dbSizeBytes}'
