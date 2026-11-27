@@ -63,6 +63,16 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# The reusable workflows this file calls (_selected_tests.yaml) request
+# 'pull-requests: write'. This rig's repository default workflow
+# permissions are read-only (which grants no pull-requests scope at all),
+# so an undeclared caller cannot satisfy the callee and every run dies
+# with startup_failure. Declare the grant explicitly - explicit
+# permissions are not capped by the repository default.
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   pre-commit:
     # Every test job depends on pre-commit or its outputs. Skip the expensive
