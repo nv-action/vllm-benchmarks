@@ -1,0 +1,212 @@
+name: Run one upstream review comparison
+on:
+  workflow_call:
+    inputs:
+      pr:
+        required: true
+        type: number
+      head:
+        required: true
+        type: string
+      merge_base:
+        required: true
+        type: string
+      docs:
+        required: true
+        type: boolean
+      variant:
+        required: true
+        type: string
+    secrets:
+      AI_REVIEW_KEY:
+        required: true
+      AI_REVIEW_API:
+        required: true
+      DOC_QUALITY_TOKEN:
+        required: false
+permissions:
+  contents: read
+jobs:
+  review:
+    name: PR ${{ inputs.pr }} · ${{ inputs.variant }}
+    if: github.repository == 'nv-action/vllm-benchmarks'
+    runs-on: linux-amd64-cpu-4-hk
+    timeout-minutes: 40
+    container:
+      image: quay.io/ascend-ci/vllm-ascend:ai-review
+    env:
+      VARIANT: ${{ inputs.variant }}
+      PR_NUMBER: ${{ inputs.pr }}
+      BASE_SHA: e953b96e1cd3224bbacd952e99d39db315a2db23
+      HEAD_SHA: ${{ inputs.head }}
+      MERGE_BASE: ${{ inputs.merge_base }}
+      EXPECT_DOCS: ${{ inputs.docs }}
+    steps:
+      - name: Check out the candidate
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          path: candidate
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/scripts/replay_review_prompt.py
+            /.github/workflows/scripts/replay_codegraph.py
+            /.github/workflows/scripts/codegraph_stdio.cjs
+            /.github/workflows/scripts/vllm_access.py
+            /.github/workflows/scripts/print_doc_trace.py
+            /.github/workflows/scripts/observed_dsh.sh
+            /.github/workflows/scripts/review_wire_probe.cjs
+            /.github/workflows/scripts/replay_recipient.pem
+            /.github/workflows/scripts/ai_review.py
+            /.github/agent-review/instructions.md
+            /.github/agent-review/prompt_template.md
+      - name: Check out the trusted vLLM Ascend snapshot
+        uses: actions/checkout@v7
+        with:
+          repository: vllm-project/vllm-ascend
+          ref: 8120485ea5db8a7ef3ba3f0387c84e011133f5a5
+          fetch-depth: 0
+          persist-credentials: false
+          path: source
+      - name: Prepare the original PR worktree
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$PWD"
+          git fetch --quiet --no-tags origin "$BASE_SHA" "$HEAD_SHA"
+          git worktree add --quiet --detach head "$HEAD_SHA"
+          git config --global --add safe.directory "$PWD/head"
+          for file in .github/workflows/scripts/ai_review.py .github/agent-review/instructions.md .github/agent-review/prompt_template.md; do
+            cp "../candidate/$file" "$file"
+          done
+          curl -fsSL --retry 2 "https://api.github.com/repos/vllm-project/vllm-ascend/pulls/$PR_NUMBER" > /tmp/replay-public-pr.json
+          git diff --stat "$MERGE_BASE" "$HEAD_SHA"
+      - name: Check out the pinned upstream vLLM source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          pin=$(git -C head show 'HEAD:.github/vllm-main-verified.commit')
+          sha=$(gh api "repos/vllm-project/vllm/commits/$pin" --jq .sha)
+          git init -q vllm
+          git -C vllm fetch -q --depth=1 https://github.com/vllm-project/vllm.git "$sha"
+          git -C vllm checkout -q --detach FETCH_HEAD
+          test "$(git -C vllm rev-parse HEAD)" = "$sha"
+          echo "upstream_checkout_seconds=$SECONDS head=$sha"
+      - name: Prepare CodeGraph for the PR head
+        if: inputs.variant == 'BC'
+        working-directory: source/head
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --global --include=optional --no-fund --no-audit @colbymchenry/codegraph@1.6.1
+          echo "graph_install_seconds=$SECONDS"
+          codegraph --version
+          start=$SECONDS
+          printf '\n/.codegraph/\n' >> "$(git rev-parse --git-path info/exclude)"
+          codegraph init --yes "$PWD"
+          git diff --exit-code
+          echo "head_index_seconds=$((SECONDS - start))"
+          du -sh .codegraph
+          codegraph status --json | jq '{fileCount,nodeCount,edgeCount,dbSizeBytes}'
+      - name: Fetch the pinned private documentation rules
+        if: inputs.docs
+        env:
+          DOC_QUALITY_USERNAME: ${{ vars.DOC_QUALITY_USERNAME }}
+          DOC_QUALITY_TOKEN: ${{ secrets.DOC_QUALITY_TOKEN }}
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          revision=9b97d74bb8b35746de34f752973ea834478f532f
+          repo=$(mktemp -d)
+          trap 'rm -rf "$repo"' EXIT
+          git init -q --bare "$repo"
+          basic_auth=$(printf '%s:%s' "$DOC_QUALITY_USERNAME" "$DOC_QUALITY_TOKEN" | base64 -w0)
+          GITCODE_AUTH="Authorization: Basic $basic_auth" git -C "$repo" --config-env=http.extraHeader=GITCODE_AUTH fetch --quiet --depth=1 https://gitcode.com/ascend-ci/doc-quality.git "$revision"
+          test "$(git -C "$repo" rev-parse FETCH_HEAD)" = "$revision"
+          destination="$PWD/.github/agent-review/L2/doc-quality/upstream"
+          mkdir -p "$destination"
+          git -C "$repo" --work-tree="$destination" checkout 'FETCH_HEAD:skills/01.评估标准' -- .
+          test -s "$destination/common/h2_registry.json"
+          echo "Pinned documentation rules are available."
+      - name: DeepSeek review
+        id: model
+        env:
+          AI_REVIEW_MODEL: deepseek-v4.1-flash
+          AI_REVIEW_KEY: ${{ secrets.AI_REVIEW_KEY }}
+          AI_REVIEW_API: ${{ secrets.AI_REVIEW_API }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          export AI_REVIEW_DSH_CMD="sh $GITHUB_WORKSPACE/candidate/.github/workflows/scripts/observed_dsh.sh --profile headless"
+          dsh --version
+          if [[ "$EXPECT_DOCS" == true ]]; then
+            log=$(mktemp)
+            trap 'rm -f "$log"' EXIT
+            rules="$GITHUB_WORKSPACE/source/.github/agent-review/L2/doc-quality/upstream"
+            status=0
+            resume=$(cat /proc/sys/kernel/random/uuid)
+            echo "::stop-commands::$resume"
+            { python3 -u candidate/.github/workflows/scripts/replay_review_prompt.py source 2>&1 1>&3 | python3 -u candidate/.github/workflows/scripts/print_doc_trace.py "$rules" "$log"; } 3>&1 || status=$?
+            echo "::$resume::"
+            grep -c '^dsh: reasoning:' "$log" | sed 's/^/dsh_reasoning_sections=/' || true
+            openssl cms -encrypt -binary -aes-256-cbc -outform DER -in "$log" -out "$GITHUB_WORKSPACE/deepseek-log.cms" candidate/.github/workflows/scripts/replay_recipient.pem
+            exit "$status"
+          fi
+          python3 -u candidate/.github/workflows/scripts/replay_review_prompt.py source
+      - name: Verify outbound model options and actual PTC use
+        if: ${{ !cancelled() && (steps.model.outcome == 'success' || steps.model.outcome == 'failure') }}
+        shell: bash
+        run: |
+          set -eu
+          cat /tmp/ai-review-wire-proof.json
+          jq -e '.model_requests > 0 and .explicit_thinking_enabled == .model_requests and .explicit_reasoning_high == .model_requests and .only_run_code_offered == .model_requests and .distinct_run_code_results_returned > 0' /tmp/ai-review-wire-proof.json >/dev/null
+      - name: CodeGraph discovery and tool use
+        if: ${{ !cancelled() && inputs.variant == 'BC' && (steps.model.outcome == 'success' || steps.model.outcome == 'failure') }}
+        shell: bash
+        run: |
+          set -eu
+          jq -cs --slurpfile wire /tmp/ai-review-wire-proof.json '
+            {
+              before_model: (any(.[]; .event == "tools-listed" and (.tools | length) > 0 and .time_ms <= $wire[0].first_provider_ms)),
+              tools: ([.[] | select(.event == "tools-listed") | .tools[]] | unique),
+              calls: ([.[] | select(.event == "call")] | length),
+              success: ([.[] | select(.event == "result" and .success)] | length),
+              by_tool: ([.[] | select(.event == "call") | .tool] | group_by(.) | map({(.[0]): length}) | add)
+            }' /tmp/replay-codegraph-events.jsonl | tee /tmp/replay-graph-summary.json
+          jq -e '.before_model and (.tools|length)==3' /tmp/replay-graph-summary.json >/dev/null
+      - name: Save the review result for the operator
+        if: ${{ !cancelled() && steps.model.outcome == 'success' }}
+        run: openssl cms -encrypt -binary -aes-256-cbc -outform DER -in /tmp/paired-review-result.json -out "$GITHUB_WORKSPACE/review-result.cms" candidate/.github/workflows/scripts/replay_recipient.pem
+      - name: Deliver the review result
+        if: ${{ !cancelled() && steps.model.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: review-result-${{ inputs.pr }}-${{ inputs.variant }}
+          path: review-result.cms
+          retention-days: 1
+      - name: Deliver the original client log to the test operator
+        if: ${{ !cancelled() && inputs.docs && (steps.model.outcome == 'success' || steps.model.outcome == 'failure') }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: deepseek-client-log-23393-${{ inputs.variant }}
+          path: deepseek-log.cms
+          retention-days: 1
+          if-no-files-found: error
+      - name: Measure a separate upstream index after the final review
+        if: ${{ !cancelled() && steps.model.outcome == 'success' && inputs.docs && inputs.variant == 'BC' }}
+        working-directory: source/vllm
+        shell: bash
+        run: |
+          set -euo pipefail
+          start=$SECONDS
+          codegraph init --yes "$PWD"
+          echo "upstream_index_seconds=$((SECONDS - start))"
+          du -sh .codegraph
+          codegraph node -p "$PWD" -f vllm/benchmarks/throughput.py add_cli_args --limit 8
+          codegraph status --json | jq '{fileCount,nodeCount,edgeCount,dbSizeBytes}'

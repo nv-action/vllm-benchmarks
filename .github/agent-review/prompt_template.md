@@ -24,6 +24,7 @@ Title: {{PR_TITLE}}
 Target branch tip: {{BASE_SHA}}
 Merge base: {{MERGE_BASE_SHA}}
 PR head: {{HEAD_SHA}}
+Upstream vLLM source: `../vllm` at `{{VLLM_SHA}}`.
 
 Your working directory is the PR head. The stat below shows the scope of the
 change. Inspect the changes with `git diff --no-ext-diff --no-textconv {{MERGE_BASE_SHA}} HEAD`.

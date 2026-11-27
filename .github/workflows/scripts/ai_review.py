@@ -484,6 +484,7 @@ class Orchestrator:
         diff_stat = git(self.workspace, "diff", "--stat", "--no-ext-diff", "--no-textconv", merge_base, self.state.head)
         files = git(self.workspace, "diff", "--name-only", "-z", merge_base, self.state.head).split("\0")[:-1]
         registry = self.workspace / ".github/agent-review/domains.yaml"
+        is_release = pull["base"]["ref"].startswith("releases/")
 
         return {
             "pr": self.pr,
@@ -492,6 +493,7 @@ class Orchestrator:
             "comment_id": self.summary_comment_id,
             "state": asdict(self.state),
             "merge_base": merge_base,
+            "vllm_pin_file": "vllm-release-tag.commit" if is_release else "vllm-main-verified.commit",
             "domains": [domain["name"] for domain in resolve_domains(registry.read_text(), files)],
             "diff_stat": diff_stat.rstrip("\n"),
             "reply": event["comment"]["body"] if event_name == "issue_comment" else "",
@@ -688,6 +690,7 @@ def build_prompt(workspace: Path, request: dict) -> str:
             "BASE_SHA": request["state"]["base"],
             "MERGE_BASE_SHA": request["merge_base"],
             "HEAD_SHA": request["state"]["head"],
+            "VLLM_SHA": git(workspace / "vllm", "rev-parse", "HEAD").strip(),
             "DIFF_STAT": request["diff_stat"],
             "FINDINGS": json.dumps(request["state"]["findings"]),
             "REPLY": request["reply"],
@@ -832,6 +835,7 @@ def main() -> int:
 
             with open(os.environ["GITHUB_OUTPUT"], "a") as output:
                 output.write(f"review=true\nhead={request['state']['head']}\n")
+                output.write(f"vllm_pin_file={request['vllm_pin_file']}\n")
                 if "doc-quality" in request["domains"]:
                     output.write("doc_quality=true\n")
 

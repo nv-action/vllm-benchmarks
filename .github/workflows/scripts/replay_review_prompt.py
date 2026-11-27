@@ -9,8 +9,8 @@ import tempfile
 import time
 from pathlib import Path
 
-
-
+from replay_codegraph import enable_codegraph
+from vllm_access import PublicTreeReads
 
 def load_review(workspace):
     spec = importlib.util.spec_from_file_location(
@@ -52,6 +52,8 @@ def git_diagnostics(trace):
 
 def replay(workspace):
     review = load_review(workspace)
+    if os.environ["VARIANT"] == "BC":
+        enable_codegraph(review)
     kb = workspace / ".github/agent-review"
     base, head = os.environ["BASE_SHA"], os.environ["HEAD_SHA"]
     merge_base = review.git(workspace, "merge-base", base, head).strip()
@@ -85,9 +87,11 @@ def replay(workspace):
     with tempfile.TemporaryDirectory() as tempdir:
         trace = Path(tempdir) / "git-events.jsonl"
         subprocess.run(["git", "config", "--global", "trace2.eventTarget", str(trace)], check=True)
+        upstream_reads = PublicTreeReads(workspace / 'vllm')
         started = time.monotonic()
         try:
-            out = review.run_agent(workspace, request)
+            with upstream_reads:
+                out = review.run_agent(workspace, request)
             report["output_bytes"] = len(out.encode())
             parsed = review.parse_result(out, [])
             Path("/tmp/paired-review-result.json").write_text(out)
@@ -110,6 +114,7 @@ def replay(workspace):
                 requires_human=parsed["requires_human"],
             )
         finally:
+            report.update(upstream_reads.report())
             report["agent_seconds"] = round(time.monotonic() - started, 1)
             subprocess.run(["git", "config", "--global", "--unset", "trace2.eventTarget"], check=True)
         report.update(git_diagnostics(trace))

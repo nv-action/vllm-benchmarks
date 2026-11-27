@@ -1,0 +1,42 @@
+name: Compare upstream source and CodeGraph
+on:
+  push:
+    branches: [ai-review-test/upstream-bc-20261127]
+permissions:
+  contents: read
+jobs:
+  code:
+    strategy:
+      max-parallel: 2
+      fail-fast: false
+      matrix:
+        variant: [B, BC]
+    uses: ./.github/workflows/_bc_review_one.yml
+    with:
+      pr: 23195
+      head: 2b9ef26e98a7229a4d18fe5c8ca632b30354dbd9
+      merge_base: e953b96e1cd3224bbacd952e99d39db315a2db23
+      docs: false
+      variant: ${{ matrix.variant }}
+    secrets:
+      AI_REVIEW_API: ${{ secrets.AI_REVIEW_API }}
+      AI_REVIEW_KEY: ${{ secrets.AI_REVIEW_KEY }}
+  docs:
+    needs: code
+    if: ${{ !cancelled() }}
+    strategy:
+      max-parallel: 2
+      fail-fast: false
+      matrix:
+        variant: [B, BC]
+    uses: ./.github/workflows/_bc_review_one.yml
+    with:
+      pr: 23393
+      head: ec895df138ef89845b4f1156cbd12196a78e183b
+      merge_base: 5e4e3a22f1a95bcd6d61d0389bb390067899076a
+      docs: true
+      variant: ${{ matrix.variant }}
+    secrets:
+      AI_REVIEW_API: ${{ secrets.AI_REVIEW_API }}
+      AI_REVIEW_KEY: ${{ secrets.AI_REVIEW_KEY }}
+      DOC_QUALITY_TOKEN: ${{ secrets.DOC_QUALITY_TOKEN }}

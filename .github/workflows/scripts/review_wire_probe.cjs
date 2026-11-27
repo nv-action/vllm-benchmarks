@@ -24,6 +24,7 @@ function observe(body) {
   }
   if (request?.model !== 'deepseek-v4.1-flash' || !Array.isArray(request.messages)) return;
 
+  if (summary.model_requests === 0) summary.first_provider_ms = Date.now();
   summary.model_requests++;
   if (request.thinking?.type === 'enabled') summary.explicit_thinking_enabled++;
   if (request.reasoning_effort === 'high') summary.explicit_reasoning_high++;
