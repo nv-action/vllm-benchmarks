@@ -72,7 +72,6 @@ STATE_MARKER = "<!-- ai-review-orchestrator:v2 -->"
 STATE_DATA_MARKER = "\n<!-- ai-review-state\n"
 MAX_ROUNDS_PER_HEAD = 5
 MAX_TOTAL_ROUNDS = 15
-MAX_DIFF_CHARS = 80_000
 ROUND_TIMEOUT_SECONDS = 600
 GIT_FETCH_MAX_ATTEMPTS = 3
 GIT_FETCH_RETRY_DELAY_SECONDS = 5
@@ -482,21 +481,19 @@ class Orchestrator:
                 time.sleep(GIT_FETCH_RETRY_DELAY_SECONDS)
 
         merge_base = git(self.workspace, "merge-base", self.state.base, self.state.head).strip()
-        diff = git(self.workspace, "diff", "--no-ext-diff", "--no-textconv", merge_base, self.state.head)
-        files = (
-            git(self.workspace, "diff", "--name-only", "-z", merge_base, self.state.head).rstrip("\0").split("\0")
-            if diff
-            else []
-        )
+        diff_stat = git(self.workspace, "diff", "--stat", "--no-ext-diff", "--no-textconv", merge_base, self.state.head)
+        files = git(self.workspace, "diff", "--name-only", "-z", merge_base, self.state.head).split("\0")[:-1]
+        registry = self.workspace / ".github/agent-review/domains.yaml"
 
         return {
             "pr": self.pr,
+            "title": pull["title"],
+            "body": pull["body"] or "",
             "comment_id": self.summary_comment_id,
             "state": asdict(self.state),
             "merge_base": merge_base,
-            "files": files,
-            "diff": diff[:MAX_DIFF_CHARS],
-            "truncated": len(diff) > MAX_DIFF_CHARS,
+            "domains": [domain["name"] for domain in resolve_domains(registry.read_text(), files)],
+            "diff_stat": diff_stat.rstrip("\n"),
             "reply": event["comment"]["body"] if event_name == "issue_comment" else "",
         }
 
@@ -556,11 +553,9 @@ class Orchestrator:
         else:
             result = parse_result(output, self.state.findings)
             created = merge_findings(self.state, result)
-            self.state.coverage_complete = result["coverage_complete"] and not request["truncated"]
+            self.state.coverage_complete = result["coverage_complete"]
             self.state.requires_human = result["requires_human"]
             self.state.message = result["summary"]
-            if request["truncated"]:
-                self.state.message += "\nThe diff was truncated; this review cannot pass."
 
             self.state.decide()
             self.publish_inline(created)
@@ -678,20 +673,22 @@ def build_prompt(workspace: Path, request: dict) -> str:
         if path.name in ("instructions.md", "README.md", "prompt_template.md"):
             continue
         ids = re.findall(r"^-\s+`([\w-]+#\w[\w-]*)`", path.read_text(), re.M)
-        mapping.append(f"- {path.relative_to(workspace)}: {', '.join(ids)}")
-    domains = resolve_domains((kb / "domains.yaml").read_text(), request["files"])
+        mapping.append(f"- {path.relative_to(kb)}: {', '.join(ids)}")
 
     return render_template(
         (kb / "prompt_template.md").read_text(),
         {
             "INSTRUCTIONS": (kb / "instructions.md").read_text(),
+            "PROJECT_GUIDELINES": (workspace / "AGENTS.md").read_text(),
+            "TRUSTED_ROOT": workspace,
             "KB_MAP": "\n".join(mapping),
-            "DOMAINS": "\n".join(d["name"] for d in domains) or "L1 only",
+            "DOMAINS": ", ".join(request["domains"]) or "L1 only",
+            "PR_TITLE": request["title"],
+            "PR_BODY": request["body"],
+            "BASE_SHA": request["state"]["base"],
+            "MERGE_BASE_SHA": request["merge_base"],
             "HEAD_SHA": request["state"]["head"],
-            "BASE_SHA": request["merge_base"],
-            "FILES": json.dumps(request["files"]),
-            "DIFF": request["diff"],
-            "TRUNCATED": request["truncated"],
+            "DIFF_STAT": request["diff_stat"],
             "FINDINGS": json.dumps(request["state"]["findings"]),
             "REPLY": request["reply"],
         },
@@ -713,12 +710,18 @@ def render_template(template: str, values: dict) -> str:
     return re.sub(r"\{\{(\w+)\}\}", lambda match: str(values[match.group(1)]), template)
 
 
-def agent_patch() -> list[dict]:
-    """Build the agent's provider and model settings from the environment."""
+def agent_patch(workspace: Path) -> list[dict]:
+    """Configure the review model and its trusted project context."""
     provider = "ai-review-gateway"
     model = os.environ["AI_REVIEW_MODEL"]
 
     return [
+        {"id": "fs-sandbox", "config": {"cwd": str(workspace / "head")}},
+        {"id": "agent-instructions", "disabled": True},
+        {
+            "id": "skill-filesystem",
+            "config": {"includeDefaultRoots": False, "customSkillDirs": [str(workspace / ".agents/skills")]},
+        },
         {"id": "agent-default-model", "config": {"provider": provider, "model": model}},
         {
             "id": "llm-pi-ai",
@@ -743,7 +746,7 @@ def run_agent(workspace: Path, request: dict) -> str:
     with tempfile.TemporaryDirectory(prefix="ai-review-") as temporary:
         home = Path(temporary)
         patch_path = home / "patch.yml"
-        patch_path.write_text(yaml.safe_dump(agent_patch()))
+        patch_path.write_text(yaml.safe_dump(agent_patch(workspace)))
 
         command = shlex.split(os.environ["AI_REVIEW_DSH_CMD"])
         command += ["--patch", str(patch_path), "-"]
@@ -758,6 +761,7 @@ def run_agent(workspace: Path, request: dict) -> str:
 
         with subprocess.Popen(
             command,
+            # Start the CLI from trusted files. Its session uses the PR worktree.
             cwd=workspace,
             env=env,
             stdin=subprocess.PIPE,
@@ -824,7 +828,9 @@ def main() -> int:
             args.request.write_text(json.dumps(request))
 
             with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-                output.write(f"review=true\nhead={request['state']['head']}\nbase={request['merge_base']}\n")
+                output.write(f"review=true\nhead={request['state']['head']}\n")
+                if "doc-quality" in request["domains"]:
+                    output.write("doc_quality=true\n")
 
     return 0
 

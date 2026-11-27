@@ -1,0 +1,118 @@
+name: Review two upstream main PRs
+on:
+  push:
+    branches: [ai-review-test/upstream-pair-20261127]
+permissions:
+  contents: read
+jobs:
+  replay:
+    name: Replay PR ${{ matrix.pr }}
+    if: github.repository == 'nv-action/vllm-benchmarks'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - pr: 23195
+            head: 2b9ef26e98a7229a4d18fe5c8ca632b30354dbd9
+            merge_base: e953b96e1cd3224bbacd952e99d39db315a2db23
+            docs: false
+          - pr: 23393
+            head: ec895df138ef89845b4f1156cbd12196a78e183b
+            merge_base: 5e4e3a22f1a95bcd6d61d0389bb390067899076a
+            docs: true
+    runs-on: linux-amd64-cpu-4-hk
+    timeout-minutes: 22
+    container:
+      image: quay.io/ascend-ci/vllm-ascend:ai-review
+    env:
+      PR_NUMBER: ${{ matrix.pr }}
+      BASE_SHA: e953b96e1cd3224bbacd952e99d39db315a2db23
+      HEAD_SHA: ${{ matrix.head }}
+      MERGE_BASE: ${{ matrix.merge_base }}
+      EXPECT_DOCS: ${{ matrix.docs }}
+    steps:
+      - name: Check out the candidate
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          path: candidate
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/scripts/replay_review_prompt.py
+            /.github/workflows/scripts/replay_recipient.pem
+            /.github/workflows/scripts/ai_review.py
+            /.github/agent-review/instructions.md
+            /.github/agent-review/prompt_template.md
+      - name: Check out the trusted vLLM Ascend snapshot
+        uses: actions/checkout@v7
+        with:
+          repository: vllm-project/vllm-ascend
+          ref: 8120485ea5db8a7ef3ba3f0387c84e011133f5a5
+          fetch-depth: 0
+          persist-credentials: false
+          path: source
+      - name: Prepare the original PR worktree
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$PWD"
+          git fetch --quiet --no-tags origin "$BASE_SHA" "$HEAD_SHA"
+          git worktree add --quiet --detach head "$HEAD_SHA"
+          git config --global --add safe.directory "$PWD/head"
+          for file in .github/workflows/scripts/ai_review.py .github/agent-review/instructions.md .github/agent-review/prompt_template.md; do
+            cp "../candidate/$file" "$file"
+          done
+          curl -fsSL --retry 2 "https://api.github.com/repos/vllm-project/vllm-ascend/pulls/$PR_NUMBER" > /tmp/replay-public-pr.json
+          git diff --stat "$MERGE_BASE" "$HEAD_SHA"
+      - name: Fetch the pinned private documentation rules
+        if: matrix.docs
+        env:
+          DOC_QUALITY_USERNAME: ${{ vars.DOC_QUALITY_USERNAME }}
+          DOC_QUALITY_TOKEN: ${{ secrets.DOC_QUALITY_TOKEN }}
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          revision=9b97d74bb8b35746de34f752973ea834478f532f
+          repo=$(mktemp -d)
+          trap 'rm -rf "$repo"' EXIT
+          git init -q --bare "$repo"
+          basic_auth=$(printf '%s:%s' "$DOC_QUALITY_USERNAME" "$DOC_QUALITY_TOKEN" | base64 -w0)
+          GITCODE_AUTH="Authorization: Basic $basic_auth" git -C "$repo" --config-env=http.extraHeader=GITCODE_AUTH fetch --quiet --depth=1 https://gitcode.com/ascend-ci/doc-quality.git "$revision"
+          test "$(git -C "$repo" rev-parse FETCH_HEAD)" = "$revision"
+          destination="$PWD/.github/agent-review/L2/doc-quality/upstream"
+          mkdir -p "$destination"
+          git -C "$repo" --work-tree="$destination" checkout 'FETCH_HEAD:skills/01.评估标准' -- .
+          test -s "$destination/common/h2_registry.json"
+          echo "Pinned documentation rules are available."
+      - name: DeepSeek review
+        id: model
+        env:
+          AI_REVIEW_MODEL: deepseek-v4.1-flash
+          AI_REVIEW_DSH_CMD: dsh --profile headless
+          AI_REVIEW_KEY: ${{ secrets.AI_REVIEW_KEY }}
+          AI_REVIEW_API: ${{ secrets.AI_REVIEW_API }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dsh --version
+          if [[ "$EXPECT_DOCS" == true ]]; then
+            umask 077
+            log=$(mktemp)
+            trap 'rm -f "$log"' EXIT
+            status=0
+            python3 -u candidate/.github/workflows/scripts/replay_review_prompt.py source 2>"$log" || status=$?
+            grep -c '^dsh: reasoning:' "$log" | sed 's/^/dsh_reasoning_sections=/' || true
+            openssl cms -encrypt -binary -aes-256-cbc -outform DER -in "$log" -out "$GITHUB_WORKSPACE/deepseek-log.cms" candidate/.github/workflows/scripts/replay_recipient.pem
+            exit "$status"
+          fi
+          python3 -u candidate/.github/workflows/scripts/replay_review_prompt.py source
+      - name: Deliver the original client log to the test operator
+        if: ${{ !cancelled() && matrix.docs && (steps.model.outcome == 'success' || steps.model.outcome == 'failure') }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: deepseek-client-log-23393
+          path: deepseek-log.cms
+          retention-days: 1
+          if-no-files-found: error
