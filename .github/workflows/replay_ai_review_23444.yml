@@ -1,0 +1,58 @@
+name: Replay AI review prompt on the original PR 23444 snapshot
+on:
+  push:
+    branches: [ai-review-test/prompt-20261127-replay]
+
+permissions:
+  contents: read
+
+jobs:
+  replay:
+    if: github.repository == 'nv-action/vllm-benchmarks'
+    runs-on: linux-amd64-cpu-4-hk
+    timeout-minutes: 25
+    container:
+      image: quay.io/ascend-ci/vllm-ascend:ai-review
+    steps:
+      - name: Check out the candidate review implementation
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/scripts/replay_review_prompt.py
+            /.github/workflows/scripts/ai_review.py
+            /.github/agent-review/instructions.md
+            /.github/agent-review/prompt_template.md
+          path: candidate
+
+      - name: Check out the original trusted project revision
+        uses: actions/checkout@v7
+        with:
+          repository: vllm-project/vllm-ascend
+          ref: 8120485ea5db8a7ef3ba3f0387c84e011133f5a5
+          fetch-depth: 0
+          persist-credentials: false
+          path: source
+
+      - name: Prepare the pinned PR worktree and candidate prompts
+        working-directory: source
+        run: |
+          git config --global --add safe.directory "$PWD"
+          git fetch --quiet --no-tags origin fc1d0e9426854305fe974e2b0fcee4dc061e368c
+          git worktree add --quiet --detach head fc1d0e9426854305fe974e2b0fcee4dc061e368c
+          git config --global --add safe.directory "$PWD/head"
+          for file in .github/workflows/scripts/ai_review.py .github/agent-review/instructions.md .github/agent-review/prompt_template.md; do
+            cp "../candidate/$file" "$file"
+          done
+          curl -fsSL --retry 2 https://api.github.com/repos/vllm-project/vllm-ascend/pulls/23444 > /tmp/replay-public-pr.json
+
+      - name: Run the candidate agent and parse its final response
+        env:
+          AI_REVIEW_MODEL: deepseek-v4.1-flash
+          AI_REVIEW_DSH_CMD: dsh --profile headless
+          AI_REVIEW_KEY: ${{ secrets.AI_REVIEW_KEY }}
+          AI_REVIEW_API: ${{ secrets.AI_REVIEW_API }}
+        run: |
+          dsh --version
+          python3 candidate/.github/workflows/scripts/replay_review_prompt.py source 2>/dev/null

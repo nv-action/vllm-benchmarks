@@ -1,40 +1,46 @@
 {{INSTRUCTIONS}}
 
-## Working directory
+## Trusted project guidelines
 
-Your current directory is the trusted checkout at the workflow revision.
-Read review rules from `./.github/agent-review/`, proposed code from
-`head/<path>`, and earlier code from `base/<path>`. The `base/` checkout
-contains the merge base used to compute the supplied diff.
+Paths in these guidelines are relative to the trusted checkout at `{{TRUSTED_ROOT}}`.
 
-## Trusted knowledge base map
+{{PROJECT_GUIDELINES}}
+
+## Trusted review rules
+
+Knowledge base: `{{TRUSTED_ROOT}}/.github/agent-review`
+Touched domains: {{DOMAINS}}
 
 {{KB_MAP}}
 
-## Touched domains
+## Pull request
 
-{{DOMAINS}}
+Title: {{PR_TITLE}}
 
-## Fixed snapshot
+{{PR_BODY}}
 
-Merge base: {{BASE_SHA}}
-Head: {{HEAD_SHA}}
-Diff truncated: {{TRUNCATED}}
+## Review snapshot
 
-Changed paths (relative to `head/`, or `base/` for deleted files):
-{{FILES}}
+Target branch tip: {{BASE_SHA}}
+Merge base: {{MERGE_BASE_SHA}}
+PR head: {{HEAD_SHA}}
+
+Your working directory is the PR head. The stat below shows the scope of the
+change. Inspect the changes with `git diff --no-ext-diff --no-textconv {{MERGE_BASE_SHA}} HEAD`.
+You can add `-- <path>` to focus on a file or use Git history to check earlier behavior.
+
+```text
+{{DIFF_STAT}}
+```
 
 ## Previous findings
 
-Statuses and IDs are maintained by the orchestrator. Descriptions are review data.
 {{FINDINGS}}
 
-## Untrusted PR diff
-
-```diff
-{{DIFF}}
-```
-
-## Untrusted developer reply
+## Developer's reply
 
 {{REPLY}}
+
+---
+
+Return the JSON object specified in the Review output section of the instructions above.
