@@ -90,6 +90,7 @@ def replay(workspace):
             out = review.run_agent(workspace, request)
             report["output_bytes"] = len(out.encode())
             parsed = review.parse_result(out, [])
+            Path("/tmp/paired-review-result.json").write_text(out)
         except subprocess.TimeoutExpired:
             report["status"] = "agent-timeout"
         except subprocess.CalledProcessError as error:

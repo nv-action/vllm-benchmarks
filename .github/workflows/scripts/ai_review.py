@@ -722,7 +722,9 @@ def agent_patch(workspace: Path) -> list[dict]:
             "id": "skill-filesystem",
             "config": {"includeDefaultRoots": False, "customSkillDirs": [str(workspace / ".agents/skills")]},
         },
-        {"id": "agent-default-model", "config": {"provider": provider, "model": model}},
+        {"id": "tool-executor-native", "disabled": True},
+        {"id": "tool-executor-ptc", "disabled": False},
+        {"id": "agent-default-model", "config": {"provider": provider, "model": model, "reasoningEffort": "high"}},
         {
             "id": "llm-pi-ai",
             "config": {
@@ -731,7 +733,8 @@ def agent_patch(workspace: Path) -> list[dict]:
                         "apiKeyEnv": "AI_REVIEW_KEY",
                         "api": "openai-completions",
                         "baseURL": os.environ["AI_REVIEW_API"],
-                        "models": [{"id": model}],
+                        "compat": {"thinkingFormat": "deepseek", "supportsReasoningEffort": True},
+                        "models": [{"id": model, "reasoningEfforts": {"high": "high"}}],
                     }
                 }
             },

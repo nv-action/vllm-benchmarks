@@ -1,7 +1,7 @@
-name: Review two upstream main PRs
+name: Compare PTC and High on two upstream PRs
 on:
   push:
-    branches: [ai-review-test/upstream-pair-20261127]
+    branches: [ai-review-test/upstream-pair-ptc-high-20261127]
 permissions:
   contents: read
 jobs:
@@ -39,6 +39,8 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /.github/workflows/scripts/replay_review_prompt.py
+            /.github/workflows/scripts/observed_dsh.sh
+            /.github/workflows/scripts/review_wire_probe.cjs
             /.github/workflows/scripts/replay_recipient.pem
             /.github/workflows/scripts/ai_review.py
             /.github/agent-review/instructions.md
@@ -90,17 +92,23 @@ jobs:
         id: model
         env:
           AI_REVIEW_MODEL: deepseek-v4.1-flash
-          AI_REVIEW_DSH_CMD: dsh --profile headless
           AI_REVIEW_KEY: ${{ secrets.AI_REVIEW_KEY }}
           AI_REVIEW_API: ${{ secrets.AI_REVIEW_API }}
         shell: bash
         run: |
           set -euo pipefail
+          umask 077
+          export AI_REVIEW_DSH_CMD="sh $GITHUB_WORKSPACE/candidate/.github/workflows/scripts/observed_dsh.sh --profile headless"
           dsh --version
           if [[ "$EXPECT_DOCS" == true ]]; then
-            umask 077
             log=$(mktemp)
-            trap 'rm -f "$log"' EXIT
+            (while sleep 60; do
+              printf 'Client log bytes: '
+              wc -c < "$log"
+              if [[ -f /tmp/ai-review-wire-proof.json ]]; then cat /tmp/ai-review-wire-proof.json; fi
+            done) &
+            progress=$!
+            trap 'kill "$progress" 2>/dev/null || true; rm -f "$log"' EXIT
             status=0
             python3 -u candidate/.github/workflows/scripts/replay_review_prompt.py source 2>"$log" || status=$?
             grep -c '^dsh: reasoning:' "$log" | sed 's/^/dsh_reasoning_sections=/' || true
@@ -108,6 +116,23 @@ jobs:
             exit "$status"
           fi
           python3 -u candidate/.github/workflows/scripts/replay_review_prompt.py source
+      - name: Verify outbound model options and actual PTC use
+        if: ${{ !cancelled() && (steps.model.outcome == 'success' || steps.model.outcome == 'failure') }}
+        shell: bash
+        run: |
+          set -eu
+          cat /tmp/ai-review-wire-proof.json
+          jq -e '.model_requests > 0 and .explicit_thinking_enabled == .model_requests and .explicit_reasoning_high == .model_requests and .only_run_code_offered == .model_requests and .distinct_run_code_results_returned > 0' /tmp/ai-review-wire-proof.json >/dev/null
+      - name: Save the review result for the operator
+        if: ${{ !cancelled() && steps.model.outcome == 'success' }}
+        run: openssl cms -encrypt -binary -aes-256-cbc -outform DER -in /tmp/paired-review-result.json -out "$GITHUB_WORKSPACE/review-result.cms" candidate/.github/workflows/scripts/replay_recipient.pem
+      - name: Deliver the review result
+        if: ${{ !cancelled() && steps.model.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: review-result-${{ matrix.pr }}
+          path: review-result.cms
+          retention-days: 1
       - name: Deliver the original client log to the test operator
         if: ${{ !cancelled() && matrix.docs && (steps.model.outcome == 'success' || steps.model.outcome == 'failure') }}
         uses: actions/upload-artifact@v7
