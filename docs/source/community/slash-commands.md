@@ -169,7 +169,7 @@ This triggers `workflow_dispatch` on both `schedule_nightly_test_a2.yaml` and `s
 
 ### `/presmoke`
 
-Build a pre-merge nightly image from the pull request head so the code, Dockerfiles and dependency versions under review are the ones built. Both image layers are built from `refs/pull/<number>/head`, the images are published to the isolated `-presmoke` CI repositories (never `atlas_inference`), and the quay.io and `cn-north-4` syncs are skipped.
+Build a pre-merge nightly image from the pull request head so the code, Dockerfiles and dependency versions under review are the ones built. Both image layers are built from `refs/pull/<number>/head`, the images are published to the isolated `-presmoke` CI repositories (never `atlas_inference`), and the quay.io and `cn-north-4` syncs are skipped. Both `ubuntu` and `openEuler` are built by default; use `--os` to restrict the build to one of them.
 
 **Usage:**
 
@@ -177,17 +177,24 @@ Build a pre-merge nightly image from the pull request head so the code, Dockerfi
 |---|---|
 | `/presmoke all` | Build the pre-merge image for a2, a3, 310p and a5 |
 | `/presmoke <chips>` | Build only the listed chips |
+| `/presmoke <chips> --os <os>` | Build only the given OS variant: `ubuntu`, `openeuler` or `all` (default) |
 
 Only chip names (`a2`, `a3`, `310p`, `a5`) are accepted, separated by commas or spaces. Test names are not accepted.
 
 **Examples:**
 
 ```text
-# Build the pre-merge image for every chip
+# Build the pre-merge image for every chip, both ubuntu and openEuler
 /presmoke all
 
 # Build only the A2 and A3 pre-merge images
 /presmoke a2 a3
+
+# Build only the A2 ubuntu pre-merge image
+/presmoke a2 --os ubuntu
+
+# Build only the A2 openEuler pre-merge image
+/presmoke a2 --os openeuler
 ```
 
 The published tag matches the standard nightly image tag, so `/nightly <test_cases> --presmoke` runs the nightly tests against the images built here.
