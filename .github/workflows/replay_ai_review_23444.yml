@@ -1,0 +1,71 @@
+name: Replay AI review output format for PR 23444
+on:
+  push:
+    branches: [diag/replay-pr23444-json]
+
+permissions:
+  contents: read
+
+jobs:
+  replay:
+    if: github.repository == 'nv-action/vllm-benchmarks'
+    runs-on: linux-amd64-cpu-2-hk
+    timeout-minutes: 20
+    container:
+      image: quay.io/ascend-ci/vllm-ascend:ai-review
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/workflows/scripts/diagnose_review_output.py
+          sparse-checkout-cone-mode: false
+          path: diagnostic
+
+      - uses: actions/checkout@v7
+        with:
+          repository: vllm-project/vllm-ascend
+          ref: 8120485ea5db8a7ef3ba3f0387c84e011133f5a5
+          fetch-depth: 0
+          persist-credentials: false
+          path: source
+
+      - name: Fetch the original PR snapshot
+        working-directory: source
+        run: |
+          git config --global --add safe.directory "$PWD"
+          git fetch --no-tags origin fc1d0e9426854305fe974e2b0fcee4dc061e368c
+
+      - uses: actions/checkout@v7
+        with:
+          repository: vllm-project/vllm-ascend
+          ref: fc1d0e9426854305fe974e2b0fcee4dc061e368c
+          path: source/head
+          persist-credentials: false
+          allow-unsafe-pr-checkout: true
+
+      - uses: actions/checkout@v7
+        with:
+          repository: vllm-project/vllm-ascend
+          ref: ebaaeeec5b50a5769cf665666072a0db62df8645
+          path: source/base
+          persist-credentials: false
+
+      - name: Load the pinned documentation rules from the private runner transfer
+        working-directory: source
+        run: |
+          archive=/tmp/pr23444-doc-rules.tar
+          while [ ! -f "$archive" ]; do sleep 2; done
+          echo "48dcdcfb13cd680b27d25d103ee86a8f273528070319ca24b8cbe4bcd4980f31  $archive" | sha256sum -c -
+          destination=.github/agent-review/L2/doc-quality/upstream
+          mkdir -p "$destination"
+          tar -xf "$archive" -C "$destination"
+
+      - name: Run the original review and classify its final output
+        env:
+          AI_REVIEW_MODEL: deepseek-v4.1-flash
+          AI_REVIEW_DSH_CMD: dsh --profile headless
+          AI_REVIEW_KEY: ${{ secrets.AI_REVIEW_KEY }}
+          AI_REVIEW_API: ${{ secrets.AI_REVIEW_API }}
+        run: |
+          dsh --version
+          python3 diagnostic/.github/workflows/scripts/diagnose_review_output.py source
