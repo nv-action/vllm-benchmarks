@@ -14,8 +14,8 @@ jobs:
     env:
       GH_REPO: nv-action/vllm-benchmarks
       FIXTURE_PR: "434"
-      FIXTURE_HEAD: cbed746697b1d6d0a2ff441914aa5d2dbf8e173c
-      COMMAND_COMMENT: ""
+      FIXTURE_HEAD: 66476fcc808465bd6a41b989af63cc2d9b7de2e1
+      COMMAND_COMMENT: "7210498485"
     steps:
       - uses: actions/checkout@v7
         with:
