@@ -1,0 +1,77 @@
+name: Verify review prompt and publication
+on:
+  push:
+    branches: [ai-review-test/prompt-20261127-run]
+permissions:
+  contents: read
+jobs:
+  review:
+    if: github.repository == 'nv-action/vllm-benchmarks'
+    runs-on: linux-amd64-cpu-4-hk
+    timeout-minutes: 20
+    container:
+      image: quay.io/ascend-ci/vllm-ascend:ai-review
+    env:
+      GH_REPO: nv-action/vllm-benchmarks
+      FIXTURE_PR: "434"
+      FIXTURE_HEAD: cbed746697b1d6d0a2ff441914aa5d2dbf8e173c
+      COMMAND_COMMENT: ""
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prepare the review for the pinned test PR
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          gh api "repos/$GH_REPO/pulls/$FIXTURE_PR" > /tmp/fixture-pr.json
+          jq -e --arg sha "$FIXTURE_HEAD" '.head.sha == $sha and .base.ref == "ai-review-test/prompt-20261127-base" and .head.ref == "ai-review-test/prompt-20261127-case" and .head.repo.full_name == "nv-action/vllm-benchmarks" and .user.login == "MrZ20" and any(.labels[]; .name == "ai-review")' /tmp/fixture-pr.json > /dev/null
+          export GITHUB_EVENT_PATH=/tmp/fixture-event.json
+          if [[ -z "$COMMAND_COMMENT" ]]; then
+            export GITHUB_EVENT_NAME=pull_request_target
+            jq '{action:"labeled", label:{name:"ai-review"}, sender:.user, pull_request:.}' /tmp/fixture-pr.json > "$GITHUB_EVENT_PATH"
+          else
+            export GITHUB_EVENT_NAME=issue_comment
+            gh api "repos/$GH_REPO/issues/comments/$COMMAND_COMMENT" > /tmp/fixture-command.json
+            jq -e --arg target "https://api.github.com/repos/$GH_REPO/issues/$FIXTURE_PR" '.issue_url == $target and .user.login == "MrZ20" and (.body | startswith("/ai-review"))' /tmp/fixture-command.json > /dev/null
+            jq --slurpfile pr /tmp/fixture-pr.json '{action:"created", comment:., sender:.user, issue:{number:$pr[0].number}}' /tmp/fixture-command.json > "$GITHUB_EVENT_PATH"
+          fi
+          python3 .github/workflows/scripts/ai_review.py authorize
+          grep -qx 'authorized=true' "$GITHUB_OUTPUT"
+          python3 .github/workflows/scripts/ai_review.py prepare
+          grep -qx 'review=true' "$GITHUB_OUTPUT"
+          git worktree add --detach head "$FIXTURE_HEAD"
+      - name: Run the model and publish the review
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+          AI_REVIEW_KEY: ${{ secrets.AI_REVIEW_KEY }}
+          AI_REVIEW_API: ${{ secrets.AI_REVIEW_API }}
+          AI_REVIEW_MODEL: deepseek-v4.1-flash
+          AI_REVIEW_DSH_CMD: dsh --profile headless
+        shell: bash
+        run: |
+          set -euo pipefail
+          dsh --version
+          dir=$(mktemp -d)
+          trap 'git config --global --unset trace2.eventTarget || true; rm -rf "$dir"' EXIT
+          git config --global trace2.eventTarget "$dir/git.jsonl"
+          rc=0
+          python3 .github/workflows/scripts/ai_review.py review >"$dir/out" 2>"$dir/err" || rc=$?
+          git config --global --unset trace2.eventTarget
+          echo "review_exit=$rc elapsed_seconds=$SECONDS"
+          if [[ -f "$dir/git.jsonl" ]]; then
+            jq -s '[.[] | select(.event=="start") | .argv | select(index("diff") != null and (any(.[]; . == "--stat" or . == "--numstat" or . == "--name-only" or . == "--name-status" or . == "--quiet" or . == "--check" or . == "--no-patch" or . == "-s") | not))] | length | "patch_diff_calls=\(.)"' -r "$dir/git.jsonl"
+          fi
+          if ((rc)); then
+            if grep -q 'JSONDecodeError:' "$dir/err"; then echo 'failure_category=invalid-json'
+            elif grep -q 'TimeoutExpired:' "$dir/err"; then echo 'failure_category=timeout'
+            elif grep -q 'dubious ownership' "$dir/err"; then echo 'failure_category=git-ownership'
+            elif grep -q 'ValueError:' "$dir/err"; then echo 'failure_category=schema'
+            elif grep -q 'HTTP 4' "$dir/err"; then echo 'failure_category=github-api'
+            else echo 'failure_category=review-execution'; fi
+          fi
+          exit "$rc"
