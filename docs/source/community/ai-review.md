@@ -80,7 +80,7 @@ Each PR allows one running review job and one pending job. When another authoriz
 ## For PR authors
 
 1. When you want a deep review, ask an allowlisted reviewer to apply the `ai-review` label to your PR.
-2. Read the summary comment for the verdict and the full list of findings. The agent also posts findings inline when it can attach them to a changed line.
+2. Read the summary comment for the verdict and the full list of findings. Follow a finding ID to its inline discussion. The **Review commands** section at the bottom explains how to request another review, waive a finding, or stop AI review for the PR.
 3. Fix what is marked `MUST-FIX` and push your changes. When ready, ask an allowlisted operator to post a **top-level PR comment** starting with `/ai-review`, or post it yourself if you are on the list. Inline replies do not start a round.
 4. Everything is optional: without the label your PR flow is unchanged.
 

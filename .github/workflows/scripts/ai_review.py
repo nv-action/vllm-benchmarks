@@ -22,6 +22,11 @@ PR summary (title only before the first review, then updated in place):
     <details><summary>⚪ NIT · 0 open</summary>...</details>
     <details><summary>Last published review · abc123456789</summary>...</details>
     Human review is still required.
+    **Review commands**
+    Post a new top-level PR comment from an allowlisted account.
+    - `/ai-review` — Request another review. You can include notes about your fixes.
+    - `/ai-review-waive F001 reason` — Waive an open finding by ID and explain why.
+    - `/ai-review-stop` — Stop AI review for this PR and remove its review labels.
     <!-- ai-review-state
     {
       "status": "reviewing",
@@ -52,7 +57,6 @@ Inline comment (updated in place when its status, severity or evidence changes):
     +return items[0] if items else default_config
     ```
     Rule: `general`
-    Waive with `/ai-review-waive F001 reason` in a top-level comment.
 Hidden JSON restores the review state. The prompt lists archived waivers separately from findings to recheck.
 """
 
@@ -181,14 +185,11 @@ class Finding:
     def inline_body(self, badge_root: str = "") -> str:
         """Show the severity and current decision on the original inline comment."""
         severity = f"![{self.severity}]({badge_root}/{self.severity.lower()}.svg)" if badge_root else self.severity
-        sections = [
-            f"<!-- ai-review-finding:{self.id} -->",
-            f"{severity} **{self.id}** · {self.status.capitalize()}",
-            self.details_body(),
-        ]
-        if self.status == "open":
-            sections.append(f"Waive with `/ai-review-waive {self.id} reason` in a top-level comment.")
-        return "\n\n".join(sections)
+        return (
+            f"<!-- ai-review-finding:{self.id} -->\n\n"
+            f"{severity} **{self.id}** · {self.status.capitalize()}\n\n"
+            f"{self.details_body()}"
+        )
 
 
 @dataclass
@@ -318,6 +319,13 @@ class State:
                 title += f" · {self.last_review['head'][:12]}"
             lines.append(f"<details>\n<summary>{title}</summary>\n\n{self.last_review['summary']}\n\n</details>")
         lines.append("Human review is still required.")
+        lines.append(
+            "**Review commands**\n\n"
+            "Post a new top-level PR comment from an allowlisted account.\n\n"
+            "- `/ai-review` — Request another review. You can include notes about your fixes.\n"
+            "- `/ai-review-waive F001 reason` — Waive an open finding by ID and explain why.\n"
+            "- `/ai-review-stop` — Stop AI review for this PR and remove its review labels."
+        )
         return self.summary_comment("\n\n".join(lines))
 
     def summary_comment(self, visible: str) -> str:

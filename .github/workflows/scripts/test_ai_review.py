@@ -790,6 +790,8 @@ def test_first_round_placeholder_precedes_findings_and_survives_a_failed_attempt
     ]
     assert (pr.state()["round"], pr.state()["total"]) == (1, 1)
     assert "#discussion_r500" in pr.visible_summary()
+    [thread] = pr.inline.values()
+    assert "/ai-review" not in thread["body"]
 
 
 @pytest.mark.parametrize("write,expected_total", [("summary", 3), ("status", 4)])
@@ -867,6 +869,12 @@ def test_rejected_inline_finding_stays_in_summary_across_reviews(pr, phase, agen
     public = pr.visible_summary()
     assert all(new[field] in public for field in ("title", "body", "suggestion"))
     assert "-first_change = 1\n+first_change = 2" in public and "#discussion_r" not in public
+    findings, footer = public.split("Human review is still required.")
+    assert "/ai-review" not in findings
+    assert "top-level" in footer
+    assert footer.count("`/ai-review") == 3
+    for command in ("/ai-review", "/ai-review-waive F001 reason", "/ai-review-stop"):
+        assert f"`{command}`" in footer
     phase("prepare", pr.command())
     agent.return_value = result(
         updates=[dict(id="F001", status="open", severity="SHOULD-FIX", evidence="Impact narrowed.")]
