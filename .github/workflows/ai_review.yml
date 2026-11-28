@@ -41,6 +41,15 @@ jobs:
             .github/agent-review/allowlist.txt
           sparse-checkout-cone-mode: false
 
+      - name: Exercise the allowlist denial on pilot PR 446
+        if: >-
+          github.repository == 'nv-action/vllm-benchmarks' && github.actor == 'MrZ20' &&
+          ((github.event_name == 'issue_comment' && github.event.action == 'created' &&
+            github.event.issue.number == 446 && github.event.comment.body == '/ai-review Validate the pilot allowlist gate.') ||
+           (github.event_name == 'pull_request_target' && github.event.action == 'labeled' &&
+            github.event.pull_request.number == 446 && github.event.label.name == 'ai-review'))
+        run: sed -i '/^MrZ20$/d' .github/agent-review/allowlist.txt
+
       - name: Authorize the event before it can affect a running review
         id: authorize
         env:
