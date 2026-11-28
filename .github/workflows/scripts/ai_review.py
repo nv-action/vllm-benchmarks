@@ -316,7 +316,7 @@ class State:
         lines.append("Human review is still required.")
 
         # Model text cannot terminate or replace the final machine-owned block.
-        data = json.dumps(asdict(self), ensure_ascii=True).replace("<", "\\u003c")
+        data = json.dumps(asdict(self), ensure_ascii=True).replace("<", "\\u003c").replace(">", "\\u003e")
         return "\n\n".join(lines) + STATE_DATA_MARKER + data + "\n-->"
 
 
@@ -415,7 +415,9 @@ def merge_findings(state: State, result: dict, workspace: Path) -> list[Finding]
             None,
         )
         if existing:
-            existing.status = "open"
+            if existing.status == "resolved":
+                existing.status = "open"
+                existing.evidence = ""
             existing.severity = min((existing.severity, new["severity"]), key=SEVERITIES.index)
             continue
 

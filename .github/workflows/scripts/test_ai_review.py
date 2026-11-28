@@ -2,7 +2,6 @@
 """Local tests for the AI Review workflow. Run with pytest -q .github/workflows/scripts/test_ai_review.py."""
 
 import json
-import re
 import shlex
 import shutil
 import subprocess
@@ -13,6 +12,7 @@ from unittest.mock import Mock
 
 import ai_review as ai
 import pytest
+import regex as re
 
 
 def result(**changes):
@@ -445,14 +445,24 @@ def test_reclassifying_a_finding_updates_its_thread_and_verdict(pr, phase, agent
 
 
 def test_repeated_finding_promotes_its_existing_inline_comment(pr, phase, agent):
-    for severity in ("SHOULD-FIX", "MUST-FIX"):
-        phase("prepare", pr.command())
-        agent.return_value = result(findings=[finding(severity=severity)])
-        phase("review")
+    phase("prepare", pr.command())
+    agent.return_value = result(findings=[finding(severity="SHOULD-FIX")])
+    phase("review")
+    phase("prepare", pr.command())
+    evidence = "The caller now handles empty input."
+    agent.return_value = result(updates=[dict(id="F001", status="resolved", evidence=evidence)])
+    phase("review")
+    [original] = pr.inline.values()
+    assert evidence in original["body"]
+
+    phase("prepare", pr.command())
+    agent.return_value = result(findings=[finding(severity="MUST-FIX")])
+    phase("review")
     [saved] = pr.state()["findings"]
     [comment] = pr.inline.values()
-    assert saved["severity"] == "MUST-FIX" and saved["comment_id"] == comment["id"]
+    assert saved["severity"] == "MUST-FIX" and saved["comment_id"] == original["id"] == comment["id"]
     assert "F001" in comment["body"] and "MUST-FIX" in comment["body"]
+    assert saved["status"] == "open" and not saved["evidence"] and evidence not in comment["body"]
 
 
 def test_summary_groups_count_and_link_to_existing_threads(pr, phase, agent, history):
@@ -508,6 +518,16 @@ def test_saved_finding_from_previous_format_remains_readable():
     visible = saved.body().split(ai.STATE_DATA_MARKER)[0]
     assert "F001" in visible and old["body"] in visible
     assert "Suggested fix" not in restored.inline_body() and "```diff" not in visible
+
+
+def test_markdown_preview_cannot_close_the_hidden_review_state():
+    preview = "-<!-- old note -->\n+<!-- revised note -->"
+    state = ai.State(findings=[ai.Finding(id="F001", head="abc", comment_id=500, preview=preview, **finding())])
+    hidden = state.body().split(ai.STATE_DATA_MARKER)[1]
+    json_text, closing_marker, remainder = hidden.partition("-->")
+    assert closing_marker and remainder == ""
+    [stored] = ai.State.from_dict(json.loads(json_text)).findings
+    assert stored.preview == preview
 
 
 def test_multiline_preview_ends_at_the_reported_line(pr, phase, agent):
