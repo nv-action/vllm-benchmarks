@@ -4370,7 +4370,7 @@ Select the tab that matches your deployment hardware.
     ##### Topology and Prerequisites
 
     | Role | Nodes | Global DP | TP | PP | DCP | Local DP ranks | Devices per role |
-    | --- | --- | --- | --- | --- | --- | --- | --- |
+    | --- | --- | --- | --- | --- | --- |
     | Prefill | P0, P1 | 1 | 16 | 2 | 16 | One per node | 32 |
     | Decode | D0, D1 | 4 | 8 | 1 | 8 | Two per node | 32 |
 
