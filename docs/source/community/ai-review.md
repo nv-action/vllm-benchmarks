@@ -53,7 +53,7 @@ If you withdraw a documentation change, include the reason and finding ID in the
 
 ### Multi-round interaction and termination
 
-The bot updates one PR summary comment. Its hidden `ai-review-state` JSON block records the reviewed commit, published rounds and finding history. A round counts when the bot publishes its result or a notice that the code changed during review. If a run fails before publication, a rerun starts a fresh review from the last published summary.
+Before the first review, the bot posts the summary title so the summary appears before the inline discussions. Once the inline comments are ready, the bot fills in that same summary with the results and links. During later rounds, the previous result stays visible until the new one is published. The hidden `ai-review-state` JSON block records the reviewed commit, published rounds and finding history. Only a published result or a notice that the code changed during review counts as a round.
 
 Waivers, stop commands and discarded results can update the comment. The next review still receives the snapshot, summary and unfinished checks from the last round that published a review result.
 
@@ -61,7 +61,7 @@ Waivers, stop commands and discarded results can update the comment. The next re
 |---|---|
 | Allowlisted operator comments `/ai-review` | Request one review of the current PR. Include explanations for multiple findings in the same top-level comment. |
 | Author pushes a commit | Revoke `ai-review-passed`. The next `/ai-review` reviews all changes together. |
-| Allowlisted operator comments `/ai-review-waive F003 reason` or `/ai-review-waive all reason` | Permanently waive one or all open finding IDs on this PR. Existing inline comments show `[WAIVED by @user]`. The bot updates the verdict without calling the agent. |
+| Allowlisted operator comments `/ai-review-waive F003 reason` or `/ai-review-waive all reason` | Permanently waive one or all open finding IDs on this PR. The original comment shows who waived the finding, the commit and the reason. The bot updates the verdict without calling the agent. |
 | Someone removes the label on GitHub, or an allowlisted operator comments `/ai-review-stop` | Stop review and remove both labels. Wait for the Stop workflow to finish before reapplying `ai-review`. |
 | Review covers the full diff, no MUST-FIX remains open and no human decision is pending | The orchestrator applies `ai-review-passed`. |
 | Round cap reached (5 per commit) | Push changes and request review again, or ask an allowlisted reviewer to restart the session. |
@@ -69,9 +69,9 @@ Waivers, stop commands and discarded results can update the comment. The next re
 
 Waived IDs stay archived in the PR summary after a push. Before reporting a new problem, the agent consults the waiver list to avoid repeating a behavior and impact the reviewer already accepted. A distinct defect or an impact outside the waiver can receive a new ID, even on the same line.
 
-The summary groups open findings by severity and shows resolved and waived findings separately. Open the finding ID to jump to its inline discussion. If GitHub cannot attach a finding to a changed line, its details appear in the summary. Expand the review details to read the last round's conclusions.
+The summary shows a collapsed group for each severity, including groups with zero open findings. Expand a group and follow a finding ID to its inline discussion. Resolved and waived findings appear in separate groups when present. If GitHub cannot attach a finding to a changed line, its details appear in the summary. Expand the review details to read the last round's conclusions.
 
-Each new inline comment explains the problem and suggests a fix. A precise local fix can include a read-only diff against the reviewed commit. Later rounds update that same comment with its status, severity and latest evidence. The original suggested change stays tied to the commit where the problem was reported.
+Each new inline comment explains the problem and suggests a fix. A precise local fix includes a read-only diff against the reviewed commit. The original suggestion stays visible after a finding is resolved or waived. The outcome and its evidence appear below it.
 
 Each PR allows one running review job and one pending job. When another authorized request enters a full queue, it replaces the pending job.
 

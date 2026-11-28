@@ -8,16 +8,18 @@ Command feedback (appended to the user's original comment):
     🤖 [AI review bot]: 🟢 Review request accepted. The bot will check the round limit before starting.
     [View Actions run](https://github.com/owner/repo/actions/runs/123)
 
-PR summary (updated in place):
+PR summary (title only before the first review, then updated in place):
     <!-- ai-review-orchestrator:v2 -->
     🤖 **AI review · DeepSeek Harness headless · POC pilot** · **Reviewing**
     Commit `abc123456789` · Round 2/5 · Total rounds 3/15
     ✅ Static review complete · Open MUST-FIX findings block passing
     | Severity | Open | Resolved | Waived |
     | 🔴 MUST-FIX | 1 | 0 | 0 |
-    <details open><summary>🔴 MUST-FIX · 1 open</summary>
+    <details><summary>🔴 MUST-FIX · 1 open</summary>
     | [F001](https://github.com/owner/repo/pull/42#discussion_r1001) | `example.py:20` |
     </details>
+    <details><summary>🟡 SHOULD-FIX · 0 open</summary>...</details>
+    <details><summary>⚪ NIT · 0 open</summary>...</details>
     <details><summary>Last published review · abc123456789</summary>...</details>
     Human review is still required.
     <!-- ai-review-state
@@ -45,7 +47,10 @@ Inline comment (updated in place when its status, severity or evidence changes):
     **Empty input prevents startup**
     **Problem** The first lookup raises IndexError on an empty list.
     **Suggested fix** Return the default configuration for an empty list.
-    **Suggested change · Read-only** (optional diff)
+    ```diff
+    -return items[0]
+    +return items[0] if items else default_config
+    ```
     Rule: `general`
     Waive with `/ai-review-waive F001 reason` in a top-level comment.
 Hidden JSON restores the review state. The prompt lists archived waivers separately from findings to recheck.
@@ -75,6 +80,7 @@ AI_REVIEW_LABEL = "ai-review"
 AI_REVIEW_PASSED_LABEL = "ai-review-passed"
 STATE_MARKER = "<!-- ai-review-orchestrator:v2 -->"
 STATE_DATA_MARKER = "\n<!-- ai-review-state\n"
+SUMMARY_TITLE = "🤖 **AI review · DeepSeek Harness headless · POC pilot**"
 MAX_ROUNDS_PER_HEAD = 5
 MAX_TOTAL_ROUNDS = 15
 REVIEW_CLOCK_INTERVAL_MS = 10 * 60 * 1000
@@ -154,22 +160,22 @@ class Finding:
         """Render the problem, suggested fix, and latest evidence in GitHub Markdown."""
         problem = read_only_prose(self.body)
         sections = [f"**{read_only_prose(self.title)}**", f"**Problem**\n\n{problem}"] if self.title else [problem]
-        if self.evidence:
-            label = {"open": "Latest evidence", "resolved": "Resolution", "waived": "Waiver reason"}[self.status]
-            sections.append(f"**{label}**\n\n{read_only_prose(self.evidence)}")
-
-        fix = [f"**Suggested fix**\n\n{read_only_prose(self.suggestion)}"] if self.suggestion else []
+        if self.suggestion:
+            sections.append(f"**Suggested fix**\n\n{read_only_prose(self.suggestion)}")
         if self.preview:
             # A Markdown file can itself contain code fences.
             longest = max((len(run) for run in re.findall(r"`+", self.preview)), default=0)
             fence = "`" * max(3, longest + 1)
-            fix.append(f"**Suggested change · Read-only**\n\n{fence}diff\n{self.preview}\n{fence}")
-        if fix:
-            suggestion = "\n\n".join(fix)
-            if self.status != "open":
-                suggestion = f"<details><summary>Original suggestion</summary>\n\n{suggestion}\n\n</details>"
-            sections.append(suggestion)
+            sections.append(f"{fence}diff\n{self.preview}\n{fence}")
         sections.append(f"Rule: `{read_only_prose(self.rule)}`")
+
+        if self.status == "waived":
+            sections.append(
+                f"**Waived by @{self.waived_by}** at `{self.waived_head[:12]}`\n\n{read_only_prose(self.evidence)}"
+            )
+        elif self.evidence:
+            label = "Resolution" if self.status == "resolved" else "Latest evidence"
+            sections.append(f"**{label}**\n\n{read_only_prose(self.evidence)}")
         return "\n\n".join(sections)
 
     def inline_body(self, badge_root: str = "") -> str:
@@ -180,9 +186,7 @@ class Finding:
             f"{severity} **{self.id}** · {self.status.capitalize()}",
             self.details_body(),
         ]
-        if self.status == "waived":
-            sections.insert(0, f"**[WAIVED by @{self.waived_by}]**\nWaived at commit `{self.waived_head[:12]}`.")
-        elif self.status == "open":
+        if self.status == "open":
             sections.append(f"Waive with `/ai-review-waive {self.id} reason` in a top-level comment.")
         return "\n\n".join(sections)
 
@@ -239,8 +243,12 @@ class State:
             self.status = "reviewing"
 
     @staticmethod
-    def finding_group(title: str, findings: list[Finding], pr_url: str, *, expanded: bool = False) -> str:
+    def finding_group(title: str, findings: list[Finding], pr_url: str) -> str:
         """Link to inline findings and include full details for findings without a thread."""
+        heading = f"<details>\n<summary>{title}</summary>"
+        if not findings:
+            return f"{heading}\n\nNo open findings.\n\n</details>"
+
         status = findings[0].status
         columns = ["ID", "Location"]
         if status != "open":
@@ -260,7 +268,6 @@ class State:
                 details.append(
                     f"<details>\n<summary>{f.id} · Full finding</summary>\n\n{f.details_body()}\n\n</details>"
                 )
-        heading = f"<details{' open' if expanded else ''}>\n<summary>{title}</summary>"
         return "\n\n".join([heading, "\n".join(rows), *details, "</details>"])
 
     def body(self, pr_url: str = "") -> str:
@@ -271,10 +278,7 @@ class State:
             groups[finding.severity][finding.status].append(finding)
 
         status_label = "Waiting for maintainer" if self.status == "waiting-human" else self.status.capitalize()
-        lines = [
-            STATE_MARKER,
-            f"🤖 **AI review · DeepSeek Harness headless · POC pilot** · **{status_label}**",
-        ]
+        lines = [f"{SUMMARY_TITLE} · **{status_label}**"]
         rounds = f"Round {self.round}/{MAX_ROUNDS_PER_HEAD} · Total rounds {self.total}/{MAX_TOTAL_ROUNDS}"
         lines.append(f"Commit `{self.head[:12]}` · {rounds}" if self.head else rounds)
         if self.status in ("reviewing", "waiting-human", "passed"):
@@ -298,9 +302,9 @@ class State:
         lines.append("\n".join(counts))
 
         for severity, group in groups.items():
-            if findings := group["open"]:
-                title = f"{SEVERITY_ICONS[severity]} {severity} · {len(findings)} open"
-                lines.append(self.finding_group(title, findings, pr_url, expanded=severity == "MUST-FIX"))
+            findings = group["open"]
+            title = f"{SEVERITY_ICONS[severity]} {severity} · {len(findings)} open"
+            lines.append(self.finding_group(title, findings, pr_url))
         for status in ("resolved", "waived"):
             if findings := [f for f in self.findings if f.status == status]:
                 lines.append(self.finding_group(f"{status.title()} · {len(findings)}", findings, pr_url))
@@ -314,10 +318,13 @@ class State:
                 title += f" · {self.last_review['head'][:12]}"
             lines.append(f"<details>\n<summary>{title}</summary>\n\n{self.last_review['summary']}\n\n</details>")
         lines.append("Human review is still required.")
+        return self.summary_comment("\n\n".join(lines))
 
+    def summary_comment(self, visible: str) -> str:
+        """Attach the saved review state to the visible GitHub comment."""
         # Model text cannot terminate or replace the final machine-owned block.
         data = json.dumps(asdict(self), ensure_ascii=True).replace("<", "\\u003c").replace(">", "\\u003e")
-        return "\n\n".join(lines) + STATE_DATA_MARKER + data + "\n-->"
+        return f"{STATE_MARKER}\n\n{visible}{STATE_DATA_MARKER}{data}\n-->"
 
 
 def parse_result(output: str, findings: list[Finding]) -> dict:
@@ -626,6 +633,9 @@ class Orchestrator:
         files = git(self.workspace, "diff", "--name-only", "-z", merge_base, self.state.head).split("\0")[:-1]
         registry = self.workspace / ".github/agent-review/domains.yaml"
         is_release = pull["base"]["ref"].startswith("releases/")
+        if self.summary_comment_id is None:
+            # Reserve the summary's position before any findings appear. Only publication spends a round.
+            self.save_summary(State().summary_comment(SUMMARY_TITLE))
 
         return {
             "pr": self.pr,
@@ -780,15 +790,17 @@ class Orchestrator:
 
         return State()
 
-    def save_summary(self):
-        """Create or update the summary comment with the current state."""
+    def save_summary(self, body: str | None = None):
+        """Create or update the single summary comment for this PR."""
         if self.summary_comment_id:
             endpoint, method = f"issues/comments/{self.summary_comment_id}", "PATCH"
         else:
             endpoint, method = f"issues/{self.pr}/comments", "POST"
 
-        pr_url = f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/pull/{self.pr}"
-        comment = gh(f"{self.repo}/{endpoint}", "--method", method, payload={"body": self.state.body(pr_url)})
+        if body is None:
+            pr_url = f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/pull/{self.pr}"
+            body = self.state.body(pr_url)
+        comment = gh(f"{self.repo}/{endpoint}", "--method", method, payload={"body": body})
         self.summary_comment_id = comment["id"]
 
     def feedback(self, event: dict, message: str):

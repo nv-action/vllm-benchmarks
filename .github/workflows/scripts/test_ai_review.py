@@ -334,7 +334,7 @@ def test_doc_finding_can_be_resolved_after_the_author_withdraws_the_change(pr, p
     positions = [body.index(text) for text in sections]
     assert positions == sorted(positions)
     preview = "-Run the installer with --unknown-flag.\n+Run the installer."
-    assert preview in body and "```suggestion" not in body
+    assert f"{doc['suggestion']}\n\n```diff\n{preview}\n```" in body and "```suggestion" not in body
     assert first["id"] in body and doc["severity"] in body and doc["rule"] in body
     assert ".github/agent-review/badges/must-fix.svg" in body
 
@@ -354,7 +354,12 @@ def test_doc_finding_can_be_resolved_after_the_author_withdraws_the_change(pr, p
     assert (reviewed["id"], reviewed["status"], reviewed["evidence"]) == (first["id"], "resolved", evidence)
     assert reviewed["severity"] == first["severity"]
     assert len(pr.inline) == 1 and pr.statuses[-1] == (history.withdrawn_head, "success")
-    assert "Resolved" in thread["body"] and evidence in thread["body"] and preview in thread["body"]
+    resolved = thread["body"]
+    assert f"**{first['id']}** · Resolved" in resolved
+    assert "<details" not in resolved
+    assert resolved.index(doc["body"]) < resolved.index(doc["suggestion"]) < resolved.index(preview)
+    assert resolved.endswith(f"**Resolution**\n\n{evidence}")
+    assert all(f"{level} · 0 open" in pr.visible_summary() for level in ai.SEVERITIES)
 
     pr.pull["head"]["sha"] = history.docs_head
     phase("prepare", pr.command())
@@ -362,8 +367,8 @@ def test_doc_finding_can_be_resolved_after_the_author_withdraws_the_change(pr, p
     agent.return_value = result(updates=[dict(id=first["id"], status="open", evidence=regression)])
     phase("review")
     assert list(pr.inline) == [first["comment_id"]]
-    assert "Open" in thread["body"] and regression in thread["body"] and evidence not in thread["body"]
-    assert preview in thread["body"]
+    assert "Open" in thread["body"] and evidence not in thread["body"]
+    assert thread["body"].index(preview) < thread["body"].index(f"**Latest evidence**\n\n{regression}")
 
 
 def test_label_then_manual_review_of_all_changes(pr, phase, agent, history):
@@ -488,10 +493,15 @@ def test_summary_groups_count_and_link_to_existing_threads(pr, phase, agent, his
         assert f"[{saved['id']}](https://github.com/example/project/pull/7#discussion_r{saved['comment_id']})" in public
         assert f"{saved['path']}:{saved['line']}" in public
 
-    headings = re.findall(r"<details( open)?>\s*<summary>([^<]+)</summary>", public)
-    assert sum(bool(expanded) for expanded, _ in headings) == 1
-    assert any(expanded and "MUST-FIX" in title for expanded, title in headings)
-    assert all(any(word in title for _, title in headings) for word in ("NIT", "Resolved", "Waived"))
+    assert "<details open" not in public
+    headings = re.findall(r"<details>\s*<summary>([^<]+)</summary>", public)
+    assert headings[:5] == [
+        "🔴 MUST-FIX · 1 open",
+        "🟡 SHOULD-FIX · 0 open",
+        "⚪ NIT · 1 open",
+        "Resolved · 1",
+        "Waived · 1",
+    ]
 
 
 @pytest.mark.parametrize("status,severity", [("open", "HIGH"), ("open", None), ("waived", "MUST-FIX")])
@@ -584,11 +594,13 @@ def test_no_pass_when_review_is_blocked(pr, phase, agent, history, blocked_by):
 
 def test_stop_blocks_inflight_publication(pr, phase, agent, history):
     phase("prepare", pr.command())
+    [placeholder] = pr.summaries()
+    original_body = placeholder["body"]
     stop = pr.command("/ai-review-stop", "maintainer")
     assert phase("authorize", stop) == {"authorized": "true"}
     assert not pr.labels
     phase("review")
-    assert not pr.summaries()
+    assert pr.summaries() == [placeholder] and placeholder["body"] == original_body
     assert pr.statuses == [(history.head, "pending"), (history.head, "error")]
     assert phase("prepare", stop) == {}
     assert pr.state()["status"] == "stopped" and pr.state()["total"] == 0
@@ -608,9 +620,9 @@ def test_waived_findings_stay_archived_when_the_same_problem_is_reported_again(p
         if selector == "F001":
             assert "ai-review-passed" not in pr.labels
             first, second = pr.state()["findings"]
-            assert "[WAIVED by @maintainer]" in pr.inline[first["comment_id"]]["body"]
-            assert "[WAIVED" not in pr.inline[second["comment_id"]]["body"]
-    assert len(pr.inline) == 2 and all(c["body"].startswith("**[WAIVED by @maintainer]**") for c in pr.inline.values())
+            assert "Waived by @maintainer" in pr.inline[first["comment_id"]]["body"]
+            assert "Waived by @maintainer" not in pr.inline[second["comment_id"]]["body"]
+    assert len(pr.inline) == 2
     assert all(
         f["waived_head"] == history.head and f["evidence"] == "upstream handles this" for f in pr.state()["findings"]
     )
@@ -618,7 +630,12 @@ def test_waived_findings_stay_archived_when_the_same_problem_is_reported_again(p
 
     archived = pr.state()["findings"]
     archived_comments = {cid: comment["body"] for cid, comment in pr.inline.items()}
-    assert all(f"Waived at commit `{history.head[:12]}`" in body for body in archived_comments.values())
+    for finding_record in archived:
+        body = archived_comments[finding_record["comment_id"]]
+        assert f"**{finding_record['id']}** · Waived" in body
+        assert "<details" not in body and body.count("Waived by @maintainer") == 1
+        assert finding_record["suggestion"] in body
+        assert body.endswith(f"**Waived by @maintainer** at `{history.head[:12]}`\n\nupstream handles this")
     if push:
         pr.pull["head"]["sha"] = history.next_head
     phase("prepare", pr.command())
@@ -748,6 +765,33 @@ def test_unsuccessful_analysis_can_be_rerun_without_losing_a_round(pr, phase, ag
     assert (pr.state()["round"], pr.state()["total"]) == (3, 4)
 
 
+def test_first_round_placeholder_precedes_findings_and_survives_a_failed_attempt(pr, phase, agent, monkeypatch):
+    api = Mock(wraps=pr.api)
+    monkeypatch.setattr(ai, "gh", api)
+    event = pr.label_event()
+    phase("prepare", event)
+    [placeholder] = pr.summaries()
+    assert pr.visible_summary() == f"{ai.STATE_MARKER}\n\n{ai.SUMMARY_TITLE}"
+    assert (pr.state()["round"], pr.state()["total"]) == (0, 0)
+
+    agent.side_effect = [RuntimeError("model unavailable"), result(findings=[finding()])]
+    with pytest.raises(RuntimeError, match="model unavailable"):
+        phase("review")
+    phase("prepare", event)
+    assert pr.visible_summary() == f"{ai.STATE_MARKER}\n\n{ai.SUMMARY_TITLE}"
+    assert (pr.state()["round"], pr.state()["total"]) == (0, 0)
+    phase("review")
+
+    writes = [call.args[0] for call in api.call_args_list if "body" in (call.kwargs.get("payload") or {})]
+    assert writes == [
+        "repos/:owner/:repo/issues/7/comments",
+        "repos/:owner/:repo/pulls/7/comments",
+        f"repos/:owner/:repo/issues/comments/{placeholder['id']}",
+    ]
+    assert (pr.state()["round"], pr.state()["total"]) == (1, 1)
+    assert "#discussion_r500" in pr.visible_summary()
+
+
 @pytest.mark.parametrize("write,expected_total", [("summary", 3), ("status", 4)])
 def test_only_a_saved_summary_spends_the_round(pr, phase, monkeypatch, write, expected_total):
     summary = pr.seed(round=2, total=3)
@@ -770,10 +814,11 @@ def test_only_a_saved_summary_spends_the_round(pr, phase, monkeypatch, write, ex
 
 def test_head_changed_after_summary_write_gets_no_pass(pr, phase, monkeypatch, history):
     phase("prepare", pr.command())
+    [summary] = pr.summaries()
 
     def push_after_summary(endpoint, *args, **kwargs):
         response = pr.api(endpoint, *args, **kwargs)
-        if endpoint.endswith("/issues/7/comments"):
+        if endpoint.endswith(f"/issues/comments/{summary['id']}"):
             pr.pull["head"] = {"sha": history.next_head}
         return response
 
@@ -856,14 +901,15 @@ def test_only_git_fetch_is_retried(pr, phase, monkeypatch, operation, failures, 
     monkeypatch.setattr(ai.time, "sleep", sleep)
     if failures < attempts:
         assert phase("prepare", pr.command())["review"] == "true"
+        assert pr.state()["total"] == 0
     else:
         with pytest.raises(subprocess.CalledProcessError) as caught:
             phase("prepare", pr.command())
         assert caught.value is error
         assert not pr.statuses
+        assert not pr.summaries()
     assert len(calls) == attempts and len(set(calls)) == 1
     assert [item.args for item in sleep.call_args_list] == [(ai.GIT_FETCH_RETRY_DELAY_SECONDS,)] * (attempts - 1)
-    assert not pr.summaries()
 
 
 def test_release_branch_uses_its_pinned_vllm_tag(pr, phase):
