@@ -5,14 +5,14 @@ Comment examples below use shortened hashes and formatted JSON.
 Command feedback (appended to the user's original comment):
     /ai-review I fixed F001. Please check it again.
     ---
-    🤖 [AI review bot]: 🟢 Review request accepted. The bot will check the round limit before starting.
-    [View Actions run](https://github.com/owner/repo/actions/runs/123)
+    [🤖 AI review bot]: ⏳ **Review requested** · [View run](.../actions/runs/123) <!-- ai-review-feedback:456 -->
 
 PR summary (title only before the first review, then updated in place):
     <!-- ai-review-orchestrator:v2 -->
-    🤖 **AI review · DeepSeek Harness headless · POC pilot** · **Reviewing**
+    ## 🤖 AI review · DeepSeek Harness headless · POC pilot · ❌ **Changes required**
+    1 open MUST-FIX finding
     Commit `abc123456789` · Round 2/5 · Total rounds 3/15
-    ✅ Static review complete · Open MUST-FIX findings block passing
+    ✅ **Static review complete**
     | Severity | Open | Resolved | Waived |
     | 🔴 MUST-FIX | 1 | 0 | 0 |
     <details><summary>🔴 MUST-FIX · 1 open</summary>
@@ -23,8 +23,9 @@ PR summary (title only before the first review, then updated in place):
     <details><summary>Last published review · abc123456789</summary>...</details>
     Human review is still required.
     **Review commands**
-    Post a new top-level PR comment from an allowlisted account.
-    - `/ai-review` — Request another review. You can include notes about your fixes.
+    [Allowlisted users only](.../allowlist.txt) · Post a new top-level PR comment.
+    - `/ai-review` — Request another review of the current PR.
+    - `/ai-review F001 F002 fixed in this commit` — Include notes about findings. The whole PR stays in scope.
     - `/ai-review-waive F001 reason` — Waive an open finding by ID and explain why.
     - `/ai-review-stop` — Stop AI review for this PR and remove its review labels.
     <!-- ai-review-state
@@ -84,7 +85,7 @@ AI_REVIEW_LABEL = "ai-review"
 AI_REVIEW_PASSED_LABEL = "ai-review-passed"
 STATE_MARKER = "<!-- ai-review-orchestrator:v2 -->"
 STATE_DATA_MARKER = "\n<!-- ai-review-state\n"
-SUMMARY_TITLE = "🤖 **AI review · DeepSeek Harness headless · POC pilot**"
+SUMMARY_TITLE = "## 🤖 AI review · DeepSeek Harness headless · POC pilot"
 MAX_ROUNDS_PER_HEAD = 5
 MAX_TOTAL_ROUNDS = 15
 REVIEW_CLOCK_INTERVAL_MS = 10 * 60 * 1000
@@ -93,6 +94,18 @@ GIT_FETCH_MAX_ATTEMPTS = 3
 GIT_FETCH_RETRY_DELAY_SECONDS = 5
 SEVERITIES = ("MUST-FIX", "SHOULD-FIX", "NIT")
 SEVERITY_ICONS = {"MUST-FIX": "🔴", "SHOULD-FIX": "🟡", "NIT": "⚪"}
+
+
+def format_feedback(icon: str, status: str, detail: str = "") -> str:
+    """Format a status label and its optional explanation for a GitHub comment."""
+    label = f"{icon} **{status}**"
+    return f"{label} · {detail}" if detail else label
+
+
+def actions_run_url() -> str:
+    """Return the GitHub Actions link used for request receipts and failure logs."""
+    repo_url = f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}"
+    return f"{repo_url}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
 
 
 def gh(*args: str, payload=None, anchor_fallback: bool = False):
@@ -271,26 +284,60 @@ class State:
                 )
         return "\n\n".join([heading, "\n".join(rows), *details, "</details>"])
 
-    def body(self, pr_url: str = "") -> str:
-        """Render a compact finding index and preserve the full machine-readable state."""
+    def published_outcomes(self, blocking: int) -> list[tuple[str, str, str]]:
+        """Describe the published result and any decisions or limits that still apply."""
+        if self.status == "stopped":
+            return [("🛑", "Review stopped", "")]
+        if self.status == "discarded":
+            return [("🔄", "Review discarded", "PR changed during review")]
+        if self.status == "passed":
+            return [("✅", "Review passed", "No blocking findings")]
+        if self.status == "idle":
+            return [("⏳", "Awaiting review", "")]
+
+        outcomes = []
+        if self.status == "waiting-human":
+            limits = []
+            if self.round >= MAX_ROUNDS_PER_HEAD:
+                limits.append(f"Commit {self.round}/{MAX_ROUNDS_PER_HEAD}")
+            if self.total >= MAX_TOTAL_ROUNDS:
+                limits.append(f"Session {self.total}/{MAX_TOTAL_ROUNDS}")
+            if limits:
+                outcomes.append(("⚠️", "Round limit reached", " · ".join(limits)))
+        if self.requires_human:
+            outcomes.append(("👤", "Maintainer review required", ""))
+        if blocking:
+            noun = "finding" if blocking == 1 else "findings"
+            outcomes.append(("❌", "Changes required", f"{blocking} open MUST-FIX {noun}"))
+        if self.coverage_complete:
+            outcomes.append(("✅", "Static review complete", ""))
+        else:
+            outcomes.append(("⏳", "Review incomplete", ""))
+        return outcomes
+
+    def visible_summary(self, pr_url: str, *, activity: str = "") -> str:
+        """Show the current activity and the last published result in the summary."""
+        if activity and self.status == "idle" and not self.last_review:
+            return f"{SUMMARY_TITLE} · {activity}"
+
         statuses = ("open", "resolved", "waived")
         groups = {severity: {status: [] for status in statuses} for severity in SEVERITIES}
         for finding in self.findings:
             groups[finding.severity][finding.status].append(finding)
 
-        status_label = "Waiting for maintainer" if self.status == "waiting-human" else self.status.capitalize()
-        lines = [f"{SUMMARY_TITLE} · **{status_label}**"]
+        (icon, status, detail), *other_outcomes = self.published_outcomes(len(groups["MUST-FIX"]["open"]))
+        if activity:
+            lines = [
+                f"{SUMMARY_TITLE} · {activity}",
+                f"**Last published result** · {format_feedback(icon, status, detail)}",
+            ]
+        else:
+            lines = [f"{SUMMARY_TITLE} · {format_feedback(icon, status)}"]
+            if detail:
+                lines.append(detail)
         rounds = f"Round {self.round}/{MAX_ROUNDS_PER_HEAD} · Total rounds {self.total}/{MAX_TOTAL_ROUNDS}"
         lines.append(f"Commit `{self.head[:12]}` · {rounds}" if self.head else rounds)
-        if self.status in ("reviewing", "waiting-human", "passed"):
-            progress = ["✅ Static review complete" if self.coverage_complete else "⏳ Static review incomplete"]
-            if groups["MUST-FIX"]["open"]:
-                progress.append("Open MUST-FIX findings block passing")
-            if self.requires_human:
-                progress.append("Maintainer decision needed")
-            if self.status == "waiting-human" and (self.round >= MAX_ROUNDS_PER_HEAD or self.total >= MAX_TOTAL_ROUNDS):
-                progress.append("Round limit reached")
-            lines.append(" · ".join(progress))
+        lines.extend(format_feedback(*outcome) for outcome in other_outcomes)
         if self.message:
             lines.append(self.message)
 
@@ -319,14 +366,22 @@ class State:
                 title += f" · {self.last_review['head'][:12]}"
             lines.append(f"<details>\n<summary>{title}</summary>\n\n{self.last_review['summary']}\n\n</details>")
         lines.append("Human review is still required.")
+        repo_url = pr_url.rpartition("/pull/")[0]
         lines.append(
             "**Review commands**\n\n"
-            "Post a new top-level PR comment from an allowlisted account.\n\n"
-            "- `/ai-review` — Request another review. You can include notes about your fixes.\n"
+            f"[Allowlisted users only]({repo_url}/blob/main/.github/agent-review/allowlist.txt) · "
+            "Post a new top-level PR comment.\n\n"
+            "- `/ai-review` — Request another review of the current PR.\n"
+            "- `/ai-review F001 F002 fixed in this commit` — Include notes about findings. "
+            "The whole PR stays in scope.\n"
             "- `/ai-review-waive F001 reason` — Waive an open finding by ID and explain why.\n"
             "- `/ai-review-stop` — Stop AI review for this PR and remove its review labels."
         )
-        return self.summary_comment("\n\n".join(lines))
+        return "\n\n".join(lines)
+
+    def body(self, pr_url: str = "") -> str:
+        """Render the published summary with its saved review state."""
+        return self.summary_comment(self.visible_summary(pr_url))
 
     def summary_comment(self, visible: str) -> str:
         """Attach the saved review state to the visible GitHub comment."""
@@ -482,18 +537,22 @@ class Orchestrator:
         pull = self.pull()
         if pull["state"] != "open":
             if command != "push":
-                self.feedback(event, "🔴 This PR is closed.")
+                self.feedback(event, format_feedback("⚠️", "PR closed"))
             return False
 
+        repo_url = f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}"
         # Pushes and label removals sync changes that already happened on GitHub.
         if command == "start" or event_name == "issue_comment":
             allowlist = (self.workspace / ".github/agent-review/allowlist.txt").read_text()
             if actor not in parse_allowlist(allowlist):
-                message = "🔴 Permission denied. You are not on the AI review pilot allowlist."
+                detail = (
+                    f"[Pilot allowlist]({repo_url}/blob/main/.github/agent-review/allowlist.txt) required. "
+                    "Request access on [RFC #21451](https://github.com/vllm-project/vllm-ascend/issues/21451)."
+                )
                 if command == "start":
                     self.remove_labels(pull, AI_REVIEW_LABEL)
-                    message += " The label was removed."
-                self.feedback(event, message + " See `.github/agent-review/allowlist.txt` or comment on RFC #21451.")
+                    detail = "Label removed. " + detail
+                self.feedback(event, format_feedback("🔒", "Permission denied", detail))
                 return False
 
         enabled = AI_REVIEW_LABEL in {label["name"] for label in pull["labels"]}
@@ -502,7 +561,7 @@ class Orchestrator:
         if command not in ("stop", "/ai-review-stop") and not enabled:
             if command != "push":
                 self.feedback(
-                    event, "🔴 AI review is not enabled. Ask an allowlisted reviewer to add the `ai-review` label."
+                    event, format_feedback("⚠️", "Review not enabled", "Ask an allowlisted reviewer to add `ai-review`.")
                 )
             return False
 
@@ -511,23 +570,17 @@ class Orchestrator:
                 self.remove_labels(pull, AI_REVIEW_PASSED_LABEL)
             return False  # Pushes revoke the old pass but never request a review.
 
+        run_link = f"[View run]({actions_run_url()})"
         if command in ("stop", "/ai-review-stop"):
             self.remove_labels(pull, AI_REVIEW_LABEL, AI_REVIEW_PASSED_LABEL)
-            message = (
-                "Review labels removed. The bot will update the summary. To restart, wait for this run to finish, "
-                "then ask an allowlisted reviewer to reapply the `ai-review` label."
+            message = format_feedback(
+                "⏳", "Stop requested", f"{run_link} · To restart, wait for this run to finish and reapply `ai-review`."
             )
         elif command == "/ai-review-waive":
-            message = "Waiver request accepted. The bot will check the findings and commit before applying it."
+            message = format_feedback("⏳", "Waiver requested", run_link)
         else:
-            message = "Review request accepted. The bot will check the round limit before starting."
-
-        run_url = (
-            f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}"
-            f"/actions/runs/{os.environ['GITHUB_RUN_ID']}"
-        )
-        self.feedback(event, f"🟢 {message}\n[View Actions run]({run_url})")
-
+            message = format_feedback("⏳", "Review requested", run_link)
+        self.feedback(event, message)
         return True
 
     @staticmethod
@@ -552,7 +605,7 @@ class Orchestrator:
         # The PR can close or its labels can change while the request is queued.
         pull = self.pull()
         if pull["state"] != "open":
-            self.feedback(event, "🔴 This PR is closed.")
+            self.feedback(event, format_feedback("⚠️", "PR closed"))
             return None
 
         enabled = AI_REVIEW_LABEL in {label["name"] for label in pull["labels"]}
@@ -561,7 +614,7 @@ class Orchestrator:
             return None  # The label has already been reapplied to restart.
         if not stopping and not enabled:
             self.feedback(
-                event, "🔴 AI review is not enabled. Ask an allowlisted reviewer to add the `ai-review` label."
+                event, format_feedback("⚠️", "Review not enabled", "Ask an allowlisted reviewer to add `ai-review`.")
             )
             return None
 
@@ -586,7 +639,7 @@ class Orchestrator:
                 self.state.session_run_id = run_id
         elif self.state.status == "stopped":
             self.feedback(
-                event, "🔴 AI review is stopped. Ask an allowlisted reviewer to reapply the `ai-review` label."
+                event, format_feedback("🛑", "Review stopped", "Ask an allowlisted reviewer to reapply `ai-review`.")
             )
             return None
 
@@ -602,17 +655,23 @@ class Orchestrator:
         if self.state.total >= MAX_TOTAL_ROUNDS:
             self.feedback(
                 event,
-                f"🔴 Reached the {MAX_TOTAL_ROUNDS}-round limit for this session. "
-                "Ask an allowlisted reviewer to reapply the `ai-review` label to reset the counts. "
-                "Pushing new commits does not reset the session count.",
+                format_feedback(
+                    "⚠️",
+                    "Round limit reached",
+                    f"{self.state.total}/{MAX_TOTAL_ROUNDS} rounds used for this session. "
+                    "Ask an allowlisted reviewer to reapply `ai-review` to restart.",
+                ),
             )
             return None
         if self.state.round >= MAX_ROUNDS_PER_HEAD:
             self.feedback(
                 event,
-                f"🔴 Reached the {MAX_ROUNDS_PER_HEAD}-round limit for this commit. "
-                "Push changes and comment `/ai-review` again, or ask an allowlisted reviewer "
-                "to reapply the `ai-review` label to reset the counts.",
+                format_feedback(
+                    "⚠️",
+                    "Round limit reached",
+                    f"{self.state.round}/{MAX_ROUNDS_PER_HEAD} rounds used for this commit. "
+                    "Push changes and comment `/ai-review`, or ask an allowlisted reviewer to reapply `ai-review`.",
+                ),
             )
             return None
 
@@ -662,13 +721,17 @@ class Orchestrator:
         """Archive selected open findings and record who waived them and why."""
         parts = argument.split(maxsplit=1)
         if len(parts) != 2:
-            return "🔴 Use `/ai-review-waive F003 reason` or `/ai-review-waive all reason`."
+            return format_feedback(
+                "⚠️", "Waiver rejected", "Use `/ai-review-waive F001 reason` or `/ai-review-waive all reason`."
+            )
         if (self.state.base, self.state.head) != (pull["base"]["sha"], pull["head"]["sha"]):
-            return "🔴 Review the current commit with `/ai-review` and wait for the result before waiving findings."
+            return format_feedback(
+                "⚠️", "Waiver rejected", "Review the current commit with `/ai-review` before waiving findings."
+            )
 
         selected = [f for f in self.state.findings if f.status == "open" and parts[0] in ("all", f.id)]
         if not selected:
-            return "🔴 No matching open findings. Check the finding IDs and their status in the AI review summary."
+            return format_feedback("⚠️", "Waiver rejected", "No matching open findings. Check the IDs in the summary.")
 
         for finding in selected:
             finding.status = "waived"
@@ -681,7 +744,8 @@ class Orchestrator:
         self.state.decide()
         self.save_summary()
         self.publish_status()
-        return f"🟢 Waived {len(selected)} open finding(s) at commit `{self.state.head[:12]}`. See the review summary."
+        detail = selected[0].id if len(selected) == 1 else f"{len(selected)} findings"
+        return format_feedback("✅", "Waiver applied", detail)
 
     # --- Publish results ---
 
@@ -691,10 +755,11 @@ class Orchestrator:
         if pull["state"] != "open" or AI_REVIEW_LABEL not in {label["name"] for label in pull["labels"]}:
             print("Review stopped or PR closed; no result published.")
             self.state.status = "stopped"
+            detail = "PR closed" if pull["state"] != "open" else "AI review label removed"
+            self.show_activity(format_feedback("🛑", "Review stopped", detail))
             self.commit_status("error")
             return
 
-        self.summary_comment_id = request["comment_id"]
         self.state.round += 1
         self.state.total += 1
 
@@ -798,6 +863,19 @@ class Orchestrator:
 
         return State()
 
+    @property
+    def pr_url(self) -> str:
+        """Return the URL for this pull request."""
+        return f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/pull/{self.pr}"
+
+    def show_activity(self, message: str):
+        """Update the visible summary while preserving the exact last published JSON."""
+        comment = gh(f"{self.repo}/issues/comments/{self.summary_comment_id}")
+        saved = comment["body"].rsplit(STATE_DATA_MARKER, 1)[1]
+        published = State.from_dict(json.loads(saved.removesuffix("\n-->")))
+        visible = published.visible_summary(self.pr_url, activity=message)
+        self.save_summary(f"{STATE_MARKER}\n\n{visible}{STATE_DATA_MARKER}{saved}")
+
     def save_summary(self, body: str | None = None):
         """Create or update the single summary comment for this PR."""
         if self.summary_comment_id:
@@ -806,18 +884,22 @@ class Orchestrator:
             endpoint, method = f"issues/{self.pr}/comments", "POST"
 
         if body is None:
-            pr_url = f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/pull/{self.pr}"
-            body = self.state.body(pr_url)
+            body = self.state.body(self.pr_url)
         comment = gh(f"{self.repo}/{endpoint}", "--method", method, payload={"body": body})
         self.summary_comment_id = comment["id"]
 
     def feedback(self, event: dict, message: str):
-        """Append feedback to the command comment, or post it for a label event."""
-        body = f"🤖 [AI review bot]: {message}"
+        """Keep one feedback line on the command comment, or post it for a label event."""
+        prefix = "[🤖 AI review bot]:"
+        body = f"{prefix} {message}"
         if "comment" in event:
             endpoint = f"{self.repo}/issues/comments/{event['comment']['id']}"
-            comment = gh(endpoint)
-            gh(endpoint, "--method", "PATCH", payload={"body": f"{comment['body']}\n\n---\n{body}"})
+            current = gh(endpoint)["body"]
+            # Update only this bot's line, preserving any edits around it.
+            marker = f"<!-- ai-review-feedback:{event['comment']['id']} -->"
+            line = f"{body} {marker}"
+            updated, replaced = re.subn(rf"(?m)^{re.escape(prefix)} .*?{marker}$", lambda _: line, current, count=1)
+            gh(endpoint, "--method", "PATCH", payload={"body": updated if replaced else f"{current}\n\n---\n{line}"})
         else:
             gh(f"{self.repo}/issues/{self.pr}/comments", payload={"body": f"@{event['sender']['login']} {body}"})
 
@@ -1032,13 +1114,17 @@ def main() -> int:
         request = json.loads(args.request.read_text())
         orchestrator = Orchestrator(workspace, request["pr"])
         orchestrator.state = State.from_dict(request["state"])
-        orchestrator.commit_status("pending")
+        orchestrator.summary_comment_id = request["comment_id"]
         try:
+            orchestrator.commit_status("pending")
+            next_round = orchestrator.state.round + 1
+            orchestrator.show_activity(format_feedback("🔍", "Reviewing", f"Round {next_round}/{MAX_ROUNDS_PER_HEAD}"))
             output = run_agent(workspace, request)
             orchestrator.publish(request, output)
         except Exception:
             orchestrator.state.status = "error"
-            # gh already logs API errors. Keep the original review exception if reporting also fails.
+            with suppress(subprocess.CalledProcessError):
+                orchestrator.show_activity(format_feedback("❌", "Review failed", f"[View logs]({actions_run_url()})"))
             with suppress(subprocess.CalledProcessError):
                 orchestrator.commit_status("error")
             raise

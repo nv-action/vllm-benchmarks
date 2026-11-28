@@ -220,13 +220,13 @@ def phase(tmp_path, history, pr, agent, monkeypatch):
 @pytest.mark.parametrize(
     "body,actor,allowed,feedback",
     [
-        ("/ai-review F001 fixed", "pilot-triager", True, "Review request accepted"),
-        ("/ai-review", "author", False, "Permission denied"),
-        ("/ai-review", "writer", False, "Permission denied"),
-        ("/ai-review-stop", "author", False, "Permission denied"),
-        ("/ai-review-stop", "pilot-triager", True, "Review labels removed"),
-        ("/ai-review-waive all intentional", "author", False, "Permission denied"),
-        ("/ai-review-waive all intentional", "pilot-triager", True, "Waiver request accepted"),
+        ("/ai-review F001 fixed", "pilot-triager", True, "⏳ **Review requested**"),
+        ("/ai-review", "author", False, "🔒 **Permission denied**"),
+        ("/ai-review", "writer", False, "🔒 **Permission denied**"),
+        ("/ai-review-stop", "author", False, "🔒 **Permission denied**"),
+        ("/ai-review-stop", "pilot-triager", True, "⏳ **Stop requested**"),
+        ("/ai-review-waive all intentional", "author", False, "🔒 **Permission denied**"),
+        ("/ai-review-waive all intentional", "pilot-triager", True, "⏳ **Waiver requested**"),
         ("/ai-reviewer", "author", False, None),
     ],
 )
@@ -234,14 +234,14 @@ def test_command_permissions(pr, phase, body, actor, allowed, feedback):
     event = pr.command(body, actor)
     assert phase("authorize", event) == ({"authorized": "true"} if allowed else {})
     [comment] = pr.comments.values()
-    assert comment["body"].startswith(body)
     if feedback is None:
         assert comment["body"] == body
     else:
-        marker = "🟢" if allowed else "🔴"
-        assert f"🤖 [AI review bot]: {marker} {feedback}" in comment["body"]
+        original, response = comment["body"].split("\n\n---\n")
+        assert original == body and len(response.splitlines()) == 1
+        assert response.startswith(f"[🤖 AI review bot]: {feedback} · ")
     if allowed:
-        assert "[View Actions run](https://github.com/example/project/actions/runs/101)" in comment["body"]
+        assert "[View run](https://github.com/example/project/actions/runs/101)" in comment["body"]
     elif feedback:
         assert "allowlist.txt" in comment["body"] and pr.labels == {"ai-review"}
 
@@ -250,7 +250,7 @@ def test_command_permissions(pr, phase, body, actor, allowed, feedback):
 def test_label_checks_the_reviewer_and_removes_it_when_denied(pr, phase, actor):
     assert phase("authorize", pr.label_event(actor=actor)) == {}
     [notice] = pr.comments.values()
-    assert notice["body"].startswith(f"@{actor} 🤖 [AI review bot]: 🔴 ")
+    assert notice["body"].startswith(f"@{actor} [🤖 AI review bot]: 🔒 **Permission denied**")
     assert "RFC #21451" in notice["body"]
     assert not pr.labels
 
@@ -263,6 +263,7 @@ def test_triage_label_removal_stops_the_session(pr, phase, history):
     assert not pr.labels
     assert phase("prepare", stop) == {}
     assert pr.state()["status"] == "stopped" and pr.state()["total"] == 1
+    assert "🛑 **Review stopped**" in pr.visible_summary()
     assert pr.statuses == [(history.head, "error")]
 
 
@@ -273,7 +274,7 @@ def test_bot_command_is_ignored_even_when_allowlisted(pr, phase):
     assert pr.labels == {"ai-review"}
 
 
-@pytest.mark.parametrize("change,notice", [("closed", "This PR is closed"), ("unlabeled", "AI review is not enabled")])
+@pytest.mark.parametrize("change,notice", [("closed", "**PR closed**"), ("unlabeled", "**Review not enabled**")])
 def test_request_rechecks_live_pr_after_queue(pr, phase, agent, change, notice):
     event = pr.command()
     assert phase("authorize", event) == {"authorized": "true"}
@@ -285,6 +286,8 @@ def test_request_rechecks_live_pr_after_queue(pr, phase, agent, change, notice):
     original["body"] += "\nEdited while waiting."
     assert phase("prepare", event) == {}
     assert "Edited while waiting." in original["body"] and notice in original["body"]
+    assert original["body"].count("[🤖 AI review bot]:") == 1
+    assert "**Review requested**" not in original["body"]
     assert phase("authorize", pr.command()) == {}
     assert not pr.summaries()
     agent.assert_not_called()
@@ -386,6 +389,9 @@ def test_label_then_manual_review_of_all_changes(pr, phase, agent, history):
     assert "DeepSeek Harness headless · POC pilot" in summary["body"]
     assert [comment["line"] for comment in pr.inline.values()] == [1, 2]
     visible = pr.visible_summary()
+    assert visible.startswith(f"{ai.STATE_MARKER}\n\n## 🤖 AI review")
+    assert "❌ **Changes required**" in visible and "2 open MUST-FIX findings" in visible
+    assert "🔍 **Reviewing**" not in visible
     assert "F003" in visible and finding()["body"] in visible and finding()["suggestion"] in visible
     assert pr.state()["status"] == "reviewing" and pr.state()["total"] == 1
     assert pr.statuses == [(history.head, "pending"), (history.head, "failure")]
@@ -408,6 +414,7 @@ def test_label_then_manual_review_of_all_changes(pr, phase, agent, history):
     assert [f["status"] for f in pr.state()["findings"]] == ["resolved", "resolved", "open"]
     assert pr.state()["total"] == 2 and pr.statuses[-1] == (history.head, "success")
     assert "ai-review-passed" in pr.labels and pr.summaries() == [summary]
+    assert "✅ **Review passed**" in pr.visible_summary() and "No blocking findings" in pr.visible_summary()
 
     old_push = pr.label_event("synchronize", "author")
     pr.pull["head"] = {"sha": history.next_head}
@@ -577,8 +584,15 @@ def test_unfinished_work_is_required_even_when_the_review_is_complete():
         ai.parse_result(json.dumps(payload), [])
 
 
-@pytest.mark.parametrize("blocked_by", ["incomplete", "human", "omitted finding"])
-def test_no_pass_when_review_is_blocked(pr, phase, agent, history, blocked_by):
+@pytest.mark.parametrize(
+    "blocked_by,expected_status",
+    [
+        ("incomplete", "⏳ **Review incomplete**"),
+        ("human", "👤 **Maintainer review required**"),
+        ("omitted finding", "❌ **Changes required**"),
+    ],
+)
+def test_no_pass_when_review_is_blocked(pr, phase, agent, history, blocked_by, expected_status):
     if blocked_by == "omitted finding":
         pr.seed(findings=[ai.Finding(id="F001", head=history.head, **finding())])
     phase("prepare", pr.command())
@@ -590,17 +604,34 @@ def test_no_pass_when_review_is_blocked(pr, phase, agent, history, blocked_by):
     phase("review")
     assert pr.state()["status"] != "passed" and "ai-review-passed" not in pr.labels
     assert pr.statuses[-1][1] in {"error", "failure"}
+    assert expected_status in pr.visible_summary() and "🔍 **Reviewing**" not in pr.visible_summary()
+
+
+def test_exhausted_rounds_preserve_other_reasons_for_blocking(pr, phase, agent):
+    pr.seed(round=4, total=14)
+    phase("prepare", pr.command())
+    agent.return_value = result(requires_human=True, findings=[finding()])
+    phase("review")
+    visible = pr.visible_summary()
+    assert "⚠️ **Round limit reached**" in visible and "Commit 5/5" in visible and "Session 15/15" in visible
+    assert "👤 **Maintainer review required**" in visible and "❌ **Changes required**" in visible
 
 
 def test_stop_blocks_inflight_publication(pr, phase, agent, history):
     phase("prepare", pr.command())
     [placeholder] = pr.summaries()
-    original_body = placeholder["body"]
     stop = pr.command("/ai-review-stop", "maintainer")
-    assert phase("authorize", stop) == {"authorized": "true"}
-    assert not pr.labels
+
+    def stop_during_review(*_):
+        assert "🔍 **Reviewing**" in pr.visible_summary()
+        assert phase("authorize", stop) == {"authorized": "true"}
+        assert not pr.labels and "⏳ **Stop requested**" in pr.comments[stop["comment"]["id"]]["body"]
+        return result(findings=[finding()])
+
+    agent.side_effect = stop_during_review
     phase("review")
-    assert pr.summaries() == [placeholder] and placeholder["body"] == original_body
+    assert pr.summaries() == [placeholder] and not pr.inline and pr.state()["total"] == 0
+    assert "🔍 **Reviewing**" not in pr.visible_summary()
     assert pr.statuses == [(history.head, "pending"), (history.head, "error")]
     assert phase("prepare", stop) == {}
     assert pr.state()["status"] == "stopped" and pr.state()["total"] == 0
@@ -616,7 +647,9 @@ def test_waived_findings_stay_archived_when_the_same_problem_is_reported_again(p
         event = pr.command(f"/ai-review-waive {selector} upstream handles this", "maintainer")
         assert phase("authorize", event) == {"authorized": "true"}
         assert phase("prepare", event) == {}
-        assert "🤖 [AI review bot]: 🟢 Waived 1" in pr.comments[event["comment"]["id"]]["body"]
+        feedback = pr.comments[event["comment"]["id"]]["body"]
+        assert feedback.count("[🤖 AI review bot]:") == 1 and "**Waiver requested**" not in feedback
+        assert "✅ **Waiver applied**" in feedback and ("F001" if selector == "F001" else "F002") in feedback
         if selector == "F001":
             assert "ai-review-passed" not in pr.labels
             first, second = pr.state()["findings"]
@@ -669,7 +702,7 @@ def test_invalid_waiver_preserves_summary(pr, phase, history, command, feedback)
         pr.pull["head"] = {"sha": history.next_head}
     event = pr.command(command, "maintainer")
     assert phase("prepare", event) == {}
-    assert f"🤖 [AI review bot]: 🔴 {feedback}" in pr.comments[event["comment"]["id"]]["body"]
+    assert f"[🤖 AI review bot]: ⚠️ **Waiver rejected** · {feedback}" in pr.comments[event["comment"]["id"]]["body"]
     assert summary["body"] == before
 
 
@@ -677,7 +710,8 @@ def test_invalid_waiver_preserves_summary(pr, phase, history, command, feedback)
 
 
 @pytest.mark.parametrize(
-    "previous_total,expected_limit", [(8, "5-round limit for this commit"), (14, "15-round limit for this session")]
+    "previous_total,expected_limit",
+    [(8, "5/5 rounds used for this commit"), (14, "15/15 rounds used for this session")],
 )
 def test_last_available_round_is_counted_before_the_next_request_runs(
     pr, phase, agent, history, previous_total, expected_limit
@@ -691,9 +725,9 @@ def test_last_available_round_is_counted_before_the_next_request_runs(
     before = pr.state()
     assert (before["round"], before["total"]) == (5, previous_total + 1)
     assert phase("prepare", pending) == {}
-    _, accepted, rejected = pr.comments[pending["comment"]["id"]]["body"].split("🤖 [AI review bot]: ")
-    assert accepted.startswith("🟢 Review request accepted")
-    assert rejected.startswith(f"🔴 Reached the {expected_limit}")
+    original, rejected = pr.comments[pending["comment"]["id"]]["body"].split("\n\n---\n")
+    assert original == pending["comment"]["body"] and len(rejected.splitlines()) == 1
+    assert rejected.startswith(f"[🤖 AI review bot]: ⚠️ **Round limit reached** · {expected_limit}")
     assert pr.state() == before and agent.call_count == 1
     pr.pull["head"] = {"sha": history.next_head}
     assert bool(phase("prepare", pr.command())) == (previous_total < 14)
@@ -710,7 +744,7 @@ def test_relabel_resets_counts_once_and_keeps_findings(pr, phase, agent, history
     )
     comment = pr.command()
     assert phase("prepare", comment) == {}
-    assert "AI review is stopped" in pr.comments[comment["comment"]["id"]]["body"]
+    assert "🛑 **Review stopped**" in pr.comments[comment["comment"]["id"]]["body"]
     start = pr.label_event()
     for count in (1, 2):
         assert phase("authorize", start, run_id="102")
@@ -740,6 +774,7 @@ def test_new_commit_during_review_discards_the_result(pr, phase, agent, history,
     )
     assert not state["findings"] and not pr.inline and "ai-review-passed" not in pr.labels
     assert pr.statuses == [(history.head, "pending"), (history.head, "error")]
+    assert "🔄 **Review discarded**" in pr.visible_summary()
 
 
 @pytest.mark.parametrize(
@@ -751,18 +786,29 @@ def test_new_commit_during_review_discards_the_result(pr, phase, agent, history,
     ],
 )
 def test_unsuccessful_analysis_can_be_rerun_without_losing_a_round(pr, phase, agent, history, bad_result, error):
-    previous = pr.seed(round=2, total=3)["body"]
+    previous = pr.seed(
+        status="passed",
+        coverage_complete=True,
+        round=2,
+        total=3,
+        last_review={"summary": "Previous result from this commit."},
+    )
+    saved = pr.state()
     event = pr.command()
     agent.side_effect = [bad_result, result()]
     phase("prepare", event)
     with pytest.raises(error):
         phase("review")
     assert pr.statuses == [(history.head, "pending"), (history.head, "error")]
-    assert pr.summaries()[0]["body"] == previous
+    assert pr.summaries() == [previous] and pr.state() == saved
+    visible = pr.visible_summary()
+    assert "❌ **Review failed** · [View logs](https://github.com/example/project/actions/runs/101)" in visible
+    assert "Previous result from this commit." in visible and "🔍 **Reviewing**" not in visible
     phase("prepare", event)
     phase("review")
     assert agent.call_count == 2
     assert (pr.state()["round"], pr.state()["total"]) == (3, 4)
+    assert "**Review failed**" not in pr.visible_summary()
 
 
 def test_first_round_placeholder_precedes_findings_and_survives_a_failed_attempt(pr, phase, agent, monkeypatch):
@@ -774,20 +820,28 @@ def test_first_round_placeholder_precedes_findings_and_survives_a_failed_attempt
     assert pr.visible_summary() == f"{ai.STATE_MARKER}\n\n{ai.SUMMARY_TITLE}"
     assert (pr.state()["round"], pr.state()["total"]) == (0, 0)
 
-    agent.side_effect = [RuntimeError("model unavailable"), result(findings=[finding()])]
+    def review(*_):
+        assert "🔍 **Reviewing** · Round 1/5" in pr.visible_summary()
+        assert "**Review failed**" not in pr.visible_summary() and (pr.state()["round"], pr.state()["total"]) == (0, 0)
+        if agent.call_count == 1:
+            raise RuntimeError("model unavailable")
+        return result(findings=[finding()])
+
+    agent.side_effect = review
     with pytest.raises(RuntimeError, match="model unavailable"):
         phase("review")
-    phase("prepare", event)
-    assert pr.visible_summary() == f"{ai.STATE_MARKER}\n\n{ai.SUMMARY_TITLE}"
+    assert "❌ **Review failed**" in pr.visible_summary()
     assert (pr.state()["round"], pr.state()["total"]) == (0, 0)
+    phase("prepare", event)
     phase("review")
 
     writes = [call.args[0] for call in api.call_args_list if "body" in (call.kwargs.get("payload") or {})]
-    assert writes == [
-        "repos/:owner/:repo/issues/7/comments",
+    assert writes[0] == "repos/:owner/:repo/issues/7/comments" and writes.count(writes[0]) == 1
+    assert writes[-2:] == [
         "repos/:owner/:repo/pulls/7/comments",
         f"repos/:owner/:repo/issues/comments/{placeholder['id']}",
     ]
+    assert pr.summaries() == [placeholder] and "**Review failed**" not in pr.visible_summary()
     assert (pr.state()["round"], pr.state()["total"]) == (1, 1)
     assert "#discussion_r500" in pr.visible_summary()
     [thread] = pr.inline.values()
@@ -800,7 +854,12 @@ def test_only_a_saved_summary_spends_the_round(pr, phase, monkeypatch, write, ex
     phase("prepare", pr.command())
 
     def fail_write(endpoint, *args, payload=None, **kwargs):
-        if write == "summary" and endpoint.endswith(f"issues/comments/{summary['id']}"):
+        if (
+            write == "summary"
+            and endpoint.endswith(f"issues/comments/{summary['id']}")
+            and payload is not None
+            and "✅ **Review passed**" in payload["body"]
+        ):
             raise RuntimeError("write failed")
         if write == "status" and "/statuses/" in endpoint and payload["state"] == "success":
             raise RuntimeError("write failed")
@@ -814,19 +873,39 @@ def test_only_a_saved_summary_spends_the_round(pr, phase, monkeypatch, write, ex
     assert pr.state()["total"] == expected_total
 
 
+def test_failure_to_post_logs_link_preserves_the_agent_error(pr, phase, agent, monkeypatch):
+    phase("prepare", pr.command())
+    agent.side_effect = ValueError("invalid model output")
+
+    def fail_notice(endpoint, *args, payload=None, **kwargs):
+        if payload and "**Review failed**" in payload.get("body", ""):
+            raise subprocess.CalledProcessError(1, ["gh", "api", endpoint])
+        return pr.api(endpoint, *args, payload=payload, **kwargs)
+
+    monkeypatch.setattr(ai, "gh", fail_notice)
+    with pytest.raises(ValueError, match="invalid model output"):
+        phase("review")
+    assert pr.state()["total"] == 0
+
+
 def test_head_changed_after_summary_write_gets_no_pass(pr, phase, monkeypatch, history):
     phase("prepare", pr.command())
     [summary] = pr.summaries()
 
-    def push_after_summary(endpoint, *args, **kwargs):
-        response = pr.api(endpoint, *args, **kwargs)
-        if endpoint.endswith(f"/issues/comments/{summary['id']}"):
+    def push_after_summary(endpoint, *args, payload=None, **kwargs):
+        response = pr.api(endpoint, *args, payload=payload, **kwargs)
+        if (
+            endpoint.endswith(f"/issues/comments/{summary['id']}")
+            and payload
+            and "✅ **Review passed**" in payload["body"]
+        ):
             pr.pull["head"] = {"sha": history.next_head}
         return response
 
     monkeypatch.setattr(ai, "gh", push_after_summary)
     phase("review")
     assert pr.state()["total"] == 1 and pr.state()["head"] == history.head
+    assert pr.state()["status"] == "passed"
     assert "ai-review-passed" not in pr.labels
     assert pr.statuses == [(history.head, "pending"), (history.head, "error")]
 
@@ -871,8 +950,11 @@ def test_rejected_inline_finding_stays_in_summary_across_reviews(pr, phase, agen
     assert "-first_change = 1\n+first_change = 2" in public and "#discussion_r" not in public
     findings, footer = public.split("Human review is still required.")
     assert "/ai-review" not in findings
-    assert "top-level" in footer
-    assert footer.count("`/ai-review") == 3
+    assert (
+        "top-level" in footer
+        and "https://github.com/example/project/blob/main/.github/agent-review/allowlist.txt" in footer
+    )
+    assert "`/ai-review F001" in footer
     for command in ("/ai-review", "/ai-review-waive F001 reason", "/ai-review-stop"):
         assert f"`{command}`" in footer
     phase("prepare", pr.command())

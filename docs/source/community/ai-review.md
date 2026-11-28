@@ -30,7 +30,7 @@ new push ──► ai-review-passed revoked
 
 - An operator listed in `.github/agent-review/allowlist.txt` can start a review by applying the `ai-review` label to a PR. Applying the label requires permission to manage PR labels on GitHub. If an unlisted person applies it, the bot posts a notice and removes the label.
 - Once enabled, any listed operator can request another review, waive findings, or stop the review by commenting on the PR. The same list applies to PR authors and maintainers. To join the pilot, comment on RFC #21451.
-- During the gray release the agent's PR comments are posted by the maintainer's bot account, with the summary headed **AI review · DeepSeek Harness headless · POC pilot**. The bot appends an Actions link to accepted command comments and explains rejections on the original comment.
+- During the gray release the maintainer's bot account posts the review comments. A command gets one feedback line on the original comment, such as `[🤖 AI review bot]: ⏳ Review requested` with a **View run** link. A rejection or completed waiver updates that line.
 
 ### Review rounds
 
@@ -53,13 +53,13 @@ If you withdraw a documentation change, include the reason and finding ID in the
 
 ### Multi-round interaction and termination
 
-Before the first review, the bot posts the summary title so the summary appears before the inline discussions. Once the inline comments are ready, the bot fills in that same summary with the results and links. During later rounds, the previous result stays visible until the new one is published. The hidden `ai-review-state` JSON block records the reviewed commit, published rounds and finding history. Only a published result or a notice that the code changed during review counts as a round.
+Before the first review, the bot posts the summary title so the summary appears before the inline discussions. The heading changes to **Reviewing** when the agent step starts. Once the inline comments are ready, the bot updates the summary with the outcome and finding links. **Review passed** means no blocking findings remain. SHOULD-FIX and NIT items can still be open. During later rounds the last published result stays visible below the current activity. A failed review or publication shows **Review failed** with a **View logs** link. The hidden `ai-review-state` JSON block records the reviewed commit, published rounds and finding history. Only a published result or a notice that the code changed during review counts as a round.
 
 Waivers, stop commands and discarded results can update the comment. The next review still receives the snapshot, summary and unfinished checks from the last round that published a review result.
 
 | Event | Effect |
 |---|---|
-| Allowlisted operator comments `/ai-review` | Request one review of the current PR. Include explanations for multiple findings in the same top-level comment. |
+| Allowlisted operator comments `/ai-review` | Request one review of the current PR. Add a note such as `/ai-review F001 F002 fixed in this commit` to explain changes to several findings in one comment. The agent still reviews the PR as a whole. |
 | Author pushes a commit | Revoke `ai-review-passed`. The next `/ai-review` reviews all changes together. |
 | Allowlisted operator comments `/ai-review-waive F003 reason` or `/ai-review-waive all reason` | Permanently waive one or all open finding IDs on this PR. The original comment shows who waived the finding, the commit and the reason. The bot updates the verdict without calling the agent. |
 | Someone removes the label on GitHub, or an allowlisted operator comments `/ai-review-stop` | Stop review and remove both labels. Wait for the Stop workflow to finish before reapplying `ai-review`. |
