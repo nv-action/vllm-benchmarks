@@ -10,13 +10,16 @@ Command feedback (appended to the user's original comment):
 
 PR summary (updated in place):
     <!-- ai-review-orchestrator:v2 -->
-    🤖 **AI review · DeepSeek Harness headless · POC pilot**
-    Status: **reviewing** · Commit: abc123456789
-    Round 2/5; total published rounds 3/15.
-    This is not an approval. Human review is still required.
-    One MUST-FIX remains open.
-    **F001 · MUST-FIX · open** `example.py:20` (general)
-    Handle empty input.
+    🤖 **AI review · DeepSeek Harness headless · POC pilot** · **Reviewing**
+    Commit `abc123456789` · Round 2/5 · Total rounds 3/15
+    ✅ Static review complete · Open MUST-FIX findings block passing
+    | Severity | Open | Resolved | Waived |
+    | 🔴 MUST-FIX | 1 | 0 | 0 |
+    <details open><summary>🔴 MUST-FIX · 1 open</summary>
+    | [F001](https://github.com/owner/repo/pull/42#discussion_r1001) | `example.py:20` |
+    </details>
+    <details><summary>Last published review · abc123456789</summary>...</details>
+    Human review is still required.
     <!-- ai-review-state
     {
       "status": "reviewing",
@@ -36,20 +39,22 @@ PR summary (updated in place):
     }
     -->
 
-Inline comment (created for new findings; updated when waived):
-    **[WAIVED by @maintainer]**
-    Waived at commit `abc123456789`.
+Inline comment (updated in place when its status, severity or evidence changes):
     <!-- ai-review-finding:F001 -->
-    **F001 · MUST-FIX** (general)
-    Handle empty input.
-    See the AI review summary for the current status. Waive with
-    `/ai-review-waive F001 reason` in a top-level comment.
-Hidden JSON restores the review state. Only open and resolved findings go into the next AI prompt.
+    ![MUST-FIX](.../must-fix.svg) **F001** · Open
+    **Empty input prevents startup**
+    **Problem** The first lookup raises IndexError on an empty list.
+    **Suggested fix** Return the default configuration for an empty list.
+    **Suggested change · Read-only** (optional diff)
+    Rule: `general`
+    Waive with `/ai-review-waive F001 reason` in a top-level comment.
+Hidden JSON restores the review state. The prompt lists archived waivers separately from findings to recheck.
 """
 
 from __future__ import annotations
 
 import argparse
+import difflib
 import fnmatch
 import json
 import os
@@ -77,6 +82,7 @@ ROUND_TIMEOUT_SECONDS = 12 * 60
 GIT_FETCH_MAX_ATTEMPTS = 3
 GIT_FETCH_RETRY_DELAY_SECONDS = 5
 SEVERITIES = ("MUST-FIX", "SHOULD-FIX", "NIT")
+SEVERITY_ICONS = {"MUST-FIX": "🔴", "SHOULD-FIX": "🟡", "NIT": "⚪"}
 
 
 def gh(*args: str, payload=None, anchor_fallback: bool = False):
@@ -119,6 +125,11 @@ def parse_allowlist(text: str) -> set[str]:
     return {user for line in text.splitlines() if (user := line.split("#", 1)[0].strip())}
 
 
+def read_only_prose(text: str) -> str:
+    """Show a native suggestion fence in review prose as an ordinary code block."""
+    return re.sub(r"(`{3,}|~{3,})[ \t]*suggestion\b", r"\1text", text, flags=re.I)
+
+
 @dataclass
 class Finding:
     """Record one finding's location, severity, status and supporting evidence."""
@@ -135,18 +146,45 @@ class Finding:
     waived_by: str = ""
     waived_head: str = ""
     comment_id: int | None = None
+    title: str = ""
+    suggestion: str = ""
+    preview: str = ""
 
-    def inline_body(self) -> str:
-        """Render the inline finding and the commit where it was waived."""
-        body = (
-            f"<!-- ai-review-finding:{self.id} -->\n"
-            f"**{self.id} · {self.severity}** ({self.rule})\n\n{self.body}\n\n"
-            "See the AI review summary for the current status. "
-            f"Waive with `/ai-review-waive {self.id} reason` in a top-level comment."
-        )
+    def details_body(self) -> str:
+        """Render the problem, suggested fix, and latest evidence in GitHub Markdown."""
+        problem = read_only_prose(self.body)
+        sections = [f"**{read_only_prose(self.title)}**", f"**Problem**\n\n{problem}"] if self.title else [problem]
+        if self.evidence:
+            label = {"open": "Latest evidence", "resolved": "Resolution", "waived": "Waiver reason"}[self.status]
+            sections.append(f"**{label}**\n\n{read_only_prose(self.evidence)}")
+
+        fix = [f"**Suggested fix**\n\n{read_only_prose(self.suggestion)}"] if self.suggestion else []
+        if self.preview:
+            # A Markdown file can itself contain code fences.
+            longest = max((len(run) for run in re.findall(r"`+", self.preview)), default=0)
+            fence = "`" * max(3, longest + 1)
+            fix.append(f"**Suggested change · Read-only**\n\n{fence}diff\n{self.preview}\n{fence}")
+        if fix:
+            suggestion = "\n\n".join(fix)
+            if self.status != "open":
+                suggestion = f"<details><summary>Original suggestion</summary>\n\n{suggestion}\n\n</details>"
+            sections.append(suggestion)
+        sections.append(f"Rule: `{read_only_prose(self.rule)}`")
+        return "\n\n".join(sections)
+
+    def inline_body(self, badge_root: str = "") -> str:
+        """Show the severity and current decision on the original inline comment."""
+        severity = f"![{self.severity}]({badge_root}/{self.severity.lower()}.svg)" if badge_root else self.severity
+        sections = [
+            f"<!-- ai-review-finding:{self.id} -->",
+            f"{severity} **{self.id}** · {self.status.capitalize()}",
+            self.details_body(),
+        ]
         if self.status == "waived":
-            body = f"**[WAIVED by @{self.waived_by}]**\nWaived at commit `{self.waived_head[:12]}`.\n\n{body}"
-        return body
+            sections.insert(0, f"**[WAIVED by @{self.waived_by}]**\nWaived at commit `{self.waived_head[:12]}`.")
+        elif self.status == "open":
+            sections.append(f"Waive with `/ai-review-waive {self.id} reason` in a top-level comment.")
+        return "\n\n".join(sections)
 
 
 @dataclass
@@ -162,21 +200,29 @@ class State:
     coverage_complete: bool = False
     requires_human: bool = False
     message: str = ""
-    incomplete_review_summary: str = ""
+    last_review: dict | None = None
     findings: list[Finding] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict) -> State:
         """Restore the saved review state and its finding records."""
-        state = cls(**{**data, "findings": [Finding(**f) for f in data["findings"]]})
-        # Older summaries kept the model's text and waiver notices in the same field.
-        if (
-            "incomplete_review_summary" not in data
-            and state.status in ("reviewing", "waiting-human")
-            and not state.coverage_complete
-            and not re.fullmatch(r"@\S+ waived \d+ finding\(s\) for this commit\.", state.message)
-        ):
-            state.incomplete_review_summary = state.message
+        fields = {**data, "findings": [Finding(**f) for f in data["findings"]]}
+        old_summary = fields.pop("incomplete_review_summary", "")
+        state = cls(**fields)
+        if "last_review" in data:
+            return state
+
+        # Older comments saved prose but no reviewed merge base or separate task list.
+        if not old_summary and state.status in ("passed", "reviewing", "waiting-human"):
+            waiver_notice = re.fullmatch(
+                r"@\S+ waived \d+ finding\(s\) (?:for this commit|at commit `[^`]+`)\.", state.message
+            )
+            if not waiver_notice:
+                old_summary = state.message
+        if old_summary:
+            state.last_review = {"summary": old_summary}
+            if state.message == old_summary:
+                state.message = ""
         return state
 
     def decide(self):
@@ -192,24 +238,82 @@ class State:
         else:
             self.status = "reviewing"
 
-    def body(self) -> str:
-        """Render the summary comment with findings and hidden state JSON."""
+    @staticmethod
+    def finding_group(title: str, findings: list[Finding], pr_url: str, *, expanded: bool = False) -> str:
+        """Link to inline findings and include full details for findings without a thread."""
+        status = findings[0].status
+        columns = ["ID", "Location"]
+        if status != "open":
+            columns += ["Severity", "Resolution" if status == "resolved" else "Waiver"]
+        rows = ["| " + " | ".join(columns) + " |", "| " + " | ".join("---" for _ in columns) + " |"]
+        details = []
+        for f in findings:
+            location = f"{f.path}:{f.line}" if f.line is not None else f.path
+            identity = f"[{f.id}]({pr_url}#discussion_r{f.comment_id})" if f.comment_id else f.id
+            cells = [identity, f"`{location}`"]
+            if status == "resolved":
+                cells += [f.severity, f.evidence]
+            elif status == "waived":
+                cells += [f.severity, f"@{f.waived_by} at `{f.waived_head[:12]}` · {f.evidence}"]
+            rows.append("| " + " | ".join(" ".join(cell.splitlines()).replace("|", "\\|") for cell in cells) + " |")
+            if not f.comment_id:
+                details.append(
+                    f"<details>\n<summary>{f.id} · Full finding</summary>\n\n{f.details_body()}\n\n</details>"
+                )
+        heading = f"<details{' open' if expanded else ''}>\n<summary>{title}</summary>"
+        return "\n\n".join([heading, "\n".join(rows), *details, "</details>"])
+
+    def body(self, pr_url: str = "") -> str:
+        """Render a compact finding index and preserve the full machine-readable state."""
+        statuses = ("open", "resolved", "waived")
+        groups = {severity: {status: [] for status in statuses} for severity in SEVERITIES}
+        for finding in self.findings:
+            groups[finding.severity][finding.status].append(finding)
+
+        status_label = "Waiting for maintainer" if self.status == "waiting-human" else self.status.capitalize()
         lines = [
             STATE_MARKER,
-            "🤖 **AI review · DeepSeek Harness headless · POC pilot**",
-            f"Status: **{self.status}** · Commit: {self.head[:12]}",
-            f"Round {self.round}/{MAX_ROUNDS_PER_HEAD}; total published rounds {self.total}/{MAX_TOTAL_ROUNDS}.",
-            "This is not an approval. Human review is still required.",
-            self.message,
+            f"🤖 **AI review · DeepSeek Harness headless · POC pilot** · **{status_label}**",
         ]
+        rounds = f"Round {self.round}/{MAX_ROUNDS_PER_HEAD} · Total rounds {self.total}/{MAX_TOTAL_ROUNDS}"
+        lines.append(f"Commit `{self.head[:12]}` · {rounds}" if self.head else rounds)
+        if self.status in ("reviewing", "waiting-human", "passed"):
+            progress = ["✅ Static review complete" if self.coverage_complete else "⏳ Static review incomplete"]
+            if groups["MUST-FIX"]["open"]:
+                progress.append("Open MUST-FIX findings block passing")
+            if self.requires_human:
+                progress.append("Maintainer decision needed")
+            if self.status == "waiting-human" and (self.round >= MAX_ROUNDS_PER_HEAD or self.total >= MAX_TOTAL_ROUNDS):
+                progress.append("Round limit reached")
+            lines.append(" · ".join(progress))
+        if self.message:
+            lines.append(self.message)
 
-        for f in self.findings:
-            location = f"{f.path}:{f.line}" if f.line is not None else f.path
-            lines += [f"\n**{f.id} · {f.severity} · {f.status}** `{location}` ({f.rule})", f.body]
-            if f.evidence:
-                lines.append(f.evidence)
-            if f.status == "waived":
-                lines.append(f"Waived by @{f.waived_by} at commit `{f.waived_head[:12]}`.")
+        counts = ["| Severity | Open | Resolved | Waived |", "| --- | ---: | ---: | ---: |"]
+        for severity, group in groups.items():
+            cells = " | ".join(str(len(group[status])) for status in statuses)
+            counts.append(f"| {SEVERITY_ICONS[severity]} {severity} | {cells} |")
+        totals = [sum(len(group[s]) for group in groups.values()) for s in statuses]
+        counts.append(f"| **Total ({len(self.findings)})** | " + " | ".join(str(n) for n in totals) + " |")
+        lines.append("\n".join(counts))
+
+        for severity, group in groups.items():
+            if findings := group["open"]:
+                title = f"{SEVERITY_ICONS[severity]} {severity} · {len(findings)} open"
+                lines.append(self.finding_group(title, findings, pr_url, expanded=severity == "MUST-FIX"))
+        for status in ("resolved", "waived"):
+            if findings := [f for f in self.findings if f.status == status]:
+                lines.append(self.finding_group(f"{status.title()} · {len(findings)}", findings, pr_url))
+
+        if self.last_review:
+            if work := self.last_review.get("unfinished_work"):
+                tasks = "\n".join(f"- {item}" for item in work)
+                lines.append(f"<details>\n<summary>Unfinished work · {len(work)}</summary>\n\n{tasks}\n\n</details>")
+            title = "Last published review"
+            if "head" in self.last_review:
+                title += f" · {self.last_review['head'][:12]}"
+            lines.append(f"<details>\n<summary>{title}</summary>\n\n{self.last_review['summary']}\n\n</details>")
+        lines.append("Human review is still required.")
 
         # Model text cannot terminate or replace the final machine-owned block.
         data = json.dumps(asdict(self), ensure_ascii=True).replace("<", "\\u003c")
@@ -226,14 +330,21 @@ def parse_result(output: str, findings: list[Finding]) -> dict:
             raise ValueError(f"{key} must be a boolean")
     if not isinstance(result.get("summary"), str):
         raise ValueError("summary must be a string")
+    work = result.get("unfinished_work")
+    if not isinstance(work, list) or not all(isinstance(item, str) and item.strip() for item in work):
+        raise ValueError("unfinished_work must be an array of nonempty strings")
+    if result["coverage_complete"] != (work == []):
+        raise ValueError("coverage_complete must be true exactly when unfinished_work is empty")
     if not isinstance(result.get("findings"), list) or not isinstance(result.get("updates"), list):
         raise ValueError("findings and updates must be arrays")
 
     for finding in result["findings"]:
         if not isinstance(finding, dict) or not all(
-            isinstance(finding.get(key), str) and finding[key].strip() for key in ("path", "rule", "body")
+            isinstance(finding.get(key), str) and finding[key].strip() for key in ("path", "rule", "title", "body")
         ):
-            raise ValueError("Finding requires path, rule and body")
+            raise ValueError("Finding requires path, rule, title and body")
+        if not isinstance(finding.get("suggestion"), str):
+            raise ValueError("Finding suggestion must be a string")
         if finding.get("severity") not in SEVERITIES:
             raise ValueError("Unknown finding severity")
         if "line" not in finding or not (
@@ -252,6 +363,8 @@ def parse_result(output: str, findings: list[Finding]) -> dict:
             raise ValueError("Unknown or repeated finding ID")
         if known[identity].status == "waived" or update.get("status") not in ("open", "resolved"):
             raise ValueError("Model cannot change waivers or invent finding states")
+        if "severity" in update and update["severity"] not in SEVERITIES:
+            raise ValueError("Unknown update severity")
         if not update["evidence"].strip():
             raise ValueError("Finding updates require evidence")
         seen.add(identity)
@@ -259,14 +372,36 @@ def parse_result(output: str, findings: list[Finding]) -> dict:
     return result
 
 
-def merge_findings(state: State, result: dict) -> list[Finding]:
+def replacement_preview(workspace: Path, finding: Finding, replacement: dict) -> str:
+    """Compare a proposed local replacement with the lines in the reviewed Git blob."""
+    if not isinstance(replacement, dict) or not isinstance(replacement.get("code"), str):
+        return ""
+    start = replacement.get("start_line")
+    end = finding.line
+    if end is None or type(start) is not int or not 1 <= start <= end:
+        return ""
+
+    # A finding can point outside the new tree (for example, to a deleted file).
+    source = subprocess.run(
+        ["git", "-C", str(workspace), "cat-file", "blob", f"{finding.head}:{finding.path}"], capture_output=True
+    )
+    if source.returncode:
+        return ""
+    lines = source.stdout.splitlines()
+    if end > len(lines):
+        return ""
+    try:
+        before = [line.decode() for line in lines[start - 1 : end]]
+    except UnicodeDecodeError:
+        return ""  # A binary file has no text preview.
+    after = replacement["code"].splitlines()
+    diff = difflib.unified_diff(before, after, n=max(len(before), len(after)), lineterm="")
+    return "\n".join(list(diff)[3:])  # Skip the file and hunk headers.
+
+
+def merge_findings(state: State, result: dict, workspace: Path) -> list[Finding]:
     """Update the finding list and return newly added records for inline comments."""
     known = {f.id: f for f in state.findings}
-    for update in result["updates"]:
-        finding = known[update["id"]]
-        finding.status = update["status"]
-        finding.evidence = update["evidence"]
-
     created = []
     for new in result["findings"]:
         # Waived IDs are archived. An independent report can start a new thread at the same line.
@@ -287,10 +422,19 @@ def merge_findings(state: State, result: dict) -> list[Finding]:
         finding = Finding(
             id=f"F{len(state.findings) + 1:03d}",
             head=state.head,
-            **{key: new[key] for key in ("path", "line", "severity", "rule", "body")},
+            **{key: new[key] for key in ("path", "line", "severity", "rule", "title", "body", "suggestion")},
         )
+        if new.get("replacement") is not None:
+            finding.preview = replacement_preview(workspace, finding, new["replacement"])
         state.findings.append(finding)
         created.append(finding)
+
+    # An explicit update to an ID takes precedence over an exact repeat in findings.
+    for update in result["updates"]:
+        finding = known[update["id"]]
+        finding.status = update["status"]
+        finding.severity = update.get("severity", finding.severity)
+        finding.evidence = update["evidence"]
 
     return created
 
@@ -303,6 +447,10 @@ class Orchestrator:
         self.workspace = workspace
         self.pr = pr
         self.repo = "repos/:owner/:repo"
+        repository = os.environ.get("GITHUB_REPOSITORY")
+        self.badge_root = (
+            f"https://raw.githubusercontent.com/{repository}/main/.github/agent-review/badges" if repository else ""
+        )
         self.summary_comment_id = None
 
     # --- Authorize requests ---
@@ -507,13 +655,7 @@ class Orchestrator:
             finding.waived_by = actor
             finding.waived_head = self.state.head
             finding.evidence = parts[1]
-            if finding.comment_id is not None:
-                gh(
-                    f"{self.repo}/pulls/comments/{finding.comment_id}",
-                    "--method",
-                    "PATCH",
-                    payload={"body": finding.inline_body()},
-                )
+            self.update_inline(finding)
 
         self.state.message = f"@{actor} waived {len(selected)} finding(s) at commit `{self.state.head[:12]}`."
         self.state.decide()
@@ -545,18 +687,38 @@ class Orchestrator:
             )
         else:
             result = parse_result(output, self.state.findings)
-            created = merge_findings(self.state, result)
+            previous_comments = [(f, f.inline_body()) for f in self.state.findings if f.comment_id is not None]
+            created = merge_findings(self.state, result, self.workspace)
             self.state.coverage_complete = result["coverage_complete"]
             self.state.requires_human = result["requires_human"]
-            self.state.message = result["summary"]
-            self.state.incomplete_review_summary = "" if self.state.coverage_complete else self.state.message
+            self.state.message = ""
+            self.state.last_review = {
+                "head": self.state.head,
+                "merge_base": request["merge_base"],
+                "coverage_complete": self.state.coverage_complete,
+                "summary": result["summary"],
+                "unfinished_work": result["unfinished_work"],
+            }
 
             self.state.decide()
+            for finding, old_body in previous_comments:
+                if finding.inline_body() != old_body:
+                    self.update_inline(finding)
             self.publish_inline(created)
 
         # This comment is the only durable record of a completed round.
         self.save_summary()
         self.publish_status()
+
+    def update_inline(self, finding: Finding):
+        """Refresh the original inline comment when the finding has one."""
+        if finding.comment_id is not None:
+            gh(
+                f"{self.repo}/pulls/comments/{finding.comment_id}",
+                "--method",
+                "PATCH",
+                payload={"body": finding.inline_body(self.badge_root)},
+            )
 
     def publish_inline(self, findings: list[Finding]):
         """Publish inline comments for new findings with a code line."""
@@ -569,7 +731,7 @@ class Orchestrator:
                 "path": finding.path,
                 "line": finding.line,
                 "side": "RIGHT",
-                "body": finding.inline_body(),
+                "body": finding.inline_body(self.badge_root),
             }
 
             # Only an explicit 422 validation rejection falls back to summary.
@@ -623,7 +785,8 @@ class Orchestrator:
         else:
             endpoint, method = f"issues/{self.pr}/comments", "POST"
 
-        comment = gh(f"{self.repo}/{endpoint}", "--method", method, payload={"body": self.state.body()})
+        pr_url = f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/pull/{self.pr}"
+        comment = gh(f"{self.repo}/{endpoint}", "--method", method, payload={"body": self.state.body(pr_url)})
         self.summary_comment_id = comment["id"]
 
     def feedback(self, event: dict, message: str):
@@ -669,6 +832,38 @@ def build_prompt(workspace: Path, request: dict) -> str:
         ids = re.findall(r"^-\s+`([\w-]+#\w[\w-]*)`", path.read_text(), re.M)
         mapping.append(f"- {path.relative_to(kb)}: {', '.join(ids)}")
 
+    previous_findings = []
+    waived_findings = []
+    for finding in request["state"]["findings"]:
+        if finding["status"] == "waived":
+            waived_findings.append(
+                {
+                    "id": finding["id"],
+                    "path": finding["path"],
+                    "line": finding["line"],
+                    "body": finding["body"],
+                    "reason": finding["evidence"],
+                }
+            )
+        else:
+            previous_findings.append({k: v for k, v in finding.items() if k not in ("title", "suggestion", "preview")})
+
+    last_review = request["state"]["last_review"]
+    snapshot = "No previous review on record."
+    summary = "None."
+    unfinished_work = "None."
+    if last_review:
+        summary = last_review["summary"]
+        if "merge_base" in last_review:
+            snapshot = (
+                f"Reviewed head: {last_review['head']}\nMerge base: {last_review['merge_base']}\n"
+                f"Coverage complete: {json.dumps(last_review['coverage_complete'])}"
+            )
+            unfinished_work = "\n".join(f"- {item}" for item in last_review["unfinished_work"]) or "None."
+        else:
+            snapshot = "Not recorded by the previous workflow."
+            unfinished_work = "Not recorded separately. See the previous review summary."
+
     return render_template(
         (kb / "prompt_template.md").read_text(),
         {
@@ -683,8 +878,11 @@ def build_prompt(workspace: Path, request: dict) -> str:
             "HEAD_SHA": request["state"]["head"],
             "VLLM_SHA": git(workspace / "vllm", "rev-parse", "HEAD").strip(),
             "DIFF_STAT": request["diff_stat"],
-            "INCOMPLETE_REVIEW_SUMMARY": quote_reference(request["state"].get("incomplete_review_summary") or "None."),
-            "FINDINGS": json.dumps([f for f in request["state"]["findings"] if f["status"] != "waived"]),
+            "PREVIOUS_REVIEW_SNAPSHOT": quote_reference(snapshot),
+            "PREVIOUS_REVIEW_SUMMARY": quote_reference(summary),
+            "UNFINISHED_WORK": quote_reference(unfinished_work),
+            "FINDINGS": json.dumps(previous_findings),
+            "WAIVED_FINDINGS": json.dumps(waived_findings, ensure_ascii=False),
             "REPLY": quote_reference(request["reply"]),
         },
     )

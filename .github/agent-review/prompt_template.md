@@ -54,17 +54,29 @@ If the discrepancy reveals a code defect, report it under the usual finding crit
 
 {{PR_BODY}}
 
-### Previous review coverage
+### Previous review snapshot
 
-The following summary records unfinished work from an earlier review, if any. Use it as a starting point for continuing the review.
+{{PREVIOUS_REVIEW_SNAPSHOT}}
 
-{{INCOMPLETE_REVIEW_SUMMARY}}
+### Previous review summary
+
+{{PREVIOUS_REVIEW_SUMMARY}}
+
+### Unfinished work
+
+{{UNFINISHED_WORK}}
 
 ### Previous findings
 
 These records list open and resolved findings. Verify them against the current code as described in the review instructions.
 
 > {{FINDINGS}}
+
+### Waived findings
+
+These archived records describe what was accepted on this PR and why.
+
+> {{WAIVED_FINDINGS}}
 
 ### Developer's reply
 

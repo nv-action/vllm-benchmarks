@@ -2,6 +2,7 @@
 """Local tests for the AI Review workflow. Run with pytest -q .github/workflows/scripts/test_ai_review.py."""
 
 import json
+import re
 import shlex
 import shutil
 import subprocess
@@ -15,12 +16,35 @@ import pytest
 
 
 def result(**changes):
-    payload = dict(summary="Review complete.", coverage_complete=True, requires_human=False, findings=[], updates=[])
+    payload = dict(
+        summary="Review complete.",
+        unfinished_work=[],
+        coverage_complete=True,
+        requires_human=False,
+        findings=[],
+        updates=[],
+    )
     return json.dumps(payload | changes)
 
 
 def finding(line=1, severity="MUST-FIX"):
-    return dict(path="feature.py", line=line, rule="general", severity=severity, body="Handle empty input.")
+    return dict(
+        path="feature.py",
+        line=line,
+        rule="general",
+        severity=severity,
+        title="Empty input raises an error",
+        body="Indexing the first item raises IndexError on empty input.",
+        suggestion="Return early when the input is empty.",
+    )
+
+
+def prompt_section(prompt, heading):
+    return prompt.split(f"### {heading}\n", 1)[1].split("\n### ", 1)[0]
+
+
+def prompt_findings(prompt, heading):
+    return json.loads(next(line[2:] for line in prompt_section(prompt, heading).splitlines() if line.startswith("> [")))
 
 
 @pytest.fixture(scope="session")
@@ -43,7 +67,7 @@ def history(tmp_path_factory):
     git("config", "commit.gpgsign", "false")
     common = commit("README.md", "Run the installer.\n")
     git("checkout", "-qb", "feature")
-    commit("feature.py", "first_change = 1\n")
+    commit("feature.py", "first_change = 1\nsecond_item = 2\nthird_item = 3\n")
     head = commit("second.py", "second_change = 2\n")
     next_head = commit("third.py", "followup_change = 3\n")
     docs_head = commit("README.md", "Run the installer with --unknown-flag.\n")
@@ -100,6 +124,10 @@ class PullRequest:
 
     def summaries(self):
         return [c for c in self.comments.values() if c["user"]["id"] == 1 and c["body"].startswith(ai.STATE_MARKER)]
+
+    def visible_summary(self):
+        [comment] = self.summaries()
+        return comment["body"].split(ai.STATE_DATA_MARKER)[0]
 
     def state(self):
         [comment] = self.summaries()
@@ -286,13 +314,29 @@ def test_doc_quality_path_routing(history, paths, expected):
 def test_doc_finding_can_be_resolved_after_the_author_withdraws_the_change(pr, phase, agent, history):
     pr.pull["head"]["sha"] = history.docs_head
     assert phase("prepare", pr.command())["doc_quality"] == "true"
-    doc = finding() | dict(path="README.md", rule="L2-doc-quality#upstream-rule", body="Remove --unknown-flag.")
+    doc = finding() | dict(
+        path="README.md",
+        rule="L2-doc-quality#upstream-rule",
+        title="The installer rejects the documented flag",
+        body="The installer exits when it sees --unknown-flag.",
+        suggestion="Remove the unsupported flag from the example.",
+        replacement={"start_line": 1, "code": "Run the installer."},
+    )
     agent.return_value = result(findings=[doc])
     phase("review")
     diff_stat = agent.call_args.args[1]["diff_stat"]
     assert "README.md" in diff_stat and "feature.py" in diff_stat
     [first] = pr.state()["findings"]
     assert first["status"] == "open" and "ai-review-passed" not in pr.labels
+    [thread] = pr.inline.values()
+    body = thread["body"]
+    sections = [doc["title"], "Problem", doc["body"], "Suggested fix", doc["suggestion"], "```diff"]
+    positions = [body.index(text) for text in sections]
+    assert positions == sorted(positions)
+    preview = "-Run the installer with --unknown-flag.\n+Run the installer."
+    assert preview in body and "```suggestion" not in body
+    assert first["id"] in body and doc["severity"] in body and doc["rule"] in body
+    assert ".github/agent-review/badges/must-fix.svg" in body
 
     pr.pull["head"]["sha"] = history.withdrawn_head
     reply = f"/ai-review {first['id']}: I reverted the README edit and kept the code changes."
@@ -308,7 +352,18 @@ def test_doc_finding_can_be_resolved_after_the_author_withdraws_the_change(pr, p
     assert request["reply"] == reply and request["state"]["findings"] == [first]
     [reviewed] = pr.state()["findings"]
     assert (reviewed["id"], reviewed["status"], reviewed["evidence"]) == (first["id"], "resolved", evidence)
+    assert reviewed["severity"] == first["severity"]
     assert len(pr.inline) == 1 and pr.statuses[-1] == (history.withdrawn_head, "success")
+    assert "Resolved" in thread["body"] and evidence in thread["body"] and preview in thread["body"]
+
+    pr.pull["head"]["sha"] = history.docs_head
+    phase("prepare", pr.command())
+    regression = "The example uses the unsupported flag again."
+    agent.return_value = result(updates=[dict(id=first["id"], status="open", evidence=regression)])
+    phase("review")
+    assert list(pr.inline) == [first["comment_id"]]
+    assert "Open" in thread["body"] and regression in thread["body"] and evidence not in thread["body"]
+    assert preview in thread["body"]
 
 
 def test_label_then_manual_review_of_all_changes(pr, phase, agent, history):
@@ -325,6 +380,8 @@ def test_label_then_manual_review_of_all_changes(pr, phase, agent, history):
     [summary] = pr.summaries()
     assert "DeepSeek Harness headless · POC pilot" in summary["body"]
     assert [comment["line"] for comment in pr.inline.values()] == [1, 2]
+    visible = pr.visible_summary()
+    assert "F003" in visible and finding()["body"] in visible and finding()["suggestion"] in visible
     assert pr.state()["status"] == "reviewing" and pr.state()["total"] == 1
     assert pr.statuses == [(history.head, "pending"), (history.head, "failure")]
 
@@ -354,12 +411,152 @@ def test_label_then_manual_review_of_all_changes(pr, phase, agent, history):
     assert "ai-review-passed" not in pr.labels and agent.call_count == 2 and pr.state()["total"] == 2
 
 
+def test_reclassifying_a_finding_updates_its_thread_and_verdict(pr, phase, agent, history):
+    phase("prepare", pr.command())
+    agent.return_value = result(findings=[finding(severity="SHOULD-FIX")])
+    phase("review")
+    [original] = pr.state()["findings"]
+    comment_id = original["comment_id"]
+    assert "ai-review-passed" in pr.labels
+
+    evidence = "The supported startup path calls this before input validation and raises."
+    phase("prepare", pr.command())
+    agent.return_value = result(updates=[dict(id="F001", status="open", severity="MUST-FIX", evidence=evidence)])
+    phase("review")
+    [updated] = pr.state()["findings"]
+    assert updated == original | {"severity": "MUST-FIX", "evidence": evidence}
+    assert f"#discussion_r{comment_id}" in pr.visible_summary()
+    assert "MUST-FIX" in pr.inline[comment_id]["body"] and evidence in pr.inline[comment_id]["body"]
+    assert pr.state()["status"] == "reviewing" and "ai-review-passed" not in pr.labels
+    assert pr.statuses[-1] == (history.head, "failure")
+
+    evidence = "The startup caller already handles empty input. Only the diagnostic text is misleading."
+    phase("prepare", pr.command())
+    agent.return_value = result(
+        updates=[dict(id="F001", status="open", severity="SHOULD-FIX", evidence=evidence)],
+        findings=[finding(severity="MUST-FIX")],
+    )
+    phase("review")
+    assert pr.state()["findings"] == [original | {"evidence": evidence}]
+    assert list(pr.inline) == [comment_id]
+    assert "SHOULD-FIX" in pr.inline[comment_id]["body"] and evidence in pr.inline[comment_id]["body"]
+    assert pr.state()["status"] == "passed" and "ai-review-passed" in pr.labels
+    assert pr.statuses[-1] == (history.head, "success")
+
+
+def test_repeated_finding_promotes_its_existing_inline_comment(pr, phase, agent):
+    for severity in ("SHOULD-FIX", "MUST-FIX"):
+        phase("prepare", pr.command())
+        agent.return_value = result(findings=[finding(severity=severity)])
+        phase("review")
+    [saved] = pr.state()["findings"]
+    [comment] = pr.inline.values()
+    assert saved["severity"] == "MUST-FIX" and saved["comment_id"] == comment["id"]
+    assert "F001" in comment["body"] and "MUST-FIX" in comment["body"]
+
+
+def test_summary_groups_count_and_link_to_existing_threads(pr, phase, agent, history):
+    pr.pull["head"]["sha"] = history.docs_head
+    phase("prepare", pr.command())
+    changes = {"feature.py": "MUST-FIX", "second.py": "SHOULD-FIX", "third.py": "NIT", "README.md": "MUST-FIX"}
+    agent.return_value = result(
+        findings=[finding(severity=severity) | {"path": path} for path, severity in changes.items()]
+    )
+    phase("review")
+    phase("prepare", pr.command())
+    agent.return_value = result(updates=[dict(id="F004", status="resolved", evidence="Covered by the caller.")])
+    phase("review")
+    phase("prepare", pr.command("/ai-review-waive F002 intentional"))
+
+    public = pr.visible_summary()
+    assert "MUST-FIX | 1 | 1 | 0" in public
+    assert "SHOULD-FIX | 0 | 0 | 1" in public
+    assert "NIT | 1 | 0 | 0" in public
+    assert "Total (4)** | 2 | 1 | 1" in public
+    assert finding()["body"] not in public and finding()["suggestion"] not in public
+    for saved in pr.state()["findings"]:
+        assert f"[{saved['id']}](https://github.com/example/project/pull/7#discussion_r{saved['comment_id']})" in public
+        assert f"{saved['path']}:{saved['line']}" in public
+
+    headings = re.findall(r"<details( open)?>\s*<summary>([^<]+)</summary>", public)
+    assert sum(bool(expanded) for expanded, _ in headings) == 1
+    assert any(expanded and "MUST-FIX" in title for expanded, title in headings)
+    assert all(any(word in title for _, title in headings) for word in ("NIT", "Resolved", "Waived"))
+
+
+@pytest.mark.parametrize("status,severity", [("open", "HIGH"), ("open", None), ("waived", "MUST-FIX")])
+def test_invalid_reclassification_is_rejected(status, severity):
+    record = ai.Finding(id="F001", status=status, head="abc", **finding(severity="SHOULD-FIX"))
+    output = result(updates=[dict(id="F001", status="open", severity=severity, evidence="Reviewed the caller.")])
+    with pytest.raises(ValueError):
+        ai.parse_result(output, [record])
+
+
+@pytest.mark.parametrize("field", ["title", "body", "suggestion"])
+def test_new_findings_require_each_text_section(field):
+    new = finding()
+    del new[field]
+    with pytest.raises(ValueError):
+        ai.parse_result(result(findings=[new]), [])
+
+
+def test_saved_finding_from_previous_format_remains_readable():
+    old = {key: value for key, value in finding().items() if key not in {"title", "suggestion"}}
+    saved = ai.State.from_dict({"findings": [old | {"id": "F001", "head": "abc"}]})
+    [restored] = saved.findings
+    assert old["body"] in restored.inline_body()
+    visible = saved.body().split(ai.STATE_DATA_MARKER)[0]
+    assert "F001" in visible and old["body"] in visible
+    assert "Suggested fix" not in restored.inline_body() and "```diff" not in visible
+
+
+def test_multiline_preview_ends_at_the_reported_line(pr, phase, agent):
+    new = finding(line=3) | {"replacement": {"start_line": 2, "code": "items = [2, 3]"}}
+    phase("prepare", pr.command())
+    agent.return_value = result(findings=[new])
+    phase("review")
+    [comment] = pr.inline.values()
+    assert comment["line"] == 3
+    assert "-second_item = 2\n-third_item = 3\n+items = [2, 3]" in comment["body"]
+    assert "first_change" not in comment["body"]
+
+
+@pytest.mark.parametrize("start,line", [(2, 1), (1, 9)])
+def test_unusable_replacement_keeps_the_text_suggestion(pr, phase, agent, start, line):
+    new = finding(line=line) | {"replacement": {"start_line": start, "code": "first_change = 2"}}
+    phase("prepare", pr.command())
+    agent.return_value = result(findings=[new])
+    phase("review")
+    [comment] = pr.inline.values()
+    assert new["suggestion"] in comment["body"] and "```diff" not in comment["body"]
+
+
+@pytest.mark.parametrize(
+    "complete,work",
+    [(True, ["Trace the caller."]), (False, []), (False, "Trace the caller."), (False, [" "]), (False, [42])],
+)
+def test_invalid_unfinished_work_is_rejected(complete, work):
+    with pytest.raises(ValueError, match="unfinished_work"):
+        ai.parse_result(result(coverage_complete=complete, unfinished_work=work), [])
+
+
+def test_unfinished_work_is_required_even_when_the_review_is_complete():
+    payload = json.loads(result())
+    del payload["unfinished_work"]
+    with pytest.raises(ValueError, match="unfinished_work"):
+        ai.parse_result(json.dumps(payload), [])
+
+
 @pytest.mark.parametrize("blocked_by", ["incomplete", "human", "omitted finding"])
 def test_no_pass_when_review_is_blocked(pr, phase, agent, history, blocked_by):
     if blocked_by == "omitted finding":
         pr.seed(findings=[ai.Finding(id="F001", head=history.head, **finding())])
     phase("prepare", pr.command())
-    agent.return_value = result(coverage_complete=blocked_by != "incomplete", requires_human=blocked_by == "human")
+    agent.return_value = result(
+        coverage_complete=blocked_by != "incomplete",
+        unfinished_work=["Trace the startup caller."] if blocked_by == "incomplete" else [],
+        requires_human=blocked_by == "human",
+    )
     phase("review")
     assert pr.state()["status"] != "passed" and "ai-review-passed" not in pr.labels
     assert pr.statuses[-1][1] in {"error", "failure"}
@@ -580,7 +777,7 @@ def test_restore_latest_bot_summary_across_comment_pages(pr, phase, agent, histo
     request = agent.call_args.args[1]
     assert request["comment_id"] == expected["id"] and request["state"]["total"] == 3
     assert request["state"]["findings"][0]["id"] == "F001"
-    assert "total published rounds 4/15" in expected["body"]
+    assert "4/15" in expected["body"].split(ai.STATE_DATA_MARKER)[0]
 
 
 def test_rejected_inline_finding_stays_in_summary_across_reviews(pr, phase, agent, monkeypatch):
@@ -594,15 +791,26 @@ def test_rejected_inline_finding_stays_in_summary_across_reviews(pr, phase, agen
         return pr.api(endpoint, *args, **kwargs)
 
     monkeypatch.setattr(ai, "gh", reject_anchor)
-    agent.return_value = result(findings=[finding()])
+    new = finding() | {"replacement": {"start_line": 1, "code": "first_change = 2"}}
+    agent.return_value = result(findings=[new])
     for _ in range(2):
         phase("prepare", pr.command())
         phase("review")
     assert attempts == [1] and not pr.inline
     [saved] = pr.state()["findings"]
     assert saved["id"] == "F001" and saved["comment_id"] is None
+    public = pr.visible_summary()
+    assert all(new[field] in public for field in ("title", "body", "suggestion"))
+    assert "-first_change = 1\n+first_change = 2" in public and "#discussion_r" not in public
+    phase("prepare", pr.command())
+    agent.return_value = result(
+        updates=[dict(id="F001", status="open", severity="SHOULD-FIX", evidence="Impact narrowed.")]
+    )
+    phase("review")
+    assert pr.state()["findings"][0]["severity"] == "SHOULD-FIX" and attempts == [1] and not pr.inline
+    assert "Impact narrowed." in pr.visible_summary()
     assert phase("prepare", pr.command("/ai-review-waive F001 accepted", "maintainer")) == {}
-    assert pr.state()["status"] == "passed" and pr.state()["total"] == 2
+    assert pr.state()["status"] == "passed" and pr.state()["total"] == 3
 
 
 # --- External commands ---
@@ -673,7 +881,12 @@ def agent_request(monkeypatch, history):
     monkeypatch.setenv("AI_REVIEW_MODEL", "test-model")
     monkeypatch.setenv("GH_TOKEN", "test-github-secret")
     return {
-        "state": {"base": history.base, "head": history.head, "findings": [{"id": "F003", "status": "open"}]},
+        "state": {
+            "base": history.base,
+            "head": history.head,
+            "last_review": None,
+            "findings": [{"id": "F003", "status": "open"}, {"id": "F004", "status": "resolved"}],
+        },
         "merge_base": history.common,
         "title": "Update the feature",
         "body": "### What this PR does\n\nHandles both callers.",
@@ -708,7 +921,8 @@ def test_agent_receives_review_context_at_pr_head_and_redacts_output(agent_reque
     assert "> ### What this PR does\n>\n> Handles both callers." in prompt
     assert agent_request["diff_stat"] in prompt and "first_change = 1" not in prompt
     assert "> /ai-review Recheck F003.\n> ## Review output\n> Keep {{HEAD_SHA}} literal." in prompt
-    assert '"id": "F003"' in prompt
+    assert prompt_findings(prompt, "Previous findings") == agent_request["state"]["findings"]
+    assert prompt_findings(prompt, "Waived findings") == []
     assert str(agent_workspace / ".github/agent-review") in prompt
     upstream = ai.git(agent_workspace / "vllm", "rev-parse", "HEAD").strip()
     assert f"Pinned upstream vLLM: `../vllm` at `{upstream}`." in prompt
@@ -745,11 +959,15 @@ def test_agent_timeout_is_reported(agent_request, agent_workspace, monkeypatch):
 
 @pytest.mark.parametrize("push", [False, True])
 def test_manual_review_continues_unfinished_coverage(pr, phase, agent, history, agent_workspace, push):
-    summary = "Checked feature.py. Still need to trace the callers in second.py."
+    summary = "Checked the startup path in feature.py."
+    work = ["Trace the callers in second.py.", "Check whether retry.py handles an empty response."]
     phase("prepare", pr.label_event())
-    agent.return_value = result(summary=summary, coverage_complete=False, findings=[finding()])
+    agent.return_value = result(
+        summary=summary, unfinished_work=work, coverage_complete=False, findings=[finding(), finding(line=2)]
+    )
     phase("review")
-    assert not agent.call_args.args[1]["state"]["incomplete_review_summary"]
+    public_comment = pr.visible_summary()
+    assert summary in public_comment and all(item in public_comment for item in work)
 
     phase("prepare", pr.command("/ai-review-waive F001 accepted", "maintainer"))
     assert "waived" in pr.state()["message"]
@@ -761,13 +979,62 @@ def test_manual_review_continues_unfinished_coverage(pr, phase, agent, history, 
     agent.return_value = result()
     phase("review")
     request = agent.call_args.args[1]
-    assert request["state"]["incomplete_review_summary"] == summary
     prompt = ai.build_prompt(agent_workspace, request)
-    assert summary in prompt
-    [archived] = request["state"]["findings"]
-    assert archived["status"] == "waived" and archived["body"] not in prompt
-    assert not pr.state()["incomplete_review_summary"]
+    snapshot = prompt_section(prompt, "Previous review snapshot")
+    assert history.head in snapshot and history.common in snapshot and "false" in snapshot.lower()
+    recalled = prompt_section(prompt, "Previous review summary")
+    pending = prompt_section(prompt, "Unfinished work")
+    assert summary in recalled and all(item not in recalled for item in work)
+    assert all(item in pending for item in work) and summary not in pending
+    archived, remaining = request["state"]["findings"]
+    assert archived["status"] == "waived"
+    assert prompt_findings(prompt, "Previous findings") == [
+        {key: value for key, value in remaining.items() if key not in ("title", "suggestion", "preview")}
+    ]
+    assert prompt_findings(prompt, "Waived findings") == [
+        {"id": "F001", "path": "feature.py", "line": 1, "body": archived["body"], "reason": "accepted"}
+    ]
+    assert pr.state()["last_review"] == {
+        "head": pr.pull["head"]["sha"],
+        "merge_base": history.common,
+        "coverage_complete": True,
+        "summary": "Review complete.",
+        "unfinished_work": [],
+    }
     assert pr.state()["total"] == 2
+
+
+def test_complete_review_with_no_findings_survives_discard_and_stop(pr, phase, agent, history, agent_workspace):
+    summary = "Reviewed both entry points and found no issues."
+    phase("prepare", pr.command())
+    agent.return_value = result(summary=summary)
+    phase("review")
+    first_prompt = ai.build_prompt(agent_workspace, agent.call_args.args[1])
+    assert history.head not in prompt_section(first_prompt, "Previous review snapshot")
+
+    phase("prepare", pr.command())
+    pr.pull["head"]["sha"] = history.next_head
+    agent.return_value = result(summary="Discarded review result.")
+    phase("review")
+    repeat_prompt = ai.build_prompt(agent_workspace, agent.call_args.args[1])
+    assert pr.state()["status"] == "discarded"
+
+    stop = pr.command("/ai-review-stop")
+    phase("authorize", stop)
+    phase("prepare", stop)
+    assert pr.state()["status"] == "stopped"
+    pr.labels.add("ai-review")
+    phase("prepare", pr.label_event(), run_id="102")
+    agent.return_value = result()
+    phase("review")
+    restart_prompt = ai.build_prompt(agent_workspace, agent.call_args.args[1])
+
+    for prompt in (repeat_prompt, restart_prompt):
+        snapshot = prompt_section(prompt, "Previous review snapshot")
+        assert history.head in snapshot and history.common in snapshot and "true" in snapshot.lower()
+        assert summary in prompt_section(prompt, "Previous review summary")
+        assert summary not in prompt_section(prompt, "Unfinished work")
+        assert "Discarded review result." not in prompt
 
 
 @pytest.mark.parametrize(
@@ -778,9 +1045,35 @@ def test_manual_review_continues_unfinished_coverage(pr, phase, agent, history, 
         ("reviewing", "@reviewer waived 1 finding(s) for this commit.", False, ""),
         ("discarded", "The PR changed during review.", False, ""),
         ("stopped", "Review stopped.", False, ""),
-        ("reviewing", "Reviewed all code.", True, ""),
+        ("reviewing", "Reviewed all code.", True, "Reviewed all code."),
     ],
 )
 def test_restore_previous_coverage_from_older_summary(status, message, complete, expected):
-    state = ai.State.from_dict({"status": status, "message": message, "coverage_complete": complete, "findings": []})
-    assert state.incomplete_review_summary == expected
+    state = ai.State.from_dict(
+        {
+            "status": status,
+            "head": "old-head",
+            "base": "old-base",
+            "total": 1,
+            "message": message,
+            "coverage_complete": complete,
+            "findings": [],
+        }
+    )
+    assert state.last_review == ({"summary": expected} if expected else None)
+
+
+def test_previous_format_retains_model_prose_across_a_waiver():
+    summary = "Checked feature.py. Still need to review second.py."
+    state = ai.State.from_dict(
+        {
+            "status": "reviewing",
+            "head": "old-head",
+            "total": 1,
+            "coverage_complete": False,
+            "message": "@maintainer waived 1 finding(s) at commit `old-head`.",
+            "incomplete_review_summary": summary,
+            "findings": [],
+        }
+    )
+    assert state.last_review == {"summary": summary}
