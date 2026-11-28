@@ -52,7 +52,7 @@ def main():
     outputs = model.embed(input_texts)
     embeddings = torch.tensor([o.outputs.embedding for o in outputs])
     # Calculate the similarity scores between the first two queries and the last two documents
-    scores = embeddings[:2] @ embeddings[2:]
+    scores = embeddings[:2] @ embeddings[2:].T
     print(scores.tolist())
     # [[0.7620252966880798, 0.14078938961029053], [0.1358368694782257, 0.6013815999031067]]
 
