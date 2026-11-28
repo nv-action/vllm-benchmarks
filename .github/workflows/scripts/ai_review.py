@@ -309,7 +309,7 @@ class State:
             lines.append(self.message)
 
         repo_url = pr_url.rpartition("/pull/")[0]
-        severity_icons = {"MUST-FIX": "🔴", "SHOULD-FIX": "🟤", "NIT": "⚫"}
+        severity_icons = {"MUST-FIX": "🔴", "SHOULD-FIX": "🟤", "NIT": "⚪"}
         counts = ["| Severity | Open | Resolved | Waived |", "| --- | ---: | ---: | ---: |"]
         for severity, group in groups.items():
             cells = " | ".join(str(len(group[status])) for status in statuses)

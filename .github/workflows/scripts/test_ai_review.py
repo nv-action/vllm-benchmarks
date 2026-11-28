@@ -493,7 +493,7 @@ def test_summary_groups_count_and_link_to_existing_threads(pr, phase, agent, his
     public = pr.visible_summary()
     assert "| 🔴 MUST-FIX | 1 | 1 | 0" in public
     assert "| 🟤 SHOULD-FIX | 0 | 0 | 1" in public
-    assert "| ⚫ NIT | 1 | 0 | 0" in public
+    assert "| ⚪ NIT | 1 | 0 | 0" in public
     assert "Total (4)** | 2 | 1 | 1" in public
     assert finding()["body"] not in public and finding()["suggestion"] not in public
     for saved in pr.state()["findings"]:
@@ -505,7 +505,7 @@ def test_summary_groups_count_and_link_to_existing_threads(pr, phase, agent, his
     assert headings[:5] == [
         "🔴 MUST-FIX · 1 open",
         "🟤 SHOULD-FIX · 0 open",
-        "⚫ NIT · 1 open",
+        "⚪ NIT · 1 open",
         "Resolved · 1",
         "Waived · 1",
     ]
