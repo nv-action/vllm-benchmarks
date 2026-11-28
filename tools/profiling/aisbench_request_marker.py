@@ -52,8 +52,14 @@ class TimedGenInferencer(GenInferencer):
         stopped = Event()
 
         def publish_count():
+            # The base method creates status_counter only when it runs, while
+            # the monitor may publish first. Skip until it exists so the first
+            # poll does not crash the monitor thread.
+            counter = getattr(self, "status_counter", None)
+            if counter is None:
+                return
             temporary = path.with_suffix(".tmp")
-            temporary.write_text(str(self.status_counter.get_req))
+            temporary.write_text(str(counter.get_req))
             temporary.replace(path)
 
         def monitor():
