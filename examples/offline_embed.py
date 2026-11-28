@@ -27,6 +27,7 @@ os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
 
 
 def get_detailed_instruct(task_description: str, query: str) -> str:
+    """Format the task and query as the embedding model expects."""
     return f"Instruct: {task_description}\nQuery:{query}"
 
 
@@ -51,7 +52,7 @@ def main():
     outputs = model.embed(input_texts)
     embeddings = torch.tensor([o.outputs.embedding for o in outputs])
     # Calculate the similarity scores between the first two queries and the last two documents
-    scores = embeddings[:2] @ embeddings[2:].T
+    scores = embeddings[:2] @ embeddings[2:]
     print(scores.tolist())
     # [[0.7620252966880798, 0.14078938961029053], [0.1358368694782257, 0.6013815999031067]]
 
