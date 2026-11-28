@@ -27,6 +27,7 @@ os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
 
 
 def get_detailed_instruct(task_description: str, query: str) -> str:
+    """Format the task and query as the embedding model expects."""
     return f"Instruct: {task_description}\nQuery:{query}"
 
 
