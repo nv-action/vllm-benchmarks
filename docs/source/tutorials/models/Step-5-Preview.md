@@ -110,7 +110,7 @@ docker run --rm \
 -v /var/log/npu/:/usr/slog \
 -v /lib64:/lib64 \
 -v /root/.cache:/root/.cache \
--v "${MEMCACHE_CONFIG_DIR}::${MEMCACHE_CONFIG_DIR}" \
+-v "${MEMCACHE_CONFIG_DIR}:${MEMCACHE_CONFIG_DIR}" \
 -it $IMAGE bash
 ```
 
@@ -135,7 +135,7 @@ docker ps --filter name=step5
 
 Expected result: the container is listed with status `Up`. In the container terminal, verify the installed package versions:
 
-``bash
+```bash
 pip show vllm vllm-ascend
 ```
 
