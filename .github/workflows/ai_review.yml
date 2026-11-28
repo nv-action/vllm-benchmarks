@@ -121,4 +121,28 @@ jobs:
           AI_REVIEW_API: ${{ secrets.AI_REVIEW_API }}
           AI_REVIEW_MODEL: deepseek-v4.1-flash
           AI_REVIEW_DSH_CMD: ${{ vars.AI_REVIEW_DSH_CMD || 'dsh --profile headless' }}
-        run: python3 .github/workflows/scripts/ai_review.py review
+          PILOT_PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          if [ "$GITHUB_REPOSITORY" = nv-action/vllm-benchmarks ] && [ "$GITHUB_EVENT_NAME" = issue_comment ] &&
+             [ "$PILOT_PR_NUMBER" = 446 ] && [ "$GITHUB_ACTOR" = MrZ20 ]; then
+            fixture=$(jq -r '
+              if .comment.body == "/ai-review Pilot QA: verify failure reporting." then "failure"
+              elif .comment.body == "/ai-review Pilot QA: verify unfinished coverage and maintainer decision." then "decision"
+              else "" end' "$GITHUB_EVENT_PATH")
+            case "$fixture" in
+              failure)
+                export AI_REVIEW_DSH_CMD=/bin/false
+                ;;
+              decision)
+                cat > "$RUNNER_TEMP/ai-review-446-fixture.sh" <<'SH'
+          #!/bin/sh
+          cat >/dev/null
+          cat <<'JSON'
+          {"summary":"Pilot UI fixture only. This simulated decision asks a maintainer to choose a permanent FAQ link or a version-specific link.","coverage_complete":false,"unfinished_work":["Pilot UI fixture only: verify the issue link in docs/source/faqs.md against the intended FAQ destination."],"requires_human":true,"findings":[],"updates":[]}
+          JSON
+          SH
+                export AI_REVIEW_DSH_CMD="/bin/sh '$RUNNER_TEMP/ai-review-446-fixture.sh'"
+                ;;
+            esac
+          fi
+          python3 .github/workflows/scripts/ai_review.py review
