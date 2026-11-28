@@ -51,7 +51,7 @@ disaggregation, and the pool example in
 
 ## 3 Prerequisites {: #3-prerequisites }
 
-### 3.1 Model Weight {: #3-prerequisites }
+### 3.1 Model Weight {: #31-model-weight }
 
 Download the checkpoint from ModelScope for the hardware listed below. Only the
 Ascend-adapted W8A8-MXFP8 checkpoint is used in this guide; the official weights
