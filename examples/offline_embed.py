@@ -27,6 +27,7 @@ os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
 
 
 def get_detailed_instruct(task_description: str, query: str) -> str:
+    """Pair a retrieval task with the query to embed."""
     return f"Instruct: {task_description}\nQuery:{query}"
 
 
