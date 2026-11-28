@@ -136,7 +136,7 @@ class PullRequest:
 
     def seed(self, **fields):
         state = ai.State(base=self.pull["base"]["sha"], head=self.pull["head"]["sha"], **fields)
-        return self.post(state.body())
+        return self.post(state.render_summary())
 
     def api(self, endpoint, *args, payload=None, anchor_fallback=False):
         path = endpoint.removeprefix("repos/:owner/:repo/")
@@ -532,7 +532,7 @@ def test_saved_finding_from_previous_format_remains_readable():
     saved = ai.State.from_dict({"findings": [old | {"id": "F001", "head": "abc"}]})
     [restored] = saved.findings
     assert old["body"] in restored.inline_body()
-    visible = saved.body().split(ai.STATE_DATA_MARKER)[0]
+    visible = saved.render_summary().split(ai.STATE_DATA_MARKER)[0]
     assert "F001" in visible and old["body"] in visible
     assert "Suggested fix" not in restored.inline_body() and "```diff" not in visible
 
@@ -540,7 +540,7 @@ def test_saved_finding_from_previous_format_remains_readable():
 def test_markdown_preview_cannot_close_the_hidden_review_state():
     preview = "-<!-- old note -->\n+<!-- revised note -->"
     state = ai.State(findings=[ai.Finding(id="F001", head="abc", comment_id=500, preview=preview, **finding())])
-    hidden = state.body().split(ai.STATE_DATA_MARKER)[1]
+    hidden = state.render_summary().split(ai.STATE_DATA_MARKER)[1]
     json_text, closing_marker, remainder = hidden.partition("-->")
     assert closing_marker and remainder == ""
     [stored] = ai.State.from_dict(json.loads(json_text)).findings
@@ -915,7 +915,7 @@ def test_restore_latest_bot_summary_across_comment_pages(pr, phase, agent, histo
         pr.post("Earlier discussion.", user_id=2)
     pr.seed(round=1, total=2)
     expected = pr.seed(round=2, total=3, findings=[ai.Finding(id="F001", head=history.head, **finding())])
-    pr.post(ai.State(status="passed", total=15).body(), user_id=2)
+    pr.post(ai.State(status="passed", total=15).render_summary(), user_id=2)
     for _ in range(100):
         pr.post("Later discussion.", user_id=2)
     assert phase("prepare", pr.command())
@@ -1217,6 +1217,38 @@ def test_restore_previous_coverage_from_older_summary(status, message, complete,
         }
     )
     assert state.last_review == ({"summary": expected} if expected else None)
+
+
+def test_activity_keeps_original_hidden_json_from_an_older_review(pr, phase, agent, history):
+    saved = (
+        json.dumps(
+            {
+                "status": "reviewing",
+                "head": history.head,
+                "base": history.base,
+                "incomplete_review_summary": "Check the remaining caller.",
+                "round": 1,
+                "total": 2,
+                "findings": [],
+            },
+            indent=2,
+        )
+        + "\n-->"
+    )
+    summary = pr.post(f"{ai.STATE_MARKER}\n\nPrevious review{ai.STATE_DATA_MARKER}{saved}")
+
+    def unavailable(*_):
+        assert summary["body"].endswith(ai.STATE_DATA_MARKER + saved)
+        assert "**Reviewing**" in pr.visible_summary()
+        raise RuntimeError("model unavailable")
+
+    agent.side_effect = unavailable
+    phase("prepare", pr.command())
+    with pytest.raises(RuntimeError, match="model unavailable"):
+        phase("review")
+    assert "**Review failed**" in pr.visible_summary()
+    assert "Check the remaining caller." in pr.visible_summary()
+    assert summary["body"].endswith(ai.STATE_DATA_MARKER + saved)
 
 
 def test_previous_format_retains_model_prose_across_a_waiver():
