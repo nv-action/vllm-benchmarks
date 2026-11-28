@@ -504,7 +504,7 @@ def test_summary_groups_count_and_link_to_existing_threads(pr, phase, agent, his
     headings = re.findall(r"<details>\s*<summary>([^<]+)</summary>", public)
     assert headings[:5] == [
         "🔴 MUST-FIX · 1 open",
-        "🟡 SHOULD-FIX · 0 open",
+        "🟤 SHOULD-FIX · 0 open",
         "⚪ NIT · 1 open",
         "Resolved · 1",
         "Waived · 1",
