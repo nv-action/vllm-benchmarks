@@ -38,13 +38,13 @@ PR summary (updated in place):
 
 Inline comment (created for new findings; updated when waived):
     **[WAIVED by @maintainer]**
-    Applies only to commit `abc123456789`.
+    Waived at commit `abc123456789`.
     <!-- ai-review-finding:F001 -->
     **F001 · MUST-FIX** (general)
     Handle empty input.
     See the AI review summary for the current status. Waive with
     `/ai-review-waive F001 reason` in a top-level comment.
-Hidden JSON restores the review state; its findings go into the next AI prompt.
+Hidden JSON restores the review state. Only open and resolved findings go into the next AI prompt.
 """
 
 from __future__ import annotations
@@ -137,7 +137,7 @@ class Finding:
     comment_id: int | None = None
 
     def inline_body(self) -> str:
-        """Render the inline finding, including its commit-specific waiver."""
+        """Render the inline finding and the commit where it was waived."""
         body = (
             f"<!-- ai-review-finding:{self.id} -->\n"
             f"**{self.id} · {self.severity}** ({self.rule})\n\n{self.body}\n\n"
@@ -145,7 +145,7 @@ class Finding:
             f"Waive with `/ai-review-waive {self.id} reason` in a top-level comment."
         )
         if self.status == "waived":
-            body = f"**[WAIVED by @{self.waived_by}]**\nApplies only to commit `{self.waived_head[:12]}`.\n\n{body}"
+            body = f"**[WAIVED by @{self.waived_by}]**\nWaived at commit `{self.waived_head[:12]}`.\n\n{body}"
         return body
 
 
@@ -209,7 +209,7 @@ class State:
             if f.evidence:
                 lines.append(f.evidence)
             if f.status == "waived":
-                lines.append(f"Waived by @{f.waived_by} for {f.waived_head[:12]}.")
+                lines.append(f"Waived by @{f.waived_by} at commit `{f.waived_head[:12]}`.")
 
         # Model text cannot terminate or replace the final machine-owned block.
         data = json.dumps(asdict(self), ensure_ascii=True).replace("<", "\\u003c")
@@ -269,20 +269,19 @@ def merge_findings(state: State, result: dict) -> list[Finding]:
 
     created = []
     for new in result["findings"]:
-        # Exact repeats reuse the existing record; semantic matching belongs to
-        # the model, which receives all prior findings and their stable IDs.
+        # Waived IDs are archived. An independent report can start a new thread at the same line.
         existing = next(
             (
                 f
                 for f in state.findings
-                if (f.path, f.line, f.rule, f.body) == (new["path"], new["line"], new["rule"], new["body"])
+                if f.status != "waived"
+                and (f.path, f.line, f.rule, f.body) == (new["path"], new["line"], new["rule"], new["body"])
             ),
             None,
         )
         if existing:
-            if existing.status != "waived":
-                existing.status = "open"
-                existing.severity = min((existing.severity, new["severity"]), key=SEVERITIES.index)
+            existing.status = "open"
+            existing.severity = min((existing.severity, new["severity"]), key=SEVERITIES.index)
             continue
 
         finding = Finding(
@@ -431,13 +430,9 @@ class Orchestrator:
             self.feedback(event, message)
             return None
 
-        # A new head resets its own round count and waivers. The session limit still applies.
-        changed_head = self.state.head != pull["head"]["sha"]
-        if changed_head:
+        # A new head has its own round count. The session limit still applies.
+        if self.state.head != pull["head"]["sha"]:
             self.state.round = 0
-            for finding in self.state.findings:
-                if finding.status == "waived":
-                    finding.status = "open"
         self.state.base, self.state.head = pull["base"]["sha"], pull["head"]["sha"]
         if self.state.total >= MAX_TOTAL_ROUNDS:
             self.feedback(
@@ -496,7 +491,7 @@ class Orchestrator:
         }
 
     def waive(self, argument: str, actor: str, pull: dict) -> str:
-        """Waive findings for the reviewed commit and return feedback for the user."""
+        """Archive selected open findings and record who waived them and why."""
         parts = argument.split(maxsplit=1)
         if len(parts) != 2:
             return "🔴 Use `/ai-review-waive F003 reason` or `/ai-review-waive all reason`."
@@ -520,11 +515,11 @@ class Orchestrator:
                     payload={"body": finding.inline_body()},
                 )
 
-        self.state.message = f"@{actor} waived {len(selected)} finding(s) for this commit."
+        self.state.message = f"@{actor} waived {len(selected)} finding(s) at commit `{self.state.head[:12]}`."
         self.state.decide()
         self.save_summary()
         self.publish_status()
-        return f"🟢 Waived {len(selected)} open finding(s) for commit `{self.state.head[:12]}`. See the review summary."
+        return f"🟢 Waived {len(selected)} open finding(s) at commit `{self.state.head[:12]}`. See the review summary."
 
     # --- Publish results ---
 
@@ -689,7 +684,7 @@ def build_prompt(workspace: Path, request: dict) -> str:
             "VLLM_SHA": git(workspace / "vllm", "rev-parse", "HEAD").strip(),
             "DIFF_STAT": request["diff_stat"],
             "INCOMPLETE_REVIEW_SUMMARY": quote_reference(request["state"].get("incomplete_review_summary") or "None."),
-            "FINDINGS": json.dumps(request["state"]["findings"]),
+            "FINDINGS": json.dumps([f for f in request["state"]["findings"] if f["status"] != "waived"]),
             "REPLY": quote_reference(request["reply"]),
         },
     )

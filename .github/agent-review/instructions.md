@@ -40,13 +40,12 @@ Use the previous coverage summary to continue unfinished work. Recheck open find
 
 Reuse previous conclusions when the relevant code and assumptions remain unchanged. Recheck conclusions affected by new changes. If earlier coverage cannot be established, assess the relevant changes in the current diff.
 
-Previous findings have stable IDs and three possible states:
+The previous findings supplied for review have stable IDs and one of two states:
 
 - `open`: Check whether the problem still exists. Keep it open if the problem remains or is only partly fixed. Resolve it only when the problem is gone or the evidence shows that the original finding was incorrect.
 - `resolved`: Do not report the same problem again unless it has returned. Reopen the existing ID with evidence of regression.
-- `waived`: An allowlisted operator has accepted the finding for the reviewed commit. Do not update or re-raise it. The workflow handles waivers and reopens them when HEAD changes.
 
-Match findings by the underlying problem, not their wording or location. Use the existing ID if the problem moves. A developer's claim of a fix or disagreement is not a resolution or waiver.
+Match findings in the supplied list by their underlying problem. Use the existing ID if the problem moves. A developer's claim of a fix or disagreement is not a resolution or waiver.
 
 Use `updates` for existing findings and `findings` for new problems. If you have not rechecked an existing finding, leave it unchanged and record important unfinished work in the summary.
 

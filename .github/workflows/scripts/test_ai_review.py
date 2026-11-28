@@ -378,7 +378,8 @@ def test_stop_blocks_inflight_publication(pr, phase, agent, history):
     assert agent.call_count == 1
 
 
-def test_waive_one_then_all_for_a_single_commit(pr, phase, agent, history):
+@pytest.mark.parametrize("push", [False, True])
+def test_waived_findings_stay_archived_when_the_same_problem_is_reported_again(pr, phase, agent, history, push):
     phase("prepare", pr.command())
     agent.return_value = result(findings=[finding(), finding(line=2)])
     phase("review")
@@ -398,13 +399,25 @@ def test_waive_one_then_all_for_a_single_commit(pr, phase, agent, history):
     )
     assert "ai-review-passed" in pr.labels and pr.state()["total"] == agent.call_count == 1
 
-    pr.pull["head"] = {"sha": history.next_head}
+    archived = pr.state()["findings"]
+    archived_comments = {cid: comment["body"] for cid, comment in pr.inline.items()}
+    assert all(f"Waived at commit `{history.head[:12]}`" in body for body in archived_comments.values())
+    if push:
+        pr.pull["head"]["sha"] = history.next_head
     phase("prepare", pr.command())
     agent.return_value = result(findings=[finding()])
     phase("review")
-    assert [f["status"] for f in pr.state()["findings"]] == ["open", "open"]
-    assert len(pr.inline) == 2 and "ai-review-passed" not in pr.labels
-    assert (pr.state()["round"], pr.state()["total"]) == (1, 2)
+    first, second, new = pr.state()["findings"]
+    assert [first, second] == archived
+    assert (new["id"], new["status"], new["head"]) == ("F003", "open", pr.pull["head"]["sha"])
+    assert "<!-- ai-review-finding:F003 -->" in pr.inline[new["comment_id"]]["body"]
+    assert len(pr.inline) == 3 and "ai-review-passed" not in pr.labels
+    assert (pr.state()["round"], pr.state()["total"]) == (1 if push else 2, 2)
+
+    phase("prepare", pr.command())
+    phase("review")
+    assert pr.state()["findings"] == [*archived, new] and len(pr.inline) == 3
+    assert all(pr.inline[cid]["body"] == body for cid, body in archived_comments.items())
 
 
 @pytest.mark.parametrize(
@@ -660,7 +673,7 @@ def agent_request(monkeypatch, history):
     monkeypatch.setenv("AI_REVIEW_MODEL", "test-model")
     monkeypatch.setenv("GH_TOKEN", "test-github-secret")
     return {
-        "state": {"base": history.base, "head": history.head, "findings": [{"id": "F003"}]},
+        "state": {"base": history.base, "head": history.head, "findings": [{"id": "F003", "status": "open"}]},
         "merge_base": history.common,
         "title": "Update the feature",
         "body": "### What this PR does\n\nHandles both callers.",
@@ -749,8 +762,10 @@ def test_manual_review_continues_unfinished_coverage(pr, phase, agent, history, 
     phase("review")
     request = agent.call_args.args[1]
     assert request["state"]["incomplete_review_summary"] == summary
-    assert summary in ai.build_prompt(agent_workspace, request)
-    assert request["state"]["findings"][0]["status"] == ("open" if push else "waived")
+    prompt = ai.build_prompt(agent_workspace, request)
+    assert summary in prompt
+    [archived] = request["state"]["findings"]
+    assert archived["status"] == "waived" and archived["body"] not in prompt
     assert not pr.state()["incomplete_review_summary"]
     assert pr.state()["total"] == 2
 

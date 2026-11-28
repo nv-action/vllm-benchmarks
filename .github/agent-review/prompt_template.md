@@ -62,9 +62,7 @@ The following summary records unfinished work from an earlier review, if any. Us
 
 ### Previous findings
 
-These records contain existing finding IDs, locations, descriptions, evidence, and current states.
-
-The states are maintained by the workflow. Verify the underlying problems against the current code.
+These records list open and resolved findings. Verify them against the current code as described in the review instructions.
 
 > {{FINDINGS}}
 
