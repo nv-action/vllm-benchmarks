@@ -80,10 +80,12 @@ jobs:
             --architecture "${INPUT_ARCHITECTURE}" \
             --runner-profile "${INPUT_RUNNER_PROFILE}")"
           echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
-          echo '### Execution matrix' >> "${GITHUB_STEP_SUMMARY}"
-          echo '```json' >> "${GITHUB_STEP_SUMMARY}"
-          echo "${matrix}" | python3 -m json.tool >> "${GITHUB_STEP_SUMMARY}"
-          echo '```' >> "${GITHUB_STEP_SUMMARY}"
+          {
+            echo '### Execution matrix'
+            echo '```json'
+            echo "${matrix}" | python3 -m json.tool
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
 
   performance:
     name: ${{ matrix.software }} ${{ matrix.version }} (${{ matrix.arch }})
