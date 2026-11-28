@@ -16,6 +16,9 @@
 #
 FROM quay.io/ascend/cann:9.2.1-910b-ubuntu22.04-py3.12
 
+# TODO: temporary /presmoke verification marker, drop before merge
+LABEL org.vllm-ascend.presmoke-verify="pr-presmoke-test"
+
 WORKDIR /workspace
 
 # Install clang-15 (for triton-ascend)
