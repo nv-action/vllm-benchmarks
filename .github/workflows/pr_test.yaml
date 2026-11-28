@@ -35,7 +35,10 @@ on:
 defaults:
   run:
     shell: bash -el {0}
-
+permissions:
+  contents: read
+  pull-requests: write
+  
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -312,7 +315,7 @@ jobs:
       ref: ${{ github.event.pull_request.head.sha }}
       base_ref: ${{ github.base_ref }}
       test_groups: >-
-        [{"partition_name":"cpu-ut","runner":"linux-amd64-cpu-8-hk","image_tag":"9.2.1-910b-ubuntu22.04-py3.12","npu_type":"cpu","num_npus":0,"tests":"tests/ut"}]
+        [{"partition_name":"cpu-ut","runner":"linux-amd64-cpu-4-hk","image_tag":"9.2.1-910b-ubuntu22.04-py3.12","npu_type":"cpu","num_npus":0,"tests":"tests/ut"}]
       enable-coverage: false
 
   recommend-tests:
@@ -788,8 +791,9 @@ jobs:
     # for fork PRs, so the PR number must travel through this run's
     # artifacts instead. Runs regardless of test outcomes because the
     # comment workflow fires on any completed run.
-    if: ${{ !cancelled() }}
-    runs-on: linux-amd64-cpu-8-hk
+    if: ${{ !cancelled() && needs.pre-commit.outputs.src == 'true' }}
+    needs: pre-commit
+    runs-on: linux-amd64-cpu-2-hk
     steps:
       - name: Write PR context
         run: |
