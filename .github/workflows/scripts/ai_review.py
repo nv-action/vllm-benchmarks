@@ -54,7 +54,6 @@ ROUND_TIMEOUT_SECONDS = 12 * 60
 GIT_FETCH_MAX_ATTEMPTS = 3
 GIT_FETCH_RETRY_DELAY_SECONDS = 5
 SEVERITIES = ("MUST-FIX", "SHOULD-FIX", "NIT")
-SEVERITY_ICONS = {"MUST-FIX": "🔴", "SHOULD-FIX": "🟤", "NIT": "⚪"}
 
 
 # --- Basic helpers ---
@@ -309,17 +308,20 @@ class State:
         if self.message:
             lines.append(self.message)
 
+        repo_url = pr_url.rpartition("/pull/")[0]
+        nit_dot = f'<img src="{repo_url}/raw/refs/heads/main/.github/agent-review/badges/nit-dot.svg" alt="">'
+        severity_icons = {"MUST-FIX": "🔴", "SHOULD-FIX": "🟤", "NIT": nit_dot}
         counts = ["| Severity | Open | Resolved | Waived |", "| --- | ---: | ---: | ---: |"]
         for severity, group in groups.items():
             cells = " | ".join(str(len(group[status])) for status in statuses)
-            counts.append(f"| {SEVERITY_ICONS[severity]} {severity} | {cells} |")
+            counts.append(f"| {severity_icons[severity]} {severity} | {cells} |")
         totals = [sum(len(group[s]) for group in groups.values()) for s in statuses]
         counts.append(f"| **Total ({len(self.findings)})** | " + " | ".join(str(n) for n in totals) + " |")
         lines.append("\n".join(counts))
 
         for severity, group in groups.items():
             findings = group["open"]
-            title = f"{SEVERITY_ICONS[severity]} {severity} · {len(findings)} open"
+            title = f"{severity_icons[severity]} {severity} · {len(findings)} open"
             lines.append(self.render_finding_group(title, findings, pr_url))
         for status in ("resolved", "waived"):
             if findings := [f for f in self.findings if f.status == status]:
@@ -334,7 +336,6 @@ class State:
                 title += f" · {self.last_review['head'][:12]}"
             lines.append(f"<details>\n<summary>{title}</summary>\n\n{self.last_review['summary']}\n\n</details>")
         lines.append("Human review is still required.")
-        repo_url = pr_url.rpartition("/pull/")[0]
         lines.append(
             "**Review commands**\n\n"
             f"[Allowlisted users only]({repo_url}/blob/main/.github/agent-review/allowlist.txt) · "
